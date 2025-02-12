@@ -285,9 +285,8 @@ class TelegramService:
         # Save preferences to database
         try:
             # Prepare data for database
-            user_id = str(update.effective_user.id)
             preferences = {
-                'user_id': user_id,
+                'user_id': update.effective_user.id,  # Supabase zal dit automatisch naar string converteren
                 'market': context.user_data['market'],
                 'instrument': context.user_data['instrument'],
                 'timeframe': context.user_data['timeframe'],
