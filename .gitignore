@@ -1,7 +1,7 @@
-.DS_Store
 *.png
-*.jpg
 *.jpeg
+*.jpg
+.DS_Store
 __pycache__/
 *.pyc
 .env
@@ -9,3 +9,4 @@ logs/
 *_backup/
 clean-trading-bot/
 tradingview*/
+Databases/
