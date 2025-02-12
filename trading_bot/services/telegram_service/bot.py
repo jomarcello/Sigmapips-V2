@@ -24,7 +24,7 @@ CHOOSE_MARKET, CHOOSE_INSTRUMENT, CHOOSE_TIMEFRAME, MANAGE_PREFERENCES = range(4
 
 # Messages
 WELCOME_MESSAGE = """
-Welcome to SigmaPips Trading Bot!
+🤖 Welcome to SigmaPips Trading Bot!
 
 I will help you set up your trading preferences.
 Please answer a few questions to get started.
@@ -37,7 +37,7 @@ help - Show this help message
 """
 
 # Back button
-BACK_BUTTON = InlineKeyboardButton("Back", callback_data="back")
+BACK_BUTTON = InlineKeyboardButton("⬅️ Back", callback_data="back")
 
 # Keyboard layouts - alle buttons onder elkaar
 MARKET_KEYBOARD = [
@@ -49,11 +49,11 @@ MARKET_KEYBOARD = [
 
 # Instrument keyboards per markt
 FOREX_KEYBOARD = [
-    [InlineKeyboardButton("EUR/USD", callback_data="instrument_EURUSD")],
-    [InlineKeyboardButton("GBP/USD", callback_data="instrument_GBPUSD")],
-    [InlineKeyboardButton("USD/JPY", callback_data="instrument_USDJPY")],
-    [InlineKeyboardButton("USD/CHF", callback_data="instrument_USDCHF")],
-    [InlineKeyboardButton("AUD/USD", callback_data="instrument_AUDUSD")],
+    [InlineKeyboardButton("EUR USD", callback_data="instrument_EURUSD")],
+    [InlineKeyboardButton("GBP USD", callback_data="instrument_GBPUSD")],
+    [InlineKeyboardButton("USD JPY", callback_data="instrument_USDJPY")],
+    [InlineKeyboardButton("USD CHF", callback_data="instrument_USDCHF")],
+    [InlineKeyboardButton("AUD USD", callback_data="instrument_AUDUSD")],
     [BACK_BUTTON]
 ]
 
@@ -67,8 +67,8 @@ INDICES_KEYBOARD = [
 ]
 
 COMMODITIES_KEYBOARD = [
-    [InlineKeyboardButton("Gold (XAU/USD)", callback_data="instrument_XAUUSD")],
-    [InlineKeyboardButton("Silver (XAG/USD)", callback_data="instrument_XAGUSD")],
+    [InlineKeyboardButton("Gold (XAU USD)", callback_data="instrument_XAUUSD")],
+    [InlineKeyboardButton("Silver (XAG USD)", callback_data="instrument_XAGUSD")],
     [InlineKeyboardButton("Oil (WTI)", callback_data="instrument_WTI")],
     [InlineKeyboardButton("Oil (Brent)", callback_data="instrument_Brent")],
     [InlineKeyboardButton("Natural Gas", callback_data="instrument_NGAS")],
@@ -76,11 +76,11 @@ COMMODITIES_KEYBOARD = [
 ]
 
 CRYPTO_KEYBOARD = [
-    [InlineKeyboardButton("Bitcoin (BTC/USD)", callback_data="instrument_BTCUSD")],
-    [InlineKeyboardButton("Ethereum (ETH/USD)", callback_data="instrument_ETHUSD")],
-    [InlineKeyboardButton("Ripple (XRP/USD)", callback_data="instrument_XRPUSD")],
-    [InlineKeyboardButton("Solana (SOL/USD)", callback_data="instrument_SOLUSD")],
-    [InlineKeyboardButton("Litecoin (LTC/USD)", callback_data="instrument_LTCUSD")],
+    [InlineKeyboardButton("Bitcoin (BTC USD)", callback_data="instrument_BTCUSD")],
+    [InlineKeyboardButton("Ethereum (ETH USD)", callback_data="instrument_ETHUSD")],
+    [InlineKeyboardButton("Ripple (XRP USD)", callback_data="instrument_XRPUSD")],
+    [InlineKeyboardButton("Solana (SOL USD)", callback_data="instrument_SOLUSD")],
+    [InlineKeyboardButton("Litecoin (LTC USD)", callback_data="instrument_LTCUSD")],
     [BACK_BUTTON]
 ]
 
