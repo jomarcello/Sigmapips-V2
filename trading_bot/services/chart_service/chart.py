@@ -22,17 +22,31 @@ class ChartService:
         # TradingView base URL
         self.base_url = "https://www.tradingview.com/chart/"
         
-    async def generate_chart(self, symbol: str, timeframe: str) -> bytes:
+    def _get_symbol_prefix(self, market: str) -> str:
+        """Get the correct symbol prefix for TradingView"""
+        prefixes = {
+            'forex': 'FX:',
+            'crypto': 'BINANCE:',  # of 'COINBASE:'
+            'indices': '',         # indices hebben geen prefix nodig
+            'commodities': ''      # commodities hebben geen prefix nodig
+        }
+        return prefixes.get(market, '')
+
+    async def generate_chart(self, symbol: str, timeframe: str, market: str = 'forex') -> bytes:
         """Generate chart image for given symbol and timeframe"""
         try:
             logger.info(f"Generating chart for {symbol} on {timeframe} timeframe")
+            
+            # Get correct symbol with prefix
+            prefix = self._get_symbol_prefix(market.lower())
+            full_symbol = f"{prefix}{symbol}"
             
             # Initialize driver
             driver = webdriver.Chrome(options=self.chrome_options)
             
             try:
                 # Construct URL with symbol and timeframe
-                url = f"{self.base_url}?symbol={symbol}&interval={timeframe}"
+                url = f"{self.base_url}?symbol={full_symbol}&interval={timeframe}"
                 driver.get(url)
                 
                 # Wait for chart to load
