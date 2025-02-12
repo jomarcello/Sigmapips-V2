@@ -52,7 +52,7 @@ async def receive_signal(signal: dict):
         logger.info(f"Received signal: {signal}")
         
         # Get matching subscribers
-        subscribers = db.get_matching_subscribers(signal)
+        subscribers = await db.match_subscribers(signal)
         logger.info(f"Found {len(subscribers)} matching subscribers")
         
         # Send signal to each subscriber
