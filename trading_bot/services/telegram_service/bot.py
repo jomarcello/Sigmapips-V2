@@ -16,6 +16,7 @@ from telegram.ext import (
 from telegram.constants import ParseMode
 
 from trading_bot.services.database.db import Database
+from trading_bot.services.chart.chart import ChartService
 
 logger = logging.getLogger(__name__)
 
@@ -124,6 +125,7 @@ class TelegramService:
             raise ValueError("Missing TELEGRAM_BOT_TOKEN")
             
         self.db = db
+        self.chart = ChartService()  # Voeg chart service toe
         
         # SSL setup zonder verificatie voor ontwikkeling
         ssl_context = ssl.create_default_context()
