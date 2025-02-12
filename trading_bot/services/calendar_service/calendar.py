@@ -85,8 +85,9 @@ class EconomicCalendarService:
             2. The time appears first
             3. The event name appears second
             4. The impact level follows as an emoji
-            5. MUST add TWO empty lines between each country section
-            6. Only include these major currencies in this order:
+            5. Add ONE empty line between EACH event
+            6. Add TWO empty lines between each country section
+            7. Only include these major currencies in this order:
                - 🇺🇸 United States (USD)
                - 🇪🇺 Eurozone (EUR)
                - 🇬🇧 United Kingdom (GBP)
@@ -96,15 +97,21 @@ class EconomicCalendarService:
                - 🇨🇭 Switzerland (CHF)
                - 🇳🇿 New Zealand (NZD)
 
-            Format:
+            Format example:
             📅 Economic Calendar for {today}
 
 
             🇺🇸 United States (USD):
             ⏰ [Time] EST – [Event Name] 🔴
 
+            ⏰ [Time] EST – [Event Name] 🟡
+
+            ⏰ [Time] EST – [Event Name] ⚪
+
 
             🇪🇺 Eurozone (EUR):
+            ⏰ [Time] EST – [Event Name] 🔴
+
             ⏰ [Time] EST – [Event Name] 🟡
 
 
@@ -123,7 +130,7 @@ class EconomicCalendarService:
                 model="gpt-4",
                 messages=[{
                     "role": "system",
-                    "content": "You are a financial calendar specialist. Format economic calendar data in a clean, structured way. Convert all times to EST timezone, ALWAYS add one empty line between each country section, and do NOT include Previous/Forecast/Actual values."
+                    "content": "You are a financial calendar specialist. Format economic calendar data in a clean, structured way. Convert all times to EST timezone, add ONE empty line between EACH event, and TWO empty lines between countries. Do NOT include Previous/Forecast/Actual values."
                 }, {
                     "role": "user",
                     "content": prompt
