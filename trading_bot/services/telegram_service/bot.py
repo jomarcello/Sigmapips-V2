@@ -285,16 +285,25 @@ class TelegramService:
         # Save preferences to database
         try:
             # Prepare data for database
+            user_id = update.effective_user.id
             preferences = {
-                'user_id': update.effective_user.id,  # Supabase zal dit automatisch naar string converteren
                 'market': context.user_data['market'],
                 'instrument': context.user_data['instrument'],
                 'timeframe': context.user_data['timeframe'],
                 'is_active': True
             }
             
-            # Save to Supabase
-            response = self.db.supabase.table('subscribers').insert(preferences).execute()
+            # Check if user already exists
+            existing = self.db.supabase.table('subscribers').select('*').eq('user_id', user_id).execute()
+            
+            if existing.data:
+                # Update existing preferences
+                response = self.db.supabase.table('subscribers').update(preferences).eq('user_id', user_id).execute()
+            else:
+                # Insert new preferences
+                preferences['user_id'] = user_id
+                response = self.db.supabase.table('subscribers').insert(preferences).execute()
+            
             logger.info(f"Saved preferences to database: {response}")
             
             reply_markup = InlineKeyboardMarkup(AFTER_SETUP_KEYBOARD)
