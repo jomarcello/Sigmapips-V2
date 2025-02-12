@@ -1,5 +1,9 @@
 FROM python:3.11-slim
 
+# Set PYTHONPATH first
+ENV PYTHONPATH=/app
+ENV PORT=8080
+
 WORKDIR /app
 
 # System dependencies
@@ -19,8 +23,6 @@ COPY . .
 # Create logs directory
 RUN mkdir -p logs
 
-# Environment variabele voor de port
-ENV PORT=8080
-
 # Start de main applicatie
 CMD python -m uvicorn trading_bot.main:app --host 0.0.0.0 --port $PORT
+# Trigger rebuild $(date)
