@@ -140,9 +140,17 @@ class TelegramService:
         try:
             info = await self.bot.get_me()
             logger.info(f"Successfully connected to Telegram API. Bot info: {info}")
+            
             # Initialize the application
             await self.app.initialize()
+            
+            # Start the application without polling
             await self.app.start()
+            
+            # Log webhook info
+            webhook_info = await self.bot.get_webhook_info()
+            logger.info(f"Current webhook info: {webhook_info}")
+            
         except Exception as e:
             logger.error(f"Failed to connect to Telegram API: {str(e)}")
             raise
@@ -314,9 +322,17 @@ class TelegramService:
             # Verwijder bestaande webhook
             await self.bot.delete_webhook()
             
-            # Stel nieuwe webhook in
-            await self.bot.set_webhook(url=f"{webhook_url}/webhook")
-            logger.info(f"Webhook set to: {webhook_url}/webhook")
+            # Stel nieuwe webhook in met de juiste path
+            webhook_url = f"{webhook_url}/webhook"
+            await self.bot.set_webhook(
+                url=webhook_url,
+                allowed_updates=['message', 'callback_query']
+            )
+            logger.info(f"Webhook set to: {webhook_url}")
+            
+            # Verify webhook is set
+            webhook_info = await self.bot.get_webhook_info()
+            logger.info(f"Webhook verification: {webhook_info}")
         except Exception as e:
             logger.error(f"Failed to set webhook: {str(e)}")
             raise
