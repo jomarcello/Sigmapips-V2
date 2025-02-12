@@ -89,4 +89,4 @@ class Database:
             if signal["timeframe"] not in subscriber["timeframes"]:
                 return False
         
-        return True 
+        return True
