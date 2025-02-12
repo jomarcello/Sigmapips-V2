@@ -159,15 +159,17 @@ class TelegramService:
                 CommandHandler("start", self._start_command),
                 CommandHandler("manage", self._manage_command),
                 CommandHandler("menu", self._menu_command)
-            ],
-            per_message=True
+            ]
         )
         
         # Add handlers
         self.app.add_handler(conv_handler)
         
-        # Voeg menu command toe aan de handlers
+        # Voeg losse command handlers toe
+        self.app.add_handler(CommandHandler("start", self._start_command))
+        self.app.add_handler(CommandHandler("manage", self._manage_command))
         self.app.add_handler(CommandHandler("menu", self._menu_command))
+        self.app.add_handler(CommandHandler("help", self._help_command))  # Voeg help command toe
         
         logger.info("Telegram service initialized")
             
@@ -539,5 +541,12 @@ class TelegramService:
         except Exception as e:
             logger.error(f"Failed to set webhook: {str(e)}")
             raise
+
+    async def _help_command(self, update: Update, context):
+        """Handle help command"""
+        try:
+            await update.message.reply_text(HELP_MESSAGE)
+        except Exception as e:
+            logger.error(f"Error handling help command: {str(e)}")
 
 # ... rest van de code ...
