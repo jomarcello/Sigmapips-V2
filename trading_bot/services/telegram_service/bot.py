@@ -92,6 +92,12 @@ TIMEFRAME_KEYBOARD = [
     [BACK_BUTTON]
 ]
 
+AFTER_SETUP_KEYBOARD = [
+    [InlineKeyboardButton("Add More Combinations", callback_data="add_more")],
+    [InlineKeyboardButton("View Preferences", callback_data="view_prefs")],
+    [InlineKeyboardButton("Manage Preferences", callback_data="manage_prefs")]
+]
+
 class TelegramService:
     def __init__(self, db: Database):
         """Initialize telegram service"""
@@ -278,7 +284,20 @@ class TelegramService:
         
         # Save preferences to database
         try:
-            # TODO: Add database save logic here
+            # Prepare data for database
+            user_id = str(update.effective_user.id)
+            preferences = {
+                'user_id': user_id,
+                'market': context.user_data['market'],
+                'instrument': context.user_data['instrument'],
+                'timeframe': context.user_data['timeframe'],
+                'is_active': True
+            }
+            
+            # Save to Supabase
+            response = self.db.supabase.table('subscribers').insert(preferences).execute()
+            logger.info(f"Saved preferences to database: {response}")
+            
             reply_markup = InlineKeyboardMarkup(AFTER_SETUP_KEYBOARD)
             await query.edit_message_text(
                 text=f"Preferences saved!\n\n"
@@ -288,6 +307,7 @@ class TelegramService:
                 reply_markup=reply_markup
             )
             return MANAGE_PREFERENCES
+        
         except Exception as e:
             logger.error(f"Error saving preferences: {str(e)}")
             await query.edit_message_text(
