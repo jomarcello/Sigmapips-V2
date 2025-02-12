@@ -25,4 +25,3 @@ RUN mkdir -p logs
 
 # Start de main applicatie
 CMD python -m uvicorn trading_bot.main:app --host 0.0.0.0 --port $PORT
-# Trigger rebuild $(date)
