@@ -63,6 +63,7 @@ class EconomicCalendarService:
             today = datetime.now().strftime("%B %d, %Y")
             prompt = f"""
             Format the following economic calendar data into a structured table where:
+            • Convert ALL times to EST timezone
             • The time appears first
             • The event name appears second
             • The impact level follows as an emoji
@@ -75,8 +76,19 @@ class EconomicCalendarService:
             📅 Economic Calendar for {today}
 
             🇺🇸 United States (USD):
-            ⏰ [Time] – [Event Name] 🔴
+            ⏰ [Time] EST – [Event Name] 🔴
             Previous: [Previous Value] | Forecast: [Forecast Value] | Actual: [Actual Value]
+
+            🇪🇺 Eurozone (EUR):
+            ⏰ [Time] EST – [Event Name] 🟡
+            Previous: [Previous Value] | Forecast: [Forecast Value] | Actual: [Actual Value]
+
+            [At the end of the calendar, add:]
+            ---------------
+            Legend:
+            🔴 High Impact
+            🟡 Medium Impact
+            ⚪ Low Impact
 
             Raw calendar data:
             {calendar_data}
@@ -86,7 +98,7 @@ class EconomicCalendarService:
                 model="gpt-4",
                 messages=[{
                     "role": "system",
-                    "content": "You are a financial calendar specialist. Format economic calendar data in a clean, structured way."
+                    "content": "You are a financial calendar specialist. Format economic calendar data in a clean, structured way. Convert all times to EST timezone and add one empty line between each country section."
                 }, {
                     "role": "user",
                     "content": prompt
