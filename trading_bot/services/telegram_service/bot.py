@@ -21,6 +21,7 @@ from trading_bot.services.database.db import Database
 from ..chart_service.chart import ChartService
 from openai import AsyncOpenAI
 from trading_bot.services.sentiment_service.sentiment import MarketSentimentService
+from trading_bot.services.calendar_service.calendar import EconomicCalendarService
 
 logger = logging.getLogger(__name__)
 
@@ -201,6 +202,9 @@ class TelegramService:
         
         # Sentiment service setup
         self.sentiment = MarketSentimentService()
+        
+        # Calendar service setup
+        self.calendar = EconomicCalendarService()
         
         logger.info("Telegram service initialized")
             
@@ -760,6 +764,49 @@ class TelegramService:
                     logger.exception(e)
                     await query.message.edit_text(
                         text="❌ Error analyzing market sentiment. Please try again.",
+                        reply_markup=InlineKeyboardMarkup([[
+                            InlineKeyboardButton("⬅️ Back", callback_data=f"back_to_signal_{message_id}")
+                        ]])
+                    )
+            
+            elif data.startswith("calendar_"):
+                try:
+                    logger.info("Getting economic calendar")
+                    
+                    # Cache het originele bericht
+                    message_key = f"signal:{message_id}"
+                    cache_data = {
+                        'text': query.message.text,
+                        'keyboard': json.dumps(query.message.reply_markup.to_dict()),
+                        'parse_mode': 'HTML'
+                    }
+                    self.redis.hmset(message_key, cache_data)
+                    self.redis.expire(message_key, 3600)
+                    
+                    # Toon loading message
+                    await query.message.edit_text(
+                        text="🔄 Loading economic calendar...",
+                        parse_mode=ParseMode.HTML
+                    )
+                    
+                    # Get calendar data
+                    calendar = await self.calendar.get_economic_calendar()
+                    logger.info("Received economic calendar")
+                    
+                    # Toon calendar
+                    keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data=f"back_to_signal_{message_id}")]]
+                    await query.message.edit_text(
+                        text=calendar,
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+                    logger.info("Economic calendar displayed")
+                    
+                except Exception as e:
+                    logger.error(f"Error getting economic calendar: {str(e)}")
+                    logger.exception(e)
+                    await query.message.edit_text(
+                        text="❌ Error loading economic calendar. Please try again.",
                         reply_markup=InlineKeyboardMarkup([[
                             InlineKeyboardButton("⬅️ Back", callback_data=f"back_to_signal_{message_id}")
                         ]])
