@@ -667,6 +667,25 @@ class TelegramService:
                         reply_markup=InlineKeyboardMarkup(keyboard)
                     )
             
+            elif data.startswith("back_"):
+                original_id = data.split('_')[1]
+                message_key = f"signal:{original_id}"
+                logger.info(f"Fetching message from Redis with key: {message_key}")
+                
+                cached_data = self.redis.hgetall(message_key)
+                logger.info(f"Found cached data: {cached_data}")
+                
+                if cached_data:
+                    keyboard_data = json.loads(cached_data['keyboard'])
+                    await query.message.edit_text(
+                        text=cached_data['text'],
+                        parse_mode=cached_data['parse_mode'],
+                        reply_markup=InlineKeyboardMarkup(keyboard_data)
+                    )
+                    logger.info("Restored original signal message")
+                else:
+                    logger.error(f"No cached data found for message_id: {original_id}")
+            
         except Exception as e:
             logger.error(f"Error handling button click: {str(e)}")
             await query.message.reply_text("Sorry, something went wrong.")
