@@ -20,7 +20,7 @@ class Database:
             self.supabase = create_client(supabase_url, supabase_key)
             
             # Test de connectie
-            test_query = self.supabase.table('subscribers').select('*').limit(1).execute()
+            test_query = self.supabase.table('subscriber_preferences').select('*').limit(1).execute()
             logger.info(f"Supabase connection test successful: {test_query}")
             
             logger.info("Successfully connected to Supabase")
