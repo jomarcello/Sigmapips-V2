@@ -110,8 +110,28 @@ class TelegramService:
         self.app = Application.builder().token(self.token).build()
         self.bot = self.app.bot
         
-        # Voeg command handlers toe zonder / in de logging
-        self.app.add_handler(CommandHandler("start", self._start_command))
+        # Conversation handler setup
+        conv_handler = ConversationHandler(
+            entry_points=[CommandHandler("start", self._start_command)],
+            states={
+                CHOOSE_MARKET: [
+                    CallbackQueryHandler(self._market_choice)
+                ],
+                CHOOSE_INSTRUMENT: [
+                    CallbackQueryHandler(self._instrument_choice)
+                ],
+                CHOOSE_TIMEFRAME: [
+                    CallbackQueryHandler(self._timeframe_choice)
+                ],
+                MANAGE_PREFERENCES: [
+                    CallbackQueryHandler(self._manage_preferences)
+                ]
+            },
+            fallbacks=[CommandHandler("start", self._start_command)]
+        )
+        
+        # Add handlers
+        self.app.add_handler(conv_handler)
         
         logger.info("Telegram service initialized")
             
@@ -168,5 +188,121 @@ class TelegramService:
             return CHOOSE_MARKET
         except Exception as e:
             logger.error(f"Error handling start command: {str(e)}")
+
+    async def _market_choice(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle market selection"""
+        query = update.callback_query
+        await query.answer()
+        
+        if query.data == "back":
+            reply_markup = InlineKeyboardMarkup(MARKET_KEYBOARD)
+            await query.edit_message_text(
+                text="Please select a market:",
+                reply_markup=reply_markup
+            )
+            return CHOOSE_MARKET
+        
+        # Store the chosen market
+        context.user_data['market'] = query.data.replace('market_', '')
+        
+        # Show instruments based on market choice
+        keyboard_map = {
+            'forex': FOREX_KEYBOARD,
+            'indices': INDICES_KEYBOARD,
+            'commodities': COMMODITIES_KEYBOARD,
+            'crypto': CRYPTO_KEYBOARD
+        }
+        
+        reply_markup = InlineKeyboardMarkup(keyboard_map[context.user_data['market']])
+        await query.edit_message_text(
+            text="Please select an instrument:",
+            reply_markup=reply_markup
+        )
+        return CHOOSE_INSTRUMENT
+
+    async def _instrument_choice(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle instrument selection"""
+        query = update.callback_query
+        await query.answer()
+        
+        if query.data == "back":
+            reply_markup = InlineKeyboardMarkup(MARKET_KEYBOARD)
+            await query.edit_message_text(
+                text="Please select a market:",
+                reply_markup=reply_markup
+            )
+            return CHOOSE_MARKET
+        
+        # Store the chosen instrument
+        context.user_data['instrument'] = query.data.replace('instrument_', '')
+        
+        reply_markup = InlineKeyboardMarkup(TIMEFRAME_KEYBOARD)
+        await query.edit_message_text(
+            text="Please select a timeframe:",
+            reply_markup=reply_markup
+        )
+        return CHOOSE_TIMEFRAME
+
+    async def _timeframe_choice(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle timeframe selection"""
+        query = update.callback_query
+        await query.answer()
+        
+        if query.data == "back":
+            keyboard_map = {
+                'forex': FOREX_KEYBOARD,
+                'indices': INDICES_KEYBOARD,
+                'commodities': COMMODITIES_KEYBOARD,
+                'crypto': CRYPTO_KEYBOARD
+            }
+            reply_markup = InlineKeyboardMarkup(keyboard_map[context.user_data['market']])
+            await query.edit_message_text(
+                text="Please select an instrument:",
+                reply_markup=reply_markup
+            )
+            return CHOOSE_INSTRUMENT
+        
+        # Store the chosen timeframe
+        context.user_data['timeframe'] = query.data.replace('timeframe_', '')
+        
+        # Save preferences to database
+        try:
+            # TODO: Add database save logic here
+            reply_markup = InlineKeyboardMarkup(AFTER_SETUP_KEYBOARD)
+            await query.edit_message_text(
+                text=f"Preferences saved!\n\n"
+                     f"Market: {context.user_data['market']}\n"
+                     f"Instrument: {context.user_data['instrument']}\n"
+                     f"Timeframe: {context.user_data['timeframe']}",
+                reply_markup=reply_markup
+            )
+            return MANAGE_PREFERENCES
+        except Exception as e:
+            logger.error(f"Error saving preferences: {str(e)}")
+            await query.edit_message_text(
+                text="Error saving preferences. Please try again."
+            )
+            return ConversationHandler.END
+
+    async def _manage_preferences(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle preference management"""
+        query = update.callback_query
+        await query.answer()
+        
+        if query.data == "add_more":
+            reply_markup = InlineKeyboardMarkup(MARKET_KEYBOARD)
+            await query.edit_message_text(
+                text="Please select a market:",
+                reply_markup=reply_markup
+            )
+            return CHOOSE_MARKET
+        elif query.data == "view_prefs":
+            # TODO: Add view preferences logic
+            pass
+        elif query.data == "manage_prefs":
+            # TODO: Add manage preferences logic
+            pass
+        
+        return MANAGE_PREFERENCES
 
 # ... rest van de code ...
