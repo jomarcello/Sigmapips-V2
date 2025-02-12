@@ -71,6 +71,7 @@ class EconomicCalendarService:
                 🟡 Yellow Circle for medium-impact events
                 ⚪ White Circle for low-impact events
             • Do NOT include Previous/Forecast/Actual values
+            • Add an empty line between each country section
 
             The format should look like this:
 
@@ -78,11 +79,31 @@ class EconomicCalendarService:
 
             🇺🇸 United States (USD):
             ⏰ [Time] EST – [Event Name] 🔴
+            ⏰ [Time] EST – [Event Name] 🟡
 
             🇪🇺 Eurozone (EUR):
             ⏰ [Time] EST – [Event Name] 🟡
 
-            [At the end of the calendar, add:]
+            🇬🇧 United Kingdom (GBP):
+            No significant events scheduled.
+
+            [Continue with other countries, always with empty lines between them]
+
+            🇯🇵 Japan (JPY):
+            ⏰ [Time] EST – [Event Name] 🔴
+
+            🇦🇺 Australia (AUD):
+            ⏰ [Time] EST – [Event Name] 🟡
+
+            🇨🇦 Canada (CAD):
+            ⏰ [Time] EST – [Event Name] 🔴
+
+            🇨🇭 Switzerland (CHF):
+            ⏰ [Time] EST – [Event Name] 🟡
+
+            ��🇿 New Zealand (NZD):
+            ⏰ [Time] EST – [Event Name] 🔴
+
             ---------------
             🔴 High Impact
             🟡 Medium Impact
@@ -96,7 +117,7 @@ class EconomicCalendarService:
                 model="gpt-4",
                 messages=[{
                     "role": "system",
-                    "content": "You are a financial calendar specialist. Format economic calendar data in a clean, structured way. Convert all times to EST timezone, add one empty line between each country section, and do NOT include Previous/Forecast/Actual values."
+                    "content": "You are a financial calendar specialist. Format economic calendar data in a clean, structured way. Convert all times to EST timezone, ALWAYS add one empty line between each country section, and do NOT include Previous/Forecast/Actual values."
                 }, {
                     "role": "user",
                     "content": prompt
