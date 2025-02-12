@@ -46,8 +46,8 @@ class ChartService:
             driver = webdriver.Chrome(options=self.chrome_options)
             
             try:
-                # Construct URL with symbol and timeframe
-                url = f"{self.base_url}?symbol={full_symbol}&interval={timeframe}"
+                # Construct URL met @ aan het begin
+                url = f"@{self.base_url}?symbol={full_symbol}&interval={timeframe}"
                 logger.info(f"Chart URL: {url}")
                 driver.get(url)
                 
@@ -99,3 +99,4 @@ class ChartService:
                     
         except Exception as e:
             logger.warning(f"Error removing UI elements: {str(e)}")
+
