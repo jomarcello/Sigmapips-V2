@@ -36,17 +36,25 @@ class MarketSentimentService:
                 }]
             }
             
+            logger.info(f"Calling Perplexity API for {instrument}")
+            logger.info(f"Headers: {self.perplexity_headers}")
+            
             async with aiohttp.ClientSession() as session:
                 async with session.post(url, json=payload, headers=self.perplexity_headers) as response:
+                    logger.info(f"Perplexity API response status: {response.status}")
+                    response_text = await response.text()
+                    logger.info(f"Perplexity API response: {response_text}")
+                    
                     if response.status == 200:
                         data = await response.json()
                         return data['choices'][0]['message']['content']
                     else:
-                        logger.error(f"Perplexity API error: {response.status}")
+                        logger.error(f"Perplexity API error: {response.status} - {response_text}")
                         return None
                     
         except Exception as e:
             logger.error(f"Error getting Perplexity analysis: {str(e)}")
+            logger.exception(e)  # Dit print de volledige stack trace
             return None
 
     async def format_sentiment_with_ai(self, perplexity_output: str) -> str:
@@ -99,15 +107,22 @@ class MarketSentimentService:
     async def get_market_sentiment(self, signal: Dict[str, Any]) -> str:
         """Get complete market sentiment analysis"""
         try:
+            logger.info(f"Getting market sentiment for {signal['symbol']}")
+            
             # Get raw analysis from Perplexity
             perplexity_output = await self.get_perplexity_analysis(signal['symbol'])
+            logger.info(f"Perplexity output: {perplexity_output}")
+            
             if not perplexity_output:
                 return "Could not fetch market analysis"
                 
             # Format with OpenAI
             formatted_sentiment = await self.format_sentiment_with_ai(perplexity_output)
+            logger.info(f"Formatted sentiment: {formatted_sentiment}")
+            
             return formatted_sentiment
             
         except Exception as e:
             logger.error(f"Error in market sentiment analysis: {str(e)}")
+            logger.exception(e)
             return "Error analyzing market sentiment" 
