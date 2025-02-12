@@ -19,6 +19,7 @@ from telegram.constants import ParseMode
 
 from trading_bot.services.database.db import Database
 from ..chart_service.chart import ChartService
+from openai import AsyncOpenAI
 
 logger = logging.getLogger(__name__)
 
@@ -194,6 +195,9 @@ class TelegramService:
         
         self.message_cache = {}  # Dict om originele berichten op te slaan
         
+        # OpenAI setup
+        self.openai = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        
         logger.info("Telegram service initialized")
             
     async def initialize(self):
@@ -223,33 +227,70 @@ class TelegramService:
             logger.error(f"Failed to connect to Telegram API: {str(e)}")
             raise
             
-    async def send_signal(self, chat_id: str, signal: Dict[str, Any], sentiment: str = None, chart: bytes = None, events: list = None):
-        """Send formatted signal message with inline buttons"""
+    async def format_signal_with_ai(self, signal: Dict[str, Any]) -> str:
+        """Format signal using OpenAI to match the template"""
         try:
-            # Controleer of de gebruiker de bot heeft gestart
-            try:
-                chat_member = await self.bot.get_chat_member(chat_id, chat_id)
-                if chat_member.status in ["left", "kicked"]:
-                    logger.warning(f"User {chat_id} has left the chat or blocked the bot.")
-                    return False
-            except Exception as e:
-                logger.warning(f"Failed to check chat member status: {str(e)}")
-                return False
-
-            message = (
-                "<b>🚨 TRADING SIGNAL</b>\n\n"
-                f"<b>Symbol:</b> {signal['symbol']}\n"
-                f"<b>Action:</b> {signal['action']}\n"
-                f"<b>Entry Price:</b> {signal['price']}\n"
-                f"<b>Stop Loss:</b> {signal['stopLoss']}\n"
-                f"<b>Take Profit:</b> {signal['takeProfit']}\n"
-                f"<b>Timeframe:</b> {signal['timeframe']}\n\n"
-                "<b>⚠️ Risk Management</b>\n"
-                "• Use proper position sizing\n"
-                "• Always use a stop loss\n"
-                "• Maximum risk per trade: 1-2%"
+            prompt = f"""
+            Format this trading signal into a professional message:
+            Symbol: {signal['symbol']}
+            Action: {signal['action']}
+            Entry: {signal['price']}
+            SL: {signal['stopLoss']}
+            TP: {signal['takeProfit']}
+            Timeframe: {signal['timeframe']}
+            
+            Use this exact format with emojis:
+            Signal for [SYMBOL]
+            
+            Instrument: [SYMBOL]
+            Action: [ACTION] 📉/📈
+            
+            Entry Price: [PRICE]
+            Stop Loss: [SL] 🔴
+            Take Profit: [TP] 🎯
+            
+            Timeframe: [TIMEFRAME]
+            Strategy: Test Strategy
+            
+            ---------------
+            
+            Risk Management:
+            • Position size: 1-2% max
+            • Use proper stop loss
+            • Follow your trading plan
+            
+            ---------------
+            
+            🤖 SigmaPips AI Verdict:
+            ✅ Trade aligns with market analysis
+            """
+            
+            response = await self.openai.chat.completions.create(
+                model="gpt-4",
+                messages=[{
+                    "role": "system",
+                    "content": "You are a professional trading signal formatter. Format signals exactly according to the template, maintaining all emojis and formatting."
+                }, {
+                    "role": "user",
+                    "content": prompt
+                }],
+                temperature=0
             )
+            
+            formatted_message = response.choices[0].message.content
+            return formatted_message
+            
+        except Exception as e:
+            logger.error(f"Error formatting signal with AI: {str(e)}")
+            # Fallback naar basic formatting als AI faalt
+            return self._format_signal_message(signal)
 
+    async def send_signal(self, chat_id: str, signal: Dict[str, Any]):
+        """Send AI-formatted signal message"""
+        try:
+            # Format met AI
+            message = await self.format_signal_with_ai(signal)
+            
             keyboard = [
                 [
                     InlineKeyboardButton("📊 Technical Analysis", callback_data=f"chart_{signal['symbol']}_{signal['timeframe']}"),
@@ -257,9 +298,6 @@ class TelegramService:
                 ],
                 [InlineKeyboardButton("📅 Economic Calendar", callback_data=f"calendar_{signal['symbol']}")]
             ]
-            
-            # Convert keyboard to JSON-serializable format
-            keyboard_data = [[{"text": btn.text, "callback_data": btn.callback_data} for btn in row] for row in keyboard]
             
             reply_markup = InlineKeyboardMarkup(keyboard)
             
@@ -270,23 +308,19 @@ class TelegramService:
                 reply_markup=reply_markup
             )
             
-            # Store in Redis with JSON-serializable keyboard
+            # Cache voor back button
             message_key = f"signal:{sent_message.message_id}"
             cache_data = {
                 'text': message,
-                'keyboard': json.dumps(keyboard_data),
+                'keyboard': json.dumps([[{"text": btn.text, "callback_data": btn.callback_data} for btn in row] for row in keyboard]),
                 'parse_mode': 'HTML'
             }
             
-            try:
-                self.redis.hmset(message_key, cache_data)
-                self.redis.expire(message_key, 3600)
-                logger.info(f"Stored signal in Redis: {message_key}")
-            except Exception as e:
-                logger.error(f"Redis storage error: {str(e)}")
+            self.redis.hmset(message_key, cache_data)
+            self.redis.expire(message_key, 3600)
             
             return True
-
+            
         except Exception as e:
             logger.error(f"Failed to send signal to {chat_id}: {str(e)}")
             return False
