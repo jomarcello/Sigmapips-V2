@@ -70,6 +70,7 @@ class EconomicCalendarService:
                 🔴 Red Circle for high-impact events
                 🟡 Yellow Circle for medium-impact events
                 ⚪ White Circle for low-impact events
+            • Do NOT include Previous/Forecast/Actual values
 
             The format should look like this:
 
@@ -77,15 +78,12 @@ class EconomicCalendarService:
 
             🇺🇸 United States (USD):
             ⏰ [Time] EST – [Event Name] 🔴
-            Previous: [Previous Value] | Forecast: [Forecast Value] | Actual: [Actual Value]
 
             🇪🇺 Eurozone (EUR):
             ⏰ [Time] EST – [Event Name] 🟡
-            Previous: [Previous Value] | Forecast: [Forecast Value] | Actual: [Actual Value]
 
             [At the end of the calendar, add:]
             ---------------
-            Legend:
             🔴 High Impact
             🟡 Medium Impact
             ⚪ Low Impact
@@ -98,7 +96,7 @@ class EconomicCalendarService:
                 model="gpt-4",
                 messages=[{
                     "role": "system",
-                    "content": "You are a financial calendar specialist. Format economic calendar data in a clean, structured way. Convert all times to EST timezone and add one empty line between each country section."
+                    "content": "You are a financial calendar specialist. Format economic calendar data in a clean, structured way. Convert all times to EST timezone, add one empty line between each country section, and do NOT include Previous/Forecast/Actual values."
                 }, {
                     "role": "user",
                     "content": prompt
