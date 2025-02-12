@@ -287,28 +287,15 @@ class TelegramService:
             # Prepare data for database
             user_id = update.effective_user.id
             preferences = {
+                'user_id': user_id,
                 'market': context.user_data['market'],
                 'instrument': context.user_data['instrument'],
-                'timeframe': context.user_data['timeframe'],
-                'is_active': True
+                'timeframe': context.user_data['timeframe']
             }
             
-            # Check if user already exists
-            existing = self.db.supabase.table('subscriber_preferences').select('*').eq('user_id', user_id).execute()
-            
-            # Log meer details
-            logger.info(f"Attempting to save preferences: {preferences}")
-            logger.info(f"User ID: {user_id}")
-            logger.info(f"Existing data: {existing.data}")
-            
-            if existing.data:
-                logger.info("Updating existing preferences")
-                response = self.db.supabase.table('subscriber_preferences').update(preferences).eq('user_id', user_id).execute()
-            else:
-                logger.info("Inserting new preferences")
-                preferences['user_id'] = user_id
-                response = self.db.supabase.table('subscriber_preferences').insert(preferences).execute()
-                logger.info(f"Added new preferences: {preferences}")
+            # Altijd een nieuwe rij toevoegen
+            response = self.db.supabase.table('subscriber_preferences').insert(preferences).execute()
+            logger.info(f"Added new preferences: {preferences}")
             
             logger.info(f"Database response: {response}")
             
