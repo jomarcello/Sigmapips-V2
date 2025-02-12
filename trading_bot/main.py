@@ -4,6 +4,7 @@ import os
 from typing import Dict, Any
 import asyncio
 from supabase import create_client
+from telegram import Update
 
 # Gebruik absolute imports
 from trading_bot.services.telegram_service.bot import TelegramService
@@ -11,7 +12,6 @@ from trading_bot.services.news_ai_service.sentiment import NewsAIService
 from trading_bot.services.chart_service.chart import ChartService
 from trading_bot.services.calendar_service.calendar import CalendarService
 from trading_bot.services.database.db import Database
-from trading_bot.services.telegram_service.update import Update
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
