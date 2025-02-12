@@ -5,7 +5,7 @@ import logging
 import aiohttp
 from typing import Dict, Any
 
-from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -38,6 +38,9 @@ help - Show this help message
 
 # Back button
 BACK_BUTTON = InlineKeyboardButton("⬅️ Back", callback_data="back")
+
+# Delete button
+DELETE_BUTTON = InlineKeyboardButton("🗑️ Delete", callback_data="delete_prefs")
 
 # Keyboard layouts - alle buttons onder elkaar
 MARKET_KEYBOARD = [
@@ -129,7 +132,7 @@ class TelegramService:
                     CallbackQueryHandler(self._timeframe_choice, pattern="^timeframe_|back$")
                 ],
                 MANAGE_PREFERENCES: [
-                    CallbackQueryHandler(self._manage_preferences, pattern="^add_more|manage_prefs$")
+                    CallbackQueryHandler(self._manage_preferences, pattern="^add_more|manage_prefs|delete_prefs|delete_\d+$")
                 ]
             },
             fallbacks=[CommandHandler("start", self._start_command)]
@@ -281,20 +284,40 @@ class TelegramService:
         # Store the chosen timeframe
         context.user_data['timeframe'] = query.data.replace('timeframe_', '')
         
-        # Save preferences to database
         try:
-            # Prepare data for database
             user_id = update.effective_user.id
-            preferences = {
+            new_preferences = {
                 'user_id': user_id,
                 'market': context.user_data['market'],
                 'instrument': context.user_data['instrument'],
                 'timeframe': context.user_data['timeframe']
             }
             
-            # Altijd een nieuwe rij toevoegen
-            response = self.db.supabase.table('subscriber_preferences').insert(preferences).execute()
-            logger.info(f"Added new preferences: {preferences}")
+            # Check voor dubbele combinaties
+            existing = self.db.supabase.table('subscriber_preferences').select('*').eq('user_id', user_id).execute()
+            
+            for pref in existing.data:
+                if (pref['market'] == new_preferences['market'] and 
+                    pref['instrument'] == new_preferences['instrument'] and 
+                    pref['timeframe'] == new_preferences['timeframe']):
+                    
+                    keyboard = [
+                        [InlineKeyboardButton("Try Again", callback_data="add_more")],
+                        [InlineKeyboardButton("Manage Preferences", callback_data="manage_prefs")]
+                    ]
+                    
+                    await query.edit_message_text(
+                        text="You already have this combination saved!\n\n"
+                             f"Market: {new_preferences['market']}\n"
+                             f"Instrument: {new_preferences['instrument']}\n"
+                             f"Timeframe: {new_preferences['timeframe']}",
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+                    return MANAGE_PREFERENCES
+            
+            # Als er geen dubbele combinatie is, ga door met opslaan
+            response = self.db.supabase.table('subscriber_preferences').insert(new_preferences).execute()
+            logger.info(f"Added new preferences: {new_preferences}")
             
             logger.info(f"Database response: {response}")
             
@@ -327,35 +350,77 @@ class TelegramService:
                 reply_markup=reply_markup
             )
             return CHOOSE_MARKET
+        
         elif query.data == "manage_prefs":
-            # Haal alle voorkeuren op voor deze gebruiker
-            user_id = update.effective_user.id
-            response = self.db.supabase.table('subscriber_preferences').select('*').eq('user_id', user_id).execute()
-            
-            if not response.data:
-                await query.edit_message_text(
-                    text="You don't have any saved preferences yet.",
-                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Add Preferences", callback_data="add_more")]])
-                )
-                return MANAGE_PREFERENCES
-            
-            # Toon alle voorkeuren
-            message = "Your current preferences:\n\n"
-            for i, pref in enumerate(response.data, 1):
-                message += f"{i}. {pref['market']} - {pref['instrument']} - {pref['timeframe']}\n"
-            
-            # Voeg een knop toe om terug te gaan
-            keyboard = [
-                [InlineKeyboardButton("Add More", callback_data="add_more")],
-                [InlineKeyboardButton("Back to Start", callback_data="back")]
-            ]
-            
-            await query.edit_message_text(
-                text=message,
-                reply_markup=InlineKeyboardMarkup(keyboard)
-            )
+            return await self._show_preferences(query)
+        
+        elif query.data == "delete_prefs":
+            return await self._show_delete_options(query)
+        
+        elif query.data.startswith("delete_"):
+            pref_id = int(query.data.replace("delete_", ""))
+            return await self._delete_preference(query, pref_id)
         
         return MANAGE_PREFERENCES
+
+    async def _show_preferences(self, query: CallbackQuery):
+        """Show all preferences"""
+        user_id = query.from_user.id
+        response = self.db.supabase.table('subscriber_preferences').select('*').eq('user_id', user_id).execute()
+        
+        if not response.data:
+            await query.edit_message_text(
+                text="You don't have any saved preferences yet.",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Add Preferences", callback_data="add_more")]])
+            )
+            return MANAGE_PREFERENCES
+        
+        message = "Your current preferences:\n\n"
+        for i, pref in enumerate(response.data, 1):
+            message += f"{i}. {pref['market']} - {pref['instrument']} - {pref['timeframe']}\n"
+        
+        keyboard = [
+            [InlineKeyboardButton("Add More", callback_data="add_more")],
+            [DELETE_BUTTON],
+            [InlineKeyboardButton("Back to Start", callback_data="back")]
+        ]
+        
+        await query.edit_message_text(
+            text=message,
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return MANAGE_PREFERENCES
+
+    async def _show_delete_options(self, query: CallbackQuery):
+        """Show delete options"""
+        user_id = query.from_user.id
+        response = self.db.supabase.table('subscriber_preferences').select('*').eq('user_id', user_id).execute()
+        
+        message = "Select a preference to delete:\n\n"
+        keyboard = []
+        
+        for i, pref in enumerate(response.data, 1):
+            message += f"{i}. {pref['market']} - {pref['instrument']} - {pref['timeframe']}\n"
+            keyboard.append([InlineKeyboardButton(f"Delete {i}", callback_data=f"delete_{pref['id']}")])
+        
+        keyboard.append([InlineKeyboardButton("Back", callback_data="manage_prefs")])
+        
+        await query.edit_message_text(
+            text=message,
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return MANAGE_PREFERENCES
+
+    async def _delete_preference(self, query: CallbackQuery, pref_id: int):
+        """Delete a preference"""
+        try:
+            self.db.supabase.table('subscriber_preferences').delete().eq('id', pref_id).execute()
+            await query.answer("Preference deleted successfully!")
+            return await self._show_preferences(query)
+        except Exception as e:
+            logger.error(f"Error deleting preference: {str(e)}")
+            await query.answer("Error deleting preference")
+            return MANAGE_PREFERENCES
 
     async def set_webhook(self, webhook_url: str):
         """Set webhook for the bot"""
