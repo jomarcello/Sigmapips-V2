@@ -46,10 +46,10 @@ class ChartService:
             driver = webdriver.Chrome(options=self.chrome_options)
             
             try:
-                # Construct exacte URL format
-                url = f"@{self.base_url}?symbol={full_symbol}&interval={timeframe}"
-                logger.info(f"Chart URL: {url}")
-                driver.get(url)
+                # Construct URL zonder @ voor Selenium
+                url = f"{self.base_url}?symbol={full_symbol}&interval={timeframe}"
+                logger.info(f"Chart URL: {url}")  # Voor logging tonen we de URL met @
+                driver.get(url)  # Selenium gebruikt de URL zonder @
                 
                 # Wait for chart to load
                 WebDriverWait(driver, 20).until(
