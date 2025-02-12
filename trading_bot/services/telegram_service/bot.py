@@ -174,7 +174,7 @@ class TelegramService:
         self.app.add_handler(CommandHandler("help", self._help_command))
         
         # Voeg button click handler toe
-        self.app.add_handler(CallbackQueryHandler(self._button_click, pattern="^(chart|sentiment|calendar)_"))
+        self.app.add_handler(CallbackQueryHandler(self._button_click, pattern="^(chart|sentiment|calendar|back_to_signal)_"))
         
         self.message_cache = {}  # Dict om originele berichten op te slaan
         
@@ -619,13 +619,19 @@ class TelegramService:
                     
             elif action == "back_to_signal":
                 # Haal originele bericht info op
-                cached_data = self.message_cache.get(message_id)
+                cached_data = self.message_cache.get(int(params[0]))  # params[0] is message_id
                 if cached_data:
-                    await query.message.edit_text(
-                        text=cached_data['message'],
-                        parse_mode=ParseMode.MARKDOWN,
+                    # Herstel het originele bericht
+                    await query.message.edit_media(
+                        media=InputMediaPhoto(
+                            media=cached_data.get('image', None),  # Als er een originele afbeelding was
+                            caption=cached_data['message']
+                        ),
                         reply_markup=InlineKeyboardMarkup(cached_data['keyboard'])
                     )
+                    logger.info("Restored original signal message")
+                else:
+                    logger.error(f"No cached data found for message_id: {params[0]}")
             
         except Exception as e:
             logger.error(f"Error handling button click: {str(e)}")
