@@ -23,20 +23,28 @@ class MarketSentimentService:
     async def get_perplexity_analysis(self, instrument: str) -> str:
         """Get market analysis from Perplexity"""
         try:
-            # Hier zou de Perplexity API call komen
-            # Voor nu simuleren we het met een template
-            prompt = f"Find the most recent economic and financial news related to the {instrument} currency pair. Focus on key events."
+            url = "https://api.perplexity.ai/chat/completions"
             
-            # TODO: Implementeer echte Perplexity API call
-            # Voor nu returnen we dummy data
-            return f"""
-            Recent news for {instrument}:
-            1. Central bank announced interest rate decision
-            2. Economic data shows strong GDP growth
-            3. Political developments affecting currency markets
-            4. Market volatility increased due to global factors
-            """
+            payload = {
+                "model": "mixtral-8x7b-instruct",
+                "messages": [{
+                    "role": "system",
+                    "content": "You are a financial analyst focused on providing recent market analysis."
+                }, {
+                    "role": "user",
+                    "content": f"Find the most recent economic and financial news related to the {instrument} currency pair. Focus on key events, market sentiment, and potential impact on price."
+                }]
+            }
             
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, json=payload, headers=self.perplexity_headers) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        return data['choices'][0]['message']['content']
+                    else:
+                        logger.error(f"Perplexity API error: {response.status}")
+                        return None
+                    
         except Exception as e:
             logger.error(f"Error getting Perplexity analysis: {str(e)}")
             return None
