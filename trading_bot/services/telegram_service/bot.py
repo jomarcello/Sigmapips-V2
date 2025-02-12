@@ -20,6 +20,7 @@ from telegram.constants import ParseMode
 from trading_bot.services.database.db import Database
 from ..chart_service.chart import ChartService
 from openai import AsyncOpenAI
+from trading_bot.services.sentiment_service.sentiment import MarketSentimentService
 
 logger = logging.getLogger(__name__)
 
@@ -197,6 +198,9 @@ class TelegramService:
         
         # OpenAI setup
         self.openai = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        
+        # Sentiment service setup
+        self.sentiment = MarketSentimentService()
         
         logger.info("Telegram service initialized")
             
@@ -716,6 +720,50 @@ class TelegramService:
                 else:
                     logger.error(f"No cached data found for message_id: {original_id}")
                     await query.message.reply_text("Could not find the original message.")
+            
+            elif data.startswith("sentiment_"):
+                try:
+                    _, symbol = data.split('_')
+                    logger.info(f"Getting sentiment analysis for {symbol}")
+                    
+                    # Cache het originele bericht eerst
+                    message_key = f"signal:{message_id}"
+                    cache_data = {
+                        'text': query.message.text,
+                        'keyboard': json.dumps(query.message.reply_markup.to_dict()),
+                        'parse_mode': 'HTML'
+                    }
+                    self.redis.hmset(message_key, cache_data)
+                    self.redis.expire(message_key, 3600)
+                    
+                    # Toon loading message
+                    await query.message.edit_text(
+                        text="🔄 Analyzing market sentiment...",
+                        parse_mode=ParseMode.HTML
+                    )
+                    
+                    # Get sentiment analysis
+                    sentiment = await self.sentiment.get_market_sentiment({"symbol": symbol})
+                    logger.info(f"Received sentiment analysis: {sentiment}")
+                    
+                    # Toon sentiment analyse
+                    keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data=f"back_to_signal_{message_id}")]]
+                    await query.message.edit_text(
+                        text=sentiment,
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+                    logger.info("Sentiment analysis displayed")
+                    
+                except Exception as e:
+                    logger.error(f"Error in sentiment analysis: {str(e)}")
+                    logger.exception(e)
+                    await query.message.edit_text(
+                        text="❌ Error analyzing market sentiment. Please try again.",
+                        reply_markup=InlineKeyboardMarkup([[
+                            InlineKeyboardButton("⬅️ Back", callback_data=f"back_to_signal_{message_id}")
+                        ]])
+                    )
         
         except Exception as e:
             logger.error(f"Error handling button click: {str(e)}")
