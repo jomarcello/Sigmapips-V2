@@ -69,7 +69,6 @@ class ChartService:
     def _remove_ui_elements(self, driver):
         """Remove unnecessary UI elements from the chart"""
         try:
-            # List of class names to remove
             elements_to_remove = [
                 "header-chart-panel",
                 "control-bar",
