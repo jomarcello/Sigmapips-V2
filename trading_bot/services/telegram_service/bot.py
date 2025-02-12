@@ -30,10 +30,26 @@ I will help you set up your trading preferences.
 Please answer a few questions to get started.
 """
 
+MENU_MESSAGE = """
+Welcome to SigmaPips Trading Bot! 📊
+
+Choose a command:
+
+/start - Set up new trading pairs
+Add new market/instrument/timeframe combinations to receive signals
+
+/manage - Manage your preferences
+View, edit or delete your saved trading pairs
+
+Need help? Use /help to see all available commands.
+"""
+
 HELP_MESSAGE = """
 Available commands:
-start - Start the bot and set preferences
-help - Show this help message
+/menu - Show main menu
+/start - Set up new trading pairs
+/manage - Manage your preferences
+/help - Show this help message
 """
 
 # Back button
@@ -120,7 +136,10 @@ class TelegramService:
         
         # Conversation handler setup
         conv_handler = ConversationHandler(
-            entry_points=[CommandHandler("start", self._start_command)],
+            entry_points=[
+                CommandHandler("start", self._start_command),
+                CommandHandler("manage", self._manage_command)
+            ],
             states={
                 CHOOSE_MARKET: [
                     CallbackQueryHandler(self._market_choice, pattern="^market_|back$")
@@ -135,11 +154,17 @@ class TelegramService:
                     CallbackQueryHandler(self._manage_preferences, pattern="^add_more|manage_prefs|delete_prefs|delete_\d+$")
                 ]
             },
-            fallbacks=[CommandHandler("start", self._start_command)]
+            fallbacks=[
+                CommandHandler("start", self._start_command),
+                CommandHandler("manage", self._manage_command)
+            ]
         )
         
         # Add handlers
         self.app.add_handler(conv_handler)
+        
+        # Voeg menu command toe aan de handlers
+        self.app.add_handler(CommandHandler("menu", self._menu_command))
         
         logger.info("Telegram service initialized")
             
@@ -442,5 +467,32 @@ class TelegramService:
         except Exception as e:
             logger.error(f"Failed to set webhook: {str(e)}")
             raise
+
+    async def _manage_command(self, update: Update, context):
+        """Handle manage command"""
+        try:
+            # Direct naar show preferences
+            return await self._show_preferences(update.callback_query or update)
+        except Exception as e:
+            logger.error(f"Error handling manage command: {str(e)}")
+            await update.message.reply_text(
+                "Error loading preferences. Please try again."
+            )
+            return ConversationHandler.END
+
+    async def _menu_command(self, update: Update, context):
+        """Handle menu command"""
+        try:
+            keyboard = [
+                [InlineKeyboardButton("➕ Add New Pairs", callback_data="start")],
+                [InlineKeyboardButton("⚙️ Manage Preferences", callback_data="manage")]
+            ]
+            await update.message.reply_text(
+                MENU_MESSAGE,
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            return MANAGE_PREFERENCES
+        except Exception as e:
+            logger.error(f"Error handling menu command: {str(e)}")
 
 # ... rest van de code ...
