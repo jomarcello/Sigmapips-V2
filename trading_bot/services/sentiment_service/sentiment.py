@@ -63,24 +63,37 @@ class MarketSentimentService:
             Format the following market analysis in this structured style, in English:
 
             🔍 Market Impact Analysis
+
             • ECB's latest decision: ...
+
             • Market implications: ...
+
             • Current trend: ...
 
+
             📊 Market Sentiment
+
             • Direction: ...
+
             • Strength: ...
+
             • Key driver: ...
 
+
             💡 Trading Implications
+
             • Short-term outlook: ...
+
             • Risk assessment: ...
+
             • Key levels: ...
 
+
             ⚠️ Risk Factors
+
             • ...
 
-            Use bullet points and ensure a concise, professional summary tailored for traders. Here is the raw input:
+            Use bullet points and ensure a concise, professional summary tailored for traders. Add a blank line between each bullet point for better readability. Here is the raw input:
 
             {perplexity_output}
             """
@@ -89,7 +102,7 @@ class MarketSentimentService:
                 model="gpt-4",
                 messages=[{
                     "role": "system",
-                    "content": "You are a professional market analyst. Format market analysis in a structured way with clear sections and bullet points."
+                    "content": "You are a professional market analyst. Format market analysis in a structured way with clear sections and bullet points. Add a blank line between each bullet point for better readability."
                 }, {
                     "role": "user",
                     "content": prompt
