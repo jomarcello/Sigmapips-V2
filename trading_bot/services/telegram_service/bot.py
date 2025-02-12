@@ -5,7 +5,7 @@ import logging
 import aiohttp
 from typing import Dict, Any
 
-from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery
+from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery, InputMediaPhoto
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -205,7 +205,7 @@ class TelegramService:
             logger.error(f"Failed to connect to Telegram API: {str(e)}")
             raise
             
-    async def send_signal(self, chat_id: str, signal: Dict[str, Any], sentiment: str = None, chart: str = None, events: list = None):
+    async def send_signal(self, chat_id: str, signal: Dict[str, Any], sentiment: str = None, chart: bytes = None, events: list = None):
         """Send formatted signal message with inline buttons"""
         try:
             # Format main signal message
@@ -242,6 +242,10 @@ class TelegramService:
                 reply_markup=reply_markup
             )
 
+            # Sla bericht info op in context voor later gebruik
+            context.user_data['original_message'] = message
+            context.user_data['original_keyboard'] = keyboard
+            
             logger.info(f"Signal sent to {chat_id}")
             return True
         
@@ -599,27 +603,32 @@ class TelegramService:
                 # Test chart service
                 chart_image = await self.chart.generate_chart(symbol, timeframe)
                 if chart_image:
-                    await query.message.reply_photo(
-                        photo=chart_image,
-                        caption=f"📊 Technical Analysis for {symbol} ({timeframe})"
+                    # Voeg keyboard toe met Back knop
+                    keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal")]]
+                    
+                    # Edit het huidige bericht
+                    await query.message.edit_media(
+                        media=InputMediaPhoto(
+                            media=chart_image,
+                            caption=f"📊 Technical Analysis for {symbol} ({timeframe})"
+                        ),
+                        reply_markup=InlineKeyboardMarkup(keyboard)
                     )
                 else:
                     await query.message.reply_text("Sorry, chart generation failed.")
-                
-            elif action == "sentiment":
-                symbol = params[0]
-                await query.message.reply_text(
-                    f"🤖 Market Sentiment for {symbol}\n\n"
-                    "Sentiment analysis coming soon..."
+            
+            elif action == "back_to_signal":
+                # Herstel het originele signaal bericht
+                original_message = context.user_data['original_message']
+                original_keyboard = context.user_data['original_keyboard']
+                await query.message.edit_media(
+                    media=InputMediaPhoto(
+                        media=original_image,
+                        caption=original_message
+                    ),
+                    reply_markup=InlineKeyboardMarkup(original_keyboard)
                 )
-                
-            elif action == "calendar":
-                symbol = params[0]
-                await query.message.reply_text(
-                    f"📅 Economic Calendar for {symbol}\n\n"
-                    "Economic calendar coming soon..."
-                )
-                
+            
         except Exception as e:
             logger.error(f"Error handling button click: {str(e)}")
             await query.message.reply_text("Sorry, something went wrong.")
