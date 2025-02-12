@@ -8,17 +8,23 @@ logger = logging.getLogger(__name__)
 
 class Database:
     def __init__(self):
-        """Initialize database connection"""
-        supabase_url = os.getenv("SUPABASE_URL")
-        supabase_key = os.getenv("SUPABASE_KEY")
-        
-        if not supabase_url or not supabase_key:
-            raise ValueError("Missing Supabase credentials")
-            
+        """Initialize database connections"""
         try:
-            # Direct initialisatie zonder options
+            # Supabase setup
+            supabase_url = os.getenv("SUPABASE_URL")
+            supabase_key = os.getenv("SUPABASE_KEY")
+            
+            if not supabase_url or not supabase_key:
+                raise ValueError("Missing Supabase credentials")
+                
             self.supabase = create_client(supabase_url, supabase_key)
+            
+            # Test de connectie
+            test_query = self.supabase.table('subscribers').select('*').limit(1).execute()
+            logger.info(f"Supabase connection test successful: {test_query}")
+            
             logger.info("Successfully connected to Supabase")
+            
         except Exception as e:
             logger.error(f"Failed to connect to Supabase: {str(e)}")
             raise
@@ -89,4 +95,4 @@ class Database:
             if signal["timeframe"] not in subscriber["timeframes"]:
                 return False
         
-        return True
+        return True 
