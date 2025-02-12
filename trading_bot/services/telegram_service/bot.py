@@ -16,7 +16,7 @@ from telegram.ext import (
 from telegram.constants import ParseMode
 
 from trading_bot.services.database.db import Database
-from trading_bot.services.chart.chart import ChartService
+from ..chart_service.chart import ChartService
 
 logger = logging.getLogger(__name__)
 
