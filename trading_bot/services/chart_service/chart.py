@@ -19,8 +19,8 @@ class ChartService:
         self.chrome_options.add_argument('--disable-dev-shm-usage')
         self.chrome_options.add_argument('--window-size=1920,1080')
         
-        # TradingView base URL
-        self.base_url = "https://www.tradingview.com/chart/"
+        # TradingView base URL zonder trailing slash
+        self.base_url = "https://www.tradingview.com/chart"  # Verwijderd de "/" aan het eind
         
     def _get_symbol_with_broker(self, symbol: str, market: str) -> str:
         """Get symbol with correct broker prefix"""
@@ -46,7 +46,7 @@ class ChartService:
             driver = webdriver.Chrome(options=self.chrome_options)
             
             try:
-                # Construct URL met @ aan het begin
+                # Construct exacte URL format
                 url = f"@{self.base_url}?symbol={full_symbol}&interval={timeframe}"
                 logger.info(f"Chart URL: {url}")
                 driver.get(url)
