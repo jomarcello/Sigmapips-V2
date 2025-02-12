@@ -259,18 +259,30 @@ class TelegramService:
                 reply_markup=reply_markup
             )
             
-            # Sla bericht op in Redis met debug logging
+            # Debug logging voor Redis opslag
             message_key = f"signal:{sent_message.message_id}"
             cache_data = {
                 'text': message,
                 'keyboard': json.dumps(keyboard),
                 'parse_mode': 'HTML'
             }
-            self.redis.hmset(message_key, cache_data)
-            self.redis.expire(message_key, 3600)
             
-            logger.info(f"Stored message in Redis with key: {message_key}")
-            logger.info(f"Cache data: {cache_data}")
+            # Test Redis connectie en opslag
+            try:
+                self.redis.ping()
+                logger.info("Redis connection OK")
+                
+                self.redis.hmset(message_key, cache_data)
+                logger.info(f"Data stored in Redis with key: {message_key}")
+                
+                # Verifieer opgeslagen data
+                stored_data = self.redis.hgetall(message_key)
+                logger.info(f"Verified stored data: {stored_data}")
+                
+                self.redis.expire(message_key, 3600)
+            except Exception as e:
+                logger.error(f"Redis error: {str(e)}")
+                raise
             
             return True
             
@@ -616,21 +628,37 @@ class TelegramService:
             logger.error(f"Error handling help command: {str(e)}")
 
     async def _button_click(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle button clicks on signal messages"""
         query = update.callback_query
         await query.answer()
         
         try:
-            action, *params = query.data.split('_')
+            data = query.data
             message_id = query.message.message_id
-            logger.info(f"Button clicked: {action}, params: {params}, message_id: {message_id}")
+            logger.info(f"Button clicked: {data}, message_id: {message_id}")
             
-            if action == "chart":
-                symbol, timeframe = params
+            if data.startswith("chart_"):
+                _, symbol, timeframe = data.split('_')
                 chart_image = await self.chart.generate_chart(symbol, timeframe)
                 if chart_image:
-                    keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data=f"back_to_signal_{message_id}")]]
-                    logger.info(f"Setting back button with message_id: {message_id}")
+                    # Sla origineel bericht op met debug logging
+                    message_key = f"signal:{message_id}"
+                    original_text = query.message.text or query.message.caption
+                    logger.info(f"Original message text: {original_text}")
+                    
+                    cache_data = {
+                        'text': original_text,
+                        'keyboard': json.dumps(query.message.reply_markup.to_dict()),
+                        'parse_mode': 'HTML'
+                    }
+                    
+                    try:
+                        self.redis.hmset(message_key, cache_data)
+                        stored_data = self.redis.hgetall(message_key)
+                        logger.info(f"Stored chart data in Redis: {stored_data}")
+                    except Exception as e:
+                        logger.error(f"Redis storage error: {str(e)}")
+                    
+                    keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data=f"back_{message_id}")]]
                     await query.message.edit_media(
                         media=InputMediaPhoto(
                             media=chart_image,
@@ -638,26 +666,6 @@ class TelegramService:
                         ),
                         reply_markup=InlineKeyboardMarkup(keyboard)
                     )
-                else:
-                    await query.message.reply_text("Sorry, chart generation failed.")
-                    
-            elif action == "back_to_signal":
-                message_key = f"signal:{params[0]}"
-                logger.info(f"Fetching message from Redis with key: {message_key}")
-                
-                cached_data = self.redis.hgetall(message_key)
-                logger.info(f"Found cached data: {cached_data}")
-                
-                if cached_data:
-                    keyboard_data = json.loads(cached_data['keyboard'])
-                    await query.message.edit_text(
-                        text=cached_data['text'],
-                        parse_mode=cached_data['parse_mode'],
-                        reply_markup=InlineKeyboardMarkup(keyboard_data)
-                    )
-                    logger.info("Restored original signal message")
-                else:
-                    logger.error(f"No cached data found for message_id: {params[0]}")
             
         except Exception as e:
             logger.error(f"Error handling button click: {str(e)}")
