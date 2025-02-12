@@ -4,6 +4,7 @@ import asyncio
 import logging
 import aiohttp
 import redis
+import json
 from typing import Dict, Any
 
 from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery, InputMediaPhoto
@@ -254,16 +255,19 @@ class TelegramService:
             sent_message = await self.bot.send_message(
                 chat_id=chat_id,
                 text=message,
-                parse_mode=ParseMode.HTML,  # Gebruik HTML in plaats van Markdown
+                parse_mode=ParseMode.HTML,
                 reply_markup=reply_markup
             )
             
-            # Cache het bericht
-            self.message_cache[sent_message.message_id] = {
+            # Sla bericht op in Redis
+            message_key = f"signal:{sent_message.message_id}"
+            cache_data = {
                 'text': message,
-                'keyboard': keyboard,
-                'parse_mode': ParseMode.HTML  # Sla parse mode op
+                'keyboard': json.dumps(keyboard),
+                'parse_mode': 'HTML'
             }
+            self.redis.hmset(message_key, cache_data)
+            self.redis.expire(message_key, 3600)  # Cache voor 1 uur
             
             return True
             
@@ -633,18 +637,20 @@ class TelegramService:
                     await query.message.reply_text("Sorry, chart generation failed.")
                     
             elif action == "back_to_signal":
-                # Haal originele bericht info op
-                cached_data = self.message_cache.get(int(params[0]))  # params[0] is message_id
+                # Haal originele bericht op uit Redis
+                message_key = f"signal:{params[0]}"
+                cached_data = self.redis.hgetall(message_key)
+                
                 if cached_data:
-                    # Herstel het originele bericht met edit_text
+                    keyboard_data = json.loads(cached_data['keyboard'])
                     await query.message.edit_text(
                         text=cached_data['text'],
-                        parse_mode=ParseMode.HTML,
-                        reply_markup=InlineKeyboardMarkup(cached_data['keyboard'])
+                        parse_mode=cached_data['parse_mode'],
+                        reply_markup=InlineKeyboardMarkup(keyboard_data)
                     )
-                    logger.info("Restored original signal message")
+                    logger.info("Restored original signal message from Redis")
                 else:
-                    logger.error(f"No cached data found for message_id: {params[0]}")
+                    logger.error(f"No cached data found in Redis for message_id: {params[0]}")
             
         except Exception as e:
             logger.error(f"Error handling button click: {str(e)}")
