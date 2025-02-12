@@ -1,7 +1,7 @@
 FROM python:3.11-slim
 
-# Set PYTHONPATH first and explicitly
-ENV PYTHONPATH="/app:${PYTHONPATH}"
+# Kritieke instellingen voor imports
+ENV PYTHONPATH="/app:/app/trading_bot"
 ENV PORT=8080
 
 WORKDIR /app
@@ -23,5 +23,5 @@ COPY . .
 # Create logs directory
 RUN mkdir -p logs
 
-# Start de main applicatie
+# Start de main applicatie met module flag
 CMD python -m uvicorn trading_bot.main:app --host 0.0.0.0 --port $PORT
