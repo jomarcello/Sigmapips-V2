@@ -37,7 +37,6 @@ class MarketSentimentService:
             }
             
             logger.info(f"Calling Perplexity API for {instrument}")
-            logger.info(f"Headers: {self.perplexity_headers}")
             
             async with aiohttp.ClientSession() as session:
                 async with session.post(url, json=payload, headers=self.perplexity_headers) as response:
@@ -54,7 +53,7 @@ class MarketSentimentService:
                     
         except Exception as e:
             logger.error(f"Error getting Perplexity analysis: {str(e)}")
-            logger.exception(e)  # Dit print de volledige stack trace
+            logger.exception(e)
             return None
 
     async def format_sentiment_with_ai(self, perplexity_output: str) -> str:
