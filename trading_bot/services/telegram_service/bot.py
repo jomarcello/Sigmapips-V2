@@ -190,7 +190,7 @@ class TelegramService:
         self.app.add_handler(CommandHandler("help", self._help_command))
         
         # Voeg button click handler toe
-        self.app.add_handler(CallbackQueryHandler(self._button_click, pattern="^(chart|sentiment|calendar|back_to_signal)_"))
+        self.app.add_handler(CallbackQueryHandler(self._button_click, pattern="^(chart|back_to_signal|sentiment|calendar)_"))
         
         self.message_cache = {}  # Dict om originele berichten op te slaan
         
@@ -642,8 +642,7 @@ class TelegramService:
                     await query.message.reply_text("Sorry, chart generation failed.")
                     
             elif action == "back_to_signal":
-                original_message_id = params[0]
-                message_key = f"signal:{original_message_id}"
+                message_key = f"signal:{params[0]}"
                 logger.info(f"Fetching message from Redis with key: {message_key}")
                 
                 cached_data = self.redis.hgetall(message_key)
@@ -651,16 +650,14 @@ class TelegramService:
                 
                 if cached_data:
                     keyboard_data = json.loads(cached_data['keyboard'])
-                    # Eerst verwijderen, dan nieuwe tekst
-                    await query.message.delete()
-                    await query.message.reply_text(
+                    await query.message.edit_text(
                         text=cached_data['text'],
                         parse_mode=cached_data['parse_mode'],
                         reply_markup=InlineKeyboardMarkup(keyboard_data)
                     )
                     logger.info("Restored original signal message")
                 else:
-                    logger.error(f"No cached data found for message_id: {original_message_id}")
+                    logger.error(f"No cached data found for message_id: {params[0]}")
             
         except Exception as e:
             logger.error(f"Error handling button click: {str(e)}")
