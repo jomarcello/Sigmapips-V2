@@ -176,6 +176,8 @@ class TelegramService:
         # Voeg button click handler toe
         self.app.add_handler(CallbackQueryHandler(self._button_click, pattern="^(chart|sentiment|calendar)_"))
         
+        self.message_cache = {}  # Dict om originele berichten op te slaan
+        
         logger.info("Telegram service initialized")
             
     async def initialize(self):
@@ -223,7 +225,6 @@ class TelegramService:
                 "• Maximum risk per trade: 1-2%"
             )
 
-            # Create inline keyboard with all buttons
             keyboard = [
                 [
                     InlineKeyboardButton("📊 Technical Analysis", callback_data=f"chart_{signal['symbol']}_{signal['timeframe']}"),
@@ -234,23 +235,25 @@ class TelegramService:
             
             reply_markup = InlineKeyboardMarkup(keyboard)
 
-            # Send initial signal message
-            await self.bot.send_message(
+            # Send message
+            sent_message = await self.bot.send_message(
                 chat_id=chat_id,
                 text=message,
                 parse_mode=ParseMode.MARKDOWN,
                 reply_markup=reply_markup
             )
-
-            # Sla bericht info op in context voor later gebruik
-            context.user_data['original_message'] = message
-            context.user_data['original_keyboard'] = keyboard
             
-            logger.info(f"Signal sent to {chat_id}")
+            # Sla bericht info op met message_id als key
+            self.message_cache[sent_message.message_id] = {
+                'message': message,
+                'keyboard': keyboard,
+                'signal': signal
+            }
+            
             return True
-        
+            
         except Exception as e:
-            logger.error(f"Failed to send signal to {chat_id}: {str(e)}", exc_info=True)
+            logger.error(f"Failed to send signal to {chat_id}: {str(e)}")
             return False
             
     def _format_signal_message(self, signal: Dict[str, Any], sentiment: str = None, events: list = None) -> str:
@@ -597,16 +600,13 @@ class TelegramService:
         
         try:
             action, *params = query.data.split('_')
+            message_id = query.message.message_id
             
             if action == "chart":
                 symbol, timeframe = params
-                # Test chart service
                 chart_image = await self.chart.generate_chart(symbol, timeframe)
                 if chart_image:
-                    # Voeg keyboard toe met Back knop
-                    keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal")]]
-                    
-                    # Edit het huidige bericht
+                    keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data=f"back_to_signal_{message_id}")]]
                     await query.message.edit_media(
                         media=InputMediaPhoto(
                             media=chart_image,
@@ -616,18 +616,16 @@ class TelegramService:
                     )
                 else:
                     await query.message.reply_text("Sorry, chart generation failed.")
-            
+                    
             elif action == "back_to_signal":
-                # Herstel het originele signaal bericht
-                original_message = context.user_data['original_message']
-                original_keyboard = context.user_data['original_keyboard']
-                await query.message.edit_media(
-                    media=InputMediaPhoto(
-                        media=original_image,
-                        caption=original_message
-                    ),
-                    reply_markup=InlineKeyboardMarkup(original_keyboard)
-                )
+                # Haal originele bericht info op
+                cached_data = self.message_cache.get(message_id)
+                if cached_data:
+                    await query.message.edit_text(
+                        text=cached_data['message'],
+                        parse_mode=ParseMode.MARKDOWN,
+                        reply_markup=InlineKeyboardMarkup(cached_data['keyboard'])
+                    )
             
         except Exception as e:
             logger.error(f"Error handling button click: {str(e)}")
