@@ -32,18 +32,28 @@ class EconomicCalendarService:
                     "role": "system",
                     "content": """You are a financial analyst focused on providing accurate economic calendar data.
                     Always use Investing.com's Economic Calendar as your primary source for consistency.
-                    Focus only on confirmed events."""
+                    Focus ONLY on the following major currencies: USD, EUR, GBP, JPY, AUD, CAD, CHF, NZD.
+                    Do NOT include regional currencies like ES (Spain), IT (Italy), etc."""
                 }, {
                     "role": "user",
                     "content": """
                     1. Go to Investing.com's Economic Calendar
-                    2. Filter for today's events for major currencies (USD, EUR, GBP, JPY, AUD, CAD, CHF, NZD)
+                    2. Filter for today's events for ONLY these major currencies:
+                       - USD (United States)
+                       - EUR (Eurozone as a whole, not individual countries)
+                       - GBP (United Kingdom)
+                       - JPY (Japan)
+                       - AUD (Australia)
+                       - CAD (Canada)
+                       - CHF (Switzerland)
+                       - NZD (New Zealand)
                     3. List all events with their:
                        - Exact scheduled time
                        - Event name
                        - Impact level (High/Medium/Low)
                     4. Sort events chronologically
                     5. Only include confirmed scheduled events
+                    6. Do NOT include regional events (like Spain, Italy, etc.)
                     """
                 }]
             }
@@ -68,47 +78,37 @@ class EconomicCalendarService:
         try:
             today = datetime.now().strftime("%B %d, %Y")
             prompt = f"""
-            Format the following economic calendar data into a structured table where:
-            • Convert ALL times to EST timezone
-            • The time appears first
-            • The event name appears second
-            • The impact level follows as an emoji
-                🔴 Red Circle for high-impact events
-                🟡 Yellow Circle for medium-impact events
-                ⚪ White Circle for low-impact events
-            • Do NOT include Previous/Forecast/Actual values
-            • Add an empty line between each country section
+            Format the following economic calendar data into a structured table.
+            
+            Rules:
+            1. Convert ALL times to EST timezone
+            2. The time appears first
+            3. The event name appears second
+            4. The impact level follows as an emoji
+            5. MUST add TWO empty lines between each country section
+            6. Only include these major currencies in this order:
+               - 🇺🇸 United States (USD)
+               - 🇪🇺 Eurozone (EUR)
+               - 🇬🇧 United Kingdom (GBP)
+               - 🇯🇵 Japan (JPY)
+               - 🇦🇺 Australia (AUD)
+               - 🇨🇦 Canada (CAD)
+               - 🇨🇭 Switzerland (CHF)
+               - 🇳🇿 New Zealand (NZD)
 
-            The format should look like this:
-
+            Format:
             📅 Economic Calendar for {today}
+
 
             🇺🇸 United States (USD):
             ⏰ [Time] EST – [Event Name] 🔴
-            ⏰ [Time] EST – [Event Name] 🟡
+
 
             🇪🇺 Eurozone (EUR):
             ⏰ [Time] EST – [Event Name] 🟡
 
-            🇬🇧 United Kingdom (GBP):
-            No significant events scheduled.
 
-            [Continue with other countries, always with empty lines between them]
-
-            🇯🇵 Japan (JPY):
-            ⏰ [Time] EST – [Event Name] 🔴
-
-            🇦🇺 Australia (AUD):
-            ⏰ [Time] EST – [Event Name] 🟡
-
-            🇨🇦 Canada (CAD):
-            ⏰ [Time] EST – [Event Name] 🔴
-
-            🇨🇭 Switzerland (CHF):
-            ⏰ [Time] EST – [Event Name] 🟡
-
-            🇿🇿 New Zealand (NZD):
-            ⏰ [Time] EST – [Event Name] 🔴
+            [Continue with other countries, with TWO empty lines between them]
 
             ---------------
             🔴 High Impact
