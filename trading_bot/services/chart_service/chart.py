@@ -20,7 +20,7 @@ class ChartService:
         self.chrome_options.add_argument('--window-size=1920,1080')
         
         # TradingView base URL zonder trailing slash
-        self.base_url = "https://www.tradingview.com/chart"  # Verwijderd de "/" aan het eind
+        self.base_url = "https://www.tradingview.com/chart/"  # Let op de trailing slash
         
     def _get_symbol_with_broker(self, symbol: str, market: str) -> str:
         """Get symbol with correct broker prefix"""
@@ -34,6 +34,20 @@ class ChartService:
         }
         return f"{prefixes.get(market.lower(), '')}{symbol}"
 
+    def _get_timeframe_format(self, timeframe: str) -> str:
+        """Convert timeframe to TradingView format"""
+        timeframe_map = {
+            '1h': '1H',
+            '4h': '4H',
+            '1d': '1D',
+            '1w': '1W',
+            '1m': '1M',
+            '15': '15',  # Minuten blijven hetzelfde
+            '30': '30',
+            '45': '45'
+        }
+        return timeframe_map.get(timeframe.lower(), timeframe)
+
     async def generate_chart(self, symbol: str, timeframe: str, market: str = 'forex') -> bytes:
         """Generate chart image for given symbol and timeframe"""
         try:
@@ -42,14 +56,17 @@ class ChartService:
             # Get symbol with correct broker
             full_symbol = self._get_symbol_with_broker(symbol, market)
             
+            # Get correct timeframe format
+            formatted_timeframe = self._get_timeframe_format(timeframe)
+            
             # Initialize driver
             driver = webdriver.Chrome(options=self.chrome_options)
             
             try:
-                # Construct URL zonder @ voor Selenium
-                url = f"{self.base_url}?symbol={full_symbol}&interval={timeframe}"
-                logger.info(f"Chart URL: {url}")  # Voor logging tonen we de URL met @
-                driver.get(url)  # Selenium gebruikt de URL zonder @
+                # Construct URL met correct timeframe format
+                url = f"{self.base_url}?symbol={full_symbol}&interval={formatted_timeframe}"
+                logger.info(f"Chart URL: {url}")
+                driver.get(url)
                 
                 # Wait for chart to load
                 WebDriverWait(driver, 20).until(
@@ -99,4 +116,5 @@ class ChartService:
                     
         except Exception as e:
             logger.warning(f"Error removing UI elements: {str(e)}")
+
 
