@@ -3,6 +3,7 @@ import ssl
 import asyncio
 import logging
 import aiohttp
+import redis
 from typing import Dict, Any
 
 from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery, InputMediaPhoto
@@ -125,7 +126,21 @@ class TelegramService:
             raise ValueError("Missing TELEGRAM_BOT_TOKEN")
             
         self.db = db
-        self.chart = ChartService()  # Voeg chart service toe
+        self.chart = ChartService()
+        
+        # Redis setup met Railway credentials
+        redis_url = os.getenv("REDIS_URL", "redis://default:kcXeNDIt~!Pg6onj9B4t9IcudGehM1Ed@autorack.proxy.rlwy.net:42803")
+        try:
+            self.redis = redis.from_url(
+                redis_url,
+                decode_responses=True
+            )
+            # Test Redis connectie
+            self.redis.ping()
+            logger.info("Successfully connected to Redis")
+        except Exception as e:
+            logger.error(f"Failed to connect to Redis: {str(e)}")
+            raise
         
         # SSL setup zonder verificatie voor ontwikkeling
         ssl_context = ssl.create_default_context()
