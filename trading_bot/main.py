@@ -31,6 +31,13 @@ calendar = CalendarService(db)
 async def startup_event():
     """Initialize async services on startup"""
     await telegram.initialize()
+    
+    # Set webhook URL
+    webhook_url = os.getenv("WEBHOOK_URL")
+    if webhook_url:
+        await telegram.set_webhook(webhook_url)
+    else:
+        logger.warning("WEBHOOK_URL not set, bot will not receive updates")
 
 @app.get("/health")
 async def health_check():
