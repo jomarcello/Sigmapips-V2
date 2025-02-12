@@ -645,13 +645,9 @@ class TelegramService:
                     message_key = f"signal:{message_id}"
                     original_text = query.message.text or query.message.caption
                     
-                    # Convert current keyboard to JSON-serializable format
-                    current_keyboard = query.message.reply_markup.inline_keyboard
-                    keyboard_data = [[{"text": btn.text, "callback_data": btn.callback_data} for btn in row] for row in current_keyboard]
-                    
                     cache_data = {
                         'text': original_text,
-                        'keyboard': json.dumps(keyboard_data),
+                        'keyboard': json.dumps(query.message.reply_markup.to_dict()),
                         'parse_mode': 'HTML'
                     }
                     
@@ -681,23 +677,25 @@ class TelegramService:
                     logger.info(f"Found cached data: {cached_data}")
                     
                     if cached_data:
-                        # Convert stored JSON keyboard back to InlineKeyboardMarkup
-                        keyboard_data = json.loads(cached_data['keyboard'])
-                        keyboard = [[InlineKeyboardButton(btn["text"], callback_data=btn["callback_data"]) for btn in row] for row in keyboard_data]
-                        
-                        await query.message.edit_text(
-                            text=cached_data['text'],
-                            parse_mode=cached_data['parse_mode'],
-                            reply_markup=InlineKeyboardMarkup(keyboard)
+                        keyboard = InlineKeyboardMarkup.de_json(json.loads(cached_data['keyboard']), self.bot)
+                        await query.message.edit_media(
+                            media=InputMediaPhoto(
+                                media="https://i.imgur.com/1HmqL5N.png",  # Placeholder afbeelding
+                                caption=cached_data['text'],
+                                parse_mode=cached_data['parse_mode']
+                            ),
+                            reply_markup=keyboard
                         )
                         logger.info("Restored original signal message")
                     else:
                         logger.error(f"No cached data found for message_id: {original_id}")
                 except Exception as e:
                     logger.error(f"Error restoring message: {str(e)}")
-            
+                    logger.exception(e)
+        
         except Exception as e:
             logger.error(f"Error handling button click: {str(e)}")
+            logger.exception(e)
             await query.message.reply_text("Sorry, something went wrong.")
 
 # ... rest van de code ...
