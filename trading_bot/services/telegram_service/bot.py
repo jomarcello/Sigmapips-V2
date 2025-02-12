@@ -169,7 +169,10 @@ class TelegramService:
         self.app.add_handler(CommandHandler("start", self._start_command))
         self.app.add_handler(CommandHandler("manage", self._manage_command))
         self.app.add_handler(CommandHandler("menu", self._menu_command))
-        self.app.add_handler(CommandHandler("help", self._help_command))  # Voeg help command toe
+        self.app.add_handler(CommandHandler("help", self._help_command))
+        
+        # Voeg button click handler toe
+        self.app.add_handler(CallbackQueryHandler(self._button_click, pattern="^(chart|sentiment|calendar)_"))
         
         logger.info("Telegram service initialized")
             
