@@ -46,54 +46,28 @@ async def telegram_webhook(request: Request):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/signal")
-async def process_signal(signal: Dict[str, Any]):
-    """Process incoming trading signal"""
+async def receive_signal(signal: dict):
+    """Receive trading signal and forward to subscribers"""
     try:
         logger.info(f"Received signal: {signal}")
         
-        # 1. Validate signal
-        required_fields = ["symbol", "action", "price", "stopLoss", "takeProfit", "timeframe", "market"]
-        if not all(field in signal for field in required_fields):
-            missing = [f for f in required_fields if f not in signal]
-            logger.error(f"Missing fields in signal: {missing}")
-            raise HTTPException(status_code=400, detail=f"Missing required fields: {missing}")
-        
-        # 2. Generate chart with market info
-        try:
-            chart_image = await chart.generate_chart(
-                symbol=signal["symbol"],
-                timeframe=signal["timeframe"],
-                market=signal["market"]
-            )
-            logger.info("Chart generated successfully")
-        except Exception as e:
-            logger.error(f"Chart generation failed: {str(e)}")
-            chart_image = None
-        
-        # 3. Find matching subscribers
-        subscribers = await db.match_subscribers(signal)
+        # Get matching subscribers
+        subscribers = db.get_matching_subscribers(signal)
         logger.info(f"Found {len(subscribers)} matching subscribers")
         
-        # 4. Send signals to subscribers
-        sent_count = 0
+        # Send signal to each subscriber
         for subscriber in subscribers:
-            success = await telegram.send_signal(
-                chat_id=subscriber["chat_id"],
-                signal=signal,
-                sentiment="Sentiment analysis coming soon",
-                chart=chart_image,
-                events=["Economic calendar coming soon"]
-            )
-            if success:
-                sent_count += 1
-            
-        return {
-            "status": "success", 
-            "subscribers_found": len(subscribers),
-            "signals_sent": sent_count
-        }
+            try:
+                await telegram.send_signal(
+                    chat_id=subscriber['chat_id'],
+                    signal=signal
+                )
+            except Exception as e:
+                logger.error(f"Failed to send signal to subscriber {subscriber['chat_id']}: {str(e)}")
+                continue
+                
+        return {"status": "success", "message": f"Signal sent to {len(subscribers)} subscribers"}
         
     except Exception as e:
         logger.error(f"Error processing signal: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
-
