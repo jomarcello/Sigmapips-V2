@@ -1,7 +1,7 @@
 FROM python:3.11-slim
 
-# Set PYTHONPATH first
-ENV PYTHONPATH=/app
+# Set PYTHONPATH first and explicitly
+ENV PYTHONPATH="/app:${PYTHONPATH}"
 ENV PORT=8080
 
 WORKDIR /app
