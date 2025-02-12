@@ -159,7 +159,8 @@ class TelegramService:
                 CommandHandler("start", self._start_command),
                 CommandHandler("manage", self._manage_command),
                 CommandHandler("menu", self._menu_command)
-            ]
+            ],
+            per_message=True
         )
         
         # Add handlers
@@ -517,5 +518,26 @@ class TelegramService:
             return MANAGE_PREFERENCES
         
         return MANAGE_PREFERENCES
+
+    async def set_webhook(self, webhook_url: str):
+        """Set webhook for the bot"""
+        try:
+            # Verwijder bestaande webhook
+            await self.bot.delete_webhook()
+            
+            # Stel nieuwe webhook in met de juiste path
+            webhook_url = f"{webhook_url}/webhook"
+            await self.bot.set_webhook(
+                url=webhook_url,
+                allowed_updates=['message', 'callback_query']
+            )
+            logger.info(f"Webhook set to: {webhook_url}")
+            
+            # Verify webhook is set
+            webhook_info = await self.bot.get_webhook_info()
+            logger.info(f"Webhook verification: {webhook_info}")
+        except Exception as e:
+            logger.error(f"Failed to set webhook: {str(e)}")
+            raise
 
 # ... rest van de code ...
