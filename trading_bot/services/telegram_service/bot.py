@@ -629,6 +629,7 @@ class TelegramService:
             logger.error(f"Error handling help command: {str(e)}")
 
     async def _button_click(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle button clicks on signal messages"""
         query = update.callback_query
         await query.answer()
         
@@ -641,16 +642,22 @@ class TelegramService:
                 _, symbol, timeframe = data.split('_')
                 chart_image = await self.chart.generate_chart(symbol, timeframe)
                 if chart_image:
-                    # Sla origineel bericht op
+                    # Sla het originele bericht op in Redis voordat we de afbeelding veranderen
+                    original_text = query.message.text if query.message.text else query.message.caption
+                    original_markup = query.message.reply_markup
                     message_key = f"signal:{message_id}"
+                    
                     cache_data = {
-                        'text': query.message.text,
-                        'keyboard': json.dumps(query.message.reply_markup.to_dict())
+                        'text': original_text,
+                        'keyboard': json.dumps(original_markup.to_dict()) if original_markup else None,
+                        'parse_mode': 'HTML'
                     }
                     self.redis.hmset(message_key, cache_data)
+                    self.redis.expire(message_key, 3600)  # 1 uur bewaren
                     
-                    # Toon chart
-                    keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data=f"back_{message_id}")]]
+                    logger.info(f"Stored original message in Redis: {message_key}")
+
+                    keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data=f"back_to_signal_{message_id}")]]
                     await query.message.edit_media(
                         media=InputMediaPhoto(
                             media=chart_image,
@@ -658,24 +665,49 @@ class TelegramService:
                         ),
                         reply_markup=InlineKeyboardMarkup(keyboard)
                     )
-            
-            elif data.startswith("back_"):
-                original_id = data.split('_')[1]
+                else:
+                    await query.message.reply_text("Sorry, chart generation failed.")
+
+            elif data.startswith("back_to_signal_"):
+                original_id = data.split('_')[-1]
                 message_key = f"signal:{original_id}"
                 cached_data = self.redis.hgetall(message_key)
-                
+                logger.info(f"Redis data for {message_key}: {cached_data}")
+
                 if cached_data:
-                    keyboard = InlineKeyboardMarkup.de_json(json.loads(cached_data['keyboard']), self.bot)
-                    await query.message.edit_caption(
-                        caption=cached_data['text'],
-                        reply_markup=keyboard
-                    )
-                    logger.info("Restored original signal message")
+                    keyboard_data = json.loads(cached_data['keyboard']) if cached_data['keyboard'] else None
+                    reply_markup = InlineKeyboardMarkup.de_json(keyboard_data, self.bot) if keyboard_data else None
+
+                    try:
+                        # Eerst proberen edit_caption
+                        await query.message.edit_caption(
+                            caption=cached_data['text'],
+                            parse_mode=cached_data['parse_mode'],
+                            reply_markup=reply_markup
+                        )
+                        logger.info("Restored original signal message with edit_caption")
+                    except Exception as e:
+                        logger.warning(f"edit_caption failed: {str(e)}, trying to delete and resend.")
+                        # Als edit_caption mislukt, verwijderen en opnieuw sturen
+                        try:
+                            await query.message.delete()
+                            await context.bot.send_message(
+                                chat_id=query.message.chat_id,
+                                text=cached_data['text'],
+                                parse_mode=cached_data['parse_mode'],
+                                reply_markup=reply_markup
+                            )
+                            logger.info("Restored original signal message by resending")
+                        except Exception as e:
+                            logger.error(f"Failed to restore message: {str(e)}")
+                            await query.message.reply_text("Error restoring the original message.")
                 else:
-                    logger.error(f"No cached data found for message_id: {original_id}")
+                    logger.error(f"No cached data found in Redis for message_id: {original_id}")
+                    await query.message.reply_text("Could not find the original message.")
         
         except Exception as e:
             logger.error(f"Error handling button click: {str(e)}")
+            logger.exception(e)
             await query.message.reply_text("Sorry, something went wrong.")
 
 # ... rest van de code ...
