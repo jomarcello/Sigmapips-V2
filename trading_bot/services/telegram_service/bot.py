@@ -208,7 +208,7 @@ class TelegramService:
         if query.data == "back":
             reply_markup = InlineKeyboardMarkup(MARKET_KEYBOARD)
             await query.edit_message_text(
-                text="Please select a market:",
+                text=WELCOME_MESSAGE,
                 reply_markup=reply_markup
             )
             return CHOOSE_MARKET
@@ -239,7 +239,7 @@ class TelegramService:
         if query.data == "back":
             reply_markup = InlineKeyboardMarkup(MARKET_KEYBOARD)
             await query.edit_message_text(
-                text="Please select a market:",
+                text=WELCOME_MESSAGE,
                 reply_markup=reply_markup
             )
             return CHOOSE_MARKET
