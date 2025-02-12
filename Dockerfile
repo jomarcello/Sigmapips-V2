@@ -1,22 +1,26 @@
-# Gebruik een specifieke Python versie die beter werkt met Supabase
 FROM python:3.11-slim
 
 WORKDIR /app
 
-# Installeer system dependencies
+# System dependencies
 RUN apt-get update && apt-get install -y \
     build-essential \
+    chromium \
+    chromium-driver \
     && rm -rf /var/lib/apt/lists/*
 
-# Kopieer requirements eerst (voor betere caching)
+# Python dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Kopieer de rest van de code
+# Application code
 COPY . .
 
-# Maak logs directory
+# Create logs directory
 RUN mkdir -p logs
 
-# Start de applicatie
-CMD ["python", "-m", "trading_bot.test_services"] 
+# Environment variabele voor de port
+ENV PORT=8080
+
+# Start de main applicatie
+CMD python -m uvicorn trading_bot.main:app --host 0.0.0.0 --port $PORT
