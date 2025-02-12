@@ -1,0 +1,11 @@
+.DS_Store
+*.png
+*.jpg
+*.jpeg
+__pycache__/
+*.pyc
+.env
+logs/
+*_backup/
+clean-trading-bot/
+tradingview*/
