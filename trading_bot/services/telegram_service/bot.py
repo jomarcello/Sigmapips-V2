@@ -210,16 +210,16 @@ class TelegramService:
     async def send_signal(self, chat_id: str, signal: Dict[str, Any], sentiment: str = None, chart: bytes = None, events: list = None):
         """Send formatted signal message with inline buttons"""
         try:
-            # Format main signal message
+            # Format signal message in HTML
             message = (
-                "🚨 *TRADING SIGNAL*\n\n"
-                f"*Symbol:* {signal['symbol']}\n"
-                f"*Action:* {signal['action']}\n"
-                f"*Entry Price:* {signal['price']}\n"
-                f"*Stop Loss:* {signal['stopLoss']}\n"
-                f"*Take Profit:* {signal['takeProfit']}\n"
-                f"*Timeframe:* {signal['timeframe']}\n\n"
-                "⚠️ *Risk Management*\n"
+                "<b>🚨 TRADING SIGNAL</b>\n\n"
+                f"<b>Symbol:</b> {signal['symbol']}\n"
+                f"<b>Action:</b> {signal['action']}\n"
+                f"<b>Entry Price:</b> {signal['price']}\n"
+                f"<b>Stop Loss:</b> {signal['stopLoss']}\n"
+                f"<b>Take Profit:</b> {signal['takeProfit']}\n"
+                f"<b>Timeframe:</b> {signal['timeframe']}\n\n"
+                "<b>⚠️ Risk Management</b>\n"
                 "• Use proper position sizing\n"
                 "• Always use a stop loss\n"
                 "• Maximum risk per trade: 1-2%"
@@ -235,19 +235,19 @@ class TelegramService:
             
             reply_markup = InlineKeyboardMarkup(keyboard)
 
-            # Send message
+            # Send message with HTML parsing
             sent_message = await self.bot.send_message(
                 chat_id=chat_id,
                 text=message,
-                parse_mode=ParseMode.MARKDOWN,
+                parse_mode=ParseMode.HTML,  # Gebruik HTML in plaats van Markdown
                 reply_markup=reply_markup
             )
             
-            # Sla bericht info op met message_id als key
+            # Cache het bericht
             self.message_cache[sent_message.message_id] = {
-                'message': message,
+                'text': message,
                 'keyboard': keyboard,
-                'signal': signal
+                'parse_mode': ParseMode.HTML  # Sla parse mode op
             }
             
             return True
@@ -625,7 +625,7 @@ class TelegramService:
                     await query.message.edit_media(
                         media=InputMediaPhoto(
                             media=cached_data.get('image', None),  # Als er een originele afbeelding was
-                            caption=cached_data['message']
+                            caption=cached_data['text']
                         ),
                         reply_markup=InlineKeyboardMarkup(cached_data['keyboard'])
                     )
