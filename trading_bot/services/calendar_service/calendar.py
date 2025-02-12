@@ -30,19 +30,25 @@ class EconomicCalendarService:
                 "model": "sonar-pro",
                 "messages": [{
                     "role": "system",
-                    "content": "You are a financial analyst focused on providing economic calendar data."
+                    "content": """You are a financial analyst focused on providing accurate economic calendar data.
+                    Always use Investing.com's Economic Calendar as your primary source for consistency.
+                    Focus only on confirmed events."""
                 }, {
                     "role": "user",
                     "content": """
-                    Retrieve today's economic calendar for all major currencies (USD, EUR, GBP, JPY, AUD, CAD, CHF, and NZD). 
-                    Include the event time (with time zone), event name, impact level (High, Medium, Low), 
-                    previous value, forecasted value, and actual value (if available). 
-                    The response should be structured and easy to process.
+                    1. Go to Investing.com's Economic Calendar
+                    2. Filter for today's events for major currencies (USD, EUR, GBP, JPY, AUD, CAD, CHF, NZD)
+                    3. List all events with their:
+                       - Exact scheduled time
+                       - Event name
+                       - Impact level (High/Medium/Low)
+                    4. Sort events chronologically
+                    5. Only include confirmed scheduled events
                     """
                 }]
             }
             
-            logger.info("Fetching economic calendar data")
+            logger.info("Fetching economic calendar data from Investing.com")
             
             async with aiohttp.ClientSession() as session:
                 async with session.post(url, json=payload, headers=self.perplexity_headers) as response:
@@ -101,7 +107,7 @@ class EconomicCalendarService:
             🇨🇭 Switzerland (CHF):
             ⏰ [Time] EST – [Event Name] 🟡
 
-            ��🇿 New Zealand (NZD):
+            🇿🇿 New Zealand (NZD):
             ⏰ [Time] EST – [Event Name] 🔴
 
             ---------------
