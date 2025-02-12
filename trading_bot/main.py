@@ -2,18 +2,12 @@ from fastapi import FastAPI, HTTPException, Request
 import logging
 import os
 from typing import Dict, Any
-import asyncio
-from supabase import create_client
 from telegram import Update
 
-# Gebruik absolute imports
 from trading_bot.services.telegram_service.bot import TelegramService
-from trading_bot.services.news_ai_service.sentiment import NewsAIService
 from trading_bot.services.chart_service.chart import ChartService
-from trading_bot.services.calendar_service.calendar import CalendarService
 from trading_bot.services.database.db import Database
 
-# Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -23,23 +17,18 @@ port = int(os.getenv("PORT", 8080))
 # Initialize services
 db = Database()
 telegram = TelegramService(db)
-news_ai = NewsAIService(db)
 chart = ChartService()
-calendar = CalendarService(db)
 
 @app.on_event("startup")
 async def startup_event():
     """Initialize async services on startup"""
     await telegram.initialize()
     
-    # Set webhook URL using Railway URL
     webhook_url = os.getenv("RAILWAY_PUBLIC_DOMAIN")
     if webhook_url:
         full_url = f"https://{webhook_url}"
         await telegram.set_webhook(full_url)
         logger.info(f"Webhook set to: {full_url}")
-    else:
-        logger.warning("RAILWAY_PUBLIC_DOMAIN not set, bot will not receive updates")
 
 @app.get("/health")
 async def health_check():
@@ -63,34 +52,48 @@ async def process_signal(signal: Dict[str, Any]):
         logger.info(f"Received signal: {signal}")
         
         # 1. Validate signal
-        required_fields = ["symbol", "action", "price", "stopLoss", "takeProfit", "timeframe"]
+        required_fields = ["symbol", "action", "price", "stopLoss", "takeProfit", "timeframe", "market"]
         if not all(field in signal for field in required_fields):
-            raise HTTPException(status_code=400, detail="Missing required fields")
-            
-        # 2. Get sentiment analysis
-        sentiment = await news_ai.analyze_sentiment(signal["symbol"])
+            missing = [f for f in required_fields if f not in signal]
+            logger.error(f"Missing fields in signal: {missing}")
+            raise HTTPException(status_code=400, detail=f"Missing required fields: {missing}")
         
-        # 3. Generate chart
-        chart_image = await chart.generate_chart(signal["symbol"], signal["timeframe"])
+        # 2. Generate chart with market info
+        try:
+            chart_image = await chart.generate_chart(
+                symbol=signal["symbol"],
+                timeframe=signal["timeframe"],
+                market=signal["market"]
+            )
+            logger.info("Chart generated successfully")
+        except Exception as e:
+            logger.error(f"Chart generation failed: {str(e)}")
+            chart_image = None
         
-        # 4. Get calendar events
-        events = await calendar.get_events(signal["symbol"])
-        
-        # 5. Find matching subscribers
+        # 3. Find matching subscribers
         subscribers = await db.match_subscribers(signal)
+        logger.info(f"Found {len(subscribers)} matching subscribers")
         
-        # 6. Send signals to subscribers
+        # 4. Send signals to subscribers
+        sent_count = 0
         for subscriber in subscribers:
-            await telegram.send_signal(
+            success = await telegram.send_signal(
                 chat_id=subscriber["chat_id"],
                 signal=signal,
-                sentiment=sentiment,
+                sentiment="Sentiment analysis coming soon",
                 chart=chart_image,
-                events=events
+                events=["Economic calendar coming soon"]
             )
+            if success:
+                sent_count += 1
             
-        return {"status": "success", "subscribers_notified": len(subscribers)}
+        return {
+            "status": "success", 
+            "subscribers_found": len(subscribers),
+            "signals_sent": sent_count
+        }
         
     except Exception as e:
         logger.error(f"Error processing signal: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e)) 
+        raise HTTPException(status_code=500, detail=str(e))
+
