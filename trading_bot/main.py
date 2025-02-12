@@ -1,16 +1,17 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 import logging
 import os
 from typing import Dict, Any
 import asyncio
 from supabase import create_client
 
-# Update imports om de package structuur te gebruiken
+# Gebruik absolute imports
 from trading_bot.services.telegram_service.bot import TelegramService
 from trading_bot.services.news_ai_service.sentiment import NewsAIService
 from trading_bot.services.chart_service.chart import ChartService
 from trading_bot.services.calendar_service.calendar import CalendarService
 from trading_bot.services.database.db import Database
+from trading_bot.services.telegram_service.update import Update
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -34,4 +35,14 @@ async def startup_event():
 @app.get("/health")
 async def health_check():
     return {"status": "healthy"}
-# Trigger new deployment
+
+@app.post("/webhook")
+async def telegram_webhook(request: Request):
+    """Handle Telegram webhook updates"""
+    try:
+        update = Update.de_json(await request.json(), telegram.bot)
+        await telegram.app.process_update(update)
+        return {"status": "ok"}
+    except Exception as e:
+        logger.error(f"Error processing webhook: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e)) 
