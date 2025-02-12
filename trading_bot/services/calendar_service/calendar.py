@@ -32,28 +32,33 @@ class EconomicCalendarService:
                     "role": "system",
                     "content": """You are a financial analyst focused on providing accurate economic calendar data.
                     Always use Investing.com's Economic Calendar as your primary source for consistency.
-                    Focus ONLY on the following major currencies: USD, EUR, GBP, JPY, AUD, CAD, CHF, NZD.
-                    Do NOT include regional currencies like ES (Spain), IT (Italy), etc."""
+                    Focus ONLY on these specific currencies in this exact order:
+                    1. EUR (Eurozone as a whole)
+                    2. USD (United States)
+                    3. AUD (Australia)
+                    4. JPY (Japan)
+                    5. GBP (United Kingdom)
+                    6. CHF (Switzerland)
+                    7. NZD (New Zealand)
+                    Do NOT include any other currencies or regional events."""
                 }, {
                     "role": "user",
                     "content": """
                     1. Go to Investing.com's Economic Calendar
-                    2. Filter for today's events for ONLY these major currencies:
+                    2. Filter for today's events for ONLY these currencies in this order:
+                       - EUR (Eurozone only, no individual countries)
                        - USD (United States)
-                       - EUR (Eurozone as a whole, not individual countries)
-                       - GBP (United Kingdom)
-                       - JPY (Japan)
                        - AUD (Australia)
-                       - CAD (Canada)
+                       - JPY (Japan)
+                       - GBP (United Kingdom)
                        - CHF (Switzerland)
                        - NZD (New Zealand)
                     3. List all events with their:
                        - Exact scheduled time
                        - Event name
                        - Impact level (High/Medium/Low)
-                    4. Sort events chronologically
+                    4. Sort events chronologically within each currency section
                     5. Only include confirmed scheduled events
-                    6. Do NOT include regional events (like Spain, Italy, etc.)
                     """
                 }]
             }
@@ -85,15 +90,13 @@ class EconomicCalendarService:
             2. The time appears first
             3. The event name appears second
             4. The impact level follows as an emoji
-            5. Add ONE empty line between EACH event
-            6. Add TWO empty lines between each country section
-            7. Only include these major currencies in this order:
-               - 🇺🇸 United States (USD)
+            5. Add TWO empty lines between each country section
+            6. Only include these currencies in this exact order:
                - 🇪🇺 Eurozone (EUR)
-               - 🇬🇧 United Kingdom (GBP)
-               - 🇯🇵 Japan (JPY)
+               - 🇺🇸 United States (USD)
                - 🇦🇺 Australia (AUD)
-               - 🇨🇦 Canada (CAD)
+               - 🇯🇵 Japan (JPY)
+               - 🇬🇧 United Kingdom (GBP)
                - 🇨🇭 Switzerland (CHF)
                - 🇳🇿 New Zealand (NZD)
 
@@ -101,17 +104,14 @@ class EconomicCalendarService:
             📅 Economic Calendar for {today}
 
 
-            🇺🇸 United States (USD):
+            🇪🇺 Eurozone (EUR):
             ⏰ [Time] EST – [Event Name] 🔴
-
             ⏰ [Time] EST – [Event Name] 🟡
-
             ⏰ [Time] EST – [Event Name] ⚪
 
 
-            🇪🇺 Eurozone (EUR):
+            🇺🇸 United States (USD):
             ⏰ [Time] EST – [Event Name] 🔴
-
             ⏰ [Time] EST – [Event Name] 🟡
 
 
@@ -130,7 +130,7 @@ class EconomicCalendarService:
                 model="gpt-4",
                 messages=[{
                     "role": "system",
-                    "content": "You are a financial calendar specialist. Format economic calendar data in a clean, structured way. Convert all times to EST timezone, add ONE empty line between EACH event, and TWO empty lines between countries. Do NOT include Previous/Forecast/Actual values."
+                    "content": "You are a financial calendar specialist. Format economic calendar data in a clean, structured way. Convert all times to EST timezone, add TWO empty lines between countries, and do NOT include Previous/Forecast/Actual values."
                 }, {
                     "role": "user",
                     "content": prompt
