@@ -226,7 +226,16 @@ class TelegramService:
     async def send_signal(self, chat_id: str, signal: Dict[str, Any], sentiment: str = None, chart: bytes = None, events: list = None):
         """Send formatted signal message with inline buttons"""
         try:
-            # Format signal message in HTML
+            # Controleer of de gebruiker de bot heeft gestart
+            try:
+                chat_member = await self.bot.get_chat_member(chat_id, chat_id)
+                if chat_member.status in ["left", "kicked"]:
+                    logger.warning(f"User {chat_id} has left the chat or blocked the bot.")
+                    return False
+            except Exception as e:
+                logger.warning(f"Failed to check chat member status: {str(e)}")
+                return False
+
             message = (
                 "<b>🚨 TRADING SIGNAL</b>\n\n"
                 f"<b>Symbol:</b> {signal['symbol']}\n"
@@ -249,9 +258,11 @@ class TelegramService:
                 [InlineKeyboardButton("📅 Economic Calendar", callback_data=f"calendar_{signal['symbol']}")]
             ]
             
+            # Convert keyboard to JSON-serializable format
+            keyboard_data = [[{"text": btn.text, "callback_data": btn.callback_data} for btn in row] for row in keyboard]
+            
             reply_markup = InlineKeyboardMarkup(keyboard)
-
-            # Send message with HTML parsing
+            
             sent_message = await self.bot.send_message(
                 chat_id=chat_id,
                 text=message,
@@ -259,37 +270,27 @@ class TelegramService:
                 reply_markup=reply_markup
             )
             
-            # Debug logging voor Redis opslag
+            # Store in Redis with JSON-serializable keyboard
             message_key = f"signal:{sent_message.message_id}"
             cache_data = {
                 'text': message,
-                'keyboard': json.dumps(keyboard),
+                'keyboard': json.dumps(keyboard_data),
                 'parse_mode': 'HTML'
             }
             
-            # Test Redis connectie en opslag
             try:
-                self.redis.ping()
-                logger.info("Redis connection OK")
-                
                 self.redis.hmset(message_key, cache_data)
-                logger.info(f"Data stored in Redis with key: {message_key}")
-                
-                # Verifieer opgeslagen data
-                stored_data = self.redis.hgetall(message_key)
-                logger.info(f"Verified stored data: {stored_data}")
-                
                 self.redis.expire(message_key, 3600)
+                logger.info(f"Stored signal in Redis: {message_key}")
             except Exception as e:
-                logger.error(f"Redis error: {str(e)}")
-                raise
+                logger.error(f"Redis storage error: {str(e)}")
             
             return True
-            
+
         except Exception as e:
             logger.error(f"Failed to send signal to {chat_id}: {str(e)}")
             return False
-            
+
     def _format_signal_message(self, signal: Dict[str, Any], sentiment: str = None, events: list = None) -> str:
         """Format signal data into a readable message"""
         message = f"New Signal Alert\n\n"
@@ -640,21 +641,24 @@ class TelegramService:
                 _, symbol, timeframe = data.split('_')
                 chart_image = await self.chart.generate_chart(symbol, timeframe)
                 if chart_image:
-                    # Sla origineel bericht op met debug logging
+                    # Store current message before showing chart
                     message_key = f"signal:{message_id}"
                     original_text = query.message.text or query.message.caption
-                    logger.info(f"Original message text: {original_text}")
+                    
+                    # Convert current keyboard to JSON-serializable format
+                    current_keyboard = query.message.reply_markup.inline_keyboard
+                    keyboard_data = [[{"text": btn.text, "callback_data": btn.callback_data} for btn in row] for row in current_keyboard]
                     
                     cache_data = {
                         'text': original_text,
-                        'keyboard': json.dumps(query.message.reply_markup.to_dict()),
+                        'keyboard': json.dumps(keyboard_data),
                         'parse_mode': 'HTML'
                     }
                     
                     try:
                         self.redis.hmset(message_key, cache_data)
-                        stored_data = self.redis.hgetall(message_key)
-                        logger.info(f"Stored chart data in Redis: {stored_data}")
+                        self.redis.expire(message_key, 3600)
+                        logger.info(f"Stored original message in Redis: {message_key}")
                     except Exception as e:
                         logger.error(f"Redis storage error: {str(e)}")
                     
@@ -672,19 +676,25 @@ class TelegramService:
                 message_key = f"signal:{original_id}"
                 logger.info(f"Fetching message from Redis with key: {message_key}")
                 
-                cached_data = self.redis.hgetall(message_key)
-                logger.info(f"Found cached data: {cached_data}")
-                
-                if cached_data:
-                    keyboard_data = json.loads(cached_data['keyboard'])
-                    await query.message.edit_text(
-                        text=cached_data['text'],
-                        parse_mode=cached_data['parse_mode'],
-                        reply_markup=InlineKeyboardMarkup(keyboard_data)
-                    )
-                    logger.info("Restored original signal message")
-                else:
-                    logger.error(f"No cached data found for message_id: {original_id}")
+                try:
+                    cached_data = self.redis.hgetall(message_key)
+                    logger.info(f"Found cached data: {cached_data}")
+                    
+                    if cached_data:
+                        # Convert stored JSON keyboard back to InlineKeyboardMarkup
+                        keyboard_data = json.loads(cached_data['keyboard'])
+                        keyboard = [[InlineKeyboardButton(btn["text"], callback_data=btn["callback_data"]) for btn in row] for row in keyboard_data]
+                        
+                        await query.message.edit_text(
+                            text=cached_data['text'],
+                            parse_mode=cached_data['parse_mode'],
+                            reply_markup=InlineKeyboardMarkup(keyboard)
+                        )
+                        logger.info("Restored original signal message")
+                    else:
+                        logger.error(f"No cached data found for message_id: {original_id}")
+                except Exception as e:
+                    logger.error(f"Error restoring message: {str(e)}")
             
         except Exception as e:
             logger.error(f"Error handling button click: {str(e)}")
