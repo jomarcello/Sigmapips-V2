@@ -26,7 +26,7 @@ class MarketSentimentService:
             url = "https://api.perplexity.ai/chat/completions"
             
             payload = {
-                "model": "mixtral-8x7b-instruct",
+                "model": "sonar-pro",
                 "messages": [{
                     "role": "system",
                     "content": "You are a financial analyst focused on providing recent market analysis."
