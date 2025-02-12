@@ -115,23 +115,27 @@ class TelegramService:
             entry_points=[CommandHandler("start", self._start_command)],
             states={
                 CHOOSE_MARKET: [
-                    CallbackQueryHandler(self._market_choice)
+                    CallbackQueryHandler(self._market_choice, pattern="^market_|back$")
                 ],
                 CHOOSE_INSTRUMENT: [
-                    CallbackQueryHandler(self._instrument_choice)
+                    CallbackQueryHandler(self._instrument_choice, pattern="^instrument_|back$")
                 ],
                 CHOOSE_TIMEFRAME: [
-                    CallbackQueryHandler(self._timeframe_choice)
+                    CallbackQueryHandler(self._timeframe_choice, pattern="^timeframe_|back$")
                 ],
                 MANAGE_PREFERENCES: [
-                    CallbackQueryHandler(self._manage_preferences)
+                    CallbackQueryHandler(self._manage_preferences, pattern="^add_more|view_prefs|manage_prefs$")
                 ]
             },
-            fallbacks=[CommandHandler("start", self._start_command)]
+            fallbacks=[CommandHandler("start", self._start_command)],
+            per_message=True
         )
         
         # Add handlers
         self.app.add_handler(conv_handler)
+        
+        # Add webhook handler
+        self.app.add_handler(CommandHandler("webhook", self._webhook_handler))
         
         logger.info("Telegram service initialized")
             
@@ -304,5 +308,14 @@ class TelegramService:
             pass
         
         return MANAGE_PREFERENCES
+
+    async def _webhook_handler(self, update: Update, context):
+        """Handle webhook updates"""
+        try:
+            logger.info(f"Received webhook update: {update}")
+            # Process the update
+            await self.app.process_update(update)
+        except Exception as e:
+            logger.error(f"Error processing webhook: {str(e)}")
 
 # ... rest van de code ...
