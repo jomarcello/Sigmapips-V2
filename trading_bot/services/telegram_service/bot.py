@@ -259,7 +259,7 @@ class TelegramService:
                 reply_markup=reply_markup
             )
             
-            # Sla bericht op in Redis
+            # Sla bericht op in Redis met debug logging
             message_key = f"signal:{sent_message.message_id}"
             cache_data = {
                 'text': message,
@@ -267,7 +267,10 @@ class TelegramService:
                 'parse_mode': 'HTML'
             }
             self.redis.hmset(message_key, cache_data)
-            self.redis.expire(message_key, 3600)  # Cache voor 1 uur
+            self.redis.expire(message_key, 3600)
+            
+            logger.info(f"Stored message in Redis with key: {message_key}")
+            logger.info(f"Cache data: {cache_data}")
             
             return True
             
@@ -620,12 +623,14 @@ class TelegramService:
         try:
             action, *params = query.data.split('_')
             message_id = query.message.message_id
+            logger.info(f"Button clicked: {action}, params: {params}, message_id: {message_id}")
             
             if action == "chart":
                 symbol, timeframe = params
                 chart_image = await self.chart.generate_chart(symbol, timeframe)
                 if chart_image:
                     keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data=f"back_to_signal_{message_id}")]]
+                    logger.info(f"Setting back button with message_id: {message_id}")
                     await query.message.edit_media(
                         media=InputMediaPhoto(
                             media=chart_image,
@@ -637,20 +642,25 @@ class TelegramService:
                     await query.message.reply_text("Sorry, chart generation failed.")
                     
             elif action == "back_to_signal":
-                # Haal originele bericht op uit Redis
-                message_key = f"signal:{params[0]}"
+                original_message_id = params[0]
+                message_key = f"signal:{original_message_id}"
+                logger.info(f"Fetching message from Redis with key: {message_key}")
+                
                 cached_data = self.redis.hgetall(message_key)
+                logger.info(f"Found cached data: {cached_data}")
                 
                 if cached_data:
                     keyboard_data = json.loads(cached_data['keyboard'])
-                    await query.message.edit_text(
+                    # Eerst verwijderen, dan nieuwe tekst
+                    await query.message.delete()
+                    await query.message.reply_text(
                         text=cached_data['text'],
                         parse_mode=cached_data['parse_mode'],
                         reply_markup=InlineKeyboardMarkup(keyboard_data)
                     )
-                    logger.info("Restored original signal message from Redis")
+                    logger.info("Restored original signal message")
                 else:
-                    logger.error(f"No cached data found in Redis for message_id: {params[0]}")
+                    logger.error(f"No cached data found for message_id: {original_message_id}")
             
         except Exception as e:
             logger.error(f"Error handling button click: {str(e)}")
