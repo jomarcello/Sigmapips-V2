@@ -308,4 +308,17 @@ class TelegramService:
         
         return MANAGE_PREFERENCES
 
+    async def set_webhook(self, webhook_url: str):
+        """Set webhook for the bot"""
+        try:
+            # Verwijder bestaande webhook
+            await self.bot.delete_webhook()
+            
+            # Stel nieuwe webhook in
+            await self.bot.set_webhook(url=f"{webhook_url}/webhook")
+            logger.info(f"Webhook set to: {webhook_url}/webhook")
+        except Exception as e:
+            logger.error(f"Failed to set webhook: {str(e)}")
+            raise
+
 # ... rest van de code ...
