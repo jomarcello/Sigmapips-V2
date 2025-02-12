@@ -32,12 +32,14 @@ async def startup_event():
     """Initialize async services on startup"""
     await telegram.initialize()
     
-    # Set webhook URL
-    webhook_url = os.getenv("WEBHOOK_URL")
+    # Set webhook URL using Railway URL
+    webhook_url = os.getenv("RAILWAY_PUBLIC_DOMAIN")
     if webhook_url:
-        await telegram.set_webhook(webhook_url)
+        full_url = f"https://{webhook_url}"
+        await telegram.set_webhook(full_url)
+        logger.info(f"Webhook set to: {full_url}")
     else:
-        logger.warning("WEBHOOK_URL not set, bot will not receive updates")
+        logger.warning("RAILWAY_PUBLIC_DOMAIN not set, bot will not receive updates")
 
 @app.get("/health")
 async def health_check():
@@ -52,4 +54,4 @@ async def telegram_webhook(request: Request):
         return {"status": "ok"}
     except Exception as e:
         logger.error(f"Error processing webhook: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e)) 
+        raise HTTPException(status_code=500, detail=str(e))
