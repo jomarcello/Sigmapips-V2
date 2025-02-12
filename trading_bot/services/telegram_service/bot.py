@@ -201,15 +201,45 @@ class TelegramService:
             raise
             
     async def send_signal(self, chat_id: str, signal: Dict[str, Any], sentiment: str = None, chart: str = None, events: list = None):
+        """Send formatted signal message with inline buttons"""
         try:
-            message = self._format_signal_message(signal, sentiment, events)
-            logger.info(f"Attempting to send message to chat_id: {chat_id}")
-            await self.bot.send_message(chat_id=chat_id, text=message, parse_mode=ParseMode.HTML)
-            if chart:
-                await self.bot.send_photo(chat_id=chat_id, photo=chart)
+            # Format main signal message
+            message = (
+                "🚨 *TRADING SIGNAL*\n\n"
+                f"*Symbol:* {signal['symbol']}\n"
+                f"*Action:* {signal['action']}\n"
+                f"*Entry Price:* {signal['price']}\n"
+                f"*Stop Loss:* {signal['stopLoss']}\n"
+                f"*Take Profit:* {signal['takeProfit']}\n"
+                f"*Timeframe:* {signal['timeframe']}\n\n"
+                "⚠️ *Risk Management*\n"
+                "• Use proper position sizing\n"
+                "• Always use a stop loss\n"
+                "• Maximum risk per trade: 1-2%"
+            )
+
+            # Create inline keyboard with all buttons
+            keyboard = [
+                [InlineKeyboardButton("📊 Technical Analysis", callback_data=f"chart_{signal['symbol']}_{signal['timeframe']}")],
+                [InlineKeyboardButton("🤖 Market Sentiment", callback_data=f"sentiment_{signal['symbol']}")],
+                [InlineKeyboardButton("📅 Economic Calendar", callback_data=f"calendar_{signal['symbol']}")]
+            ]
+            
+            reply_markup = InlineKeyboardMarkup(keyboard)
+
+            # Send initial signal message
+            await self.bot.send_message(
+                chat_id=chat_id,
+                text=message,
+                parse_mode=ParseMode.MARKDOWN,
+                reply_markup=reply_markup
+            )
+
+            logger.info(f"Signal sent to {chat_id}")
             return True
+        
         except Exception as e:
-            logger.error(f"Failed to send message to {chat_id}: {str(e)}", exc_info=True)
+            logger.error(f"Failed to send signal to {chat_id}: {str(e)}", exc_info=True)
             return False
             
     def _format_signal_message(self, signal: Dict[str, Any], sentiment: str = None, events: list = None) -> str:
@@ -220,7 +250,7 @@ class TelegramService:
         message += f"Price: {signal['price']}\n"
         message += f"Stop Loss: {signal['stopLoss']}\n"
         message += f"Take Profit: {signal['takeProfit']}\n"
-        message += f"Timeframe: {signal.get('timeframe', 'Not specified')}\n"
+        message += f"Timeframe: {signal['timeframe']}\n"
         
         if sentiment:
             message += f"\nSentiment Analysis\n{sentiment}\n"
@@ -548,5 +578,43 @@ class TelegramService:
             await update.message.reply_text(HELP_MESSAGE)
         except Exception as e:
             logger.error(f"Error handling help command: {str(e)}")
+
+    async def _button_click(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle button clicks on signal messages"""
+        query = update.callback_query
+        await query.answer()
+        
+        try:
+            action, *params = query.data.split('_')
+            
+            if action == "chart":
+                symbol, timeframe = params
+                # Test chart service
+                chart_image = await self.chart.generate_chart(symbol, timeframe)
+                if chart_image:
+                    await query.message.reply_photo(
+                        photo=chart_image,
+                        caption=f"📊 Technical Analysis for {symbol} ({timeframe})"
+                    )
+                else:
+                    await query.message.reply_text("Sorry, chart generation failed.")
+                
+            elif action == "sentiment":
+                symbol = params[0]
+                await query.message.reply_text(
+                    f"🤖 Market Sentiment for {symbol}\n\n"
+                    "Sentiment analysis coming soon..."
+                )
+                
+            elif action == "calendar":
+                symbol = params[0]
+                await query.message.reply_text(
+                    f"📅 Economic Calendar for {symbol}\n\n"
+                    "Economic calendar coming soon..."
+                )
+                
+        except Exception as e:
+            logger.error(f"Error handling button click: {str(e)}")
+            await query.message.reply_text("Sorry, something went wrong.")
 
 # ... rest van de code ...
