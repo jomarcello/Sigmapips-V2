@@ -422,4 +422,100 @@ class TelegramService:
         except Exception as e:
             logger.error(f"Error handling menu command: {str(e)}")
 
+    async def _manage_preferences(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle preference management"""
+        query = update.callback_query
+        await query.answer()
+        
+        if query.data == "add_more" or query.data == "start":
+            reply_markup = InlineKeyboardMarkup(MARKET_KEYBOARD)
+            await query.edit_message_text(
+                text=WELCOME_MESSAGE,
+                reply_markup=reply_markup
+            )
+            return CHOOSE_MARKET
+        
+        elif query.data == "manage_prefs" or query.data == "manage":
+            user_id = query.from_user.id
+            response = self.db.supabase.table('subscriber_preferences').select('*').eq('user_id', user_id).execute()
+            
+            if not response.data:
+                await query.edit_message_text(
+                    text="You don't have any saved preferences yet.",
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Add Preferences", callback_data="add_more")]])
+                )
+                return MANAGE_PREFERENCES
+            
+            message = "Your current preferences:\n\n"
+            for i, pref in enumerate(response.data, 1):
+                message += f"{i}. {pref['market']} - {pref['instrument']} - {pref['timeframe']}\n"
+            
+            keyboard = [
+                [InlineKeyboardButton("Add More", callback_data="add_more")],
+                [DELETE_BUTTON]
+            ]
+            
+            await query.edit_message_text(
+                text=message,
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            return MANAGE_PREFERENCES
+        
+        elif query.data == "delete_prefs":
+            user_id = query.from_user.id
+            response = self.db.supabase.table('subscriber_preferences').select('*').eq('user_id', user_id).execute()
+            
+            message = "Select a preference to delete:\n\n"
+            keyboard = []
+            
+            for i, pref in enumerate(response.data, 1):
+                message += f"{i}. {pref['market']} - {pref['instrument']} - {pref['timeframe']}\n"
+                keyboard.append([InlineKeyboardButton(f"Delete {i}", callback_data=f"delete_{pref['id']}")])
+            
+            keyboard.append([InlineKeyboardButton("Back", callback_data="manage_prefs")])
+            
+            await query.edit_message_text(
+                text=message,
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            return MANAGE_PREFERENCES
+        
+        elif query.data.startswith("delete_"):
+            pref_id = int(query.data.replace("delete_", ""))
+            try:
+                self.db.supabase.table('subscriber_preferences').delete().eq('id', pref_id).execute()
+                await query.answer("Preference deleted successfully!")
+                
+                # Show updated preferences
+                user_id = query.from_user.id
+                response = self.db.supabase.table('subscriber_preferences').select('*').eq('user_id', user_id).execute()
+                
+                if not response.data:
+                    await query.edit_message_text(
+                        text="You don't have any saved preferences yet.",
+                        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Add Preferences", callback_data="add_more")]])
+                    )
+                else:
+                    message = "Your current preferences:\n\n"
+                    for i, pref in enumerate(response.data, 1):
+                        message += f"{i}. {pref['market']} - {pref['instrument']} - {pref['timeframe']}\n"
+                    
+                    keyboard = [
+                        [InlineKeyboardButton("Add More", callback_data="add_more")],
+                        [DELETE_BUTTON]
+                    ]
+                    
+                    await query.edit_message_text(
+                        text=message,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+            
+            except Exception as e:
+                logger.error(f"Error deleting preference: {str(e)}")
+                await query.answer("Error deleting preference")
+            
+            return MANAGE_PREFERENCES
+        
+        return MANAGE_PREFERENCES
+
 # ... rest van de code ...
