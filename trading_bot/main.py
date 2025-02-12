@@ -55,3 +55,42 @@ async def telegram_webhook(request: Request):
     except Exception as e:
         logger.error(f"Error processing webhook: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/signal")
+async def process_signal(signal: Dict[str, Any]):
+    """Process incoming trading signal"""
+    try:
+        logger.info(f"Received signal: {signal}")
+        
+        # 1. Validate signal
+        required_fields = ["symbol", "action", "price", "stopLoss", "takeProfit", "timeframe"]
+        if not all(field in signal for field in required_fields):
+            raise HTTPException(status_code=400, detail="Missing required fields")
+            
+        # 2. Get sentiment analysis
+        sentiment = await news_ai.analyze_sentiment(signal["symbol"])
+        
+        # 3. Generate chart
+        chart_image = await chart.generate_chart(signal["symbol"], signal["timeframe"])
+        
+        # 4. Get calendar events
+        events = await calendar.get_events(signal["symbol"])
+        
+        # 5. Find matching subscribers
+        subscribers = await db.match_subscribers(signal)
+        
+        # 6. Send signals to subscribers
+        for subscriber in subscribers:
+            await telegram.send_signal(
+                chat_id=subscriber["chat_id"],
+                signal=signal,
+                sentiment=sentiment,
+                chart=chart_image,
+                events=events
+            )
+            
+        return {"status": "success", "subscribers_notified": len(subscribers)}
+        
+    except Exception as e:
+        logger.error(f"Error processing signal: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e)) 
