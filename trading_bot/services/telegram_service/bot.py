@@ -138,7 +138,8 @@ class TelegramService:
         conv_handler = ConversationHandler(
             entry_points=[
                 CommandHandler("start", self._start_command),
-                CommandHandler("manage", self._manage_command)
+                CommandHandler("manage", self._manage_command),
+                CommandHandler("menu", self._menu_command)
             ],
             states={
                 CHOOSE_MARKET: [
@@ -151,12 +152,13 @@ class TelegramService:
                     CallbackQueryHandler(self._timeframe_choice, pattern="^timeframe_|back$")
                 ],
                 MANAGE_PREFERENCES: [
-                    CallbackQueryHandler(self._manage_preferences, pattern="^add_more|manage_prefs|delete_prefs|delete_\d+$")
+                    CallbackQueryHandler(self._manage_preferences, pattern="^add_more|manage_prefs|delete_prefs|delete_\d+|start|manage$")
                 ]
             },
             fallbacks=[
                 CommandHandler("start", self._start_command),
-                CommandHandler("manage", self._manage_command)
+                CommandHandler("manage", self._manage_command),
+                CommandHandler("menu", self._menu_command)
             ]
         )
         
@@ -368,7 +370,7 @@ class TelegramService:
         query = update.callback_query
         await query.answer()
         
-        if query.data == "add_more":
+        if query.data == "add_more" or query.data == "start":
             reply_markup = InlineKeyboardMarkup(MARKET_KEYBOARD)
             await query.edit_message_text(
                 text=WELCOME_MESSAGE,
@@ -376,7 +378,7 @@ class TelegramService:
             )
             return CHOOSE_MARKET
         
-        elif query.data == "manage_prefs":
+        elif query.data == "manage_prefs" or query.data == "manage":
             return await self._show_preferences(query)
         
         elif query.data == "delete_prefs":
@@ -406,8 +408,7 @@ class TelegramService:
         
         keyboard = [
             [InlineKeyboardButton("Add More", callback_data="add_more")],
-            [DELETE_BUTTON],
-            [InlineKeyboardButton("Back to Start", callback_data="back")]
+            [DELETE_BUTTON]
         ]
         
         await query.edit_message_text(
