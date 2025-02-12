@@ -240,7 +240,7 @@ class TelegramService:
             Timeframe: {signal['timeframe']}
             
             Use this exact format with emojis:
-            Signal for [SYMBOL]
+            🚨 NEW TRADING SIGNAL 🚨
             
             Instrument: [SYMBOL]
             Action: [ACTION] 📉/📈
