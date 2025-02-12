@@ -67,8 +67,8 @@ INDICES_KEYBOARD = [
 ]
 
 COMMODITIES_KEYBOARD = [
-    [InlineKeyboardButton("Gold (XAUUSD)", callback_data="instrument_XAUUSD")],
-    [InlineKeyboardButton("Silver (XAGUSD)", callback_data="instrument_XAGUSD")],
+    [InlineKeyboardButton("XAUUSD", callback_data="instrument_XAUUSD")],
+    [InlineKeyboardButton("XAGUSD", callback_data="instrument_XAGUSD")],
     [InlineKeyboardButton("Oil (WTI)", callback_data="instrument_WTI")],
     [InlineKeyboardButton("Oil (Brent)", callback_data="instrument_Brent")],
     [InlineKeyboardButton("Natural Gas", callback_data="instrument_NGAS")],
@@ -93,8 +93,7 @@ TIMEFRAME_KEYBOARD = [
 ]
 
 AFTER_SETUP_KEYBOARD = [
-    [InlineKeyboardButton("Add More Combinations", callback_data="add_more")],
-    [InlineKeyboardButton("View Preferences", callback_data="view_prefs")],
+    [InlineKeyboardButton("Add More", callback_data="add_more")],
     [InlineKeyboardButton("Manage Preferences", callback_data="manage_prefs")]
 ]
 
@@ -130,7 +129,7 @@ class TelegramService:
                     CallbackQueryHandler(self._timeframe_choice, pattern="^timeframe_|back$")
                 ],
                 MANAGE_PREFERENCES: [
-                    CallbackQueryHandler(self._manage_preferences, pattern="^add_more|view_prefs|manage_prefs$")
+                    CallbackQueryHandler(self._manage_preferences, pattern="^add_more|manage_prefs$")
                 ]
             },
             fallbacks=[CommandHandler("start", self._start_command)]
@@ -324,16 +323,37 @@ class TelegramService:
         if query.data == "add_more":
             reply_markup = InlineKeyboardMarkup(MARKET_KEYBOARD)
             await query.edit_message_text(
-                text="Please select a market:",
+                text=WELCOME_MESSAGE,
                 reply_markup=reply_markup
             )
             return CHOOSE_MARKET
-        elif query.data == "view_prefs":
-            # TODO: Add view preferences logic
-            pass
         elif query.data == "manage_prefs":
-            # TODO: Add manage preferences logic
-            pass
+            # Haal alle voorkeuren op voor deze gebruiker
+            user_id = update.effective_user.id
+            response = self.db.supabase.table('subscriber_preferences').select('*').eq('user_id', user_id).execute()
+            
+            if not response.data:
+                await query.edit_message_text(
+                    text="You don't have any saved preferences yet.",
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Add Preferences", callback_data="add_more")]])
+                )
+                return MANAGE_PREFERENCES
+            
+            # Toon alle voorkeuren
+            message = "Your current preferences:\n\n"
+            for i, pref in enumerate(response.data, 1):
+                message += f"{i}. {pref['market']} - {pref['instrument']} - {pref['timeframe']}\n"
+            
+            # Voeg een knop toe om terug te gaan
+            keyboard = [
+                [InlineKeyboardButton("Add More", callback_data="add_more")],
+                [InlineKeyboardButton("Back to Start", callback_data="back")]
+            ]
+            
+            await query.edit_message_text(
+                text=message,
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
         
         return MANAGE_PREFERENCES
 
