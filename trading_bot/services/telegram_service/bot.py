@@ -641,23 +641,15 @@ class TelegramService:
                 _, symbol, timeframe = data.split('_')
                 chart_image = await self.chart.generate_chart(symbol, timeframe)
                 if chart_image:
-                    # Store current message before showing chart
+                    # Sla origineel bericht op
                     message_key = f"signal:{message_id}"
-                    original_text = query.message.text or query.message.caption
-                    
                     cache_data = {
-                        'text': original_text,
-                        'keyboard': json.dumps(query.message.reply_markup.to_dict()),
-                        'parse_mode': 'HTML'
+                        'text': query.message.text,
+                        'keyboard': json.dumps(query.message.reply_markup.to_dict())
                     }
+                    self.redis.hmset(message_key, cache_data)
                     
-                    try:
-                        self.redis.hmset(message_key, cache_data)
-                        self.redis.expire(message_key, 3600)
-                        logger.info(f"Stored original message in Redis: {message_key}")
-                    except Exception as e:
-                        logger.error(f"Redis storage error: {str(e)}")
-                    
+                    # Toon chart
                     keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data=f"back_{message_id}")]]
                     await query.message.edit_media(
                         media=InputMediaPhoto(
@@ -670,32 +662,20 @@ class TelegramService:
             elif data.startswith("back_"):
                 original_id = data.split('_')[1]
                 message_key = f"signal:{original_id}"
-                logger.info(f"Fetching message from Redis with key: {message_key}")
+                cached_data = self.redis.hgetall(message_key)
                 
-                try:
-                    cached_data = self.redis.hgetall(message_key)
-                    logger.info(f"Found cached data: {cached_data}")
-                    
-                    if cached_data:
-                        keyboard = InlineKeyboardMarkup.de_json(json.loads(cached_data['keyboard']), self.bot)
-                        await query.message.edit_media(
-                            media=InputMediaPhoto(
-                                media="https://i.imgur.com/1HmqL5N.png",  # Placeholder afbeelding
-                                caption=cached_data['text'],
-                                parse_mode=cached_data['parse_mode']
-                            ),
-                            reply_markup=keyboard
-                        )
-                        logger.info("Restored original signal message")
-                    else:
-                        logger.error(f"No cached data found for message_id: {original_id}")
-                except Exception as e:
-                    logger.error(f"Error restoring message: {str(e)}")
-                    logger.exception(e)
+                if cached_data:
+                    keyboard = InlineKeyboardMarkup.de_json(json.loads(cached_data['keyboard']), self.bot)
+                    await query.message.edit_caption(
+                        caption=cached_data['text'],
+                        reply_markup=keyboard
+                    )
+                    logger.info("Restored original signal message")
+                else:
+                    logger.error(f"No cached data found for message_id: {original_id}")
         
         except Exception as e:
             logger.error(f"Error handling button click: {str(e)}")
-            logger.exception(e)
             await query.message.reply_text("Sorry, something went wrong.")
 
 # ... rest van de code ...
