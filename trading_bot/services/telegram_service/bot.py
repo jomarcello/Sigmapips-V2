@@ -621,12 +621,10 @@ class TelegramService:
                 # Haal originele bericht info op
                 cached_data = self.message_cache.get(int(params[0]))  # params[0] is message_id
                 if cached_data:
-                    # Herstel het originele bericht
-                    await query.message.edit_media(
-                        media=InputMediaPhoto(
-                            media=cached_data.get('image', None),  # Als er een originele afbeelding was
-                            caption=cached_data['text']
-                        ),
+                    # Herstel het originele bericht met edit_text
+                    await query.message.edit_text(
+                        text=cached_data['text'],
+                        parse_mode=ParseMode.HTML,
                         reply_markup=InlineKeyboardMarkup(cached_data['keyboard'])
                     )
                     logger.info("Restored original signal message")
