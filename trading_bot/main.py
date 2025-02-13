@@ -3,6 +3,8 @@ import logging
 import os
 from typing import Dict, Any
 from telegram import Update
+import asyncio
+import time
 
 from trading_bot.services.telegram_service.bot import TelegramService
 from trading_bot.services.chart_service.chart import ChartService
@@ -46,28 +48,51 @@ async def telegram_webhook(request: Request):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/signal")
-async def receive_signal(signal: dict):
-    """Receive trading signal and forward to subscribers"""
+async def receive_signal(signal: Dict[str, Any]):
     try:
         logger.info(f"Received signal: {signal}")
         
-        # Get matching subscribers
-        subscribers = await db.match_subscribers(signal)
-        logger.info(f"Found {len(subscribers)} matching subscribers")
+        # Pre-load alle services
+        tasks = []
         
-        # Send signal to each subscriber
-        for subscriber in subscribers:
-            try:
-                await telegram.send_signal(
-                    chat_id=subscriber['chat_id'],
-                    signal=signal
-                )
-            except Exception as e:
-                logger.error(f"Failed to send signal to subscriber {subscriber['chat_id']}: {str(e)}")
-                continue
-                
-        return {"status": "success", "message": f"Signal sent to {len(subscribers)} subscribers"}
+        # 1. Format het basis signaal
+        formatted_signal_task = telegram.format_signal_with_ai(signal)
+        tasks.append(formatted_signal_task)
+        
+        # 2. Genereer chart
+        chart_task = telegram.chart.generate_chart(signal['symbol'], signal['timeframe'])
+        tasks.append(chart_task)
+        
+        # 3. Haal market sentiment op
+        sentiment_task = telegram.sentiment.get_market_sentiment(signal)
+        tasks.append(sentiment_task)
+        
+        # 4. Haal economic calendar op
+        calendar_task = telegram.calendar.get_economic_calendar()
+        tasks.append(calendar_task)
+        
+        # Wacht tot alle data geladen is
+        results = await asyncio.gather(*tasks)
+        formatted_signal, chart_image, sentiment_data, calendar_data = results
+        
+        # Sla de resultaten op in Redis voor snelle toegang
+        message_key = f"preload:{signal['symbol']}:{int(time.time())}"
+        cache_data = {
+            'formatted_signal': formatted_signal,
+            'chart_image': chart_image,
+            'sentiment': sentiment_data,
+            'calendar': calendar_data,
+            'timestamp': str(int(time.time()))
+        }
+        telegram.redis.hmset(message_key, cache_data)
+        telegram.redis.expire(message_key, 3600)  # 1 uur cache
+        
+        # Stuur het signaal met de gecachede data
+        await telegram.broadcast_signal(signal, message_key)
+        
+        return {"status": "success", "message": "Signal processed and sent"}
         
     except Exception as e:
         logger.error(f"Error processing signal: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception(e)
+        return {"status": "error", "message": str(e)}
