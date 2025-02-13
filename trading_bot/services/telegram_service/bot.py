@@ -103,11 +103,11 @@ COMMODITIES_KEYBOARD = [
 ]
 
 CRYPTO_KEYBOARD = [
-    [InlineKeyboardButton("Bitcoin (BTCUSD)", callback_data="instrument_BTCUSD")],
-    [InlineKeyboardButton("Ethereum (ETHUSD)", callback_data="instrument_ETHUSD")],
-    [InlineKeyboardButton("Ripple (XRPUSD)", callback_data="instrument_XRPUSD")],
-    [InlineKeyboardButton("Solana (SOLUSD)", callback_data="instrument_SOLUSD")],
-    [InlineKeyboardButton("Litecoin (LTCUSD)", callback_data="instrument_LTCUSD")],
+    [InlineKeyboardButton("BTCUSD", callback_data="instrument_BTCUSD")],
+    [InlineKeyboardButton("ETHUSD", callback_data="instrument_ETHUSD")],
+    [InlineKeyboardButton("XRPUSD", callback_data="instrument_XRPUSD")],
+    [InlineKeyboardButton("SOLUSD", callback_data="instrument_SOLUSD")],
+    [InlineKeyboardButton("LTCUSD", callback_data="instrument_LTCUSD")],
     [BACK_BUTTON]
 ]
 
