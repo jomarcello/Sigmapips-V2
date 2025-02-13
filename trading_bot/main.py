@@ -77,15 +77,23 @@ async def receive_signal(signal: Dict[str, Any]):
         
         # Sla de resultaten op in Redis voor snelle toegang
         message_key = f"preload:{signal['symbol']}:{int(time.time())}"
-        cache_data = {
+        
+        # Sla text data op in normale Redis
+        text_cache = {
             'formatted_signal': formatted_signal,
-            'chart_image': chart_image,
             'sentiment': sentiment_data,
             'calendar': calendar_data,
-            'timestamp': str(int(time.time()))
+            'timestamp': str(int(time.time())),
+            'symbol': signal['symbol'],
+            'timeframe': signal['timeframe']
         }
-        telegram.redis.hmset(message_key, cache_data)
-        telegram.redis.expire(message_key, 3600)  # 1 uur cache
+        telegram.redis.hmset(f"{message_key}:text", text_cache)
+        telegram.redis.expire(f"{message_key}:text", 3600)
+        
+        # Sla binary data op in binary Redis
+        if chart_image:
+            telegram.redis_binary.set(f"{message_key}:chart", chart_image)
+            telegram.redis_binary.expire(f"{message_key}:chart", 3600)
         
         # Stuur het signaal met de gecachede data
         await telegram.broadcast_signal(signal, message_key)
