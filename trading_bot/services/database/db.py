@@ -2,7 +2,7 @@ from supabase import create_client, Client
 import redis
 import logging
 import os
-from typing import Dict, List
+from typing import Dict, List, Any
 
 logger = logging.getLogger(__name__)
 
@@ -43,27 +43,44 @@ class Database:
         
         self.CACHE_TIMEOUT = 300  # 5 minuten in seconden
         
-    async def match_subscribers(self, signal: Dict) -> List[Dict]:
-        """Match signal with subscriber preferences"""
+    async def match_subscribers(self, signal: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Match signal with subscribers based on market, instrument and timeframe"""
         try:
-            logger.info(f"Attempting to connect to Supabase with URL: {self.supabase.supabase_url}")
-            logger.info(f"Incoming signal: {signal}")
-            
-            response = self.supabase.table("subscribers").select("*").execute()
-            logger.info(f"Supabase response: {response}")
-            
-            # Transform subscriber data to include chat_id
-            subscribers = []
-            for s in response.data:
-                s['chat_id'] = str(s['user_id'])  # Use user_id as chat_id
-                subscribers.append(s)
-            
-            matches = [s for s in subscribers if self._matches_preferences(signal, s)]
-            logger.info(f"Matched subscribers: {matches}")
-            return matches
-            
+            # Haal alle actieve subscribers op
+            subscribers = await self.supabase.table('subscriber_preferences').select('*').execute()
+            logger.info(f"Supabase response: {subscribers}")
+
+            # Filter subscribers die matchen met het signaal
+            matched_subscribers = []
+            for subscriber in subscribers.data:
+                # Converteer alles naar lowercase voor case-insensitive vergelijking
+                subscriber_market = subscriber['market'].lower()
+                subscriber_instrument = subscriber['instrument'].lower()
+                signal_market = signal['market'].lower()
+                signal_symbol = signal['symbol'].lower()
+                
+                # Log de vergelijking
+                logger.info(f"Comparing subscriber: market={subscriber_market}, instrument={subscriber_instrument}, "
+                           f"timeframe={subscriber['timeframe']} with signal: market={signal_market}, "
+                           f"symbol={signal_symbol}, timeframe={signal['timeframe']}")
+
+                # Check of market, instrument en timeframe matchen
+                if (subscriber_market == signal_market and
+                    subscriber_instrument == signal_symbol and
+                    subscriber['timeframe'] == signal['timeframe'] and
+                    subscriber.get('is_active', True)):  # Check of subscriber actief is
+                    
+                    # Voeg chat_id toe aan subscriber data
+                    subscriber['chat_id'] = str(subscriber['user_id'])
+                    matched_subscribers.append(subscriber)
+                    logger.info(f"Matched subscriber: {subscriber}")
+
+            logger.info(f"Matched subscribers: {matched_subscribers}")
+            return matched_subscribers
+
         except Exception as e:
-            logger.error(f"Error matching subscribers: {str(e)}", exc_info=True)
+            logger.error(f"Error matching subscribers: {str(e)}")
+            logger.exception(e)
             return []
             
     async def get_cached_sentiment(self, symbol: str) -> str:
