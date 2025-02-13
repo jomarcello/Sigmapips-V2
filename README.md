@@ -1,4 +1,4 @@
-# SigmaPips Trading Bot
+# SigmapipsAI Trading Bot
 
 Een geavanceerde Telegram trading bot gedeployed op Railway voor het verwerken en distribueren van trading signalen met real-time analyses.
 
