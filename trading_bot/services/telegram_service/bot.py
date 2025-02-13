@@ -863,6 +863,12 @@ class TelegramService:
                 [InlineKeyboardButton("📅 Economic Calendar", callback_data=f"calendar_{signal['symbol']}")]
             ]
             
+            # Converteer keyboard naar JSON-serializable formaat
+            keyboard_json = [[
+                {"text": btn.text, "callback_data": btn.callback_data}
+                for btn in row
+            ] for row in keyboard]
+            
             reply_markup = InlineKeyboardMarkup(keyboard)
             
             # Send to each subscriber
@@ -879,9 +885,9 @@ class TelegramService:
                     signal_key = f"signal:{sent_message.message_id}"
                     cache_data = {
                         'text': formatted_signal,
-                        'keyboard': json.dumps(keyboard),
+                        'keyboard': json.dumps(keyboard_json),  # Gebruik het JSON-serializable formaat
                         'parse_mode': 'HTML',
-                        'preload_key': message_key  # Store reference to preloaded data
+                        'preload_key': message_key
                     }
                     
                     self.redis.hmset(signal_key, cache_data)
