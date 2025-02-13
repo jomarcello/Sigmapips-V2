@@ -5,6 +5,7 @@ from typing import Dict, Any
 from telegram import Update
 import asyncio
 import time
+import base64
 
 from trading_bot.services.telegram_service.bot import TelegramService
 from trading_bot.services.chart_service.chart import ChartService
@@ -52,6 +53,9 @@ async def receive_signal(signal: Dict[str, Any]):
     try:
         logger.info(f"Received signal: {signal}")
         
+        # Genereer message key eerst
+        message_key = f"preload:{signal['symbol']}:{int(time.time())}"
+        
         # Pre-load alle services
         tasks = []
         
@@ -75,26 +79,29 @@ async def receive_signal(signal: Dict[str, Any]):
         results = await asyncio.gather(*tasks)
         formatted_signal, chart_image, sentiment_data, calendar_data = results
         
-        # Sla de resultaten op in Redis voor snelle toegang
-        message_key = f"preload:{signal['symbol']}:{int(time.time())}"
+        # Converteer binary data naar base64
+        chart_base64 = base64.b64encode(chart_image).decode('utf-8') if chart_image else None
         
-        # Sla text data op in normale Redis
-        text_cache = {
+        # Sla alles op in Redis
+        cache_data = {
             'formatted_signal': formatted_signal,
+            'chart_image': chart_base64,
             'sentiment': sentiment_data,
             'calendar': calendar_data,
             'timestamp': str(int(time.time())),
             'symbol': signal['symbol'],
             'timeframe': signal['timeframe']
         }
-        telegram.redis.hmset(f"{message_key}:text", text_cache)
-        telegram.redis.expire(f"{message_key}:text", 3600)
         
-        # Sla binary data op in binary Redis
-        if chart_image:
-            telegram.redis_binary.set(f"{message_key}:chart", chart_image)
-            telegram.redis_binary.expire(f"{message_key}:chart", 3600)
+        # Sla op in Redis en verifieer
+        telegram.redis.hmset(message_key, cache_data)
+        telegram.redis.expire(message_key, 3600)
         
+        # Verifieer dat de data is opgeslagen
+        if not telegram.redis.exists(message_key):
+            logger.error(f"Failed to save data in Redis for key: {message_key}")
+            return {"status": "error", "message": "Failed to cache data"}
+            
         # Stuur het signaal met de gecachede data
         await telegram.broadcast_signal(signal, message_key)
         
