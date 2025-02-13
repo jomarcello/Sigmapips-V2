@@ -1,4 +1,3 @@
-
 import os
 import ssl
 import asyncio
@@ -785,42 +784,45 @@ class TelegramService:
                 
             elif data.startswith("back_to_signal_"):
                 try:
-                    # Check of het huidige bericht een foto is
-                    is_photo = bool(query.message.photo)
+                    # Gebruik preloaded data voor het originele bericht
+                    formatted_signal = preloaded_data['formatted_signal']
                     
                     keyboard = [
                         [
                             InlineKeyboardButton(
                                 "📊 Technical Analysis", 
-                                callback_data=f"chart_{signal_cache['symbol']}_{signal_cache['timeframe']}"
+                                callback_data=f"chart_{preloaded_data['symbol']}_{preloaded_data['timeframe']}"
                             ),
                             InlineKeyboardButton(
                                 "🤖 Market Sentiment", 
-                                callback_data=f"sentiment_{signal_cache['symbol']}"
+                                callback_data=f"sentiment_{preloaded_data['symbol']}"
                             )
                         ],
                         [
                             InlineKeyboardButton(
                                 "📅 Economic Calendar", 
-                                callback_data=f"calendar_{signal_cache['symbol']}"
+                                callback_data=f"calendar_{preloaded_data['symbol']}"
                             )
                         ]
                     ]
+                    
+                    # Check of het huidige bericht een foto is
+                    is_photo = bool(query.message.photo)
                     
                     if is_photo:
                         # Als het een foto is, gebruik edit_media
                         await query.message.edit_media(
                             media=InputMediaPhoto(
                                 media=query.message.photo[-1].file_id,
-                                caption=signal_cache['text']
+                                caption=formatted_signal
                             ),
                             reply_markup=InlineKeyboardMarkup(keyboard)
                         )
                     else:
                         # Anders gebruik edit_text
                         await query.message.edit_text(
-                            text=signal_cache['text'],
-                            parse_mode=signal_cache['parse_mode'],
+                            text=formatted_signal,
+                            parse_mode=ParseMode.HTML,
                             reply_markup=InlineKeyboardMarkup(keyboard)
                         )
                     logger.info("Restored original signal")
