@@ -137,14 +137,10 @@ class TelegramService:
         # Redis setup met Railway credentials
         redis_url = os.getenv("REDIS_URL", "redis://default:kcXeNDIt~!Pg6onj9B4t9IcudGehM1Ed@autorack.proxy.rlwy.net:42803")
         try:
-            # Twee Redis clients: één voor tekst en één voor binary data
             self.redis = redis.from_url(
                 redis_url,
-                decode_responses=True  # Voor tekst data
-            )
-            self.redis_binary = redis.from_url(
-                redis_url,
-                decode_responses=False  # Voor binary data zoals images
+                decode_responses=True,
+                encoding='utf-8'
             )
             # Test Redis connectie
             self.redis.ping()
@@ -724,11 +720,13 @@ class TelegramService:
                 logger.error(f"No preloaded data found for key: {preload_key}")
                 return
             
+            logger.info(f"Found preloaded data with keys: {list(preloaded_data.keys())}")
+            
             if data.startswith("chart_"):
                 try:
                     # Gebruik gecachede chart data
                     if preloaded_data.get('chart_image'):
-                        chart_image = base64.b64decode(preloaded_data['chart_image'])
+                        chart_image = base64.b64decode(preloaded_data['chart_image'].encode('utf-8'))
                         
                         keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data=f"back_to_signal_{message_id}")]]
                         await query.message.edit_media(
@@ -744,6 +742,7 @@ class TelegramService:
                         
                 except Exception as e:
                     logger.error(f"Error displaying chart: {str(e)}")
+                    logger.exception(e)
                 
             elif data.startswith("sentiment_"):
                 try:
