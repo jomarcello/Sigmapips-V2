@@ -648,20 +648,39 @@ class TelegramService:
             # Verwijder bestaande webhook
             await self.bot.delete_webhook()
             
-            # Stel nieuwe webhook in met de juiste path
-            webhook_url = f"{webhook_url}/webhook"
-            await self.bot.set_webhook(
-                url=webhook_url,
-                allowed_updates=['message', 'callback_query']
-            )
-            logger.info(f"Webhook set to: {webhook_url}")
+            # Wacht 2 seconden om rate limiting te voorkomen
+            await asyncio.sleep(2)
             
-            # Verify webhook is set
-            webhook_info = await self.bot.get_webhook_info()
-            logger.info(f"Webhook verification: {webhook_info}")
+            # Stel nieuwe webhook in met de juiste path en retry logic
+            max_retries = 3
+            retry_delay = 2
+            
+            for attempt in range(max_retries):
+                try:
+                    webhook_url = f"{webhook_url}/webhook"
+                    await self.bot.set_webhook(
+                        url=webhook_url,
+                        allowed_updates=['message', 'callback_query']
+                    )
+                    logger.info(f"Webhook set to: {webhook_url}")
+                    
+                    # Verify webhook is set
+                    webhook_info = await self.bot.get_webhook_info()
+                    logger.info(f"Webhook verification: {webhook_info}")
+                    break
+                    
+                except telegram.error.RetryAfter as e:
+                    if attempt == max_retries - 1:
+                        raise
+                    retry_after = e.retry_after
+                    logger.warning(f"Rate limit hit, waiting {retry_after} seconds...")
+                    await asyncio.sleep(retry_after)
+                    continue
+                
         except Exception as e:
             logger.error(f"Failed to set webhook: {str(e)}")
-            raise
+            logger.exception(e)
+            # Niet opnieuw raise, laat de applicatie doorgaan
 
     async def _help_command(self, update: Update, context):
         """Handle help command"""
