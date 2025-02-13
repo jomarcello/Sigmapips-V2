@@ -857,19 +857,18 @@ class TelegramService:
             # Create keyboard
             keyboard = [
                 [
-                    InlineKeyboardButton("📊 Technical Analysis", callback_data=f"chart_{signal['symbol']}_{signal['timeframe']}"),
-                    InlineKeyboardButton("🤖 Market Sentiment", callback_data=f"sentiment_{signal['symbol']}")
+                    {"text": "📊 Technical Analysis", "callback_data": f"chart_{signal['symbol']}_{signal['timeframe']}"},
+                    {"text": "🤖 Market Sentiment", "callback_data": f"sentiment_{signal['symbol']}"}
                 ],
-                [InlineKeyboardButton("📅 Economic Calendar", callback_data=f"calendar_{signal['symbol']}")]
+                [{"text": "📅 Economic Calendar", "callback_data": f"calendar_{signal['symbol']}"}]
             ]
             
-            # Converteer keyboard naar JSON-serializable formaat
-            keyboard_json = [[
-                {"text": btn.text, "callback_data": btn.callback_data}
-                for btn in row
-            ] for row in keyboard]
-            
-            reply_markup = InlineKeyboardMarkup(keyboard)
+            # Create InlineKeyboardMarkup from the keyboard dict
+            reply_markup = InlineKeyboardMarkup([
+                [
+                    InlineKeyboardButton(**btn) for btn in row
+                ] for row in keyboard
+            ])
             
             # Send to each subscriber
             for subscriber in subscribers:
@@ -885,7 +884,7 @@ class TelegramService:
                     signal_key = f"signal:{sent_message.message_id}"
                     cache_data = {
                         'text': formatted_signal,
-                        'keyboard': json.dumps(keyboard_json),  # Gebruik het JSON-serializable formaat
+                        'keyboard': json.dumps(keyboard),  # Keyboard is al in JSON-serializable formaat
                         'parse_mode': 'HTML',
                         'preload_key': message_key
                     }
