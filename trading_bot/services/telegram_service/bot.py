@@ -812,12 +812,26 @@ class TelegramService:
                     if is_photo:
                         # Als het een foto is, stuur een nieuw text bericht
                         await query.message.delete()
-                        await self.bot.send_message(
+                        new_message = await self.bot.send_message(
                             chat_id=query.message.chat_id,
                             text=formatted_signal,
                             parse_mode=ParseMode.HTML,
                             reply_markup=InlineKeyboardMarkup(keyboard)
                         )
+                        
+                        # Kopieer de cache data naar het nieuwe message_id
+                        new_signal_key = f"signal:{new_message.message_id}"
+                        cache_data = {
+                            'text': formatted_signal,
+                            'parse_mode': 'HTML',
+                            'preload_key': preload_key,
+                            'symbol': preloaded_data['symbol'],
+                            'timeframe': preloaded_data['timeframe']
+                        }
+                        
+                        self.redis.hmset(new_signal_key, cache_data)
+                        self.redis.expire(new_signal_key, 3600)
+                        
                     else:
                         # Anders gebruik edit_text
                         await query.message.edit_text(
