@@ -750,18 +750,42 @@ class TelegramService:
                     if preloaded_data.get('sentiment'):
                         sentiment = preloaded_data['sentiment']
                         
-                        keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data=f"back_to_signal_{message_id}")]]
-                        await query.message.edit_text(
+                        # Sla eerst de huidige message_id op
+                        old_message_id = query.message.message_id
+                        
+                        # Verwijder het oude bericht
+                        await query.message.delete()
+                        
+                        # Stuur een nieuw bericht
+                        new_message = await self.bot.send_message(
+                            chat_id=query.message.chat_id,
                             text=sentiment,
                             parse_mode=ParseMode.HTML,
-                            reply_markup=InlineKeyboardMarkup(keyboard)
+                            reply_markup=InlineKeyboardMarkup([[
+                                InlineKeyboardButton("⬅️ Back", callback_data=f"back_to_signal_{old_message_id}")
+                            ]])
                         )
+                        
+                        # Kopieer de cache data
+                        new_signal_key = f"signal:{new_message.message_id}"
+                        cache_data = {
+                            'text': sentiment,
+                            'parse_mode': 'HTML',
+                            'preload_key': preload_key,
+                            'symbol': preloaded_data['symbol'],
+                            'timeframe': preloaded_data['timeframe']
+                        }
+                        
+                        self.redis.hmset(new_signal_key, cache_data)
+                        self.redis.expire(new_signal_key, 3600)
+                        
                         logger.info("Displayed cached sentiment")
                     else:
                         logger.error("No sentiment data in cache")
                         
                 except Exception as e:
                     logger.error(f"Error displaying sentiment: {str(e)}")
+                    logger.exception(e)
                 
             elif data.startswith("calendar_"):
                 try:
@@ -769,18 +793,42 @@ class TelegramService:
                     if preloaded_data.get('calendar'):
                         calendar = preloaded_data['calendar']
                         
-                        keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data=f"back_to_signal_{message_id}")]]
-                        await query.message.edit_text(
+                        # Sla eerst de huidige message_id op
+                        old_message_id = query.message.message_id
+                        
+                        # Verwijder het oude bericht
+                        await query.message.delete()
+                        
+                        # Stuur een nieuw bericht
+                        new_message = await self.bot.send_message(
+                            chat_id=query.message.chat_id,
                             text=calendar,
                             parse_mode=ParseMode.HTML,
-                            reply_markup=InlineKeyboardMarkup(keyboard)
+                            reply_markup=InlineKeyboardMarkup([[
+                                InlineKeyboardButton("⬅️ Back", callback_data=f"back_to_signal_{old_message_id}")
+                            ]])
                         )
+                        
+                        # Kopieer de cache data
+                        new_signal_key = f"signal:{new_message.message_id}"
+                        cache_data = {
+                            'text': calendar,
+                            'parse_mode': 'HTML',
+                            'preload_key': preload_key,
+                            'symbol': preloaded_data['symbol'],
+                            'timeframe': preloaded_data['timeframe']
+                        }
+                        
+                        self.redis.hmset(new_signal_key, cache_data)
+                        self.redis.expire(new_signal_key, 3600)
+                        
                         logger.info("Displayed cached calendar")
                     else:
                         logger.error("No calendar data in cache")
                         
                 except Exception as e:
                     logger.error(f"Error displaying calendar: {str(e)}")
+                    logger.exception(e)
                 
             elif data.startswith("back_to_signal_"):
                 try:
