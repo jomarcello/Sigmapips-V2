@@ -832,4 +832,59 @@ class TelegramService:
             logger.error(f"Error handling button click: {str(e)}")
             await query.message.reply_text("Sorry, something went wrong.")
 
+    async def broadcast_signal(self, signal: Dict[str, Any], message_key: str):
+        """Broadcast signal to all matching subscribers using pre-loaded data"""
+        try:
+            # Get matching subscribers
+            subscribers = await self.db.match_subscribers(signal)
+            logger.info(f"Found {len(subscribers)} matching subscribers")
+            
+            # Get cached data
+            cached_data = self.redis.hgetall(message_key)
+            if not cached_data:
+                logger.error(f"No cached data found for message_key: {message_key}")
+                return
+            
+            formatted_signal = cached_data['formatted_signal']
+            
+            # Create keyboard
+            keyboard = [
+                [
+                    InlineKeyboardButton("📊 Technical Analysis", callback_data=f"chart_{signal['symbol']}_{signal['timeframe']}"),
+                    InlineKeyboardButton("🤖 Market Sentiment", callback_data=f"sentiment_{signal['symbol']}")
+                ],
+                [InlineKeyboardButton("📅 Economic Calendar", callback_data=f"calendar_{signal['symbol']}")]
+            ]
+            
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            # Send to each subscriber
+            for subscriber in subscribers:
+                try:
+                    sent_message = await self.bot.send_message(
+                        chat_id=subscriber['chat_id'],
+                        text=formatted_signal,
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=reply_markup
+                    )
+                    
+                    # Cache voor back button
+                    signal_key = f"signal:{sent_message.message_id}"
+                    cache_data = {
+                        'text': formatted_signal,
+                        'keyboard': json.dumps([[{"text": btn.text, "callback_data": btn.callback_data} for btn in row] for row in keyboard]),
+                        'parse_mode': 'HTML'
+                    }
+                    
+                    self.redis.hmset(signal_key, cache_data)
+                    self.redis.expire(signal_key, 3600)
+                    
+                except Exception as e:
+                    logger.error(f"Failed to send signal to {subscriber['chat_id']}: {str(e)}")
+                    continue
+                
+        except Exception as e:
+            logger.error(f"Error broadcasting signal: {str(e)}")
+            logger.exception(e)
+
 # ... rest van de code ...
