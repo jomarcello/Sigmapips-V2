@@ -697,7 +697,6 @@ class TelegramService:
             logger.error(f"Error handling help command: {str(e)}")
 
     async def _button_click(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle button clicks on signal messages"""
         query = update.callback_query
         await query.answer()
         
@@ -706,138 +705,96 @@ class TelegramService:
             message_id = query.message.message_id
             logger.info(f"Button clicked: {data}, message_id: {message_id}")
             
-            # Haal de gecachede data op
-            cache_key = query.message.text.split('\n')[0]  # Eerste regel bevat symbol/timestamp
-            cached_data = self.redis.hgetall(f"preload:{cache_key}")
+            # Haal de signal key op uit de message cache
+            signal_key = f"signal:{message_id}"
+            signal_cache = self.redis.hgetall(signal_key)
+            
+            if not signal_cache:
+                logger.error(f"No cached signal data found for message_id: {message_id}")
+                return
+            
+            # Haal de preloaded data op
+            preload_key = signal_cache.get('preload_key')
+            if not preload_key:
+                logger.error("No preload key found in signal cache")
+                return
+            
+            preloaded_data = self.redis.hgetall(preload_key)
+            if not preloaded_data:
+                logger.error(f"No preloaded data found for key: {preload_key}")
+                return
             
             if data.startswith("chart_"):
-                if cached_data and cached_data.get('chart_image'):
-                    chart_image = base64.b64decode(cached_data['chart_image'])
-                else:
-                    _, symbol, timeframe = data.split('_')
-                    chart_image = await self.chart.generate_chart(symbol, timeframe)
+                try:
+                    # Gebruik gecachede chart data
+                    if preloaded_data.get('chart_image'):
+                        chart_image = base64.b64decode(preloaded_data['chart_image'])
+                        
+                        keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data=f"back_to_signal_{message_id}")]]
+                        await query.message.edit_media(
+                            media=InputMediaPhoto(
+                                media=chart_image,
+                                caption=f"📊 Technical Analysis"
+                            ),
+                            reply_markup=InlineKeyboardMarkup(keyboard)
+                        )
+                        logger.info("Displayed cached chart")
+                    else:
+                        logger.error("No chart data in cache")
+                        
+                except Exception as e:
+                    logger.error(f"Error displaying chart: {str(e)}")
                 
-                # Sla het originele bericht op
-                message_key = f"signal:{message_id}"
-                cache_data = {
-                    'text': query.message.text,
-                    'keyboard': json.dumps(query.message.reply_markup.to_dict()),
-                    'parse_mode': 'HTML'
-                }
-                self.redis.hmset(message_key, cache_data)
-                self.redis.expire(message_key, 3600)
-                
-                keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data=f"back_to_signal_{message_id}")]]
-                await query.message.edit_media(
-                    media=InputMediaPhoto(
-                        media=chart_image,
-                        caption=f"📊 Technical Analysis for {symbol} ({timeframe})"
-                    ),
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
-            
-            elif data.startswith("back_to_signal_"):
-                original_id = data.split('_')[-1]
-                message_key = f"signal:{original_id}"
-                cached_data = self.redis.hgetall(message_key)
-                
-                if cached_data:
-                    keyboard_data = json.loads(cached_data['keyboard'])
-                    reply_markup = InlineKeyboardMarkup.de_json(keyboard_data, self.bot)
-                    
-                    # Verwijder het huidige bericht en stuur een nieuw tekstbericht
-                    await query.message.delete()
-                    await context.bot.send_message(
-                        chat_id=query.message.chat_id,
-                        text=cached_data['text'],
-                        parse_mode=cached_data['parse_mode'],
-                        reply_markup=reply_markup
-                    )
-                    logger.info("Restored original signal message")
-                else:
-                    logger.error(f"No cached data found for message_id: {original_id}")
-                    await query.message.reply_text("Could not find the original message.")
-            
             elif data.startswith("sentiment_"):
-                if cached_data and cached_data.get('sentiment'):
-                    sentiment = cached_data['sentiment']
-                else:
-                    _, symbol = data.split('_')
-                    sentiment = await self.sentiment.get_market_sentiment({"symbol": symbol})
-                
                 try:
-                    # Cache het originele bericht eerst
-                    message_key = f"signal:{message_id}"
-                    cache_data = {
-                        'text': query.message.text,
-                        'keyboard': json.dumps(query.message.reply_markup.to_dict()),
-                        'parse_mode': 'HTML'
-                    }
-                    self.redis.hmset(message_key, cache_data)
-                    self.redis.expire(message_key, 3600)
-                    
-                    # Toon loading message
-                    await query.message.edit_text(
-                        text="🔄 Analyzing market sentiment...",
-                        parse_mode=ParseMode.HTML
-                    )
-                    
-                    # Toon sentiment analyse
-                    keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data=f"back_to_signal_{message_id}")]]
-                    await query.message.edit_text(
-                        text=sentiment,
-                        parse_mode=ParseMode.HTML,
-                        reply_markup=InlineKeyboardMarkup(keyboard)
-                    )
-                    logger.info("Sentiment analysis displayed")
-                    
+                    # Gebruik gecachede sentiment data
+                    if preloaded_data.get('sentiment'):
+                        sentiment = preloaded_data['sentiment']
+                        
+                        keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data=f"back_to_signal_{message_id}")]]
+                        await query.message.edit_text(
+                            text=sentiment,
+                            parse_mode=ParseMode.HTML,
+                            reply_markup=InlineKeyboardMarkup(keyboard)
+                        )
+                        logger.info("Displayed cached sentiment")
+                    else:
+                        logger.error("No sentiment data in cache")
+                        
                 except Exception as e:
-                    logger.error(f"Error in sentiment analysis: {str(e)}")
-                    logger.exception(e)
-                    await query.message.edit_text(
-                        text="❌ Error analyzing market sentiment. Please try again.",
-                        reply_markup=InlineKeyboardMarkup([[
-                            InlineKeyboardButton("⬅️ Back", callback_data=f"back_to_signal_{message_id}")
-                        ]])
-                    )
-            
+                    logger.error(f"Error displaying sentiment: {str(e)}")
+                
             elif data.startswith("calendar_"):
-                if cached_data and cached_data.get('calendar'):
-                    calendar = cached_data['calendar']
-                else:
-                    calendar = await self.calendar.get_economic_calendar()
-                
                 try:
-                    logger.info("Getting economic calendar")
-                    
-                    # Toon loading message
-                    await query.message.edit_text(
-                        text="🔄 Loading economic calendar...",
-                        parse_mode=ParseMode.HTML
-                    )
-                    
-                    # Toon calendar
-                    keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data=f"back_to_signal_{message_id}")]]
-                    await query.message.edit_text(
-                        text=calendar,
-                        parse_mode=ParseMode.HTML,
-                        reply_markup=InlineKeyboardMarkup(keyboard)
-                    )
-                    logger.info("Economic calendar displayed")
-                    
+                    # Gebruik gecachede calendar data
+                    if preloaded_data.get('calendar'):
+                        calendar = preloaded_data['calendar']
+                        
+                        keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data=f"back_to_signal_{message_id}")]]
+                        await query.message.edit_text(
+                            text=calendar,
+                            parse_mode=ParseMode.HTML,
+                            reply_markup=InlineKeyboardMarkup(keyboard)
+                        )
+                        logger.info("Displayed cached calendar")
+                    else:
+                        logger.error("No calendar data in cache")
+                        
                 except Exception as e:
-                    logger.error(f"Error getting economic calendar: {str(e)}")
-                    logger.exception(e)
-                    await query.message.edit_text(
-                        text="❌ Error loading economic calendar. Please try again.",
-                        reply_markup=InlineKeyboardMarkup([[
-                            InlineKeyboardButton("⬅️ Back", callback_data=f"back_to_signal_{message_id}")
-                        ]])
-                    )
-        
+                    logger.error(f"Error displaying calendar: {str(e)}")
+                
+            elif data.startswith("back_to_signal_"):
+                # Gebruik originele signal data
+                await query.message.edit_text(
+                    text=signal_cache['text'],
+                    parse_mode=signal_cache['parse_mode'],
+                    reply_markup=InlineKeyboardMarkup.de_json(json.loads(signal_cache['keyboard']), self.bot)
+                )
+                logger.info("Restored original signal")
+            
         except Exception as e:
             logger.error(f"Error handling button click: {str(e)}")
-            await query.message.reply_text("Sorry, something went wrong.")
+            logger.exception(e)
 
     async def broadcast_signal(self, signal: Dict[str, Any], message_key: str):
         """Broadcast signal to all matching subscribers using pre-loaded data"""
