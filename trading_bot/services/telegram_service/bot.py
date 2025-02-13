@@ -85,9 +85,9 @@ FOREX_KEYBOARD = [
 ]
 
 INDICES_KEYBOARD = [
-    [InlineKeyboardButton("S&P 500", callback_data="instrument_SP500")],
-    [InlineKeyboardButton("NASDAQ 100", callback_data="instrument_NAS100")],
-    [InlineKeyboardButton("Dow Jones", callback_data="instrument_DJI")],
+    [InlineKeyboardButton("SPX500", callback_data="instrument_SPX500")],
+    [InlineKeyboardButton("NAS100", callback_data="instrument_NAS100")],
+    [InlineKeyboardButton("US30", callback_data="instrument_US30")],
     [InlineKeyboardButton("DAX 40", callback_data="instrument_DAX40")],
     [InlineKeyboardButton("FTSE 100", callback_data="instrument_FTSE100")],
     [BACK_BUTTON]
