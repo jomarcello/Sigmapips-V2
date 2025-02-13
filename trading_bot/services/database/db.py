@@ -49,8 +49,8 @@ class Database:
             # Log het inkomende signaal
             logger.info(f"Incoming signal: market={signal['market']}, symbol={signal['symbol']}, timeframe={signal['timeframe']}")
             
-            # Haal alle actieve subscribers op
-            subscribers = await self.supabase.table('subscriber_preferences').select('*').execute()
+            # Haal alle actieve subscribers op (zonder await)
+            subscribers = self.supabase.table('subscriber_preferences').select('*').execute()
             total_subscribers = len(subscribers.data)
             logger.info(f"Found {total_subscribers} total subscribers in database")
 
