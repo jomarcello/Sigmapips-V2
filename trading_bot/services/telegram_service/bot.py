@@ -711,9 +711,9 @@ class TelegramService:
             cached_data = self.redis.hgetall(f"preload:{cache_key}")
             
             if data.startswith("chart_"):
-                if cached_data:
-                    chart_image = self.redis_binary.get(f"{cache_key}:chart")
-                if not chart_image:
+                if cached_data and cached_data.get('chart_image'):
+                    chart_image = base64.b64decode(cached_data['chart_image'])
+                else:
                     _, symbol, timeframe = data.split('_')
                     chart_image = await self.chart.generate_chart(symbol, timeframe)
                 
