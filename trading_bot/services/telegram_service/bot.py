@@ -787,10 +787,21 @@ class TelegramService:
                     # Gebruik originele signal data
                     keyboard = [
                         [
-                            InlineKeyboardButton("📊 Technical Analysis", callback_data=f"chart_{signal['symbol']}_{signal['timeframe']}"),
-                            InlineKeyboardButton("🤖 Market Sentiment", callback_data=f"sentiment_{signal['symbol']}")
+                            InlineKeyboardButton(
+                                "📊 Technical Analysis", 
+                                callback_data=f"chart_{signal_cache['symbol']}_{signal_cache['timeframe']}"
+                            ),
+                            InlineKeyboardButton(
+                                "🤖 Market Sentiment", 
+                                callback_data=f"sentiment_{signal_cache['symbol']}"
+                            )
                         ],
-                        [InlineKeyboardButton("📅 Economic Calendar", callback_data=f"calendar_{signal['symbol']}")]
+                        [
+                            InlineKeyboardButton(
+                                "📅 Economic Calendar", 
+                                callback_data=f"calendar_{signal_cache['symbol']}"
+                            )
+                        ]
                     ]
                     
                     await query.message.edit_text(
@@ -859,9 +870,10 @@ class TelegramService:
                     signal_key = f"signal:{sent_message.message_id}"
                     cache_data = {
                         'text': formatted_signal,
-                        'keyboard': json.dumps(keyboard),
                         'parse_mode': 'HTML',
-                        'preload_key': message_key  # Store reference to preloaded data
+                        'preload_key': message_key,
+                        'symbol': signal['symbol'],
+                        'timeframe': signal['timeframe']
                     }
                     
                     self.redis.hmset(signal_key, cache_data)
