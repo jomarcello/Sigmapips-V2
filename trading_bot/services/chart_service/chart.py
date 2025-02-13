@@ -27,6 +27,16 @@ class ChartService:
         if market.lower() == 'forex':
             return f"OANDA:{symbol}"  # Gebruik OANDA voor forex pairs
         
+        # Speciale mapping voor indices
+        indices_map = {
+            'SPX500': 'SP500',
+            'NAS100': 'NASDAQ100', 
+            'US30': 'DJ30'
+        }
+        
+        if market.lower() == 'indices':
+            return indices_map.get(symbol, symbol)
+        
         prefixes = {
             'crypto': 'BINANCE:',
             'indices': '',
@@ -116,5 +126,3 @@ class ChartService:
                     
         except Exception as e:
             logger.warning(f"Error removing UI elements: {str(e)}")
-
-
