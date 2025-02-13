@@ -804,12 +804,18 @@ class TelegramService:
             logger.info(f"Found {len(subscribers)} matching subscribers")
             
             # Get cached data
-            cached_data = self.redis.hgetall(message_key)  # Gebruik de volledige message_key
+            logger.info(f"Retrieving cached data for key: {message_key}")
+            cached_data = self.redis.hgetall(message_key)
+            
             if not cached_data:
                 logger.error(f"No cached data found for message_key: {message_key}")
+                logger.info("Available Redis keys:", self.redis.keys("preload:*"))
                 return
             
+            logger.info(f"Found cached data with keys: {list(cached_data.keys())}")
+            
             formatted_signal = cached_data['formatted_signal']
+            logger.info("Successfully retrieved formatted signal from cache")
             
             # Create keyboard
             keyboard = [
