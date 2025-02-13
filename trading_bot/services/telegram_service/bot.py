@@ -6,6 +6,8 @@ import aiohttp
 import redis
 import json
 from typing import Dict, Any
+import base64
+import time
 
 from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery, InputMediaPhoto
 from telegram.ext import (
@@ -705,7 +707,7 @@ class TelegramService:
             
             if data.startswith("chart_"):
                 if cached_data and cached_data.get('chart_image'):
-                    chart_image = cached_data['chart_image']
+                    chart_image = base64.b64decode(cached_data['chart_image'])
                 else:
                     _, symbol, timeframe = data.split('_')
                     chart_image = await self.chart.generate_chart(symbol, timeframe)
