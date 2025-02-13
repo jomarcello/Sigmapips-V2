@@ -107,9 +107,10 @@ def _detect_market(symbol: str) -> str:
     """Detecteer market type gebaseerd op symbol"""
     symbol = symbol.upper()
     
-    # Forex pairs
-    if len(symbol) == 6 and symbol.isalpha():
-        return "forex"
+    # Commodities eerst checken
+    commodities = ["XAUUSD", "XAGUSD", "WTI", "BRENT", "NGAS"]
+    if symbol in commodities:
+        return "commodities"
     
     # Crypto
     crypto_symbols = ["BTC", "ETH", "XRP", "SOL", "LTC"]
@@ -120,10 +121,9 @@ def _detect_market(symbol: str) -> str:
     indices = ["SPX500", "NAS100", "US30", "DAX40", "FTSE100"]
     if symbol in indices:
         return "indices"
+    
+    # Forex pairs als laatste (default)
+    if len(symbol) == 6 and symbol.isalpha():
+        return "forex"
         
-    # Commodities
-    commodities = ["XAUUSD", "XAGUSD", "WTI", "BRENT", "NGAS"]
-    if symbol in commodities:
-        return "commodities"
-        
-    return "forex"  # Default to forex
+    return "forex"  # Fallback
