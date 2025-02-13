@@ -52,16 +52,27 @@ async def telegram_webhook(request: Request):
 async def receive_signal(signal: Dict[str, Any]):
     """Handle incoming signals from TradingView"""
     try:
-        logger.info(f"Received signal: {signal}")
+        logger.info(f"Received TradingView signal: {signal}")
+        
+        # Converteer TradingView formaat naar ons formaat
+        converted_signal = {
+            "symbol": signal["instrument"],
+            "action": signal["signal"],
+            "price": signal["price"],
+            "stopLoss": signal["sl"],
+            "takeProfit": signal["tp"],
+            "timeframe": signal["timeframe"],
+            "market": _detect_market(signal["instrument"])  # Helper functie
+        }
         
         # Genereer message key
-        message_key = f"preload:{signal['symbol']}:{int(time.time())}"
+        message_key = f"preload:{converted_signal['symbol']}:{int(time.time())}"
         
         # Pre-load alle services
         tasks = []
-        tasks.append(telegram.format_signal_with_ai(signal))
-        tasks.append(telegram.chart.generate_chart(signal['symbol'], signal['timeframe']))
-        tasks.append(telegram.sentiment.get_market_sentiment(signal))
+        tasks.append(telegram.format_signal_with_ai(converted_signal))
+        tasks.append(telegram.chart.generate_chart(converted_signal['symbol'], converted_signal['timeframe']))
+        tasks.append(telegram.sentiment.get_market_sentiment(converted_signal))
         tasks.append(telegram.calendar.get_economic_calendar())
         
         # Wacht op alle data
@@ -75,8 +86,8 @@ async def receive_signal(signal: Dict[str, Any]):
             'sentiment': sentiment_data,
             'calendar': calendar_data,
             'timestamp': str(int(time.time())),
-            'symbol': signal['symbol'],
-            'timeframe': signal['timeframe']
+            'symbol': converted_signal['symbol'],
+            'timeframe': converted_signal['timeframe']
         }
         
         # Sla op in Redis
@@ -84,10 +95,35 @@ async def receive_signal(signal: Dict[str, Any]):
         telegram.redis.expire(message_key, 3600)
         
         # Broadcast naar subscribers
-        await telegram.broadcast_signal(signal, message_key)
+        await telegram.broadcast_signal(converted_signal, message_key)
         
         return {"status": "success", "message": "Signal processed and sent"}
         
     except Exception as e:
         logger.error(f"Error processing signal: {str(e)}")
         return {"status": "error", "message": str(e)}
+
+def _detect_market(symbol: str) -> str:
+    """Detecteer market type gebaseerd op symbol"""
+    symbol = symbol.upper()
+    
+    # Forex pairs
+    if len(symbol) == 6 and symbol.isalpha():
+        return "forex"
+    
+    # Crypto
+    crypto_symbols = ["BTC", "ETH", "XRP", "SOL", "LTC"]
+    if any(c in symbol for c in crypto_symbols):
+        return "crypto"
+        
+    # Indices
+    indices = ["SPX500", "NAS100", "US30", "DAX40", "FTSE100"]
+    if symbol in indices:
+        return "indices"
+        
+    # Commodities
+    commodities = ["XAUUSD", "XAGUSD", "WTI", "BRENT", "NGAS"]
+    if symbol in commodities:
+        return "commodities"
+        
+    return "forex"  # Default to forex
