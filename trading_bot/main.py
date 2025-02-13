@@ -50,46 +50,28 @@ async def telegram_webhook(request: Request):
 
 @app.post("/signal")
 async def receive_signal(signal: Dict[str, Any]):
+    """Handle incoming signals from TradingView"""
     try:
         logger.info(f"Received signal: {signal}")
         
-        # Genereer message key eerst
+        # Genereer message key
         message_key = f"preload:{signal['symbol']}:{int(time.time())}"
-        logger.info(f"Generated message key: {message_key}")
         
         # Pre-load alle services
         tasks = []
+        tasks.append(telegram.format_signal_with_ai(signal))
+        tasks.append(telegram.chart.generate_chart(signal['symbol'], signal['timeframe']))
+        tasks.append(telegram.sentiment.get_market_sentiment(signal))
+        tasks.append(telegram.calendar.get_economic_calendar())
         
-        # 1. Format het basis signaal
-        formatted_signal_task = telegram.format_signal_with_ai(signal)
-        tasks.append(formatted_signal_task)
-        
-        # 2. Genereer chart
-        chart_task = telegram.chart.generate_chart(signal['symbol'], signal['timeframe'])
-        tasks.append(chart_task)
-        
-        # 3. Haal market sentiment op
-        sentiment_task = telegram.sentiment.get_market_sentiment(signal)
-        tasks.append(sentiment_task)
-        
-        # 4. Haal economic calendar op
-        calendar_task = telegram.calendar.get_economic_calendar()
-        tasks.append(calendar_task)
-        
-        # Wacht tot alle data geladen is
-        logger.info("Waiting for all tasks to complete...")
+        # Wacht op alle data
         results = await asyncio.gather(*tasks)
         formatted_signal, chart_image, sentiment_data, calendar_data = results
-        logger.info("All tasks completed successfully")
         
-        # Converteer binary data naar base64
-        chart_base64 = base64.b64encode(chart_image).decode('utf-8') if chart_image else None
-        logger.info(f"Chart image converted to base64: {bool(chart_base64)}")
-        
-        # Sla alles op in Redis
+        # Cache de data
         cache_data = {
             'formatted_signal': formatted_signal,
-            'chart_image': chart_base64,
+            'chart_image': base64.b64encode(chart_image).decode('utf-8') if chart_image else None,
             'sentiment': sentiment_data,
             'calendar': calendar_data,
             'timestamp': str(int(time.time())),
@@ -97,31 +79,15 @@ async def receive_signal(signal: Dict[str, Any]):
             'timeframe': signal['timeframe']
         }
         
-        # Log cache data sizes
-        logger.info(f"Cache data sizes:")
-        for key, value in cache_data.items():
-            logger.info(f"- {key}: {len(str(value)) if value else 0} bytes")
-        
-        # Sla op in Redis en verifieer
-        logger.info(f"Saving data to Redis with key: {message_key}")
+        # Sla op in Redis
         telegram.redis.hmset(message_key, cache_data)
         telegram.redis.expire(message_key, 3600)
         
-        # Verifieer dat de data is opgeslagen
-        saved_data = telegram.redis.hgetall(message_key)
-        if not saved_data:
-            logger.error(f"Failed to save data in Redis for key: {message_key}")
-            return {"status": "error", "message": "Failed to cache data"}
-        
-        logger.info(f"Data successfully saved in Redis. Found keys: {list(saved_data.keys())}")
-        
-        # Stuur het signaal met de gecachede data
-        logger.info("Broadcasting signal to subscribers...")
+        # Broadcast naar subscribers
         await telegram.broadcast_signal(signal, message_key)
         
         return {"status": "success", "message": "Signal processed and sent"}
         
     except Exception as e:
         logger.error(f"Error processing signal: {str(e)}")
-        logger.exception(e)
         return {"status": "error", "message": str(e)}
