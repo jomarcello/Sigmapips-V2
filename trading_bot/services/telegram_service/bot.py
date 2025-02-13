@@ -810,12 +810,12 @@ class TelegramService:
                     is_photo = bool(query.message.photo)
                     
                     if is_photo:
-                        # Als het een foto is, gebruik edit_media
-                        await query.message.edit_media(
-                            media=InputMediaPhoto(
-                                media=query.message.photo[-1].file_id,
-                                caption=formatted_signal
-                            ),
+                        # Als het een foto is, stuur een nieuw text bericht
+                        await query.message.delete()
+                        await self.bot.send_message(
+                            chat_id=query.message.chat_id,
+                            text=formatted_signal,
+                            parse_mode=ParseMode.HTML,
                             reply_markup=InlineKeyboardMarkup(keyboard)
                         )
                     else:
