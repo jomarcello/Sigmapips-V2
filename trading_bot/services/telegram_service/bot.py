@@ -1,3 +1,4 @@
+
 import os
 import ssl
 import asyncio
@@ -784,7 +785,9 @@ class TelegramService:
                 
             elif data.startswith("back_to_signal_"):
                 try:
-                    # Gebruik originele signal data
+                    # Check of het huidige bericht een foto is
+                    is_photo = bool(query.message.photo)
+                    
                     keyboard = [
                         [
                             InlineKeyboardButton(
@@ -804,11 +807,22 @@ class TelegramService:
                         ]
                     ]
                     
-                    await query.message.edit_text(
-                        text=signal_cache['text'],
-                        parse_mode=signal_cache['parse_mode'],
-                        reply_markup=InlineKeyboardMarkup(keyboard)
-                    )
+                    if is_photo:
+                        # Als het een foto is, gebruik edit_media
+                        await query.message.edit_media(
+                            media=InputMediaPhoto(
+                                media=query.message.photo[-1].file_id,
+                                caption=signal_cache['text']
+                            ),
+                            reply_markup=InlineKeyboardMarkup(keyboard)
+                        )
+                    else:
+                        # Anders gebruik edit_text
+                        await query.message.edit_text(
+                            text=signal_cache['text'],
+                            parse_mode=signal_cache['parse_mode'],
+                            reply_markup=InlineKeyboardMarkup(keyboard)
+                        )
                     logger.info("Restored original signal")
                     
                 except Exception as e:
