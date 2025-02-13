@@ -783,13 +783,26 @@ class TelegramService:
                     logger.error(f"Error displaying calendar: {str(e)}")
                 
             elif data.startswith("back_to_signal_"):
-                # Gebruik originele signal data
-                await query.message.edit_text(
-                    text=signal_cache['text'],
-                    parse_mode=signal_cache['parse_mode'],
-                    reply_markup=InlineKeyboardMarkup.de_json(json.loads(signal_cache['keyboard']), self.bot)
-                )
-                logger.info("Restored original signal")
+                try:
+                    # Gebruik originele signal data
+                    keyboard = [
+                        [
+                            InlineKeyboardButton("📊 Technical Analysis", callback_data=f"chart_{signal['symbol']}_{signal['timeframe']}"),
+                            InlineKeyboardButton("🤖 Market Sentiment", callback_data=f"sentiment_{signal['symbol']}")
+                        ],
+                        [InlineKeyboardButton("📅 Economic Calendar", callback_data=f"calendar_{signal['symbol']}")]
+                    ]
+                    
+                    await query.message.edit_text(
+                        text=signal_cache['text'],
+                        parse_mode=signal_cache['parse_mode'],
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+                    logger.info("Restored original signal")
+                    
+                except Exception as e:
+                    logger.error(f"Error restoring signal: {str(e)}")
+                    logger.exception(e)
             
         except Exception as e:
             logger.error(f"Error handling button click: {str(e)}")
