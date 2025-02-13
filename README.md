@@ -1,77 +1,77 @@
 # SigmapipsAI Trading Bot
 
-Een geavanceerde Telegram trading bot gedeployed op Railway voor het verwerken en distribueren van trading signalen met real-time analyses.
+An advanced Telegram trading bot deployed on Railway for processing and distributing trading signals with real-time analysis.
 
-## Live Demo
-Bot is live op Telegram: [@SigmapipsAITest_bot](https://t.me/Signapipstest4_bot)
+## Live Bot
+Bot is live on Telegram: [@SignapipsAI_bot](https://t.me/SignapipsAI_bot)
 
 ## Features
 
 ### 1. Telegram Service
-- Volledig geautomatiseerde signaal distributie
-- AI-powered signal formatting met GPT-4
-- Gepersonaliseerde voorkeuren per gebruiker
-- Support voor meerdere markten:
+- Fully automated signal distribution
+- AI-powered signal formatting using GPT-4
+- Personalized preferences per user
+- Support for multiple markets:
   - Forex
   - Indices 
   - Commodities
   - Crypto
-- Interactieve knoppen voor analyses
+- Interactive buttons for analysis
 
-### 2. Real-time Analyses
-- 📊 Technische Analyse Charts
-  - Multiple timeframes (1m tot 1d)
-  - Automatische chart generatie
-  - Cached voor snelle toegang
+### 2. Real-time Analysis
+- 📊 Technical Analysis Charts
+  - Multiple timeframes (1m to 1d)
+  - Automatic chart generation
+  - Cached for quick access
 - 🤖 Market Sentiment Analysis
-  - AI-powered sentiment analyse
-  - Real-time nieuws verwerking
-  - Perplexity AI integratie
+  - AI-powered sentiment analysis
+  - Real-time news processing
+  - Perplexity AI integration
 - 📅 Economic Calendar
-  - Belangrijke economische events
+  - Important economic events
   - Impact level filtering
-  - Currency-specifieke events
+  - Currency-specific events
 
 ### 3. Caching & Performance
-- Redis caching voor:
-  - Trading signalen
-  - Technische analyse charts
+- Redis caching for:
+  - Trading signals
+  - Technical analysis charts
   - Market sentiment data
   - Economic calendar events
-- Base64 encoding voor binary data
-- Cache TTL: 1 uur
-- Optimale performance door caching
+- Base64 encoding for binary data
+- Cache TTL: 1 hour
+- Optimal performance through caching
 
 ## Tech Stack
 
 ### Backend
 - FastAPI (Python 3.11)
 - python-telegram-bot v20
-- Redis voor caching
-- Supabase (PostgreSQL) voor data opslag
+- Redis for caching
+- Supabase (PostgreSQL) for data storage
 
 ### AI Services
-- OpenAI GPT-4 API voor signal formatting
-- Perplexity AI voor market sentiment
-- Custom prompts voor consistente output
+- OpenAI GPT-4 API for signal formatting
+- Perplexity AI for market sentiment
+- Custom prompts for consistent output
 
 ### Deployment
-- Gehost op Railway
-- Automatische deployments
-- Webhook integratie
+- Hosted on Railway
+- Automatic deployments
+- Webhook integration
 - Health checks
 - Auto-scaling
 - Redis persistence
 
 ## Setup & Installation
 
-1. Clone de repository:
+1. Clone the repository:
 ```bash
 git clone https://github.com/yourusername/sigmapips-bot.git
 cd sigmapips-bot
 ```
 
-2. Maak een .env file:
+2. Create a .env file:
 ```env
 # Telegram
 TELEGRAM_BOT_TOKEN=your_bot_token
@@ -93,17 +93,17 @@ PERPLEXITY_API_KEY=your_perplexity_key
 RAILWAY_PUBLIC_DOMAIN=your_railway_domain
 ```
 
-3. Start lokaal met Docker:
+3. Start locally with Docker:
 ```bash
 docker-compose up -d
 ```
 
 ## Bot Commands
 
-- `/start` - Begin met instellen trading voorkeuren
-- `/manage` - Beheer bestaande voorkeuren 
-- `/menu` - Toon hoofdmenu
-- `/help` - Toon help informatie
+- `/start` - Start setting up trading preferences
+- `/manage` - Manage existing preferences
+- `/menu` - Show main menu
+- `/help` - Show help information
 
 ## Database Schema
 
@@ -151,26 +151,33 @@ GET /health
 
 ## Error Handling
 
-- Uitgebreide logging van alle operaties
-- Automatische retry mechanismen voor API calls
-- Graceful degradation bij service uitval
-- Fallback opties voor AI services
+- Extensive logging of all operations
+- Automatic retry mechanisms for API calls
+- Graceful degradation during service outages
+- Fallback options for AI services
 
-## Deployment op Railway
+## Railway Deployment
 
-De applicatie draait op Railway met:
-- Automatische deployments via GitHub
-- Webhook integratie voor Telegram
-- Redis persistence voor caching
-- Health checks voor uptime monitoring
+The application runs on Railway with:
+- Automatic deployments via GitHub
+- Webhook integration for Telegram
+- Redis persistence for caching
+- Health checks for uptime monitoring
 - Auto-scaling based on load
 - Zero-downtime deployments
 
 ## Contributing
 
-1. Fork de repository
-2. Maak een feature branch
-3. Commit je wijzigingen
-4. Push naar de branch
-5. Open een Pull Request
+1. Fork the repository
+2. Create a feature branch
+3. Commit your changes
+4. Push to the branch
+5. Open a Pull Request
 
+## License
+
+MIT License
+
+## Contact
+
+For questions or suggestions, open an issue or submit a PR.
