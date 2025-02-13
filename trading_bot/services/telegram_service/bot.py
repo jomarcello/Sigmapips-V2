@@ -803,8 +803,8 @@ class TelegramService:
             subscribers = await self.db.match_subscribers(signal)
             logger.info(f"Found {len(subscribers)} matching subscribers")
             
-            # Get cached text data
-            cached_data = self.redis.hgetall(f"{message_key}:text")
+            # Get cached data
+            cached_data = self.redis.hgetall(message_key)  # Gebruik de volledige message_key
             if not cached_data:
                 logger.error(f"No cached data found for message_key: {message_key}")
                 return
@@ -841,9 +841,9 @@ class TelegramService:
                     signal_key = f"signal:{sent_message.message_id}"
                     cache_data = {
                         'text': formatted_signal,
-                        'keyboard': json.dumps(keyboard),  # Keyboard is al in JSON-serializable formaat
+                        'keyboard': json.dumps(keyboard),
                         'parse_mode': 'HTML',
-                        'preload_key': message_key
+                        'preload_key': message_key  # Store reference to preloaded data
                     }
                     
                     self.redis.hmset(signal_key, cache_data)
