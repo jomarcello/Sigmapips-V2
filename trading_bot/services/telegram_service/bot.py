@@ -680,29 +680,36 @@ class TelegramService:
             message_id = query.message.message_id
             logger.info(f"Button clicked: {data}, message_id: {message_id}")
             
+            # Haal de gecachede data op
+            cache_key = query.message.text.split('\n')[0]  # Eerste regel bevat symbol/timestamp
+            cached_data = self.redis.hgetall(f"preload:{cache_key}")
+            
             if data.startswith("chart_"):
-                _, symbol, timeframe = data.split('_')
-                chart_image = await self.chart.generate_chart(symbol, timeframe)
-                if chart_image:
-                    # Sla het originele bericht op
-                    message_key = f"signal:{message_id}"
-                    cache_data = {
-                        'text': query.message.text,
-                        'keyboard': json.dumps(query.message.reply_markup.to_dict()),
-                        'parse_mode': 'HTML'
-                    }
-                    self.redis.hmset(message_key, cache_data)
-                    self.redis.expire(message_key, 3600)
-                    
-                    keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data=f"back_to_signal_{message_id}")]]
-                    await query.message.edit_media(
-                        media=InputMediaPhoto(
-                            media=chart_image,
-                            caption=f"📊 Technical Analysis for {symbol} ({timeframe})"
-                        ),
-                        reply_markup=InlineKeyboardMarkup(keyboard)
-                    )
+                if cached_data and cached_data.get('chart_image'):
+                    chart_image = cached_data['chart_image']
+                else:
+                    _, symbol, timeframe = data.split('_')
+                    chart_image = await self.chart.generate_chart(symbol, timeframe)
                 
+                # Sla het originele bericht op
+                message_key = f"signal:{message_id}"
+                cache_data = {
+                    'text': query.message.text,
+                    'keyboard': json.dumps(query.message.reply_markup.to_dict()),
+                    'parse_mode': 'HTML'
+                }
+                self.redis.hmset(message_key, cache_data)
+                self.redis.expire(message_key, 3600)
+                
+                keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data=f"back_to_signal_{message_id}")]]
+                await query.message.edit_media(
+                    media=InputMediaPhoto(
+                        media=chart_image,
+                        caption=f"📊 Technical Analysis for {symbol} ({timeframe})"
+                    ),
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            
             elif data.startswith("back_to_signal_"):
                 original_id = data.split('_')[-1]
                 message_key = f"signal:{original_id}"
@@ -726,10 +733,13 @@ class TelegramService:
                     await query.message.reply_text("Could not find the original message.")
             
             elif data.startswith("sentiment_"):
-                try:
+                if cached_data and cached_data.get('sentiment'):
+                    sentiment = cached_data['sentiment']
+                else:
                     _, symbol = data.split('_')
-                    logger.info(f"Getting sentiment analysis for {symbol}")
-                    
+                    sentiment = await self.sentiment.get_market_sentiment({"symbol": symbol})
+                
+                try:
                     # Cache het originele bericht eerst
                     message_key = f"signal:{message_id}"
                     cache_data = {
@@ -745,10 +755,6 @@ class TelegramService:
                         text="🔄 Analyzing market sentiment...",
                         parse_mode=ParseMode.HTML
                     )
-                    
-                    # Get sentiment analysis
-                    sentiment = await self.sentiment.get_market_sentiment({"symbol": symbol})
-                    logger.info(f"Received sentiment analysis: {sentiment}")
                     
                     # Toon sentiment analyse
                     keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data=f"back_to_signal_{message_id}")]]
@@ -770,28 +776,19 @@ class TelegramService:
                     )
             
             elif data.startswith("calendar_"):
+                if cached_data and cached_data.get('calendar'):
+                    calendar = cached_data['calendar']
+                else:
+                    calendar = await self.calendar.get_economic_calendar()
+                
                 try:
                     logger.info("Getting economic calendar")
-                    
-                    # Cache het originele bericht
-                    message_key = f"signal:{message_id}"
-                    cache_data = {
-                        'text': query.message.text,
-                        'keyboard': json.dumps(query.message.reply_markup.to_dict()),
-                        'parse_mode': 'HTML'
-                    }
-                    self.redis.hmset(message_key, cache_data)
-                    self.redis.expire(message_key, 3600)
                     
                     # Toon loading message
                     await query.message.edit_text(
                         text="🔄 Loading economic calendar...",
                         parse_mode=ParseMode.HTML
                     )
-                    
-                    # Get calendar data
-                    calendar = await self.calendar.get_economic_calendar()
-                    logger.info("Received economic calendar")
                     
                     # Toon calendar
                     keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data=f"back_to_signal_{message_id}")]]
