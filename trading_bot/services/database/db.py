@@ -46,9 +46,13 @@ class Database:
     async def match_subscribers(self, signal: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Match signal with subscribers based on market, instrument and timeframe"""
         try:
+            # Log het inkomende signaal
+            logger.info(f"Incoming signal: market={signal['market']}, symbol={signal['symbol']}, timeframe={signal['timeframe']}")
+            
             # Haal alle actieve subscribers op
             subscribers = await self.supabase.table('subscriber_preferences').select('*').execute()
-            logger.info(f"Supabase response: {subscribers}")
+            total_subscribers = len(subscribers.data)
+            logger.info(f"Found {total_subscribers} total subscribers in database")
 
             # Filter subscribers die matchen met het signaal
             matched_subscribers = []
@@ -59,23 +63,33 @@ class Database:
                 signal_market = signal['market'].lower()
                 signal_symbol = signal['symbol'].lower()
                 
-                # Log de vergelijking
-                logger.info(f"Comparing subscriber: market={subscriber_market}, instrument={subscriber_instrument}, "
-                           f"timeframe={subscriber['timeframe']} with signal: market={signal_market}, "
-                           f"symbol={signal_symbol}, timeframe={signal['timeframe']}")
+                # Log elke vergelijking
+                logger.info(f"Checking subscriber {subscriber['id']}: "
+                           f"market={subscriber_market}=={signal_market}, "
+                           f"instrument={subscriber_instrument}=={signal_symbol}, "
+                           f"timeframe={subscriber['timeframe']}=={signal['timeframe']}")
 
                 # Check of market, instrument en timeframe matchen
                 if (subscriber_market == signal_market and
                     subscriber_instrument == signal_symbol and
                     subscriber['timeframe'] == signal['timeframe'] and
-                    subscriber.get('is_active', True)):  # Check of subscriber actief is
+                    subscriber.get('is_active', True)):
                     
                     # Voeg chat_id toe aan subscriber data
                     subscriber['chat_id'] = str(subscriber['user_id'])
                     matched_subscribers.append(subscriber)
-                    logger.info(f"Matched subscriber: {subscriber}")
+                    logger.info(f"✅ Matched subscriber {subscriber['id']}: user_id={subscriber['user_id']}")
+                else:
+                    logger.info(f"❌ No match for subscriber {subscriber['id']}")
 
-            logger.info(f"Matched subscribers: {matched_subscribers}")
+            # Log samenvattende statistieken
+            logger.info(f"Matching Summary:")
+            logger.info(f"- Total subscribers: {total_subscribers}")
+            logger.info(f"- Matched subscribers: {len(matched_subscribers)}")
+            logger.info(f"- Match rate: {(len(matched_subscribers)/total_subscribers)*100:.1f}%")
+            if matched_subscribers:
+                logger.info(f"- Matched user_ids: {[sub['user_id'] for sub in matched_subscribers]}")
+
             return matched_subscribers
 
         except Exception as e:
