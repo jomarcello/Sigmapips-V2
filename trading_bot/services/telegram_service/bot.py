@@ -137,9 +137,14 @@ class TelegramService:
         # Redis setup met Railway credentials
         redis_url = os.getenv("REDIS_URL", "redis://default:kcXeNDIt~!Pg6onj9B4t9IcudGehM1Ed@autorack.proxy.rlwy.net:42803")
         try:
+            # Twee Redis clients: één voor tekst en één voor binary data
             self.redis = redis.from_url(
                 redis_url,
-                decode_responses=True
+                decode_responses=True  # Voor tekst data
+            )
+            self.redis_binary = redis.from_url(
+                redis_url,
+                decode_responses=False  # Voor binary data zoals images
             )
             # Test Redis connectie
             self.redis.ping()
@@ -706,9 +711,9 @@ class TelegramService:
             cached_data = self.redis.hgetall(f"preload:{cache_key}")
             
             if data.startswith("chart_"):
-                if cached_data and cached_data.get('chart_image'):
-                    chart_image = base64.b64decode(cached_data['chart_image'])
-                else:
+                if cached_data:
+                    chart_image = self.redis_binary.get(f"{cache_key}:chart")
+                if not chart_image:
                     _, symbol, timeframe = data.split('_')
                     chart_image = await self.chart.generate_chart(symbol, timeframe)
                 
