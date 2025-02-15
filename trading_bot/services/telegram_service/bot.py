@@ -686,44 +686,29 @@ class TelegramService:
         return MANAGE_PREFERENCES
 
     async def set_webhook(self, webhook_url: str):
-        """Set webhook for the bot"""
+        """Set webhook for telegram bot"""
         try:
-            # Verwijder bestaande webhook
+            # Verwijder oude webhook
             await self.bot.delete_webhook()
             
-            # Wacht 2 seconden om rate limiting te voorkomen
-            await asyncio.sleep(2)
+            # Controleer huidige webhook
+            webhook_info = await self.bot.get_webhook_info()
+            logger.info(f"Current webhook info: {webhook_info}")
             
-            # Stel nieuwe webhook in met de juiste path en retry logic
-            max_retries = 3
-            retry_delay = 2
+            # Zet nieuwe webhook
+            webhook_url = webhook_url.strip(';').strip()  # Verwijder trailing karakters
+            await self.bot.set_webhook(
+                url=webhook_url,
+                allowed_updates=['message', 'callback_query']
+            )
             
-            for attempt in range(max_retries):
-                try:
-                    webhook_url = f"{webhook_url}/webhook"
-                    await self.bot.set_webhook(
-                        url=webhook_url,
-                        allowed_updates=['message', 'callback_query']
-                    )
-                    logger.info(f"Webhook set to: {webhook_url}")
-                    
-                    # Verify webhook is set
-                    webhook_info = await self.bot.get_webhook_info()
-                    logger.info(f"Webhook verification: {webhook_info}")
-                    break
-                    
-                except telegram.error.RetryAfter as e:
-                    if attempt == max_retries - 1:
-                        raise
-                    retry_after = e.retry_after
-                    logger.warning(f"Rate limit hit, waiting {retry_after} seconds...")
-                    await asyncio.sleep(retry_after)
-                    continue
-                
+            # Verifieer nieuwe webhook
+            webhook_info = await self.bot.get_webhook_info()
+            logger.info(f"Webhook verification: {webhook_info}")
+            
         except Exception as e:
             logger.error(f"Failed to set webhook: {str(e)}")
-            logger.exception(e)
-            # Niet opnieuw raise, laat de applicatie doorgaan
+            raise
 
     async def _help_command(self, update: Update, context):
         """Handle help command"""
