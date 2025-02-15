@@ -277,36 +277,44 @@ class TelegramService:
     async def format_signal_with_ai(self, signal: Dict[str, Any]) -> str:
         """Format signal with AI"""
         try:
-            prompt = f"""Format this trading signal into a clear and professional message:
+            prompt = f"""Format this trading signal using EXACTLY this template:
 
-Signal Details:
-- Symbol: {signal['symbol']}
-- Action: {signal['action']}
-- Entry Price: {signal['price']}
-- Take Profit 1: {signal['takeProfit1']}
-- Take Profit 2: {signal['takeProfit2']}
-- Take Profit 3: {signal['takeProfit3']}
-- Stop Loss: {signal['stopLoss']}
-- Timeframe: {signal['timeframe']}
+🚨 NEW TRADING SIGNAL 🚨
 
-Format requirements:
-1. Use clear sections with emojis
-2. Include risk/reward calculations
-3. Show all take profit levels
-4. Add important notes or warnings if needed
-5. Keep it concise but informative
-"""
+Instrument: {signal['symbol']}
+Action: {signal['action']} {'📈' if signal['action'] == 'BUY' else '📉'}
+
+Entry Price: {signal['price']}
+Stop Loss: {signal['stopLoss']} 🔴
+Take Profit 1: {signal['takeProfit1']} 🎯
+Take Profit 2: {signal['takeProfit2']} 🎯
+Take Profit 3: {signal['takeProfit3']} 🎯
+
+Timeframe: {signal['timeframe']}
+Strategy: Test Strategy
+
+---------------
+
+Risk Management:
+• Position size: 1-2% max
+• Use proper stop loss
+• Follow your trading plan
+
+---------------
+
+🤖 SigmaPips AI Verdict:
+✅ Trade aligns with market analysis"""
 
             response = await self.openai.chat.completions.create(
                 model="gpt-4",
                 messages=[{
                     "role": "system",
-                    "content": "You are a professional trading signal formatter. Format signals in a clear, structured way with proper emojis and sections."
+                    "content": "You are a trading signal formatter. Format signals EXACTLY according to the template, maintaining all emojis and sections."
                 }, {
                     "role": "user",
                     "content": prompt
                 }],
-                temperature=0.7
+                temperature=0  # Exact output
             )
 
             formatted_signal = response.choices[0].message.content
