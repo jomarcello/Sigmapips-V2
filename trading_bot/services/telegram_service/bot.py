@@ -285,10 +285,10 @@ Instrument: {signal['symbol']}
 Action: {signal['action']} {'📈' if signal['action'] == 'BUY' else '📉'}
 
 Entry Price: {signal['price']}
-Stop Loss: {signal['stopLoss']} 🔴
 Take Profit 1: {signal['takeProfit1']} 🎯
 Take Profit 2: {signal['takeProfit2']} 🎯
 Take Profit 3: {signal['takeProfit3']} 🎯
+Stop Loss: {signal['stopLoss']} 🔴
 
 Timeframe: {signal['timeframe']}
 Strategy: Test Strategy
