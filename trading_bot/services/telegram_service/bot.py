@@ -66,54 +66,56 @@ BACK_BUTTON = InlineKeyboardButton("⬅️ Back", callback_data="back")
 # Delete button
 DELETE_BUTTON = InlineKeyboardButton("🗑️ Delete", callback_data="delete_prefs")
 
-# Keyboard layouts
+# Keyboard layouts met meerdere instrumenten per rij
 FOREX_KEYBOARD = [
     # EUR pairs
-    [InlineKeyboardButton("EURUSD", callback_data="instrument_EURUSD")],
-    [InlineKeyboardButton("EURGBP", callback_data="instrument_EURGBP")],
-    [InlineKeyboardButton("EURCHF", callback_data="instrument_EURCHF")],
-    [InlineKeyboardButton("EURJPY", callback_data="instrument_EURJPY")],
-    [InlineKeyboardButton("EURCAD", callback_data="instrument_EURCAD")],
-    [InlineKeyboardButton("EURAUD", callback_data="instrument_EURAUD")],
-    [InlineKeyboardButton("EURNZD", callback_data="instrument_EURNZD")],
+    [
+        InlineKeyboardButton("EURUSD", callback_data="instrument_EURUSD"),
+        InlineKeyboardButton("EURGBP", callback_data="instrument_EURGBP"),
+        InlineKeyboardButton("EURCHF", callback_data="instrument_EURCHF")
+    ],
+    [
+        InlineKeyboardButton("EURJPY", callback_data="instrument_EURJPY"),
+        InlineKeyboardButton("EURCAD", callback_data="instrument_EURCAD"),
+        InlineKeyboardButton("EURAUD", callback_data="instrument_EURAUD")
+    ],
     # GBP pairs
-    [InlineKeyboardButton("GBPUSD", callback_data="instrument_GBPUSD")],
-    [InlineKeyboardButton("GBPCHF", callback_data="instrument_GBPCHF")],
-    [InlineKeyboardButton("GBPJPY", callback_data="instrument_GBPJPY")],
-    [InlineKeyboardButton("GBPCAD", callback_data="instrument_GBPCAD")],
-    [InlineKeyboardButton("GBPAUD", callback_data="instrument_GBPAUD")],
-    [InlineKeyboardButton("GBPNZD", callback_data="instrument_GBPNZD")],
-    # Other majors
-    [InlineKeyboardButton("USDJPY", callback_data="instrument_USDJPY")],
-    [InlineKeyboardButton("USDCHF", callback_data="instrument_USDCHF")],
-    [InlineKeyboardButton("USDCAD", callback_data="instrument_USDCAD")],
-    [InlineKeyboardButton("AUDUSD", callback_data="instrument_AUDUSD")],
-    [InlineKeyboardButton("NZDUSD", callback_data="instrument_NZDUSD")],
+    [
+        InlineKeyboardButton("GBPUSD", callback_data="instrument_GBPUSD"),
+        InlineKeyboardButton("GBPJPY", callback_data="instrument_GBPJPY"),
+        InlineKeyboardButton("GBPCHF", callback_data="instrument_GBPCHF")
+    ],
+    # USD pairs
+    [
+        InlineKeyboardButton("USDJPY", callback_data="instrument_USDJPY"),
+        InlineKeyboardButton("USDCHF", callback_data="instrument_USDCHF"),
+        InlineKeyboardButton("USDCAD", callback_data="instrument_USDCAD")
+    ],
     # Cross rates
-    [InlineKeyboardButton("CHFJPY", callback_data="instrument_CHFJPY")],
-    [InlineKeyboardButton("CADJPY", callback_data="instrument_CADJPY")],
-    [InlineKeyboardButton("CADCHF", callback_data="instrument_CADCHF")],
-    [InlineKeyboardButton("AUDCHF", callback_data="instrument_AUDCHF")],
-    [InlineKeyboardButton("AUDJPY", callback_data="instrument_AUDJPY")],
-    [InlineKeyboardButton("AUDNZD", callback_data="instrument_AUDNZD")],
-    [InlineKeyboardButton("AUDCAD", callback_data="instrument_AUDCAD")],
-    [InlineKeyboardButton("NZDCHF", callback_data="instrument_NZDCHF")],
-    [InlineKeyboardButton("NZDJPY", callback_data="instrument_NZDJPY")],
-    [InlineKeyboardButton("NZDCAD", callback_data="instrument_NZDCAD")],
+    [
+        InlineKeyboardButton("AUDUSD", callback_data="instrument_AUDUSD"),
+        InlineKeyboardButton("NZDUSD", callback_data="instrument_NZDUSD"),
+        InlineKeyboardButton("AUDNZD", callback_data="instrument_AUDNZD")
+    ],
     [BACK_BUTTON]
 ]
 
 INDICES_KEYBOARD = [
-    [InlineKeyboardButton("AU200", callback_data="instrument_AU200")],
-    [InlineKeyboardButton("EU50", callback_data="instrument_EU50")],
-    [InlineKeyboardButton("FR40", callback_data="instrument_FR40")],
-    [InlineKeyboardButton("HK50", callback_data="instrument_HK50")],
-    [InlineKeyboardButton("JP225", callback_data="instrument_JP225")],
-    [InlineKeyboardButton("UK100", callback_data="instrument_UK100")],
-    [InlineKeyboardButton("US100", callback_data="instrument_US100")],
-    [InlineKeyboardButton("US500", callback_data="instrument_US500")],
-    [InlineKeyboardButton("US30", callback_data="instrument_US30")],
-    [InlineKeyboardButton("DE40", callback_data="instrument_DE40")],
+    [
+        InlineKeyboardButton("US500", callback_data="instrument_US500"),
+        InlineKeyboardButton("US100", callback_data="instrument_US100"),
+        InlineKeyboardButton("US30", callback_data="instrument_US30")
+    ],
+    [
+        InlineKeyboardButton("DE40", callback_data="instrument_DE40"),
+        InlineKeyboardButton("UK100", callback_data="instrument_UK100"),
+        InlineKeyboardButton("EU50", callback_data="instrument_EU50")
+    ],
+    [
+        InlineKeyboardButton("JP225", callback_data="instrument_JP225"),
+        InlineKeyboardButton("AU200", callback_data="instrument_AU200"),
+        InlineKeyboardButton("HK50", callback_data="instrument_HK50")
+    ],
     [BACK_BUTTON]
 ]
 
@@ -124,18 +126,21 @@ COMMODITIES_KEYBOARD = [
 ]
 
 CRYPTO_KEYBOARD = [
-    [InlineKeyboardButton("BTCUSD", callback_data="instrument_BTCUSD")],
-    [InlineKeyboardButton("ETHUSD", callback_data="instrument_ETHUSD")],
-    [InlineKeyboardButton("XRPUSD", callback_data="instrument_XRPUSD")],
-    [InlineKeyboardButton("SOLUSD", callback_data="instrument_SOLUSD")],
-    [InlineKeyboardButton("BNBUSD", callback_data="instrument_BNBUSD")],
-    [InlineKeyboardButton("ADAUSD", callback_data="instrument_ADAUSD")],
-    [InlineKeyboardButton("LTCUSD", callback_data="instrument_LTCUSD")],
-    [InlineKeyboardButton("DOGUSD", callback_data="instrument_DOGUSD")],
-    [InlineKeyboardButton("DOTUSD", callback_data="instrument_DOTUSD")],
-    [InlineKeyboardButton("LNKUSD", callback_data="instrument_LNKUSD")],
-    [InlineKeyboardButton("XLMUSD", callback_data="instrument_XLMUSD")],
-    [InlineKeyboardButton("AVXUSD", callback_data="instrument_AVXUSD")],
+    [
+        InlineKeyboardButton("BTCUSD", callback_data="instrument_BTCUSD"),
+        InlineKeyboardButton("ETHUSD", callback_data="instrument_ETHUSD"),
+        InlineKeyboardButton("XRPUSD", callback_data="instrument_XRPUSD")
+    ],
+    [
+        InlineKeyboardButton("SOLUSD", callback_data="instrument_SOLUSD"),
+        InlineKeyboardButton("BNBUSD", callback_data="instrument_BNBUSD"),
+        InlineKeyboardButton("ADAUSD", callback_data="instrument_ADAUSD")
+    ],
+    [
+        InlineKeyboardButton("DOGUSD", callback_data="instrument_DOGUSD"),
+        InlineKeyboardButton("DOTUSD", callback_data="instrument_DOTUSD"),
+        InlineKeyboardButton("LTCUSD", callback_data="instrument_LTCUSD")
+    ],
     [BACK_BUTTON]
 ]
 
