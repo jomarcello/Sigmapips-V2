@@ -275,61 +275,47 @@ class TelegramService:
             raise
             
     async def format_signal_with_ai(self, signal: Dict[str, Any]) -> str:
-        """Format signal using OpenAI to match the template"""
+        """Format signal with AI"""
         try:
-            prompt = f"""
-            Format this trading signal into a professional message:
-            Symbol: {signal['symbol']}
-            Action: {signal['action']}
-            Entry: {signal['price']}
-            SL: {signal['stopLoss']}
-            TP: {signal['takeProfit']}
-            Timeframe: {signal['timeframe']}
-            
-            Use this exact format with emojis:
-            🚨 NEW TRADING SIGNAL 🚨
-            
-            Instrument: [SYMBOL]
-            Action: [ACTION] 📉/📈
-            
-            Entry Price: [PRICE]
-            Stop Loss: [SL] 🔴
-            Take Profit: [TP] 🎯
-            
-            Timeframe: [TIMEFRAME]
-            Strategy: Test Strategy
-            
-            ---------------
-            
-            Risk Management:
-            • Position size: 1-2% max
-            • Use proper stop loss
-            • Follow your trading plan
-            
-            ---------------
-            
-            🤖 SigmaPips AI Verdict:
-            ✅ Trade aligns with market analysis
-            """
-            
+            prompt = f"""Format this trading signal into a clear and professional message:
+
+Signal Details:
+- Symbol: {signal['symbol']}
+- Action: {signal['action']}
+- Entry Price: {signal['price']}
+- Take Profit 1: {signal['takeProfit1']}
+- Take Profit 2: {signal['takeProfit2']}
+- Take Profit 3: {signal['takeProfit3']}
+- Stop Loss: {signal['stopLoss']}
+- Timeframe: {signal['timeframe']}
+
+Format requirements:
+1. Use clear sections with emojis
+2. Include risk/reward calculations
+3. Show all take profit levels
+4. Add important notes or warnings if needed
+5. Keep it concise but informative
+"""
+
             response = await self.openai.chat.completions.create(
                 model="gpt-4",
                 messages=[{
                     "role": "system",
-                    "content": "You are a professional trading signal formatter. Format signals exactly according to the template, maintaining all emojis and formatting."
+                    "content": "You are a professional trading signal formatter. Format signals in a clear, structured way with proper emojis and sections."
                 }, {
                     "role": "user",
                     "content": prompt
                 }],
-                temperature=0
+                temperature=0.7
             )
-            
-            formatted_message = response.choices[0].message.content
-            return formatted_message
-            
+
+            formatted_signal = response.choices[0].message.content
+            logger.info("Signal successfully formatted with AI")
+            return formatted_signal
+
         except Exception as e:
             logger.error(f"Error formatting signal with AI: {str(e)}")
-            # Fallback naar basic formatting als AI faalt
+            # Fallback naar basic formatting
             return self._format_signal_message(signal)
 
     async def send_signal(self, chat_id: str, signal: Dict[str, Any]):
@@ -373,25 +359,32 @@ class TelegramService:
             return False
 
     def _format_signal_message(self, signal: Dict[str, Any], sentiment: str = None, events: list = None) -> str:
-        """Format signal data into a readable message"""
-        message = f"🚨 New Signal Alert\n\n"
-        message += f"Symbol: {signal['symbol']}\n"
-        message += f"Action: {signal['action']}\n"
-        message += f"Entry Price: {signal['price']}\n"
-        message += f"Take Profit 1: {signal['takeProfit1']}\n"
-        message += f"Take Profit 2: {signal['takeProfit2']}\n"
-        message += f"Take Profit 3: {signal['takeProfit3']}\n"
-        message += f"Stop Loss Price: {signal['stopLoss']}\n"
-        message += f"Timeframe: {signal['timeframe']}\n"
-        
+        """Basic signal formatting fallback"""
+        message = f"""🚨 <b>Trading Signal Alert</b>
+
+📊 <b>Signal Details</b>
+• Symbol: {signal['symbol']}
+• Action: {signal['action']}
+• Entry Price: {signal['price']}
+
+🎯 <b>Take Profit Targets</b>
+• TP1: {signal['takeProfit1']}
+• TP2: {signal['takeProfit2']}
+• TP3: {signal['takeProfit3']}
+
+⚠️ <b>Risk Management</b>
+• Stop Loss: {signal['stopLoss']}
+• Timeframe: {signal['timeframe']}
+"""
+
         if sentiment:
-            message += f"\n📊 Sentiment Analysis\n{sentiment}\n"
+            message += f"\n📈 <b>Market Sentiment</b>\n{sentiment}"
             
         if events and len(events) > 0:
-            message += f"\n📅 Upcoming Events\n"
+            message += "\n\n📅 <b>Economic Events</b>"
             for event in events[:3]:
-                message += f"• {event}\n"
-                
+                message += f"\n• {event}"
+            
         return message
 
     async def _start_command(self, update: Update, context):
