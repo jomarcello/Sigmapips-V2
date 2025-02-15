@@ -62,9 +62,11 @@ async def receive_signal(signal: Dict[str, Any]):
             "action": signal["signal"],
             "price": signal["price"],
             "stopLoss": signal["sl"],
-            "takeProfit": signal["tp"],
+            "takeProfit1": signal["tp1"],
+            "takeProfit2": signal["tp2"],
+            "takeProfit3": signal["tp3"],
             "timeframe": signal["timeframe"],
-            "market": _detect_market(signal["instrument"])  # Helper functie
+            "market": _detect_market(signal["instrument"])
         }
         
         # Genereer message key
