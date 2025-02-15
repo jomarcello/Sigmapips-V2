@@ -66,39 +66,60 @@ BACK_BUTTON = InlineKeyboardButton("⬅️ Back", callback_data="back")
 # Delete button
 DELETE_BUTTON = InlineKeyboardButton("🗑️ Delete", callback_data="delete_prefs")
 
-# Keyboard layouts - alle buttons onder elkaar
-MARKET_KEYBOARD = [
-    [InlineKeyboardButton("Forex", callback_data="market_forex")],
-    [InlineKeyboardButton("Indices", callback_data="market_indices")],
-    [InlineKeyboardButton("Commodities", callback_data="market_commodities")],
-    [InlineKeyboardButton("Crypto", callback_data="market_crypto")]
-]
-
-# Instrument keyboards per markt
+# Keyboard layouts
 FOREX_KEYBOARD = [
+    # EUR pairs
     [InlineKeyboardButton("EURUSD", callback_data="instrument_EURUSD")],
+    [InlineKeyboardButton("EURGBP", callback_data="instrument_EURGBP")],
+    [InlineKeyboardButton("EURCHF", callback_data="instrument_EURCHF")],
+    [InlineKeyboardButton("EURJPY", callback_data="instrument_EURJPY")],
+    [InlineKeyboardButton("EURCAD", callback_data="instrument_EURCAD")],
+    [InlineKeyboardButton("EURAUD", callback_data="instrument_EURAUD")],
+    [InlineKeyboardButton("EURNZD", callback_data="instrument_EURNZD")],
+    # GBP pairs
     [InlineKeyboardButton("GBPUSD", callback_data="instrument_GBPUSD")],
+    [InlineKeyboardButton("GBPCHF", callback_data="instrument_GBPCHF")],
+    [InlineKeyboardButton("GBPJPY", callback_data="instrument_GBPJPY")],
+    [InlineKeyboardButton("GBPCAD", callback_data="instrument_GBPCAD")],
+    [InlineKeyboardButton("GBPAUD", callback_data="instrument_GBPAUD")],
+    [InlineKeyboardButton("GBPNZD", callback_data="instrument_GBPNZD")],
+    # Other majors
     [InlineKeyboardButton("USDJPY", callback_data="instrument_USDJPY")],
     [InlineKeyboardButton("USDCHF", callback_data="instrument_USDCHF")],
+    [InlineKeyboardButton("USDCAD", callback_data="instrument_USDCAD")],
     [InlineKeyboardButton("AUDUSD", callback_data="instrument_AUDUSD")],
+    [InlineKeyboardButton("NZDUSD", callback_data="instrument_NZDUSD")],
+    # Cross rates
+    [InlineKeyboardButton("CHFJPY", callback_data="instrument_CHFJPY")],
+    [InlineKeyboardButton("CADJPY", callback_data="instrument_CADJPY")],
+    [InlineKeyboardButton("CADCHF", callback_data="instrument_CADCHF")],
+    [InlineKeyboardButton("AUDCHF", callback_data="instrument_AUDCHF")],
+    [InlineKeyboardButton("AUDJPY", callback_data="instrument_AUDJPY")],
+    [InlineKeyboardButton("AUDNZD", callback_data="instrument_AUDNZD")],
+    [InlineKeyboardButton("AUDCAD", callback_data="instrument_AUDCAD")],
+    [InlineKeyboardButton("NZDCHF", callback_data="instrument_NZDCHF")],
+    [InlineKeyboardButton("NZDJPY", callback_data="instrument_NZDJPY")],
+    [InlineKeyboardButton("NZDCAD", callback_data="instrument_NZDCAD")],
     [BACK_BUTTON]
 ]
 
 INDICES_KEYBOARD = [
-    [InlineKeyboardButton("SPX500", callback_data="instrument_SPX500")],
-    [InlineKeyboardButton("NAS100", callback_data="instrument_NAS100")],
+    [InlineKeyboardButton("AU200", callback_data="instrument_AU200")],
+    [InlineKeyboardButton("EU50", callback_data="instrument_EU50")],
+    [InlineKeyboardButton("FR40", callback_data="instrument_FR40")],
+    [InlineKeyboardButton("HK50", callback_data="instrument_HK50")],
+    [InlineKeyboardButton("JP225", callback_data="instrument_JP225")],
+    [InlineKeyboardButton("UK100", callback_data="instrument_UK100")],
+    [InlineKeyboardButton("US100", callback_data="instrument_US100")],
+    [InlineKeyboardButton("US500", callback_data="instrument_US500")],
     [InlineKeyboardButton("US30", callback_data="instrument_US30")],
-    [InlineKeyboardButton("DAX 40", callback_data="instrument_DAX40")],
-    [InlineKeyboardButton("FTSE 100", callback_data="instrument_FTSE100")],
+    [InlineKeyboardButton("DE40", callback_data="instrument_DE40")],
     [BACK_BUTTON]
 ]
 
 COMMODITIES_KEYBOARD = [
     [InlineKeyboardButton("XAUUSD", callback_data="instrument_XAUUSD")],
-    [InlineKeyboardButton("XAGUSD", callback_data="instrument_XAGUSD")],
-    [InlineKeyboardButton("Oil (WTI)", callback_data="instrument_WTI")],
-    [InlineKeyboardButton("Oil (Brent)", callback_data="instrument_Brent")],
-    [InlineKeyboardButton("Natural Gas", callback_data="instrument_NGAS")],
+    [InlineKeyboardButton("XTIUSD", callback_data="instrument_XTIUSD")],
     [BACK_BUTTON]
 ]
 
@@ -107,7 +128,14 @@ CRYPTO_KEYBOARD = [
     [InlineKeyboardButton("ETHUSD", callback_data="instrument_ETHUSD")],
     [InlineKeyboardButton("XRPUSD", callback_data="instrument_XRPUSD")],
     [InlineKeyboardButton("SOLUSD", callback_data="instrument_SOLUSD")],
+    [InlineKeyboardButton("BNBUSD", callback_data="instrument_BNBUSD")],
+    [InlineKeyboardButton("ADAUSD", callback_data="instrument_ADAUSD")],
     [InlineKeyboardButton("LTCUSD", callback_data="instrument_LTCUSD")],
+    [InlineKeyboardButton("DOGUSD", callback_data="instrument_DOGUSD")],
+    [InlineKeyboardButton("DOTUSD", callback_data="instrument_DOTUSD")],
+    [InlineKeyboardButton("LNKUSD", callback_data="instrument_LNKUSD")],
+    [InlineKeyboardButton("XLMUSD", callback_data="instrument_XLMUSD")],
+    [InlineKeyboardButton("AVXUSD", callback_data="instrument_AVXUSD")],
     [BACK_BUTTON]
 ]
 
@@ -359,7 +387,7 @@ class TelegramService:
     async def _start_command(self, update: Update, context):
         """Handle start command"""
         try:
-            reply_markup = InlineKeyboardMarkup(MARKET_KEYBOARD)
+            reply_markup = InlineKeyboardMarkup(FOREX_KEYBOARD)
             await update.message.reply_text(
                 WELCOME_MESSAGE,
                 reply_markup=reply_markup
@@ -375,7 +403,7 @@ class TelegramService:
         await query.answer()
         
         if query.data == "back":
-            reply_markup = InlineKeyboardMarkup(MARKET_KEYBOARD)
+            reply_markup = InlineKeyboardMarkup(FOREX_KEYBOARD)
             await query.edit_message_text(
                 text=WELCOME_MESSAGE,
                 reply_markup=reply_markup
@@ -383,7 +411,7 @@ class TelegramService:
             return CHOOSE_MARKET
         
         # Store the chosen market
-        context.user_data['market'] = query.data.replace('market_', '')
+        context.user_data['market'] = query.data.replace('instrument_', '')
         
         # Show instruments based on market choice
         keyboard_map = {
@@ -406,7 +434,7 @@ class TelegramService:
         await query.answer()
         
         if query.data == "back":
-            reply_markup = InlineKeyboardMarkup(MARKET_KEYBOARD)
+            reply_markup = InlineKeyboardMarkup(FOREX_KEYBOARD)
             await query.edit_message_text(
                 text=WELCOME_MESSAGE,
                 reply_markup=reply_markup
@@ -555,7 +583,7 @@ class TelegramService:
         await query.answer()
         
         if query.data == "add_more" or query.data == "start":
-            reply_markup = InlineKeyboardMarkup(MARKET_KEYBOARD)
+            reply_markup = InlineKeyboardMarkup(FOREX_KEYBOARD)
             await query.edit_message_text(
                 text=WELCOME_MESSAGE,
                 reply_markup=reply_markup
