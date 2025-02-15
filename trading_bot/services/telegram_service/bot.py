@@ -443,9 +443,10 @@ class TelegramService:
         await query.answer()
         
         if query.data == "back":
-            reply_markup = InlineKeyboardMarkup(FOREX_KEYBOARD)
+            # Ga terug naar market keuze
+            reply_markup = InlineKeyboardMarkup(MARKET_KEYBOARD)
             await query.edit_message_text(
-                text=WELCOME_MESSAGE,
+                text="Please select a market:",
                 reply_markup=reply_markup
             )
             return CHOOSE_MARKET
@@ -466,12 +467,14 @@ class TelegramService:
         await query.answer()
         
         if query.data == "back":
+            # Ga terug naar instrument keuze gebaseerd op market
             keyboard_map = {
                 'forex': FOREX_KEYBOARD,
                 'indices': INDICES_KEYBOARD,
                 'commodities': COMMODITIES_KEYBOARD,
                 'crypto': CRYPTO_KEYBOARD
             }
+            
             reply_markup = InlineKeyboardMarkup(keyboard_map[context.user_data['market']])
             await query.edit_message_text(
                 text="Please select an instrument:",
