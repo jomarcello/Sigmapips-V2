@@ -374,19 +374,21 @@ class TelegramService:
 
     def _format_signal_message(self, signal: Dict[str, Any], sentiment: str = None, events: list = None) -> str:
         """Format signal data into a readable message"""
-        message = f"New Signal Alert\n\n"
+        message = f"🚨 New Signal Alert\n\n"
         message += f"Symbol: {signal['symbol']}\n"
         message += f"Action: {signal['action']}\n"
-        message += f"Price: {signal['price']}\n"
-        message += f"Stop Loss: {signal['stopLoss']}\n"
-        message += f"Take Profit: {signal['takeProfit']}\n"
+        message += f"Entry Price: {signal['price']}\n"
+        message += f"Take Profit 1: {signal['takeProfit1']}\n"
+        message += f"Take Profit 2: {signal['takeProfit2']}\n"
+        message += f"Take Profit 3: {signal['takeProfit3']}\n"
+        message += f"Stop Loss Price: {signal['stopLoss']}\n"
         message += f"Timeframe: {signal['timeframe']}\n"
         
         if sentiment:
-            message += f"\nSentiment Analysis\n{sentiment}\n"
+            message += f"\n📊 Sentiment Analysis\n{sentiment}\n"
             
         if events and len(events) > 0:
-            message += f"\nUpcoming Events\n"
+            message += f"\n📅 Upcoming Events\n"
             for event in events[:3]:
                 message += f"• {event}\n"
                 
