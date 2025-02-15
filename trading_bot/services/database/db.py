@@ -46,10 +46,9 @@ class Database:
     async def match_subscribers(self, signal: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Match signal with subscribers based on market, instrument and timeframe"""
         try:
-            # Log het inkomende signaal
             logger.info(f"Incoming signal: market={signal['market']}, symbol={signal['symbol']}, timeframe={signal['timeframe']}")
             
-            # Haal alle actieve subscribers op (zonder await)
+            # Haal alle actieve subscribers op
             subscribers = self.supabase.table('subscriber_preferences').select('*').execute()
             total_subscribers = len(subscribers.data)
             logger.info(f"Found {total_subscribers} total subscribers in database")
@@ -57,25 +56,18 @@ class Database:
             # Filter subscribers die matchen met het signaal
             matched_subscribers = []
             for subscriber in subscribers.data:
-                # Converteer alles naar lowercase voor case-insensitive vergelijking
-                subscriber_market = subscriber['market'].lower()
-                subscriber_instrument = subscriber['instrument'].lower()
-                signal_market = signal['market'].lower()
-                signal_symbol = signal['symbol'].lower()
-                
-                # Log elke vergelijking
+                # Exacte vergelijking (case-sensitive)
                 logger.info(f"Checking subscriber {subscriber['id']}: "
-                           f"market={subscriber_market}=={signal_market}, "
-                           f"instrument={subscriber_instrument}=={signal_symbol}, "
+                           f"market={subscriber['market']}=={signal['market']}, "
+                           f"instrument={subscriber['instrument']}=={signal['symbol']}, "
                            f"timeframe={subscriber['timeframe']}=={signal['timeframe']}")
 
-                # Check of market, instrument en timeframe matchen
-                if (subscriber_market == signal_market and
-                    subscriber_instrument == signal_symbol and
+                # Check of market, instrument en timeframe exact matchen
+                if (subscriber['market'] == signal['market'] and
+                    subscriber['instrument'] == signal['symbol'] and
                     subscriber['timeframe'] == signal['timeframe'] and
                     subscriber.get('is_active', True)):
                     
-                    # Voeg chat_id toe aan subscriber data
                     subscriber['chat_id'] = str(subscriber['user_id'])
                     matched_subscribers.append(subscriber)
                     logger.info(f"✅ Matched subscriber {subscriber['id']}: user_id={subscriber['user_id']}")
