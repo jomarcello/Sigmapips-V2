@@ -152,6 +152,14 @@ AFTER_SETUP_KEYBOARD = [
     [InlineKeyboardButton("Manage Preferences", callback_data="manage_prefs")]
 ]
 
+# Market keyboard
+MARKET_KEYBOARD = [
+    [InlineKeyboardButton("Forex", callback_data="market_forex")],
+    [InlineKeyboardButton("Indices", callback_data="market_indices")],
+    [InlineKeyboardButton("Commodities", callback_data="market_commodities")],
+    [InlineKeyboardButton("Crypto", callback_data="market_crypto")]
+]
+
 class TelegramService:
     def __init__(self, db: Database):
         """Initialize telegram service"""
@@ -387,7 +395,8 @@ class TelegramService:
     async def _start_command(self, update: Update, context):
         """Handle start command"""
         try:
-            reply_markup = InlineKeyboardMarkup(FOREX_KEYBOARD)
+            # Start met market keuze
+            reply_markup = InlineKeyboardMarkup(MARKET_KEYBOARD)
             await update.message.reply_text(
                 WELCOME_MESSAGE,
                 reply_markup=reply_markup
@@ -403,7 +412,7 @@ class TelegramService:
         await query.answer()
         
         if query.data == "back":
-            reply_markup = InlineKeyboardMarkup(FOREX_KEYBOARD)
+            reply_markup = InlineKeyboardMarkup(MARKET_KEYBOARD)
             await query.edit_message_text(
                 text=WELCOME_MESSAGE,
                 reply_markup=reply_markup
@@ -411,7 +420,7 @@ class TelegramService:
             return CHOOSE_MARKET
         
         # Store the chosen market
-        context.user_data['market'] = query.data.replace('instrument_', '')
+        context.user_data['market'] = query.data.replace('market_', '')
         
         # Show instruments based on market choice
         keyboard_map = {
