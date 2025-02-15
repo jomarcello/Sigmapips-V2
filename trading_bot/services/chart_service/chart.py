@@ -19,96 +19,111 @@ class ChartService:
         self.chrome_options.add_argument('--disable-dev-shm-usage')
         self.chrome_options.add_argument('--window-size=1920,1080')
         
-        # TradingView base URL zonder trailing slash
-        self.base_url = "https://www.tradingview.com/chart/"  # Let op de trailing slash
-        
-    def _get_symbol_with_broker(self, symbol: str, market: str) -> str:
-        """Get symbol with correct broker prefix"""
-        if market.lower() == 'forex':
-            return f"OANDA:{symbol}"  # Gebruik OANDA voor forex pairs
-        
-        # Speciale mapping voor indices
-        indices_map = {
-            'SPX500': 'SP500',
-            'NAS100': 'NASDAQ100', 
-            'US30': 'DJ30'
+        # Chart URL mapping
+        self.chart_urls = {
+            # Commodities
+            'XAUUSD': 'https://www.tradingview.com/chart/bylCuCgc/',
+            'XTIUSD': 'https://www.tradingview.com/chart/jxU29rbq/',
+            
+            # Forex
+            'EURUSD': 'https://www.tradingview.com/chart/xknpxpcr/',
+            'EURGBP': 'https://www.tradingview.com/chart/xt6LdUUi/',
+            'EURCHF': 'https://www.tradingview.com/chart/4Jr8hVba/',
+            'EURJPY': 'https://www.tradingview.com/chart/ume7H7lm/',
+            'EURCAD': 'https://www.tradingview.com/chart/gbtrKFPk/',
+            'EURAUD': 'https://www.tradingview.com/chart/WweOZl7z/',
+            'EURNZD': 'https://www.tradingview.com/chart/bcrCHPsz/',
+            'GBPUSD': 'https://www.tradingview.com/chart/jKph5b1W/',
+            'GBPCHF': 'https://www.tradingview.com/chart/1qMsl4FS/',
+            'GBPJPY': 'https://www.tradingview.com/chart/Zcmh5M2k/',
+            'GBPCAD': 'https://www.tradingview.com/chart/CvwpPBpF/',
+            'GBPAUD': 'https://www.tradingview.com/chart/neo3Fc3j/',
+            'GBPNZD': 'https://www.tradingview.com/chart/egeCqr65/',
+            'CHFJPY': 'https://www.tradingview.com/chart/g7qBPaqM/',
+            'USDJPY': 'https://www.tradingview.com/chart/mcWuRDQv/',
+            'USDCHF': 'https://www.tradingview.com/chart/e7xDgRyM/',
+            'USDCAD': 'https://www.tradingview.com/chart/jjTOeBNM/',
+            'CADJPY': 'https://www.tradingview.com/chart/KNsPbDME/',
+            'CADCHF': 'https://www.tradingview.com/chart/XnHRKk5I/',
+            'AUDUSD': 'https://www.tradingview.com/chart/h7CHetVW/',
+            'AUDCHF': 'https://www.tradingview.com/chart/oooBW6HP/',
+            'AUDJPY': 'https://www.tradingview.com/chart/sYiGgj7B/',
+            'AUDNZD': 'https://www.tradingview.com/chart/AByyHLB4/',
+            'AUDCAD': 'https://www.tradingview.com/chart/L4992qKp/',
+            'NZDUSD': 'https://www.tradingview.com/chart/yab05IFU/',
+            'NZDCHF': 'https://www.tradingview.com/chart/7epTugqA/',
+            'NZDJPY': 'https://www.tradingview.com/chart/fdtQ7rx7/',
+            'NZDCAD': 'https://www.tradingview.com/chart/mRVtXs19/',
+            
+            # Crypto
+            'BTCUSD': 'https://www.tradingview.com/chart/Nroi4EqI/',
+            'ETHUSD': 'https://www.tradingview.com/chart/rVh10RLj/',
+            'XRPUSD': 'https://www.tradingview.com/chart/tQu9Ca4E/',
+            'SOLUSD': 'https://www.tradingview.com/chart/oTTmSjzQ/',
+            'BNBUSD': 'https://www.tradingview.com/chart/wNBWNh23/',
+            'ADAUSD': 'https://www.tradingview.com/chart/WcBNFrdb/',
+            'LTCUSD': 'https://www.tradingview.com/chart/AoDblBMt/',
+            'DOGUSD': 'https://www.tradingview.com/chart/F6SPb52v/',
+            'DOTUSD': 'https://www.tradingview.com/chart/nT9dwAx2/',
+            'LNKUSD': 'https://www.tradingview.com/chart/FzOrtgYw/',
+            'XLMUSD': 'https://www.tradingview.com/chart/SnvxOhDh/',
+            'AVXUSD': 'https://www.tradingview.com/chart/LfTlCrdQ/',
+            
+            # Indices
+            'AU200': 'https://www.tradingview.com/chart/U5CKagMM/',
+            'EU50': 'https://www.tradingview.com/chart/tt5QejVd/',
+            'FR40': 'https://www.tradingview.com/chart/RoPe3S1Q/',
+            'HK50': 'https://www.tradingview.com/chart/Rllftdyl/',
+            'JP225': 'https://www.tradingview.com/chart/i562Fk6X/',
+            'UK100': 'https://www.tradingview.com/chart/0I4gguQa/',
+            'US100': 'https://www.tradingview.com/chart/5d36Cany/',
+            'US500': 'https://www.tradingview.com/chart/VsfYHrwP/',
+            'US30': 'https://www.tradingview.com/chart/heV5Zitn/',
+            'DE40': 'https://www.tradingview.com/chart/OWzg0XNw/'
         }
-        
-        if market.lower() == 'indices':
-            return indices_map.get(symbol, symbol)
-        
-        prefixes = {
-            'crypto': 'BINANCE:',
-            'indices': '',
-            'commodities': ''
-        }
-        return f"{prefixes.get(market.lower(), '')}{symbol}"
 
-    def _get_timeframe_format(self, timeframe: str) -> str:
-        """Convert timeframe to TradingView format"""
-        timeframe_map = {
-            '1h': '1H',
-            '4h': '4H',
-            '1d': '1D',
-            '1w': '1W',
-            '1m': '1M',
-            '15': '15',  # Minuten blijven hetzelfde
-            '30': '30',
-            '45': '45'
-        }
-        return timeframe_map.get(timeframe.lower(), timeframe)
-
-    async def generate_chart(self, symbol: str, timeframe: str, market: str = 'forex') -> bytes:
-        """Generate chart image for given symbol and timeframe"""
+    async def generate_chart(self, symbol: str, timeframe: str = None) -> bytes:
+        """Generate chart image for given symbol"""
         try:
-            logger.info(f"Generating chart for {symbol} on {timeframe} timeframe")
+            logger.info(f"Generating chart for {symbol}")
             
-            # Get symbol with correct broker
-            full_symbol = self._get_symbol_with_broker(symbol, market)
-            
-            # Get correct timeframe format
-            formatted_timeframe = self._get_timeframe_format(timeframe)
+            # Get chart URL for symbol
+            chart_url = self.chart_urls.get(symbol.upper().replace('/', ''))
+            if not chart_url:
+                logger.error(f"No chart URL found for symbol: {symbol}")
+                return None
+                
+            logger.info(f"Using chart URL: {chart_url}")
             
             # Initialize driver
             driver = webdriver.Chrome(options=self.chrome_options)
             
             try:
-                # Construct URL met correct timeframe format
-                url = f"{self.base_url}?symbol={full_symbol}&interval={formatted_timeframe}"
-                logger.info(f"Chart URL: {url}")
-                driver.get(url)
+                driver.get(chart_url)
                 
                 # Wait for chart to load
                 WebDriverWait(driver, 20).until(
                     EC.presence_of_element_located((By.CLASS_NAME, "chart-container"))
                 )
                 
-                # Remove unnecessary UI elements
+                # Remove UI elements
                 self._remove_ui_elements(driver)
                 
                 # Take screenshot
                 chart_element = driver.find_element(By.CLASS_NAME, "chart-container")
                 screenshot = chart_element.screenshot_as_png
                 
-                # Process image
-                img = Image.open(io.BytesIO(screenshot))
-                img = img.convert('RGB')
-                
-                # Save to bytes
-                img_byte_arr = io.BytesIO()
-                img.save(img_byte_arr, format='JPEG', quality=85)
-                img_byte_arr = img_byte_arr.getvalue()
-                
                 logger.info(f"Successfully generated chart for {symbol}")
-                return img_byte_arr
+                return screenshot
                 
             finally:
                 driver.quit()
                 
         except Exception as e:
             logger.error(f"Error generating chart: {str(e)}")
-            raise
-            
+            logger.exception(e)
+            return None
+
     def _remove_ui_elements(self, driver):
         """Remove unnecessary UI elements from the chart"""
         try:
