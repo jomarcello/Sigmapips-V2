@@ -1106,21 +1106,19 @@ Risk Management:
                 chart_image = await self.chart.generate_chart(instrument, "1h")
                 
                 if chart_image:
-                    # Verwijder loading message
-                    await loading_message.delete()
+                    # Maak keyboard met back button
+                    keyboard = [[InlineKeyboardButton("⬅️ Back to Instruments", callback_data="back_to_instruments")]]
+                    reply_markup = InlineKeyboardMarkup(keyboard)
                     
-                    # Stuur nieuwe message met chart
+                    # Stuur chart met caption en back button in één message
                     await query.message.reply_photo(
                         photo=chart_image,
-                        caption=f"📊 Technical Analysis for {instrument}"
+                        caption=f"📊 Technical Analysis for {instrument}",
+                        reply_markup=reply_markup
                     )
                     
-                    # Stuur alleen de back button
-                    keyboard = [[InlineKeyboardButton("⬅️ Back to Instruments", callback_data="back_to_instruments")]]
-                    await query.message.reply_text(
-                        "‎", # Onzichtbaar karakter voor lege tekst
-                        reply_markup=InlineKeyboardMarkup(keyboard)
-                    )
+                    # Verwijder loading message
+                    await loading_message.delete()
                     
                 else:
                     await loading_message.edit_text(
