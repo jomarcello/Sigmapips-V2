@@ -28,7 +28,11 @@ from trading_bot.services.calendar_service.calendar import EconomicCalendarServi
 logger = logging.getLogger(__name__)
 
 # States
-CHOOSE_MARKET, CHOOSE_INSTRUMENT, CHOOSE_TIMEFRAME, MANAGE_PREFERENCES = range(4)
+CHOOSE_ANALYSIS = 0  # Nieuwe eerste state
+CHOOSE_MARKET = 1    # Blijft, maar komt later
+CHOOSE_INSTRUMENT = 2
+CHOOSE_STYLE = 3     # Nieuwe state ipv CHOOSE_TIMEFRAME
+SHOW_RESULT = 4      # Nieuwe state voor het tonen van resultaten
 
 # Messages
 WELCOME_MESSAGE = """
@@ -165,6 +169,28 @@ MARKET_KEYBOARD = [
     [InlineKeyboardButton("Crypto", callback_data="market_crypto")]
 ]
 
+# Analysis Type Keyboard
+ANALYSIS_KEYBOARD = [
+    [InlineKeyboardButton("📊 Technical Analysis", callback_data="analysis_technical")],
+    [InlineKeyboardButton("🤖 Sentiment Analysis", callback_data="analysis_sentiment")],
+    [InlineKeyboardButton("📅 News Calendar", callback_data="analysis_calendar")]
+]
+
+# Trading Style Keyboard
+STYLE_KEYBOARD = [
+    [InlineKeyboardButton("⚡ Scalp", callback_data="style_scalp")],
+    [InlineKeyboardButton("⏳ Intraday", callback_data="style_intraday")],
+    [InlineKeyboardButton("🏆 Swing", callback_data="style_swing")],
+    [BACK_BUTTON]
+]
+
+# Timeframe mapping based on style
+STYLE_TIMEFRAME_MAP = {
+    'scalp': ['1m', '5m', '15m'],
+    'intraday': ['15m', '1h', '4h'],
+    'swing': ['4h', '1d', '1w']
+}
+
 class TelegramService:
     def __init__(self, db: Database):
         """Initialize telegram service"""
@@ -207,17 +233,20 @@ class TelegramService:
                 CommandHandler("menu", self._menu_command)
             ],
             states={
+                CHOOSE_ANALYSIS: [
+                    CallbackQueryHandler(self._analysis_choice, pattern="^analysis_")
+                ],
                 CHOOSE_MARKET: [
                     CallbackQueryHandler(self._market_choice, pattern="^market_|back$")
                 ],
                 CHOOSE_INSTRUMENT: [
                     CallbackQueryHandler(self._instrument_choice, pattern="^instrument_|back$")
                 ],
-                CHOOSE_TIMEFRAME: [
-                    CallbackQueryHandler(self._timeframe_choice, pattern="^timeframe_|back$")
+                CHOOSE_STYLE: [
+                    CallbackQueryHandler(self._style_choice, pattern="^style_")
                 ],
-                MANAGE_PREFERENCES: [
-                    CallbackQueryHandler(self._manage_preferences, pattern="^add_more|manage_prefs|delete_prefs|delete_\d+|start|manage$")
+                SHOW_RESULT: [
+                    CallbackQueryHandler(self._show_result, pattern="^result_")
                 ]
             },
             fallbacks=[
@@ -467,10 +496,10 @@ Risk Management:
             text="Please select a timeframe:",
             reply_markup=reply_markup
         )
-        return CHOOSE_TIMEFRAME
+        return CHOOSE_STYLE
 
-    async def _timeframe_choice(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle timeframe selection"""
+    async def _style_choice(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle style selection"""
         query = update.callback_query
         await query.answer()
         
@@ -490,6 +519,40 @@ Risk Management:
             )
             return CHOOSE_INSTRUMENT
         
+        # Store the chosen style
+        context.user_data['style'] = query.data.replace('style_', '')
+        
+        # Get corresponding timeframes
+        timeframes = STYLE_TIMEFRAME_MAP.get(context.user_data['style'], ['1m', '15m', '1h', '4h'])
+        
+        reply_markup = InlineKeyboardMarkup(TIMEFRAME_KEYBOARD)
+        await query.edit_message_text(
+            text="Please select a timeframe:",
+            reply_markup=reply_markup
+        )
+        return SHOW_RESULT
+
+    async def _show_result(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle result selection"""
+        query = update.callback_query
+        await query.answer()
+        
+        if query.data == "back":
+            # Ga terug naar style keuze gebaseerd op market
+            keyboard_map = {
+                'forex': FOREX_KEYBOARD,
+                'indices': INDICES_KEYBOARD,
+                'commodities': COMMODITIES_KEYBOARD,
+                'crypto': CRYPTO_KEYBOARD
+            }
+            
+            reply_markup = InlineKeyboardMarkup(keyboard_map[context.user_data['market']])
+            await query.edit_message_text(
+                text="Please select a style:",
+                reply_markup=reply_markup
+            )
+            return CHOOSE_STYLE
+        
         # Store the chosen timeframe
         context.user_data['timeframe'] = query.data.replace('timeframe_', '')
         
@@ -499,6 +562,7 @@ Risk Management:
                 'user_id': user_id,
                 'market': context.user_data['market'],
                 'instrument': context.user_data['instrument'],
+                'style': context.user_data['style'],
                 'timeframe': context.user_data['timeframe']
             }
             
@@ -508,6 +572,7 @@ Risk Management:
             for pref in existing.data:
                 if (pref['market'] == new_preferences['market'] and 
                     pref['instrument'] == new_preferences['instrument'] and 
+                    pref['style'] == new_preferences['style'] and 
                     pref['timeframe'] == new_preferences['timeframe']):
                     
                     keyboard = [
@@ -519,10 +584,11 @@ Risk Management:
                         text="You already have this combination saved!\n\n"
                              f"Market: {new_preferences['market']}\n"
                              f"Instrument: {new_preferences['instrument']}\n"
+                             f"Style: {new_preferences['style']}\n"
                              f"Timeframe: {new_preferences['timeframe']}",
                         reply_markup=InlineKeyboardMarkup(keyboard)
                     )
-                    return MANAGE_PREFERENCES
+                    return SHOW_RESULT
             
             # Als er geen dubbele combinatie is, ga door met opslaan
             response = self.db.supabase.table('subscriber_preferences').insert(new_preferences).execute()
@@ -535,10 +601,11 @@ Risk Management:
                 text=f"Preferences saved!\n\n"
                      f"Market: {context.user_data['market']}\n"
                      f"Instrument: {context.user_data['instrument']}\n"
+                     f"Style: {context.user_data['style']}\n"
                      f"Timeframe: {context.user_data['timeframe']}",
                 reply_markup=reply_markup
             )
-            return MANAGE_PREFERENCES
+            return SHOW_RESULT
         
         except Exception as e:
             logger.error(f"Error saving preferences: {str(e)}")
@@ -558,11 +625,11 @@ Risk Management:
                     text="You don't have any saved preferences yet.",
                     reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Add Preferences", callback_data="add_more")]])
                 )
-                return MANAGE_PREFERENCES
+                return SHOW_RESULT
             
             message = "Your current preferences:\n\n"
             for i, pref in enumerate(response.data, 1):
-                message += f"{i}. {pref['market']} - {pref['instrument']} - {pref['timeframe']}\n"
+                message += f"{i}. {pref['market']} - {pref['instrument']} - {pref['style']} - {pref['timeframe']}\n"
             
             keyboard = [
                 [InlineKeyboardButton("Add More", callback_data="add_more")],
@@ -573,7 +640,7 @@ Risk Management:
                 text=message,
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
-            return MANAGE_PREFERENCES
+            return SHOW_RESULT
             
         except Exception as e:
             logger.error(f"Error handling manage command: {str(e)}")
@@ -593,7 +660,7 @@ Risk Management:
                 MENU_MESSAGE,
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
-            return MANAGE_PREFERENCES
+            return SHOW_RESULT
         except Exception as e:
             logger.error(f"Error handling menu command: {str(e)}")
 
@@ -619,11 +686,11 @@ Risk Management:
                     text="You don't have any saved preferences yet.",
                     reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Add Preferences", callback_data="add_more")]])
                 )
-                return MANAGE_PREFERENCES
+                return SHOW_RESULT
             
             message = "Your current preferences:\n\n"
             for i, pref in enumerate(response.data, 1):
-                message += f"{i}. {pref['market']} - {pref['instrument']} - {pref['timeframe']}\n"
+                message += f"{i}. {pref['market']} - {pref['instrument']} - {pref['style']} - {pref['timeframe']}\n"
             
             keyboard = [
                 [InlineKeyboardButton("Add More", callback_data="add_more")],
@@ -634,7 +701,7 @@ Risk Management:
                 text=message,
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
-            return MANAGE_PREFERENCES
+            return SHOW_RESULT
         
         elif query.data == "delete_prefs":
             user_id = query.from_user.id
@@ -644,7 +711,7 @@ Risk Management:
             keyboard = []
             
             for i, pref in enumerate(response.data, 1):
-                message += f"{i}. {pref['market']} - {pref['instrument']} - {pref['timeframe']}\n"
+                message += f"{i}. {pref['market']} - {pref['instrument']} - {pref['style']} - {pref['timeframe']}\n"
                 keyboard.append([InlineKeyboardButton(f"Delete {i}", callback_data=f"delete_{pref['id']}")])
             
             keyboard.append([InlineKeyboardButton("Back", callback_data="manage_prefs")])
@@ -653,7 +720,7 @@ Risk Management:
                 text=message,
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
-            return MANAGE_PREFERENCES
+            return SHOW_RESULT
         
         elif query.data.startswith("delete_"):
             pref_id = int(query.data.replace("delete_", ""))
@@ -673,7 +740,7 @@ Risk Management:
                 else:
                     message = "Your current preferences:\n\n"
                     for i, pref in enumerate(response.data, 1):
-                        message += f"{i}. {pref['market']} - {pref['instrument']} - {pref['timeframe']}\n"
+                        message += f"{i}. {pref['market']} - {pref['instrument']} - {pref['style']} - {pref['timeframe']}\n"
                     
                     keyboard = [
                         [InlineKeyboardButton("Add More", callback_data="add_more")],
@@ -689,9 +756,9 @@ Risk Management:
                 logger.error(f"Error deleting preference: {str(e)}")
                 await query.answer("Error deleting preference")
             
-            return MANAGE_PREFERENCES
+            return SHOW_RESULT
         
-        return MANAGE_PREFERENCES
+        return SHOW_RESULT
 
     async def set_webhook(self, webhook_url: str):
         """Set webhook for telegram bot"""
