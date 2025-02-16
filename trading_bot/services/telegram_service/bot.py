@@ -244,6 +244,7 @@ class TelegramService:
                     CallbackQueryHandler(self._style_choice, pattern="^style_|back$")
                 ],
                 SHOW_RESULT: [
+                    CallbackQueryHandler(self._back_to_menu, pattern="^back_to_menu$"),
                     CallbackQueryHandler(self._back_to_instruments, pattern="^back_to_instruments$"),
                     CallbackQueryHandler(self._show_result, pattern="^result_")
                 ]
@@ -1227,5 +1228,18 @@ Risk Management:
         except Exception as e:
             logger.error(f"Error handling back button: {str(e)}")
             return CHOOSE_INSTRUMENT
+
+    async def _back_to_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle back to menu button"""
+        query = update.callback_query
+        await query.answer()
+        
+        # Terug naar hoofdmenu
+        reply_markup = InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
+        await query.edit_message_text(
+            text="Welcome! What would you like to do?",
+            reply_markup=reply_markup
+        )
+        return CHOOSE_ANALYSIS
 
 # ... rest van de code ...
