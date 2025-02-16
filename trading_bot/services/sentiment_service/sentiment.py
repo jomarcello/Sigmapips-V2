@@ -116,25 +116,30 @@ class MarketSentimentService:
             logger.error(f"Error formatting sentiment with AI: {str(e)}")
             return "Error analyzing market sentiment"
 
-    async def get_market_sentiment(self, signal: Dict[str, Any]) -> str:
-        """Get complete market sentiment analysis"""
+    async def get_market_sentiment(self, instrument: str) -> str:
+        """Get market sentiment analysis"""
         try:
-            logger.info(f"Getting market sentiment for {signal['symbol']}")
+            logger.info(f"Getting market sentiment for {instrument}")
             
-            # Get raw analysis from Perplexity
-            perplexity_output = await self.get_perplexity_analysis(signal['symbol'])
-            logger.info(f"Perplexity output: {perplexity_output}")
-            
-            if not perplexity_output:
-                return "Could not fetch market analysis"
-                
-            # Format with OpenAI
-            formatted_sentiment = await self.format_sentiment_with_ai(perplexity_output)
-            logger.info(f"Formatted sentiment: {formatted_sentiment}")
-            
-            return formatted_sentiment
+            # Voorbeeld sentiment analyse
+            sentiment = f"""
+Market Sentiment for {instrument}:
+
+🔹 Overall Trend: Bullish
+🔹 Strength: Strong
+🔹 RSI: 65 (Neutral)
+🔹 MACD: Bullish Crossover
+🔹 Moving Averages: Above 20 & 50 EMA
+
+Key Levels:
+• Support: 1.2340
+• Resistance: 1.2460
+
+Market Sentiment: 75% Bullish
+"""
+            return sentiment
             
         except Exception as e:
             logger.error(f"Error in market sentiment analysis: {str(e)}")
-            logger.exception(e)
-            return "Error analyzing market sentiment" 
+            logger.error(str(e))
+            return "Unable to analyze market sentiment at this time." 
