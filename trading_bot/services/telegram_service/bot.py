@@ -173,7 +173,8 @@ MARKET_KEYBOARD = [
 ANALYSIS_KEYBOARD = [
     [InlineKeyboardButton("📊 Technical Analysis", callback_data="analysis_technical")],
     [InlineKeyboardButton("🤖 Sentiment Analysis", callback_data="analysis_sentiment")],
-    [InlineKeyboardButton("📅 News Calendar", callback_data="analysis_calendar")]
+    [InlineKeyboardButton("📅 News Calendar", callback_data="analysis_calendar")],
+    [InlineKeyboardButton("🎯 Trading Signals", callback_data="analysis_signals")]
 ]
 
 # Trading Style Keyboard
@@ -481,23 +482,28 @@ Risk Management:
         await query.answer()
         
         if query.data == "back":
-            # Ga terug naar market keuze
-            reply_markup = InlineKeyboardMarkup(MARKET_KEYBOARD)
+            reply_markup = InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
             await query.edit_message_text(
-                text="Please select a market:",
+                text="Welcome! What would you like to do?",
                 reply_markup=reply_markup
             )
-            return CHOOSE_MARKET
+            return CHOOSE_ANALYSIS
         
         # Store the chosen instrument
         context.user_data['instrument'] = query.data.replace('instrument_', '')
         
-        reply_markup = InlineKeyboardMarkup(TIMEFRAME_KEYBOARD)
-        await query.edit_message_text(
-            text="Please select a timeframe:",
-            reply_markup=reply_markup
-        )
-        return CHOOSE_STYLE
+        if context.user_data['analysis_type'] == 'signals':
+            # Alleen voor signals naar style selectie
+            reply_markup = InlineKeyboardMarkup(STYLE_KEYBOARD)
+            await query.edit_message_text(
+                text="Please select your trading style:",
+                reply_markup=reply_markup
+            )
+            return CHOOSE_STYLE
+        else:
+            # Voor andere analyses direct resultaat tonen
+            await self._show_analysis(query, context)
+            return SHOW_RESULT
 
     async def _style_choice(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle style selection"""
@@ -1072,24 +1078,36 @@ Risk Management:
         await query.answer()
         
         if query.data == "back":
-            # Terug naar start
             reply_markup = InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
             await query.edit_message_text(
-                text="Welcome! What would you like to analyze?",
+                text="Welcome! What would you like to do?",
                 reply_markup=reply_markup
             )
             return CHOOSE_ANALYSIS
         
-        # Store the chosen analysis type
         analysis_type = query.data.replace('analysis_', '')
         context.user_data['analysis_type'] = analysis_type
         
-        # Ga naar market keuze
-        reply_markup = InlineKeyboardMarkup(MARKET_KEYBOARD)
-        await query.edit_message_text(
-            text="Please select a market:",
-            reply_markup=reply_markup
-        )
-        return CHOOSE_MARKET
+        if analysis_type == 'signals':
+            # Alleen voor signals naar market selectie
+            reply_markup = InlineKeyboardMarkup(MARKET_KEYBOARD)
+            await query.edit_message_text(
+                text="Please select a market for your signals:",
+                reply_markup=reply_markup
+            )
+            return CHOOSE_MARKET
+        else:
+            # Voor andere analyses direct naar instrument selectie
+            keyboard_map = {
+                'technical': FOREX_KEYBOARD,
+                'sentiment': FOREX_KEYBOARD,
+                'calendar': FOREX_KEYBOARD
+            }
+            reply_markup = InlineKeyboardMarkup(keyboard_map[analysis_type])
+            await query.edit_message_text(
+                text=f"Please select an instrument for {analysis_type.replace('_', ' ').title()} Analysis:",
+                reply_markup=reply_markup
+            )
+            return CHOOSE_INSTRUMENT
 
 # ... rest van de code ...
