@@ -28,11 +28,11 @@ from trading_bot.services.calendar_service.calendar import EconomicCalendarServi
 logger = logging.getLogger(__name__)
 
 # States
-CHOOSE_ANALYSIS = 0  # Nieuwe eerste state
-CHOOSE_MARKET = 1    # Blijft, maar komt later
-CHOOSE_INSTRUMENT = 2
-CHOOSE_STYLE = 3     # Nieuwe state ipv CHOOSE_TIMEFRAME
-SHOW_RESULT = 4      # Nieuwe state voor het tonen van resultaten
+CHOOSE_ANALYSIS = 0  # Eerste state - kies analyse type
+CHOOSE_MARKET = 1    # Tweede state - kies market
+CHOOSE_INSTRUMENT = 2  # Derde state - kies instrument
+CHOOSE_STYLE = 3     # Vierde state - kies trading stijl
+SHOW_RESULT = 4      # Laatste state - toon resultaat
 
 # Messages
 WELCOME_MESSAGE = """
