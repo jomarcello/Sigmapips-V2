@@ -43,6 +43,15 @@ class Database:
         
         self.CACHE_TIMEOUT = 300  # 5 minuten in seconden
         
+        # Validatie constanten
+        self.VALID_STYLES = ['test', 'scalp', 'intraday', 'swing']
+        self.STYLE_TIMEFRAME_MAP = {
+            'test': '1m',
+            'scalp': '15m',
+            'intraday': '1h',
+            'swing': '4h'
+        }
+        
     async def match_subscribers(self, signal: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Match signal with subscribers based on market, instrument and timeframe"""
         try:
@@ -119,3 +128,26 @@ class Database:
                 return False
         
         return True 
+
+    async def save_preferences(self, user_id: int, market: str, instrument: str, style: str):
+        """Save user preferences with validation"""
+        try:
+            if style not in self.VALID_STYLES:
+                raise ValueError(f"Invalid style: {style}")
+                
+            timeframe = self.STYLE_TIMEFRAME_MAP[style]
+            
+            data = {
+                'user_id': user_id,
+                'market': market,
+                'instrument': instrument,
+                'style': style,
+                'timeframe': timeframe
+            }
+            
+            response = self.supabase.table('subscriber_preferences').insert(data).execute()
+            return response
+            
+        except Exception as e:
+            logger.error(f"Error saving preferences: {str(e)}")
+            raise 
