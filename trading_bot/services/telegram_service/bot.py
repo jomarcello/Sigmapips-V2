@@ -1108,23 +1108,26 @@ Risk Management:
                 
                 if chart_image:
                     # Maak keyboard met back button
-                    keyboard = [[InlineKeyboardButton("⬅️ Back to Instruments", callback_data="back_to_instruments")]]
+                    keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_to_instruments")]]
                     reply_markup = InlineKeyboardMarkup(keyboard)
                     
-                    # Stuur chart met caption en back button in één message
-                    await query.message.reply_photo(
+                    # Verwijder loading message
+                    await loading_message.delete()
+                    
+                    # Stuur nieuwe message met chart
+                    new_message = await query.message.reply_photo(
                         photo=chart_image,
                         caption=f"📊 Technical Analysis for {instrument}",
                         reply_markup=reply_markup
                     )
                     
-                    # Verwijder loading message
-                    await loading_message.delete()
+                    # Sla message ID op voor later gebruik
+                    context.user_data['last_chart_message'] = new_message.message_id
                     
                 else:
                     await loading_message.edit_text(
                         "Sorry, couldn't generate the chart. Please try again.",
-                        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back to Instruments", callback_data="back_to_instruments")]])
+                        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_to_instruments")]])
                     )
 
         except Exception as e:
@@ -1139,20 +1142,28 @@ Risk Management:
         query = update.callback_query
         await query.answer()
         
-        # Terug naar instrument keuze
-        keyboard_map = {
-            'technical': FOREX_KEYBOARD,
-            'sentiment': FOREX_KEYBOARD,
-            'calendar': FOREX_KEYBOARD
-        }
-        
-        analysis_type = context.user_data['analysis_type']
-        reply_markup = InlineKeyboardMarkup(keyboard_map[analysis_type])
-        
-        await query.edit_message_text(
-            text=f"Please select an instrument for {analysis_type.replace('_', ' ').title()} Analysis:",
-            reply_markup=reply_markup
-        )
-        return CHOOSE_INSTRUMENT
+        try:
+            # Verwijder de chart message
+            await query.message.delete()
+            
+            # Stuur nieuwe message met instrument keuze
+            keyboard_map = {
+                'technical': FOREX_KEYBOARD,
+                'sentiment': FOREX_KEYBOARD,
+                'calendar': FOREX_KEYBOARD
+            }
+            
+            analysis_type = context.user_data['analysis_type']
+            reply_markup = InlineKeyboardMarkup(keyboard_map[analysis_type])
+            
+            await query.message.reply_text(
+                text=f"Please select an instrument for {analysis_type.replace('_', ' ').title()} Analysis:",
+                reply_markup=reply_markup
+            )
+            return CHOOSE_INSTRUMENT
+            
+        except Exception as e:
+            logger.error(f"Error handling back button: {str(e)}")
+            return CHOOSE_INSTRUMENT
 
 # ... rest van de code ...
