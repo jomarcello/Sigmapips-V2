@@ -1024,22 +1024,43 @@ Risk Management:
                 return
             
             # Haal subscribers op die deze style hebben gekozen
-            subscribers = self.db.supabase.table('subscriber_preferences').select('*').eq('instrument', signal['symbol']).eq('style', trading_style).execute()
+            subscribers = self.db.supabase.table('subscriber_preferences').select('*').eq('instrument', signal['instrument']).eq('style', trading_style).execute()
             
             if not subscribers.data:
-                logger.info(f"No subscribers found for {signal['symbol']} with style {trading_style}")
+                logger.info(f"No subscribers found for {signal['instrument']} with style {trading_style}")
                 return
             
-            # Format het signal
-            formatted_signal = await self.format_signal_with_ai(signal)
+            # Format het signal met de juiste velden gebaseerd op BUY/SELL
+            if signal['signal'] == "BUY":
+                formatted_signal = await self.format_signal_with_ai({
+                    'symbol': signal['instrument'],
+                    'action': "BUY",
+                    'price': signal['price'],
+                    'takeProfit1': signal['tp1'],
+                    'takeProfit2': signal['tp2'],
+                    'takeProfit3': signal['tp3'],
+                    'stopLoss': signal['sl'],
+                    'timeframe': signal['timeframe']
+                })
+            else:  # SELL signal
+                formatted_signal = await self.format_signal_with_ai({
+                    'symbol': signal['instrument'],
+                    'action': "SELL",
+                    'price': signal['price'],
+                    'takeProfit1': signal['tp1'],
+                    'takeProfit2': signal['tp2'],
+                    'takeProfit3': signal['tp3'],
+                    'stopLoss': signal['sl'],
+                    'timeframe': signal['timeframe']
+                })
             
             # Maak keyboard
             keyboard = [
                 [
-                    InlineKeyboardButton("📊 Technical Analysis", callback_data=f"chart_{signal['symbol']}_{signal['timeframe']}"),
-                    InlineKeyboardButton("🤖 Market Sentiment", callback_data=f"sentiment_{signal['symbol']}")
+                    InlineKeyboardButton("📊 Technical Analysis", callback_data=f"chart_{signal['instrument']}_{signal['timeframe']}"),
+                    InlineKeyboardButton("🤖 Market Sentiment", callback_data=f"sentiment_{signal['instrument']}")
                 ],
-                [InlineKeyboardButton("📅 Economic Calendar", callback_data=f"calendar_{signal['symbol']}")]
+                [InlineKeyboardButton("📅 Economic Calendar", callback_data=f"calendar_{signal['instrument']}")]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
@@ -1047,7 +1068,7 @@ Risk Management:
             for subscriber in subscribers.data:
                 try:
                     sent_message = await self.bot.send_message(
-                        chat_id=subscriber['user_id'],  # Let op: user_id is chat_id
+                        chat_id=subscriber['user_id'],
                         text=formatted_signal,
                         parse_mode=ParseMode.HTML,
                         reply_markup=reply_markup
@@ -1059,7 +1080,7 @@ Risk Management:
                         'text': formatted_signal,
                         'parse_mode': 'HTML',
                         'preload_key': message_key,
-                        'symbol': signal['symbol'],
+                        'symbol': signal['instrument'],
                         'timeframe': signal['timeframe']
                     }
                     self.redis.hmset(signal_key, cache_data)
