@@ -166,7 +166,8 @@ MARKET_KEYBOARD = [
     [InlineKeyboardButton("Forex", callback_data="market_forex")],
     [InlineKeyboardButton("Indices", callback_data="market_indices")],
     [InlineKeyboardButton("Commodities", callback_data="market_commodities")],
-    [InlineKeyboardButton("Crypto", callback_data="market_crypto")]
+    [InlineKeyboardButton("Crypto", callback_data="market_crypto")],
+    [BACK_BUTTON]
 ]
 
 # Analysis Type Keyboard
