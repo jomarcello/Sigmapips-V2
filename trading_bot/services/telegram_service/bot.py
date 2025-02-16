@@ -1117,8 +1117,14 @@ Risk Management:
         
         try:
             if analysis_type == 'technical':
+                # Toon loading message
+                loading_message = await query.edit_message_text(
+                    text=f"⏳ Generating technical analysis for {instrument}...\n\n"
+                         f"Please wait while I prepare your chart 📊"
+                )
+                
                 # Genereer chart
-                chart_image = await self.chart.generate_chart(instrument, "1h")  # Default timeframe
+                chart_image = await self.chart.generate_chart(instrument, "1h")
                 
                 if chart_image:
                     # Maak keyboard met back button
@@ -1132,10 +1138,10 @@ Risk Management:
                         reply_markup=reply_markup
                     )
                     
-                    # Verwijder oude message
-                    await query.message.delete()
+                    # Verwijder loading message
+                    await loading_message.delete()
                 else:
-                    await query.edit_message_text(
+                    await loading_message.edit_text(
                         "Sorry, couldn't generate the chart. Please try again.",
                         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_to_menu")]])
                     )
@@ -1154,5 +1160,18 @@ Risk Management:
                 "Sorry, an error occurred. Please try again.",
                 reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_to_menu")]])
             )
+
+    async def _back_to_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle back to menu button"""
+        query = update.callback_query
+        await query.answer()
+        
+        # Terug naar hoofdmenu
+        reply_markup = InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
+        await query.edit_message_text(
+            text="Welcome! What would you like to do?",
+            reply_markup=reply_markup
+        )
+        return CHOOSE_ANALYSIS
 
 # ... rest van de code ...
