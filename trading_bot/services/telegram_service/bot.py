@@ -1083,13 +1083,32 @@ Risk Management:
         analysis_type = query.data.replace('analysis_', '')
         context.user_data['analysis_type'] = analysis_type
         
-        # Altijd eerst naar market selectie
-        reply_markup = InlineKeyboardMarkup(MARKET_KEYBOARD)
-        await query.edit_message_text(
-            text=f"Please select a market for {analysis_type.replace('_', ' ').title()}:",
-            reply_markup=reply_markup
-        )
-        return CHOOSE_MARKET
+        if analysis_type == 'calendar':
+            # Direct naar calendar zonder market/instrument selectie
+            loading_message = await query.edit_message_text(
+                text="⏳ Fetching economic calendar...\n\n"
+                     "Please wait while I check upcoming events 📅"
+            )
+            
+            calendar_data = await self.calendar.get_economic_calendar()
+            
+            keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_to_menu")]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await loading_message.edit_text(
+                text=f"📅 Economic Calendar\n\n{calendar_data}",
+                reply_markup=reply_markup
+            )
+            return SHOW_RESULT
+        
+        else:
+            # Voor andere analyses naar market selectie
+            reply_markup = InlineKeyboardMarkup(MARKET_KEYBOARD)
+            await query.edit_message_text(
+                text=f"Please select a market for {analysis_type.replace('_', ' ').title()}:",
+                reply_markup=reply_markup
+            )
+            return CHOOSE_MARKET
 
     async def _show_analysis(self, query: CallbackQuery, context: ContextTypes.DEFAULT_TYPE):
         """Toon analyse gebaseerd op type"""
