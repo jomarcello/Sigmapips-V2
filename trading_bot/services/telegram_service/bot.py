@@ -249,8 +249,9 @@ class TelegramService:
                 ],
                 SHOW_RESULT: [
                     CallbackQueryHandler(self._back_to_menu, pattern="^back_to_menu$"),
-                    CallbackQueryHandler(self._back_to_instruments, pattern="^back_to_instruments$"),
-                    CallbackQueryHandler(self._show_result, pattern="^result_")
+                    CallbackQueryHandler(self._add_more, pattern="^add_more$"),
+                    CallbackQueryHandler(self._manage_preferences, pattern="^manage_prefs$"),
+                    CallbackQueryHandler(self._back_to_instruments, pattern="^back_to_instruments$")
                 ]
             },
             fallbacks=[CommandHandler("start", self._start_command)]
@@ -721,101 +722,60 @@ Risk Management:
         except Exception as e:
             logger.error(f"Error handling menu command: {str(e)}")
 
-    async def _manage_preferences(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle preference management"""
+    async def _add_more(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle add more button"""
         query = update.callback_query
         await query.answer()
         
-        if query.data == "add_more" or query.data == "start":
-            reply_markup = InlineKeyboardMarkup(FOREX_KEYBOARD)
-            await query.edit_message_text(
-                text=WELCOME_MESSAGE,
-                reply_markup=reply_markup
-            )
-            return CHOOSE_MARKET
+        # Ga terug naar market selectie voor nieuwe toevoeging
+        reply_markup = InlineKeyboardMarkup(MARKET_KEYBOARD)
+        await query.edit_message_text(
+            text="Please select a market for Trading Signals:",
+            reply_markup=reply_markup
+        )
+        return CHOOSE_MARKET
+
+    async def _manage_preferences(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle manage preferences button"""
+        query = update.callback_query
+        await query.answer()
         
-        elif query.data == "manage_prefs" or query.data == "manage":
-            user_id = query.from_user.id
-            response = self.db.supabase.table('subscriber_preferences').select('*').eq('user_id', user_id).execute()
+        try:
+            # Haal user preferences op
+            user_id = update.effective_user.id
+            preferences = self.db.supabase.table('subscriber_preferences').select('*').eq('user_id', user_id).execute()
             
-            if not response.data:
+            if not preferences.data:
                 await query.edit_message_text(
-                    text="You don't have any saved preferences yet.",
-                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Add Preferences", callback_data="add_more")]])
+                    text="You don't have any saved preferences yet.\n\nUse /start to set up your first trading pair.",
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back to Menu", callback_data="back_to_menu")]])
                 )
                 return SHOW_RESULT
             
-            message = "Your current preferences:\n\n"
-            for i, pref in enumerate(response.data, 1):
-                message += f"{i}. {pref['market']} - {pref['instrument']} - {pref['style']} - {pref['timeframe']}\n"
-            
-            keyboard = [
-                [InlineKeyboardButton("Add More", callback_data="add_more")],
-                [DELETE_BUTTON]
-            ]
-            
-            await query.edit_message_text(
-                text=message,
-                reply_markup=InlineKeyboardMarkup(keyboard)
-            )
-            return SHOW_RESULT
-        
-        elif query.data == "delete_prefs":
-            user_id = query.from_user.id
-            response = self.db.supabase.table('subscriber_preferences').select('*').eq('user_id', user_id).execute()
-            
-            message = "Select a preference to delete:\n\n"
+            # Format preferences text
+            prefs_text = "Your current preferences:\n\n"
             keyboard = []
             
-            for i, pref in enumerate(response.data, 1):
-                message += f"{i}. {pref['market']} - {pref['instrument']} - {pref['style']} - {pref['timeframe']}\n"
-                keyboard.append([InlineKeyboardButton(f"Delete {i}", callback_data=f"delete_{pref['id']}")])
+            for i, pref in enumerate(preferences.data, 1):
+                prefs_text += f"{i}. {pref['market']} - {pref['instrument']}\n"
+                prefs_text += f"   Style: {pref['style']}, Timeframe: {pref['timeframe']}\n\n"
             
-            keyboard.append([InlineKeyboardButton("Back", callback_data="manage_prefs")])
+            keyboard.append([InlineKeyboardButton("🗑️ Delete Preferences", callback_data="delete_prefs")])
+            keyboard.append([InlineKeyboardButton("⬅️ Back to Menu", callback_data="back_to_menu")])
             
             await query.edit_message_text(
-                text=message,
+                text=prefs_text,
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
             return SHOW_RESULT
-        
-        elif query.data.startswith("delete_"):
-            pref_id = int(query.data.replace("delete_", ""))
-            try:
-                self.db.supabase.table('subscriber_preferences').delete().eq('id', pref_id).execute()
-                await query.answer("Preference deleted successfully!")
-                
-                # Show updated preferences
-                user_id = query.from_user.id
-                response = self.db.supabase.table('subscriber_preferences').select('*').eq('user_id', user_id).execute()
-                
-                if not response.data:
-                    await query.edit_message_text(
-                        text="You don't have any saved preferences yet.",
-                        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Add Preferences", callback_data="add_more")]])
-                    )
-                else:
-                    message = "Your current preferences:\n\n"
-                    for i, pref in enumerate(response.data, 1):
-                        message += f"{i}. {pref['market']} - {pref['instrument']} - {pref['style']} - {pref['timeframe']}\n"
-                    
-                    keyboard = [
-                        [InlineKeyboardButton("Add More", callback_data="add_more")],
-                        [DELETE_BUTTON]
-                    ]
-                    
-                    await query.edit_message_text(
-                        text=message,
-                        reply_markup=InlineKeyboardMarkup(keyboard)
-                    )
             
-            except Exception as e:
-                logger.error(f"Error deleting preference: {str(e)}")
-                await query.answer("Error deleting preference")
-            
+        except Exception as e:
+            logger.error(f"Error managing preferences: {str(e)}")
+            await query.edit_message_text(
+                text="Error retrieving preferences. Please try again.",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back to Menu", callback_data="back_to_menu")]])
+            )
             return SHOW_RESULT
-        
-        return SHOW_RESULT
 
     async def set_webhook(self, webhook_url: str):
         """Set webhook for telegram bot"""
@@ -1200,7 +1160,7 @@ Risk Management:
                 # Sentiment Analysis
                 loading_message = await query.edit_message_text(
                     text=f"⏳ Analyzing market sentiment for {instrument}...\n\n"
-                         f"Please wait while I gather the data 🤖"
+                         f"Please wait while I gather the data ��"
                 )
                 
                 sentiment_data = await self.sentiment.get_market_sentiment(instrument)
