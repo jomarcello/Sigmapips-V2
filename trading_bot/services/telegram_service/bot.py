@@ -243,7 +243,7 @@ class TelegramService:
                     CallbackQueryHandler(self._style_choice, pattern="^style_|back$")
                 ],
                 SHOW_RESULT: [
-                    CallbackQueryHandler(self._back_to_menu, pattern="^back_to_menu$"),
+                    CallbackQueryHandler(self._back_to_instruments, pattern="^back_to_instruments$"),
                     CallbackQueryHandler(self._show_result, pattern="^result_")
                 ]
             },
@@ -1120,44 +1120,54 @@ Risk Management:
                 chart_image = await self.chart.generate_chart(instrument, "1h")
                 
                 if chart_image:
-                    # Maak keyboard met back button
-                    keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_to_menu")]]
-                    reply_markup = InlineKeyboardMarkup(keyboard)
-                    
                     # Verwijder loading message
                     await loading_message.delete()
                     
                     # Stuur nieuwe message met chart
                     await query.message.reply_photo(
                         photo=chart_image,
-                        caption=f"📊 Technical Analysis for {instrument}\n\nClick Back to return to menu",
-                        reply_markup=reply_markup
+                        caption=f"📊 Technical Analysis for {instrument}"
+                    )
+                    
+                    # Stuur aparte message met back button
+                    keyboard = [[InlineKeyboardButton("⬅️ Back to Instruments", callback_data="back_to_instruments")]]
+                    await query.message.reply_text(
+                        "Choose an action:",
+                        reply_markup=InlineKeyboardMarkup(keyboard)
                     )
                     
                 else:
                     await loading_message.edit_text(
                         "Sorry, couldn't generate the chart. Please try again.",
-                        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_to_menu")]])
+                        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back to Instruments", callback_data="back_to_instruments")]])
                     )
 
         except Exception as e:
             logger.error(f"Error showing analysis: {str(e)}")
             await query.edit_message_text(
                 "Sorry, an error occurred. Please try again.",
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_to_menu")]])
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back to Instruments", callback_data="back_to_instruments")]])
             )
 
-    async def _back_to_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle back to menu button"""
+    async def _back_to_instruments(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle back to instruments button"""
         query = update.callback_query
         await query.answer()
         
-        # Terug naar hoofdmenu
-        reply_markup = InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
+        # Terug naar instrument keuze
+        keyboard_map = {
+            'technical': FOREX_KEYBOARD,
+            'sentiment': FOREX_KEYBOARD,
+            'calendar': FOREX_KEYBOARD
+        }
+        
+        analysis_type = context.user_data['analysis_type']
+        reply_markup = InlineKeyboardMarkup(keyboard_map[analysis_type])
+        
         await query.edit_message_text(
-            text="Welcome! What would you like to do?",
+            text=f"Please select an instrument for {analysis_type.replace('_', ' ').title()} Analysis:",
             reply_markup=reply_markup
         )
-        return CHOOSE_ANALYSIS
+        return CHOOSE_INSTRUMENT
 
 # ... rest van de code ...
