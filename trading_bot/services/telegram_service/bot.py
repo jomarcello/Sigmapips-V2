@@ -1131,11 +1131,53 @@ Risk Management:
                         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_to_instruments")]])
                     )
 
+            elif analysis_type == 'sentiment':
+                # Sentiment Analysis
+                loading_message = await query.edit_message_text(
+                    text=f"⏳ Analyzing market sentiment for {instrument}...\n\n"
+                         f"Please wait while I gather the data 🤖"
+                )
+                
+                sentiment_data = await self.sentiment.get_market_sentiment(instrument)
+                
+                keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_to_instruments")]]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                
+                await loading_message.delete()
+                
+                new_message = await query.message.reply_text(
+                    text=f"🤖 Market Sentiment Analysis for {instrument}\n\n{sentiment_data}",
+                    reply_markup=reply_markup
+                )
+                
+                context.user_data['last_message'] = new_message.message_id
+                
+            elif analysis_type == 'calendar':
+                # Economic Calendar
+                loading_message = await query.edit_message_text(
+                    text=f"⏳ Fetching economic events for {instrument}...\n\n"
+                         f"Please wait while I check the calendar ��"
+                )
+                
+                calendar_data = await self.calendar.get_economic_calendar(instrument)
+                
+                keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_to_instruments")]]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                
+                await loading_message.delete()
+                
+                new_message = await query.message.reply_text(
+                    text=f"📅 Economic Calendar for {instrument}\n\n{calendar_data}",
+                    reply_markup=reply_markup
+                )
+                
+                context.user_data['last_message'] = new_message.message_id
+                
         except Exception as e:
             logger.error(f"Error showing analysis: {str(e)}")
             await query.edit_message_text(
                 "Sorry, an error occurred. Please try again.",
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back to Instruments", callback_data="back_to_instruments")]])
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_to_instruments")]])
             )
 
     async def _back_to_instruments(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
