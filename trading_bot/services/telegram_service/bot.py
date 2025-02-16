@@ -173,7 +173,7 @@ MARKET_KEYBOARD = [
 ANALYSIS_KEYBOARD = [
     [InlineKeyboardButton("📊 Technical Analysis", callback_data="analysis_technical")],
     [InlineKeyboardButton("🤖 Sentiment Analysis", callback_data="analysis_sentiment")],
-    [InlineKeyboardButton("📅 News Calendar", callback_data="analysis_calendar")],
+    [InlineKeyboardButton("📅 Economic Calendar", callback_data="analysis_calendar")],
     [InlineKeyboardButton("🎯 Trading Signals", callback_data="analysis_signals")]
 ]
 
