@@ -244,10 +244,10 @@ class TelegramService:
                     CallbackQueryHandler(self._instrument_choice, pattern="^instrument_|back$")
                 ],
                 CHOOSE_STYLE: [
-                    CallbackQueryHandler(self._style_choice, pattern="^style_")
+                    CallbackQueryHandler(self._style_choice, pattern="^style_|back$")
                 ],
                 SHOW_RESULT: [
-                    CallbackQueryHandler(self._show_result, pattern="^result_")
+                    CallbackQueryHandler(self._show_result, pattern="^result_|back_to_menu$")
                 ]
             },
             fallbacks=[
@@ -1109,5 +1109,50 @@ Risk Management:
                 reply_markup=reply_markup
             )
             return CHOOSE_INSTRUMENT
+
+    async def _show_analysis(self, query: CallbackQuery, context: ContextTypes.DEFAULT_TYPE):
+        """Toon analyse gebaseerd op type"""
+        analysis_type = context.user_data['analysis_type']
+        instrument = context.user_data['instrument']
+        
+        try:
+            if analysis_type == 'technical':
+                # Genereer chart
+                chart_image = await self.chart.generate_chart(instrument, "1h")  # Default timeframe
+                
+                if chart_image:
+                    # Maak keyboard met back button
+                    keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_to_menu")]]
+                    reply_markup = InlineKeyboardMarkup(keyboard)
+                    
+                    # Stuur chart met caption
+                    await query.message.reply_photo(
+                        photo=chart_image,
+                        caption=f"📊 Technical Analysis for {instrument}",
+                        reply_markup=reply_markup
+                    )
+                    
+                    # Verwijder oude message
+                    await query.message.delete()
+                else:
+                    await query.edit_message_text(
+                        "Sorry, couldn't generate the chart. Please try again.",
+                        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_to_menu")]])
+                    )
+                
+            elif analysis_type == 'sentiment':
+                # Sentiment analyse implementatie komt later
+                pass
+                
+            elif analysis_type == 'calendar':
+                # Calendar implementatie komt later
+                pass
+                
+        except Exception as e:
+            logger.error(f"Error showing analysis: {str(e)}")
+            await query.edit_message_text(
+                "Sorry, an error occurred. Please try again.",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_to_menu")]])
+            )
 
 # ... rest van de code ...
