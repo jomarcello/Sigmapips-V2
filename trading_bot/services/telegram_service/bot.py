@@ -228,11 +228,7 @@ class TelegramService:
         
         # Conversation handler setup
         conv_handler = ConversationHandler(
-            entry_points=[
-                CommandHandler("start", self._start_command),
-                CommandHandler("manage", self._manage_command),
-                CommandHandler("menu", self._menu_command)
-            ],
+            entry_points=[CommandHandler("start", self._start_command)],
             states={
                 CHOOSE_ANALYSIS: [
                     CallbackQueryHandler(self._analysis_choice, pattern="^analysis_")
@@ -247,14 +243,11 @@ class TelegramService:
                     CallbackQueryHandler(self._style_choice, pattern="^style_|back$")
                 ],
                 SHOW_RESULT: [
-                    CallbackQueryHandler(self._show_result, pattern="^result_|back_to_menu$")
+                    CallbackQueryHandler(self._back_to_menu, pattern="^back_to_menu$"),
+                    CallbackQueryHandler(self._show_result, pattern="^result_")
                 ]
             },
-            fallbacks=[
-                CommandHandler("start", self._start_command),
-                CommandHandler("manage", self._manage_command),
-                CommandHandler("menu", self._menu_command)
-            ]
+            fallbacks=[CommandHandler("start", self._start_command)]
         )
         
         # Add handlers
@@ -1131,29 +1124,22 @@ Risk Management:
                     keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_to_menu")]]
                     reply_markup = InlineKeyboardMarkup(keyboard)
                     
-                    # Stuur chart met caption
+                    # Verwijder loading message
+                    await loading_message.delete()
+                    
+                    # Stuur nieuwe message met chart
                     await query.message.reply_photo(
                         photo=chart_image,
-                        caption=f"📊 Technical Analysis for {instrument}",
+                        caption=f"📊 Technical Analysis for {instrument}\n\nClick Back to return to menu",
                         reply_markup=reply_markup
                     )
                     
-                    # Verwijder loading message
-                    await loading_message.delete()
                 else:
                     await loading_message.edit_text(
                         "Sorry, couldn't generate the chart. Please try again.",
                         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_to_menu")]])
                     )
-                
-            elif analysis_type == 'sentiment':
-                # Sentiment analyse implementatie komt later
-                pass
-                
-            elif analysis_type == 'calendar':
-                # Calendar implementatie komt later
-                pass
-                
+
         except Exception as e:
             logger.error(f"Error showing analysis: {str(e)}")
             await query.edit_message_text(
