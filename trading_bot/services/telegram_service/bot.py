@@ -1129,10 +1129,10 @@ Risk Management:
                         caption=f"📊 Technical Analysis for {instrument}"
                     )
                     
-                    # Stuur aparte message met back button
+                    # Stuur alleen de back button
                     keyboard = [[InlineKeyboardButton("⬅️ Back to Instruments", callback_data="back_to_instruments")]]
                     await query.message.reply_text(
-                        "Choose an action:",
+                        "‎", # Onzichtbaar karakter voor lege tekst
                         reply_markup=InlineKeyboardMarkup(keyboard)
                     )
                     
