@@ -187,6 +187,14 @@ STYLE_TIMEFRAME_MAP = {
     'swing': '4h'
 }
 
+# Voeg deze mapping toe aan het begin van de file
+TIMEFRAME_STYLE_MAP = {
+    '1m': 'test',
+    '15m': 'scalp',
+    '1h': 'intraday',
+    '4h': 'swing'
+}
+
 class TelegramService:
     def __init__(self, db: Database):
         """Initialize telegram service"""
@@ -1045,47 +1053,39 @@ Risk Management:
             logger.exception(e)
 
     async def broadcast_signal(self, signal: Dict[str, Any], message_key: str):
-        """Broadcast signal to all matching subscribers using pre-loaded data"""
+        """Broadcast signal to subscribers"""
         try:
-            # Get matching subscribers
-            subscribers = await self.db.match_subscribers(signal)
-            logger.info(f"Found {len(subscribers)} matching subscribers")
-            
-            # Get cached data
-            logger.info(f"Retrieving cached data for key: {message_key}")
-            cached_data = self.redis.hgetall(message_key)
-            
-            if not cached_data:
-                logger.error(f"No cached data found for message_key: {message_key}")
-                logger.info("Available Redis keys:", self.redis.keys("preload:*"))
+            # Bepaal trading style gebaseerd op timeframe
+            trading_style = TIMEFRAME_STYLE_MAP.get(signal['timeframe'])
+            if not trading_style:
+                logger.error(f"Invalid timeframe received: {signal['timeframe']}")
                 return
             
-            logger.info(f"Found cached data with keys: {list(cached_data.keys())}")
+            # Haal subscribers op die deze style hebben gekozen
+            subscribers = self.db.supabase.table('subscriber_preferences').select('*').eq('instrument', signal['symbol']).eq('style', trading_style).execute()
             
-            formatted_signal = cached_data['formatted_signal']
-            logger.info("Successfully retrieved formatted signal from cache")
+            if not subscribers.data:
+                logger.info(f"No subscribers found for {signal['symbol']} with style {trading_style}")
+                return
             
-            # Create keyboard
+            # Format het signal
+            formatted_signal = await self.format_signal_with_ai(signal)
+            
+            # Maak keyboard
             keyboard = [
                 [
-                    {"text": "📊 Technical Analysis", "callback_data": f"chart_{signal['symbol']}_{signal['timeframe']}"},
-                    {"text": "🤖 Market Sentiment", "callback_data": f"sentiment_{signal['symbol']}"}
+                    InlineKeyboardButton("📊 Technical Analysis", callback_data=f"chart_{signal['symbol']}_{signal['timeframe']}"),
+                    InlineKeyboardButton("🤖 Market Sentiment", callback_data=f"sentiment_{signal['symbol']}")
                 ],
-                [{"text": "📅 Economic Calendar", "callback_data": f"calendar_{signal['symbol']}"}]
+                [InlineKeyboardButton("📅 Economic Calendar", callback_data=f"calendar_{signal['symbol']}")]
             ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
             
-            # Create InlineKeyboardMarkup from the keyboard dict
-            reply_markup = InlineKeyboardMarkup([
-                [
-                    InlineKeyboardButton(**btn) for btn in row
-                ] for row in keyboard
-            ])
-            
-            # Send to each subscriber
-            for subscriber in subscribers:
+            # Stuur naar elke subscriber
+            for subscriber in subscribers.data:
                 try:
                     sent_message = await self.bot.send_message(
-                        chat_id=subscriber['chat_id'],
+                        chat_id=subscriber['user_id'],  # Let op: user_id is chat_id
                         text=formatted_signal,
                         parse_mode=ParseMode.HTML,
                         reply_markup=reply_markup
@@ -1100,12 +1100,11 @@ Risk Management:
                         'symbol': signal['symbol'],
                         'timeframe': signal['timeframe']
                     }
-                    
                     self.redis.hmset(signal_key, cache_data)
                     self.redis.expire(signal_key, 3600)
                     
                 except Exception as e:
-                    logger.error(f"Failed to send signal to {subscriber['chat_id']}: {str(e)}")
+                    logger.error(f"Failed to send signal to {subscriber['user_id']}: {str(e)}")
                     continue
                 
         except Exception as e:
