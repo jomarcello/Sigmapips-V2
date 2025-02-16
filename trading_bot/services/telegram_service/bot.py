@@ -148,9 +148,11 @@ CRYPTO_KEYBOARD = [
     [BACK_BUTTON]
 ]
 
+# Update AFTER_SETUP_KEYBOARD
 AFTER_SETUP_KEYBOARD = [
     [InlineKeyboardButton("Add More", callback_data="add_more")],
-    [InlineKeyboardButton("Manage Preferences", callback_data="manage_prefs")]
+    [InlineKeyboardButton("Manage Preferences", callback_data="manage_prefs")],
+    [InlineKeyboardButton("⬅️ Back to Start", callback_data="back_to_menu")]  # Nieuwe back button
 ]
 
 # Market keyboard
