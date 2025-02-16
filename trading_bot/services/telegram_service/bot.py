@@ -432,14 +432,14 @@ Risk Management:
     async def _start_command(self, update: Update, context):
         """Handle start command"""
         try:
-            # Start met market keuze
-            reply_markup = InlineKeyboardMarkup(MARKET_KEYBOARD)
+            # Start met analyse type keuze
+            reply_markup = InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
             await update.message.reply_text(
-                WELCOME_MESSAGE,
+                "Welcome! What would you like to analyze?",
                 reply_markup=reply_markup
             )
             logger.info(f"Start command handled for user {update.effective_user.id}")
-            return CHOOSE_MARKET
+            return CHOOSE_ANALYSIS
         except Exception as e:
             logger.error(f"Error handling start command: {str(e)}")
 
@@ -1064,5 +1064,31 @@ Risk Management:
         except Exception as e:
             logger.error(f"Error broadcasting signal: {str(e)}")
             logger.exception(e)
+
+    async def _analysis_choice(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle analysis type selection"""
+        query = update.callback_query
+        await query.answer()
+        
+        if query.data == "back":
+            # Terug naar start
+            reply_markup = InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
+            await query.edit_message_text(
+                text="Welcome! What would you like to analyze?",
+                reply_markup=reply_markup
+            )
+            return CHOOSE_ANALYSIS
+        
+        # Store the chosen analysis type
+        analysis_type = query.data.replace('analysis_', '')
+        context.user_data['analysis_type'] = analysis_type
+        
+        # Ga naar market keuze
+        reply_markup = InlineKeyboardMarkup(MARKET_KEYBOARD)
+        await query.edit_message_text(
+            text="Please select a market:",
+            reply_markup=reply_markup
+        )
+        return CHOOSE_MARKET
 
 # ... rest van de code ...
