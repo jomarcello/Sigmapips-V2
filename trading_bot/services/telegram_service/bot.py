@@ -1081,27 +1081,13 @@ Risk Management:
         analysis_type = query.data.replace('analysis_', '')
         context.user_data['analysis_type'] = analysis_type
         
-        if analysis_type == 'signals':
-            # Alleen voor signals naar market selectie
-            reply_markup = InlineKeyboardMarkup(MARKET_KEYBOARD)
-            await query.edit_message_text(
-                text="Please select a market for your signals:",
-                reply_markup=reply_markup
-            )
-            return CHOOSE_MARKET
-        else:
-            # Voor andere analyses direct naar instrument selectie
-            keyboard_map = {
-                'technical': FOREX_KEYBOARD,
-                'sentiment': FOREX_KEYBOARD,
-                'calendar': FOREX_KEYBOARD
-            }
-            reply_markup = InlineKeyboardMarkup(keyboard_map[analysis_type])
-            await query.edit_message_text(
-                text=f"Please select an instrument for {analysis_type.replace('_', ' ').title()} Analysis:",
-                reply_markup=reply_markup
-            )
-            return CHOOSE_INSTRUMENT
+        # Altijd eerst naar market selectie
+        reply_markup = InlineKeyboardMarkup(MARKET_KEYBOARD)
+        await query.edit_message_text(
+            text=f"Please select a market for {analysis_type.replace('_', ' ').title()}:",
+            reply_markup=reply_markup
+        )
+        return CHOOSE_MARKET
 
     async def _show_analysis(self, query: CallbackQuery, context: ContextTypes.DEFAULT_TYPE):
         """Toon analyse gebaseerd op type"""
