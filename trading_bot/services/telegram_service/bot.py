@@ -475,12 +475,13 @@ Risk Management:
         await query.answer()
         
         if query.data == "back":
-            reply_markup = InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
+            # Terug naar market selectie
+            reply_markup = InlineKeyboardMarkup(MARKET_KEYBOARD)
             await query.edit_message_text(
-                text="Welcome! What would you like to do?",
+                text=f"Please select a market for {context.user_data['analysis_type'].replace('_', ' ').title()}:",
                 reply_markup=reply_markup
             )
-            return CHOOSE_ANALYSIS
+            return CHOOSE_MARKET
         
         # Store the chosen instrument
         context.user_data['instrument'] = query.data.replace('instrument_', '')
