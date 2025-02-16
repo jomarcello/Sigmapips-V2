@@ -148,14 +148,6 @@ CRYPTO_KEYBOARD = [
     [BACK_BUTTON]
 ]
 
-TIMEFRAME_KEYBOARD = [
-    [InlineKeyboardButton("1m", callback_data="timeframe_1m")],
-    [InlineKeyboardButton("15m", callback_data="timeframe_15m")],
-    [InlineKeyboardButton("1h", callback_data="timeframe_1h")],
-    [InlineKeyboardButton("4h", callback_data="timeframe_4h")],
-    [BACK_BUTTON]
-]
-
 AFTER_SETUP_KEYBOARD = [
     [InlineKeyboardButton("Add More", callback_data="add_more")],
     [InlineKeyboardButton("Manage Preferences", callback_data="manage_prefs")]
@@ -180,6 +172,7 @@ ANALYSIS_KEYBOARD = [
 
 # Trading Style Keyboard
 STYLE_KEYBOARD = [
+    [InlineKeyboardButton("🧪 1m (Test)", callback_data="style_test")],
     [InlineKeyboardButton("⚡ Scalp", callback_data="style_scalp")],
     [InlineKeyboardButton("⏳ Intraday", callback_data="style_intraday")],
     [InlineKeyboardButton("🏆 Swing", callback_data="style_swing")],
@@ -188,9 +181,10 @@ STYLE_KEYBOARD = [
 
 # Timeframe mapping based on style
 STYLE_TIMEFRAME_MAP = {
-    'scalp': ['1m', '5m', '15m'],
-    'intraday': ['15m', '1h', '4h'],
-    'swing': ['4h', '1d', '1w']
+    'test': '1m',
+    'scalp': '15m',
+    'intraday': '1h',
+    'swing': '4h'
 }
 
 class TelegramService:
@@ -507,7 +501,7 @@ Risk Management:
         await query.answer()
         
         if query.data == "back":
-            # Ga terug naar instrument keuze gebaseerd op market
+            # Terug naar instrument keuze
             keyboard_map = {
                 'forex': FOREX_KEYBOARD,
                 'indices': INDICES_KEYBOARD,
@@ -517,23 +511,73 @@ Risk Management:
             
             reply_markup = InlineKeyboardMarkup(keyboard_map[context.user_data['market']])
             await query.edit_message_text(
-                text="Please select an instrument:",
+                text=f"Please select an instrument:",
                 reply_markup=reply_markup
             )
             return CHOOSE_INSTRUMENT
         
-        # Store the chosen style
-        context.user_data['style'] = query.data.replace('style_', '')
+        # Store the chosen style and corresponding timeframe
+        style = query.data.replace('style_', '')
+        context.user_data['style'] = style
+        context.user_data['timeframe'] = STYLE_TIMEFRAME_MAP[style]
         
-        # Get corresponding timeframes
-        timeframes = STYLE_TIMEFRAME_MAP.get(context.user_data['style'], ['1m', '15m', '1h', '4h'])
+        try:
+            user_id = update.effective_user.id
+            new_preferences = {
+                'user_id': user_id,
+                'market': context.user_data['market'],
+                'instrument': context.user_data['instrument'],
+                'style': context.user_data['style'],
+                'timeframe': context.user_data['timeframe']  # Dit wordt automatisch gezet
+            }
+            
+            # Check voor dubbele combinaties
+            existing = self.db.supabase.table('subscriber_preferences').select('*').eq('user_id', user_id).execute()
+            
+            for pref in existing.data:
+                if (pref['market'] == new_preferences['market'] and 
+                    pref['instrument'] == new_preferences['instrument'] and 
+                    pref['style'] == new_preferences['style'] and 
+                    pref['timeframe'] == new_preferences['timeframe']):
+                    
+                    keyboard = [
+                        [InlineKeyboardButton("Try Again", callback_data="add_more")],
+                        [InlineKeyboardButton("Manage Preferences", callback_data="manage_prefs")]
+                    ]
+                    
+                    await query.edit_message_text(
+                        text="You already have this combination saved!\n\n"
+                             f"Market: {new_preferences['market']}\n"
+                             f"Instrument: {new_preferences['instrument']}\n"
+                             f"Style: {new_preferences['style']}\n"
+                             f"Timeframe: {new_preferences['timeframe']}",
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+                    return SHOW_RESULT
+            
+            # Als er geen dubbele combinatie is, ga door met opslaan
+            response = self.db.supabase.table('subscriber_preferences').insert(new_preferences).execute()
+            logger.info(f"Added new preferences: {new_preferences}")
+            
+            logger.info(f"Database response: {response}")
+            
+            reply_markup = InlineKeyboardMarkup(AFTER_SETUP_KEYBOARD)
+            await query.edit_message_text(
+                text=f"Preferences saved!\n\n"
+                     f"Market: {context.user_data['market']}\n"
+                     f"Instrument: {context.user_data['instrument']}\n"
+                     f"Style: {context.user_data['style']}\n"
+                     f"Timeframe: {context.user_data['timeframe']}",
+                reply_markup=reply_markup
+            )
+            return SHOW_RESULT
         
-        reply_markup = InlineKeyboardMarkup(TIMEFRAME_KEYBOARD)
-        await query.edit_message_text(
-            text="Please select a timeframe:",
-            reply_markup=reply_markup
-        )
-        return SHOW_RESULT
+        except Exception as e:
+            logger.error(f"Error saving preferences: {str(e)}")
+            await query.edit_message_text(
+                text="Error saving preferences. Please try again."
+            )
+            return ConversationHandler.END
 
     async def _show_result(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle result selection"""
@@ -1176,7 +1220,7 @@ Risk Management:
                 # Economic Calendar
                 loading_message = await query.edit_message_text(
                     text=f"⏳ Fetching economic events for {instrument}...\n\n"
-                         f"Please wait while I check the calendar ��"
+                         f"Please wait while I check the calendar 📅"
                 )
                 
                 calendar_data = await self.calendar.get_economic_calendar(instrument)
