@@ -40,15 +40,36 @@ async def health_check():
     return {"status": "healthy"}
 
 @app.post("/webhook")
-async def telegram_webhook(request: Request):
-    """Handle Telegram webhook updates"""
+async def webhook(request: Request):
+    """Handle TradingView webhook"""
     try:
-        update = Update.de_json(await request.json(), telegram.bot)
-        await telegram.app.process_update(update)
-        return {"status": "ok"}
+        signal = await request.json()
+        logger.info(f"Received TradingView signal: {signal}")
+        
+        # Validate required fields
+        required_fields = ['instrument', 'timeframe', 'signal', 'price', 'tp1', 'tp2', 'tp3', 'sl']
+        if not all(field in signal for field in required_fields):
+            logger.error(f"Missing required fields in signal. Required: {required_fields}, Received: {list(signal.keys())}")
+            return {"status": "error", "message": "Invalid signal format"}
+            
+        # Format validation
+        if not isinstance(signal['timeframe'], str):
+            signal['timeframe'] = str(signal['timeframe'])
+            
+        # Clean price values
+        for field in ['price', 'tp1', 'tp2', 'tp3', 'sl']:
+            if isinstance(signal[field], str):
+                signal[field] = signal[field].strip()
+        
+        # Broadcast signal
+        message_key = f"signal:{signal['instrument']}:{signal['timeframe']}"
+        await telegram.broadcast_signal(signal, message_key)
+        
+        return {"status": "success"}
+        
     except Exception as e:
-        logger.error(f"Error processing webhook: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Error processing signal: {str(e)}")
+        return {"status": "error", "message": str(e)}
 
 @app.post("/signal")
 async def receive_signal(signal: Dict[str, Any]):
