@@ -1033,16 +1033,17 @@ Risk Management:
             trading_style = TIMEFRAME_STYLE_MAP.get(timeframe, 'test')
             
             # Get subscribers for this instrument and style
-            instrument = signal.get('instrument')  # <-- Gebruik 'instrument' consistent
+            instrument = signal.get('instrument')
             if not instrument:
                 logger.error("No instrument in signal")
                 return
             
-            subscribers = self.db.supabase.table('subscriber_preferences') \
-                .select('*') \
-                .eq('instrument', instrument) \  # <-- Gebruik 'instrument' consistent
-                .eq('style', trading_style) \
-                .execute()
+            # Query subscribers
+            subscribers = (self.db.supabase.table('subscriber_preferences')
+                .select('*')
+                .eq('instrument', instrument)
+                .eq('style', trading_style)
+                .execute())
             
             if not subscribers.data:
                 logger.info(f"No subscribers found for {instrument} {trading_style}")
@@ -1051,7 +1052,7 @@ Risk Management:
             # Format signal
             if signal.get('signal') == 'BUY':
                 formatted_signal = await self.format_signal_with_ai({
-                    'symbol': instrument,  # <-- Verander naar 'instrument'
+                    'symbol': instrument,
                     'action': "BUY",
                     'price': signal['price'],
                     'takeProfit1': signal['tp'],
@@ -1062,7 +1063,7 @@ Risk Management:
                 })
             else:  # SELL signal
                 formatted_signal = await self.format_signal_with_ai({
-                    'symbol': instrument,  # <-- Verander naar 'instrument'
+                    'symbol': instrument,
                     'action': "SELL",
                     'price': signal['price'],
                     'takeProfit1': signal['tp'],
