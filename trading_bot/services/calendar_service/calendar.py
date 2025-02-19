@@ -1,7 +1,6 @@
 import os
 import logging
 from typing import Dict, Any
-from openai import AsyncOpenAI
 import aiohttp
 from datetime import datetime
 
@@ -10,7 +9,6 @@ logger = logging.getLogger(__name__)
 class EconomicCalendarService:
     def __init__(self):
         """Initialize calendar service"""
-        self.openai = AsyncOpenAI()
         self.api_key = os.getenv("DEEPSEEK_API_KEY", "sk-274ea5952e7e4b87aba4b14de3990c7d")
         self.api_url = "https://api.deepseek.com/v1/chat/completions"
         self.headers = {
