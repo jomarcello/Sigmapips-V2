@@ -1308,4 +1308,49 @@ Risk Management:
 🤖 SigmaPips AI Verdict:
 ✅ Trade aligns with market analysis"""
 
-# ... rest van de code ...
+    async def handle_chart_button(self, callback_query: Dict[str, Any], instrument: str, timeframe: str):
+        """Handle chart button click"""
+        try:
+            # Generate chart
+            chart_image = await self.chart.generate_chart(instrument, timeframe)
+            
+            if chart_image:
+                # Send chart
+                await self.bot.send_photo(
+                    chat_id=callback_query['message']['chat']['id'],
+                    photo=chart_image,
+                    caption=f"📊 Technical Analysis for {instrument}"
+                )
+        except Exception as e:
+            logger.error(f"Error handling chart button: {str(e)}")
+
+    async def handle_sentiment_button(self, callback_query: Dict[str, Any], instrument: str):
+        """Handle sentiment button click"""
+        try:
+            # Get sentiment
+            sentiment = await self.sentiment.get_market_sentiment({
+                'symbol': instrument,
+                'market': 'crypto' if 'USD' in instrument else 'forex'
+            })
+            
+            # Send sentiment
+            await self.bot.send_message(
+                chat_id=callback_query['message']['chat']['id'],
+                text=f"🤖 Market Sentiment for {instrument}\n\n{sentiment}"
+            )
+        except Exception as e:
+            logger.error(f"Error handling sentiment button: {str(e)}")
+
+    async def handle_calendar_button(self, callback_query: Dict[str, Any], instrument: str):
+        """Handle calendar button click"""
+        try:
+            # Get calendar
+            calendar = await self.calendar.get_economic_calendar()
+            
+            # Send calendar
+            await self.bot.send_message(
+                chat_id=callback_query['message']['chat']['id'],
+                text=f"📅 Economic Calendar for {instrument}\n\n{calendar}"
+            )
+        except Exception as e:
+            logger.error(f"Error handling calendar button: {str(e)}")
