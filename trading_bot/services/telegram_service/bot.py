@@ -314,19 +314,17 @@ class TelegramService:
             raise
             
     async def format_signal_with_ai(self, signal: Dict[str, Any]) -> str:
-        """Format trading signal using DeepSeek AI"""
+        """Format signal with AI"""
         try:
-            payload = {
-                "model": "deepseek-chat",
-                "messages": [{
+            prompt = f"""Format this trading signal..."""
+            
+            response = await self.openai.chat.completions.create(
+                model="gpt-4",
+                messages=[{
                     "role": "system",
-                    "content": "Format trading signals in a clear and professional way."
-                }, {
-                    "role": "user",
-                    "content": self._create_signal_prompt(signal)
-                }],
-                "temperature": 0.5
-            }
+                    "content": "You are a trading signal formatter..."
+                }]
+            )
 
             async with aiohttp.ClientSession() as session:
                 async with session.post(self.api_url, json=payload, headers=self.headers) as response:
