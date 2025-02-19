@@ -10,17 +10,63 @@ logger = logging.getLogger(__name__)
 class EconomicCalendarService:
     def __init__(self):
         """Initialize calendar service"""
-        self.openai = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-        self.perplexity_key = os.getenv("PERPLEXITY_API_KEY")
-        if not self.perplexity_key:
-            raise ValueError("Missing PERPLEXITY_API_KEY")
-        
-        # Perplexity API setup
-        self.perplexity_headers = {
-            "Authorization": f"Bearer {self.perplexity_key}",
-            "Content-Type": "application/json"
-        }
-        
+        self.openai = AsyncOpenAI()
+
+    async def get_economic_calendar(self, symbol: str = None) -> str:
+        """Get economic calendar data with fallback formatting"""
+        try:
+            # Basis kalender data (dit zou je kunnen vervangen met echte API data)
+            calendar_data = self._get_mock_calendar_data(symbol)
+            
+            try:
+                # Probeer AI formatting
+                formatted_data = await self._format_with_ai(calendar_data, symbol)
+                return formatted_data
+            except Exception as e:
+                logger.error(f"Error formatting calendar: {str(e)}")
+                # Fallback naar basic formatting
+                return self._format_basic(calendar_data, symbol)
+                
+        except Exception as e:
+            logger.error(f"Error getting calendar data: {str(e)}")
+            return "Error fetching economic calendar"
+
+    def _format_basic(self, data: list, symbol: str = None) -> str:
+        """Basic formatting without AI"""
+        if not data:
+            return "No upcoming economic events found."
+            
+        header = "📅 Economic Calendar\n\n"
+        if symbol:
+            header += f"Events for {symbol}\n\n"
+            
+        formatted = header
+        for event in data:
+            formatted += f"🕒 {event['time']}\n"
+            formatted += f"📊 {event['event']}\n"
+            formatted += f"🌍 {event['country']}\n"
+            formatted += f"Impact: {'🔴' * event['impact']}\n\n"
+            
+        return formatted
+
+    def _get_mock_calendar_data(self, symbol: str = None) -> list:
+        """Get mock calendar data"""
+        return [
+            {
+                "time": "14:30 GMT",
+                "event": "Non-Farm Payrolls",
+                "country": "USD",
+                "impact": 3
+            },
+            {
+                "time": "12:00 GMT",
+                "event": "ECB Interest Rate Decision",
+                "country": "EUR",
+                "impact": 3
+            },
+            # Voeg meer mock events toe indien nodig
+        ]
+
     async def get_calendar_data(self) -> str:
         """Get economic calendar data from Perplexity"""
         try:
@@ -79,83 +125,28 @@ class EconomicCalendarService:
             return None
 
     async def format_calendar(self, calendar_data: str) -> str:
-        """Format calendar data using OpenAI"""
+        """Format calendar data using DeepSeek"""
         try:
-            today = datetime.now().strftime("%B %d, %Y")
-            prompt = f"""
-            Format the following economic calendar data into a structured table.
-            
-            Rules:
-            1. Convert ALL times to EST timezone
-            2. The time appears first
-            3. The event name appears second
-            4. The impact level follows as an emoji
-            5. Add TWO empty lines between each country section
-            6. Only include these currencies in this exact order:
-               - 🇪🇺 Eurozone (EUR)
-               - 🇺🇸 United States (USD)
-               - 🇦🇺 Australia (AUD)
-               - 🇯🇵 Japan (JPY)
-               - 🇬🇧 United Kingdom (GBP)
-               - 🇨🇭 Switzerland (CHF)
-               - 🇳🇿 New Zealand (NZD)
-
-            Format example:
-            📅 Economic Calendar for {today}
-
-
-            🇪🇺 Eurozone (EUR):
-            ⏰ [Time] EST – [Event Name] 🔴
-            ⏰ [Time] EST – [Event Name] 🟡
-            ⏰ [Time] EST – [Event Name] ⚪
-
-
-            🇺🇸 United States (USD):
-            ⏰ [Time] EST – [Event Name] 🔴
-            ⏰ [Time] EST – [Event Name] 🟡
-
-
-            [Continue with other countries, with TWO empty lines between them]
-
-            ---------------
-            🔴 High Impact
-            🟡 Medium Impact
-            ⚪ Low Impact
-
-            Raw calendar data:
-            {calendar_data}
-            """
-
-            response = await self.openai.chat.completions.create(
-                model="gpt-4",
-                messages=[{
+            payload = {
+                "model": "deepseek-chat",
+                "messages": [{
                     "role": "system",
-                    "content": "You are a financial calendar specialist. Format economic calendar data in a clean, structured way. Convert all times to EST timezone, add TWO empty lines between countries, and do NOT include Previous/Forecast/Actual values."
+                    "content": "Format economic calendar data in a clean, structured way."
                 }, {
                     "role": "user",
-                    "content": prompt
+                    "content": calendar_data
                 }],
-                temperature=0
-            )
-            
-            return response.choices[0].message.content
+                "temperature": 0.3
+            }
+
+            async with aiohttp.ClientSession() as session:
+                async with session.post(self.api_url, json=payload, headers=self.headers) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        return data['choices'][0]['message']['content']
+                    else:
+                        return self._format_basic(calendar_data)
             
         except Exception as e:
             logger.error(f"Error formatting calendar: {str(e)}")
             return "Error formatting economic calendar"
-
-    async def get_economic_calendar(self) -> str:
-        """Get complete economic calendar"""
-        try:
-            # Get raw calendar data
-            calendar_data = await self.get_calendar_data()
-            if not calendar_data:
-                return "Could not fetch economic calendar"
-                
-            # Format with OpenAI
-            formatted_calendar = await self.format_calendar(calendar_data)
-            return formatted_calendar
-            
-        except Exception as e:
-            logger.error(f"Error in economic calendar: {str(e)}")
-            return "Error retrieving economic calendar"
