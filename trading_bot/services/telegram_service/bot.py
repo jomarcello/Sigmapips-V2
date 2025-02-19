@@ -1315,11 +1315,17 @@ Risk Management:
             chart_image = await self.chart.generate_chart(instrument, timeframe)
             
             if chart_image:
-                # Send chart
-                await self.bot.send_photo(
+                # Update existing message with chart
+                await self.bot.edit_message_media(
                     chat_id=callback_query['message']['chat']['id'],
-                    photo=chart_image,
-                    caption=f"📊 Technical Analysis for {instrument}"
+                    message_id=callback_query['message']['message_id'],
+                    media=InputMediaPhoto(
+                        media=chart_image,
+                        caption=f"📊 Technical Analysis for {instrument}"
+                    ),
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("⬅️ Back", callback_data=f"back_to_signal_{instrument}")
+                    ]])
                 )
         except Exception as e:
             logger.error(f"Error handling chart button: {str(e)}")
@@ -1333,10 +1339,14 @@ Risk Management:
                 'market': 'crypto' if 'USD' in instrument else 'forex'
             })
             
-            # Send sentiment
-            await self.bot.send_message(
+            # Update existing message with sentiment
+            await self.bot.edit_message_text(
                 chat_id=callback_query['message']['chat']['id'],
-                text=f"🤖 Market Sentiment for {instrument}\n\n{sentiment}"
+                message_id=callback_query['message']['message_id'],
+                text=f"🤖 Market Sentiment for {instrument}\n\n{sentiment}",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("⬅️ Back", callback_data=f"back_to_signal_{instrument}")
+                ]])
             )
         except Exception as e:
             logger.error(f"Error handling sentiment button: {str(e)}")
@@ -1347,10 +1357,14 @@ Risk Management:
             # Get calendar
             calendar = await self.calendar.get_economic_calendar()
             
-            # Send calendar
-            await self.bot.send_message(
+            # Update existing message with calendar
+            await self.bot.edit_message_text(
                 chat_id=callback_query['message']['chat']['id'],
-                text=f"📅 Economic Calendar for {instrument}\n\n{calendar}"
+                message_id=callback_query['message']['message_id'],
+                text=f"📅 Economic Calendar for {instrument}\n\n{calendar}",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("⬅️ Back", callback_data=f"back_to_signal_{instrument}")
+                ]])
             )
         except Exception as e:
             logger.error(f"Error handling calendar button: {str(e)}")
