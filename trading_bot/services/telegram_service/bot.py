@@ -821,205 +821,44 @@ Risk Management:
             logger.error(f"Error handling help command: {str(e)}")
 
     async def _button_click(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        query = update.callback_query
-        await query.answer()
-        
+        """Handle button clicks"""
         try:
-            data = query.data
-            message_id = query.message.message_id
-            logger.info(f"Button clicked: {data}, message_id: {message_id}")
+            query = update.callback_query
+            await query.answer()
             
-            # Haal de signal key op uit de message cache
-            signal_key = f"signal:{message_id}"
-            signal_cache = self.redis.hgetall(signal_key)
+            # Parse button data
+            data = query.data  # bijv. 'chart_BTCUSD_1m' of 'back_to_signal_BTCUSD'
+            action, *params = data.split('_')
             
-            if not signal_cache:
-                logger.error(f"No cached signal data found for message_id: {message_id}")
-                return
-            
-            # Haal de preloaded data op
-            preload_key = signal_cache.get('preload_key')
-            if not preload_key:
-                logger.error("No preload key found in signal cache")
-                return
-            
-            preloaded_data = self.redis.hgetall(preload_key)
-            if not preloaded_data:
-                logger.error(f"No preloaded data found for key: {preload_key}")
-                return
-            
-            logger.info(f"Found preloaded data with keys: {list(preloaded_data.keys())}")
-            
-            if data.startswith("chart_"):
-                try:
-                    # Gebruik gecachede chart data
-                    if preloaded_data.get('chart_image'):
-                        chart_image = base64.b64decode(preloaded_data['chart_image'].encode('utf-8'))
-                        
-                        keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data=f"back_to_signal_{message_id}")]]
-                        await query.message.edit_media(
-                            media=InputMediaPhoto(
-                                media=chart_image,
-                                caption=f"📊 Technical Analysis"
-                            ),
-                            reply_markup=InlineKeyboardMarkup(keyboard)
-                        )
-                        logger.info("Displayed cached chart")
-                    else:
-                        logger.error("No chart data in cache")
-                        
-                except Exception as e:
-                    logger.error(f"Error displaying chart: {str(e)}")
-                    logger.exception(e)
+            if action == 'back':
+                # Haal originele signal op uit Redis
+                signal_key = f"signal:{query.message.message_id}"
+                cached_data = self.redis.hgetall(signal_key)
                 
-            elif data.startswith("sentiment_"):
-                try:
-                    # Gebruik gecachede sentiment data
-                    if preloaded_data.get('sentiment'):
-                        sentiment = preloaded_data['sentiment']
-                        
-                        # Sla eerst de huidige message_id op
-                        old_message_id = query.message.message_id
-                        
-                        # Verwijder het oude bericht
-                        await query.message.delete()
-                        
-                        # Stuur een nieuw bericht
-                        new_message = await self.bot.send_message(
-                            chat_id=query.message.chat_id,
-                            text=sentiment,
-                            parse_mode=ParseMode.HTML,
-                            reply_markup=InlineKeyboardMarkup([[
-                                InlineKeyboardButton("⬅️ Back", callback_data=f"back_to_signal_{old_message_id}")
-                            ]])
-                        )
-                        
-                        # Kopieer de cache data
-                        new_signal_key = f"signal:{new_message.message_id}"
-                        cache_data = {
-                            'text': sentiment,
-                            'parse_mode': 'HTML',
-                            'preload_key': preload_key,
-                            'symbol': preloaded_data['symbol'],
-                            'timeframe': preloaded_data['timeframe']
-                        }
-                        
-                        self.redis.hmset(new_signal_key, cache_data)
-                        self.redis.expire(new_signal_key, 3600)
-                        
-                        logger.info("Displayed cached sentiment")
-                    else:
-                        logger.error("No sentiment data in cache")
-                        
-                except Exception as e:
-                    logger.error(f"Error displaying sentiment: {str(e)}")
-                    logger.exception(e)
-                
-            elif data.startswith("calendar_"):
-                try:
-                    # Gebruik gecachede calendar data
-                    if preloaded_data.get('calendar'):
-                        calendar = preloaded_data['calendar']
-                        
-                        # Sla eerst de huidige message_id op
-                        old_message_id = query.message.message_id
-                        
-                        # Verwijder het oude bericht
-                        await query.message.delete()
-                        
-                        # Stuur een nieuw bericht
-                        new_message = await self.bot.send_message(
-                            chat_id=query.message.chat_id,
-                            text=calendar,
-                            parse_mode=ParseMode.HTML,
-                            reply_markup=InlineKeyboardMarkup([[
-                                InlineKeyboardButton("⬅️ Back", callback_data=f"back_to_signal_{old_message_id}")
-                            ]])
-                        )
-                        
-                        # Kopieer de cache data
-                        new_signal_key = f"signal:{new_message.message_id}"
-                        cache_data = {
-                            'text': calendar,
-                            'parse_mode': 'HTML',
-                            'preload_key': preload_key,
-                            'symbol': preloaded_data['symbol'],
-                            'timeframe': preloaded_data['timeframe']
-                        }
-                        
-                        self.redis.hmset(new_signal_key, cache_data)
-                        self.redis.expire(new_signal_key, 3600)
-                        
-                        logger.info("Displayed cached calendar")
-                    else:
-                        logger.error("No calendar data in cache")
-                        
-                except Exception as e:
-                    logger.error(f"Error displaying calendar: {str(e)}")
-                    logger.exception(e)
-                
-            elif data.startswith("back_to_signal_"):
-                try:
-                    # Gebruik preloaded data voor het originele bericht
-                    formatted_signal = preloaded_data['formatted_signal']
-                    
+                if cached_data:
+                    # Herstel originele keyboard
                     keyboard = [
                         [
-                            InlineKeyboardButton(
-                                "📊 Technical Analysis", 
-                                callback_data=f"chart_{preloaded_data['symbol']}_{preloaded_data['timeframe']}"
-                            ),
-                            InlineKeyboardButton(
-                                "🤖 Market Sentiment", 
-                                callback_data=f"sentiment_{preloaded_data['symbol']}"
-                            )
+                            InlineKeyboardButton("📊 Technical Analysis", callback_data=f"chart_{cached_data['symbol']}_{cached_data['timeframe']}"),
+                            InlineKeyboardButton("🤖 Market Sentiment", callback_data=f"sentiment_{cached_data['symbol']}")
                         ],
-                        [
-                            InlineKeyboardButton(
-                                "📅 Economic Calendar", 
-                                callback_data=f"calendar_{preloaded_data['symbol']}"
-                            )
-                        ]
+                        [InlineKeyboardButton("📅 Economic Calendar", callback_data=f"calendar_{cached_data['symbol']}")]
                     ]
                     
-                    # Check of het huidige bericht een foto is
-                    is_photo = bool(query.message.photo)
-                    
-                    if is_photo:
-                        # Als het een foto is, stuur een nieuw text bericht
-                        await query.message.delete()
-                        new_message = await self.bot.send_message(
-                            chat_id=query.message.chat_id,
-                            text=formatted_signal,
-                            parse_mode=ParseMode.HTML,
-                            reply_markup=InlineKeyboardMarkup(keyboard)
-                        )
-                        
-                        # Kopieer de cache data naar het nieuwe message_id
-                        new_signal_key = f"signal:{new_message.message_id}"
-                        cache_data = {
-                            'text': formatted_signal,
-                            'parse_mode': 'HTML',
-                            'preload_key': preload_key,
-                            'symbol': preloaded_data['symbol'],
-                            'timeframe': preloaded_data['timeframe']
-                        }
-                        
-                        self.redis.hmset(new_signal_key, cache_data)
-                        self.redis.expire(new_signal_key, 3600)
-                        
-                    else:
-                        # Anders gebruik edit_text
-                        await query.message.edit_text(
-                            text=formatted_signal,
-                            parse_mode=ParseMode.HTML,
-                            reply_markup=InlineKeyboardMarkup(keyboard)
-                        )
+                    # Update message terug naar originele signal
+                    await query.message.edit_text(
+                        text=cached_data['text'],
+                        parse_mode=cached_data['parse_mode'],
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
                     logger.info("Restored original signal")
                     
-                except Exception as e:
-                    logger.error(f"Error restoring signal: {str(e)}")
-                    logger.exception(e)
+            elif action == 'chart':
+                await self.handle_chart_button(query, params[0], params[1])
+            elif action == 'sentiment':
+                await self.handle_sentiment_button(query, params[0])
+            elif action == 'calendar':
+                await self.handle_calendar_button(query, params[0])
             
         except Exception as e:
             logger.error(f"Error handling button click: {str(e)}")
@@ -1089,7 +928,6 @@ Risk Management:
                     cache_data = {
                         'text': formatted_signal,
                         'parse_mode': 'HTML',
-                        'preload_key': message_key,
                         'symbol': instrument,
                         'timeframe': timeframe
                     }
