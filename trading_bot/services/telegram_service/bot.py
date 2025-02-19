@@ -204,6 +204,14 @@ class TelegramService:
         if not self.token:
             raise ValueError("Missing TELEGRAM_BOT_TOKEN")
             
+        # DeepSeek setup
+        self.api_key = os.getenv("DEEPSEEK_API_KEY", "sk-274ea5952e7e4b87aba4b14de3990c7d")
+        self.api_url = "https://api.deepseek.com/v1/chat/completions"
+        self.headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json"
+        }
+        
         self.db = db
         self.chart = ChartService()
         
@@ -1243,5 +1251,35 @@ class TelegramService:
             reply_markup=reply_markup
         )
         return CHOOSE_ANALYSIS
+
+    def _create_signal_prompt(self, signal: Dict[str, Any]) -> str:
+        """Create prompt for signal formatting"""
+        return f"""Format this trading signal using EXACTLY this template:
+
+🚨 NEW TRADING SIGNAL 🚨
+
+Instrument: {signal['symbol']}
+Action: {signal['action']} {'📈' if signal['action'] == 'BUY' else '📉'}
+
+Entry Price: {signal['price']}
+Take Profit 1: {signal['takeProfit1']} 🎯
+Take Profit 2: {signal['takeProfit2']} 🎯
+Take Profit 3: {signal['takeProfit3']} 🎯
+Stop Loss: {signal['stopLoss']} 🔴
+
+Timeframe: {signal['timeframe']}
+Strategy: Test Strategy
+
+---------------
+
+Risk Management:
+• Position size: 1-2% max
+• Use proper stop loss
+• Follow your trading plan
+
+---------------
+
+🤖 SigmaPips AI Verdict:
+✅ Trade aligns with market analysis"""
 
 # ... rest van de code ...
