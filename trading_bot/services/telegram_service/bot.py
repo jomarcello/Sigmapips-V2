@@ -314,30 +314,63 @@ class TelegramService:
             raise
             
     async def format_signal_with_ai(self, signal: Dict[str, Any]) -> str:
-        """Format signal with AI"""
+        """Format trading signal using DeepSeek AI"""
         try:
-            prompt = f"""Format this trading signal..."""
+            prompt = self._create_signal_prompt(signal)
             
-            response = await self.openai.chat.completions.create(
-                model="gpt-4",
-                messages=[{
+            payload = {
+                "model": "deepseek-chat",
+                "messages": [{
                     "role": "system",
-                    "content": "You are a trading signal formatter..."
-                }]
-            )
+                    "content": "Format trading signals in a clear and professional way."
+                }, {
+                    "role": "user",
+                    "content": prompt
+                }],
+                "temperature": 0.5
+            }
 
             async with aiohttp.ClientSession() as session:
                 async with session.post(self.api_url, json=payload, headers=self.headers) as response:
                     if response.status == 200:
                         data = await response.json()
+                        logger.info("Successfully formatted signal with DeepSeek")
                         return data['choices'][0]['message']['content']
                     else:
+                        logger.error(f"DeepSeek API error: {response.status}")
                         return self._format_basic_signal(signal)
 
         except Exception as e:
             logger.error(f"Error formatting signal with AI: {str(e)}")
-            # Fallback naar basic formatting
-            return self._format_signal_message(signal)
+            return self._format_basic_signal(signal)
+
+    def _format_basic_signal(self, signal: Dict[str, Any]) -> str:
+        """Basic signal formatting without AI"""
+        return f"""🚨 NEW TRADING SIGNAL 🚨
+
+Instrument: {signal['symbol']}
+Action: {signal['action']} {'📈' if signal['action'] == 'BUY' else '📉'}
+
+Entry Price: {signal['price']}
+Take Profit 1: {signal['takeProfit1']} 🎯
+Take Profit 2: {signal['takeProfit2']} 🎯
+Take Profit 3: {signal['takeProfit3']} 🎯
+Stop Loss: {signal['stopLoss']} 🔴
+
+Timeframe: {signal['timeframe']}
+Strategy: Test Strategy
+
+---------------
+
+Risk Management:
+• Position size: 1-2% max
+• Use proper stop loss
+• Follow your trading plan
+
+---------------
+
+🤖 SigmaPips AI Verdict:
+✅ Trade aligns with market analysis"""
 
     async def send_signal(self, chat_id: str, signal: Dict[str, Any]):
         """Send AI-formatted signal message"""
