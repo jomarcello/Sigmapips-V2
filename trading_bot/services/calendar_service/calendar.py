@@ -11,6 +11,12 @@ class EconomicCalendarService:
     def __init__(self):
         """Initialize calendar service"""
         self.openai = AsyncOpenAI()
+        self.api_key = os.getenv("DEEPSEEK_API_KEY", "sk-274ea5952e7e4b87aba4b14de3990c7d")
+        self.api_url = "https://api.deepseek.com/v1/chat/completions"
+        self.headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json"
+        }
 
     async def get_economic_calendar(self, symbol: str = None) -> str:
         """Get economic calendar data with fallback formatting"""
@@ -150,3 +156,32 @@ class EconomicCalendarService:
         except Exception as e:
             logger.error(f"Error formatting calendar: {str(e)}")
             return "Error formatting economic calendar"
+
+    async def _format_with_ai(self, calendar_data: list, symbol: str = None) -> str:
+        """Format calendar data with AI"""
+        try:
+            formatted_data = self._format_basic(calendar_data, symbol)
+            
+            payload = {
+                "model": "deepseek-chat",
+                "messages": [{
+                    "role": "system",
+                    "content": "Format economic calendar data in a clean, structured way."
+                }, {
+                    "role": "user",
+                    "content": formatted_data
+                }],
+                "temperature": 0.3
+            }
+
+            async with aiohttp.ClientSession() as session:
+                async with session.post(self.api_url, json=payload, headers=self.headers) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        return data['choices'][0]['message']['content']
+                    else:
+                        return formatted_data
+                    
+        except Exception as e:
+            logger.error(f"Error formatting with AI: {str(e)}")
+            return formatted_data
