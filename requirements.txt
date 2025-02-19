@@ -3,7 +3,6 @@ fastapi==0.109.0
 python-telegram-bot==20.3
 uvicorn==0.27.0
 python-dotenv==1.0.0
-aiohttp==3.9.3
 
 # Database
 supabase==1.2.0
@@ -14,8 +13,8 @@ selenium==4.16.0
 pillow==10.2.0
 webdriver_manager==4.0.1
 
-# AI/ML
-openai==1.10.0
+# AI Services
+deepseek-ai==1.0.0
 
 # Utils
 python-multipart==0.0.6
