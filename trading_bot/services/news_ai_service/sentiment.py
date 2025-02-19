@@ -3,6 +3,7 @@ import logging
 import aiohttp
 from typing import Dict, Any
 from openai import AsyncOpenAI
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +27,7 @@ class MarketSentimentService:
             url = "https://api.perplexity.ai/chat/completions"
             
             payload = {
-                "model": "mixtral-8x7b-instruct",
+                "model": "sonar-pro",
                 "messages": [{
                     "role": "system",
                     "content": "You are a financial analyst focused on providing recent market analysis."
@@ -63,24 +64,37 @@ class MarketSentimentService:
             Format the following market analysis in this structured style, in English:
 
             🔍 Market Impact Analysis
+
             • ECB's latest decision: ...
+
             • Market implications: ...
+
             • Current trend: ...
 
+
             📊 Market Sentiment
+
             • Direction: ...
+
             • Strength: ...
+
             • Key driver: ...
 
+
             💡 Trading Implications
+
             • Short-term outlook: ...
+
             • Risk assessment: ...
+
             • Key levels: ...
 
+
             ⚠️ Risk Factors
+
             • ...
 
-            Use bullet points and ensure a concise, professional summary tailored for traders. Here is the raw input:
+            Use bullet points and ensure a concise, professional summary tailored for traders. Add a blank line between each bullet point for better readability. Here is the raw input:
 
             {perplexity_output}
             """
@@ -89,7 +103,7 @@ class MarketSentimentService:
                 model="gpt-4",
                 messages=[{
                     "role": "system",
-                    "content": "You are a professional market analyst. Format market analysis in a structured way with clear sections and bullet points."
+                    "content": "You are a professional market analyst. Format market analysis in a structured way with clear sections and bullet points. Add a blank line between each bullet point for better readability."
                 }, {
                     "role": "user",
                     "content": prompt
@@ -103,18 +117,18 @@ class MarketSentimentService:
             logger.error(f"Error formatting sentiment with AI: {str(e)}")
             return "Error analyzing market sentiment"
 
-    async def get_market_sentiment(self, signal: Dict[str, Any]) -> str:
+    async def get_market_sentiment(self, instrument: str) -> str:
         """Get complete market sentiment analysis"""
         try:
-            logger.info(f"Getting market sentiment for {signal['symbol']}")
+            logger.info(f"Getting market sentiment for {instrument}")
             
             # Get raw analysis from Perplexity
-            perplexity_output = await self.get_perplexity_analysis(signal['symbol'])
+            perplexity_output = await self.get_perplexity_analysis(instrument)
             logger.info(f"Perplexity output: {perplexity_output}")
             
             if not perplexity_output:
                 return "Could not fetch market analysis"
-                
+            
             # Format with OpenAI
             formatted_sentiment = await self.format_sentiment_with_ai(perplexity_output)
             logger.info(f"Formatted sentiment: {formatted_sentiment}")
