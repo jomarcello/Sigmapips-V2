@@ -80,18 +80,33 @@ async def receive_signal(signal: Dict[str, Any]):
     try:
         logger.info(f"Received TradingView signal: {signal}")
         
-        # Converteer TradingView formaat naar ons formaat
-        converted_signal = {
-            "symbol": signal["instrument"],
-            "action": signal["signal"],
-            "price": signal["price"],
-            "stopLoss": signal["sl"],
-            "takeProfit1": signal["tp1"],
-            "takeProfit2": signal["tp2"],
-            "takeProfit3": signal["tp3"],
-            "timeframe": signal["timeframe"],
-            "market": _detect_market(signal["instrument"])
-        }
+        # Check welk format we ontvangen (single tp of tp1/tp2/tp3)
+        if 'tp' in signal:
+            # Convert single tp format naar intern format
+            converted_signal = {
+                "symbol": signal["instrument"],
+                "action": signal["signal"],
+                "price": signal["price"],
+                "stopLoss": signal["sl"],
+                "takeProfit1": signal["tp"],
+                "takeProfit2": signal["tp"],
+                "takeProfit3": signal["tp"],
+                "timeframe": signal["timeframe"],
+                "market": _detect_market(signal["instrument"])
+            }
+        else:
+            # Gebruik bestaand format met tp1/tp2/tp3
+            converted_signal = {
+                "symbol": signal["instrument"],
+                "action": signal["signal"],
+                "price": signal["price"],
+                "stopLoss": signal["sl"],
+                "takeProfit1": signal["tp1"],
+                "takeProfit2": signal["tp2"],
+                "takeProfit3": signal["tp3"],
+                "timeframe": signal["timeframe"],
+                "market": _detect_market(signal["instrument"])
+            }
         
         # Genereer message key
         message_key = f"preload:{converted_signal['symbol']}:{int(time.time())}"
