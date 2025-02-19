@@ -310,51 +310,27 @@ class TelegramService:
             raise
             
     async def format_signal_with_ai(self, signal: Dict[str, Any]) -> str:
-        """Format signal with AI"""
+        """Format trading signal using DeepSeek AI"""
         try:
-            prompt = f"""Format this trading signal using EXACTLY this template:
-
-🚨 NEW TRADING SIGNAL 🚨
-
-Instrument: {signal['symbol']}
-Action: {signal['action']} {'📈' if signal['action'] == 'BUY' else '📉'}
-
-Entry Price: {signal['price']}
-Take Profit 1: {signal['takeProfit1']} 🎯
-Take Profit 2: {signal['takeProfit2']} 🎯
-Take Profit 3: {signal['takeProfit3']} 🎯
-Stop Loss: {signal['stopLoss']} 🔴
-
-Timeframe: {signal['timeframe']}
-Strategy: Test Strategy
-
----------------
-
-Risk Management:
-• Position size: 1-2% max
-• Use proper stop loss
-• Follow your trading plan
-
----------------
-
-🤖 SigmaPips AI Verdict:
-✅ Trade aligns with market analysis"""
-
-            response = await self.openai.chat.completions.create(
-                model="gpt-4",
-                messages=[{
+            payload = {
+                "model": "deepseek-chat",
+                "messages": [{
                     "role": "system",
-                    "content": "You are a trading signal formatter. Format signals EXACTLY according to the template, maintaining all emojis and sections."
+                    "content": "Format trading signals in a clear and professional way."
                 }, {
                     "role": "user",
-                    "content": prompt
+                    "content": self._create_signal_prompt(signal)
                 }],
-                temperature=0  # Exact output
-            )
+                "temperature": 0.5
+            }
 
-            formatted_signal = response.choices[0].message.content
-            logger.info("Signal successfully formatted with AI")
-            return formatted_signal
+            async with aiohttp.ClientSession() as session:
+                async with session.post(self.api_url, json=payload, headers=self.headers) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        return data['choices'][0]['message']['content']
+                    else:
+                        return self._format_basic_signal(signal)
 
         except Exception as e:
             logger.error(f"Error formatting signal with AI: {str(e)}")
