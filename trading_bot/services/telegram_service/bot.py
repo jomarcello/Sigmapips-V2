@@ -21,7 +21,6 @@ from telegram.constants import ParseMode
 
 from trading_bot.services.database.db import Database
 from ..chart_service.chart import ChartService
-from openai import AsyncOpenAI
 from trading_bot.services.sentiment_service.sentiment import MarketSentimentService
 from trading_bot.services.calendar_service.calendar import EconomicCalendarService
 
@@ -278,9 +277,6 @@ class TelegramService:
         self.app.add_handler(CallbackQueryHandler(self._button_click, pattern="^(chart|back_to_signal|sentiment|calendar)_"))
         
         self.message_cache = {}  # Dict om originele berichten op te slaan
-        
-        # OpenAI setup
-        self.openai = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
         
         # Sentiment service setup
         self.sentiment = MarketSentimentService()
