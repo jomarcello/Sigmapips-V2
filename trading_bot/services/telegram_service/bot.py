@@ -1038,6 +1038,9 @@ Risk Management:
                 logger.error("No instrument in signal")
                 return
             
+            # Generate message key
+            message_key = f"signal:{instrument}:{int(time.time())}"
+            
             # Query subscribers
             subscribers = (self.db.supabase.table('subscriber_preferences')
                 .select('*')
@@ -1050,28 +1053,16 @@ Risk Management:
                 return
             
             # Format signal
-            if signal.get('signal') == 'BUY':
-                formatted_signal = await self.format_signal_with_ai({
-                    'symbol': instrument,
-                    'action': "BUY",
-                    'price': signal['price'],
-                    'takeProfit1': signal['tp'],
-                    'takeProfit2': signal['tp'],
-                    'takeProfit3': signal['tp'],
-                    'stopLoss': signal['sl'],
-                    'timeframe': timeframe
-                })
-            else:  # SELL signal
-                formatted_signal = await self.format_signal_with_ai({
-                    'symbol': instrument,
-                    'action': "SELL",
-                    'price': signal['price'],
-                    'takeProfit1': signal['tp'],
-                    'takeProfit2': signal['tp'],
-                    'takeProfit3': signal['tp'],
-                    'stopLoss': signal['sl'],
-                    'timeframe': timeframe
-                })
+            formatted_signal = await self.format_signal_with_ai({
+                'symbol': instrument,
+                'action': signal.get('signal'),
+                'price': signal.get('price'),
+                'takeProfit1': signal.get('tp'),  # Gebruik enkele tp
+                'takeProfit2': signal.get('tp'),  # Gebruik enkele tp
+                'takeProfit3': signal.get('tp'),  # Gebruik enkele tp
+                'stopLoss': signal.get('sl'),
+                'timeframe': timeframe
+            })
             
             # Maak keyboard
             keyboard = [
