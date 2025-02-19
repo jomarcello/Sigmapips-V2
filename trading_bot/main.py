@@ -76,71 +76,14 @@ async def webhook(request: Request):
 
 @app.post("/signal")
 async def receive_signal(signal: Dict[str, Any]):
-    """Handle incoming signals from TradingView"""
+    """Receive and process trading signal"""
     try:
         logger.info(f"Received TradingView signal: {signal}")
         
-        # Check welk format we ontvangen (single tp of tp1/tp2/tp3)
-        if 'tp' in signal:
-            # Convert single tp format naar intern format
-            converted_signal = {
-                "symbol": signal["instrument"],
-                "action": signal["signal"],
-                "price": signal["price"],
-                "stopLoss": signal["sl"],
-                "takeProfit1": signal["tp"],
-                "takeProfit2": signal["tp"],
-                "takeProfit3": signal["tp"],
-                "timeframe": signal["timeframe"],
-                "market": _detect_market(signal["instrument"])
-            }
-        else:
-            # Gebruik bestaand format met tp1/tp2/tp3
-            converted_signal = {
-                "symbol": signal["instrument"],
-                "action": signal["signal"],
-                "price": signal["price"],
-                "stopLoss": signal["sl"],
-                "takeProfit1": signal["tp1"],
-                "takeProfit2": signal["tp2"],
-                "takeProfit3": signal["tp3"],
-                "timeframe": signal["timeframe"],
-                "market": _detect_market(signal["instrument"])
-            }
+        # Broadcast signal to subscribers
+        await telegram.broadcast_signal(signal)
         
-        # Genereer message key
-        message_key = f"preload:{converted_signal['symbol']}:{int(time.time())}"
-        
-        # Pre-load alle services
-        tasks = []
-        tasks.append(telegram.format_signal_with_ai(converted_signal))
-        tasks.append(telegram.chart.generate_chart(converted_signal['symbol'], converted_signal['timeframe']))
-        tasks.append(telegram.sentiment.get_market_sentiment(converted_signal))
-        tasks.append(telegram.calendar.get_economic_calendar())
-        
-        # Wacht op alle data
-        results = await asyncio.gather(*tasks)
-        formatted_signal, chart_image, sentiment_data, calendar_data = results
-        
-        # Cache de data
-        cache_data = {
-            'formatted_signal': formatted_signal,
-            'chart_image': base64.b64encode(chart_image).decode('utf-8') if chart_image else None,
-            'sentiment': sentiment_data,
-            'calendar': calendar_data,
-            'timestamp': str(int(time.time())),
-            'symbol': converted_signal['symbol'],
-            'timeframe': converted_signal['timeframe']
-        }
-        
-        # Sla op in Redis
-        telegram.redis.hmset(message_key, cache_data)
-        telegram.redis.expire(message_key, 3600)
-        
-        # Broadcast naar subscribers
-        await telegram.broadcast_signal(converted_signal, message_key)
-        
-        return {"status": "success", "message": "Signal processed and sent"}
+        return {"status": "success"}
         
     except Exception as e:
         logger.error(f"Error processing signal: {str(e)}")
