@@ -2,15 +2,13 @@ import os
 import logging
 import aiohttp
 from typing import Dict, Any
-from openai import AsyncOpenAI
-from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
 class MarketSentimentService:
     def __init__(self):
         """Initialize sentiment service"""
-        self.openai = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        self.api_key = os.getenv("DEEPSEEK_API_KEY", "sk-274ea5952e7e4b87aba4b14de3990c7d")
         self.perplexity_key = os.getenv("PERPLEXITY_API_KEY")
         if not self.perplexity_key:
             raise ValueError("Missing PERPLEXITY_API_KEY")
