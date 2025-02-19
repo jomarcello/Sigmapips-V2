@@ -41,9 +41,33 @@ async def health_check():
 
 @app.post("/webhook")
 async def webhook(request: Request):
-    """Handle TradingView webhook"""
+    """Handle Telegram webhook"""
     try:
-        signal = await request.json()
+        data = await request.json()
+        logger.info(f"Received webhook: {data}")
+        
+        # Check of dit een callback query is
+        if 'callback_query' in data:
+            callback_query = data['callback_query']
+            data = callback_query['data']  # bijv. 'chart_BTCUSD_1m'
+            
+            # Parse callback data
+            action, *params = data.split('_')
+            
+            if action == 'chart':
+                instrument, timeframe = params
+                await telegram.handle_chart_button(callback_query, instrument, timeframe)
+            elif action == 'sentiment':
+                instrument = params[0]
+                await telegram.handle_sentiment_button(callback_query, instrument)
+            elif action == 'calendar':
+                instrument = params[0]
+                await telegram.handle_calendar_button(callback_query, instrument)
+                
+            return {"status": "success"}
+            
+        # Anders is het een trading signal
+        signal = data
         logger.info(f"Received TradingView signal: {signal}")
         
         # Validate required fields
@@ -51,27 +75,14 @@ async def webhook(request: Request):
         if not all(field in signal for field in required_fields):
             logger.error(f"Missing required fields in signal. Required: {required_fields}, Received: {list(signal.keys())}")
             return {"status": "error", "message": "Invalid signal format"}
-        
-        # Convert to our internal format
-        converted_signal = {
-            "instrument": signal["instrument"],
-            "timeframe": signal["timeframe"],
-            "signal": signal["signal"],
-            "price": signal["price"],
-            "tp1": signal["tp"],  # Gebruik enkele tp
-            "tp2": signal["tp"],  # Duplicate voor compatibiliteit
-            "tp3": signal["tp"],  # Duplicate voor compatibiliteit
-            "sl": signal["sl"]
-        }
-        
+            
         # Broadcast signal
-        message_key = f"signal:{signal['instrument']}:{signal['timeframe']}"
-        await telegram.broadcast_signal(converted_signal, message_key)
+        await telegram.broadcast_signal(signal)
         
         return {"status": "success"}
         
     except Exception as e:
-        logger.error(f"Error processing signal: {str(e)}")
+        logger.error(f"Error processing webhook: {str(e)}")
         return {"status": "error", "message": str(e)}
 
 @app.post("/signal")
