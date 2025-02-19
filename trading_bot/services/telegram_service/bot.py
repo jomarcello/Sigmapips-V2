@@ -1025,53 +1025,60 @@ Risk Management:
             logger.error(f"Error handling button click: {str(e)}")
             logger.exception(e)
 
-    async def broadcast_signal(self, signal: Dict[str, Any], message_key: str):
+    async def broadcast_signal(self, signal: Dict[str, Any]):
         """Broadcast signal to subscribers"""
         try:
-            # Bepaal trading style gebaseerd op timeframe
-            trading_style = TIMEFRAME_STYLE_MAP.get(signal['timeframe'])
-            if not trading_style:
-                logger.error(f"Invalid timeframe received: {signal['timeframe']}")
+            # Map timeframe to trading style
+            timeframe = signal.get('timeframe', '1m')
+            trading_style = TIMEFRAME_STYLE_MAP.get(timeframe, 'test')
+            
+            # Get subscribers for this instrument and style
+            instrument = signal.get('instrument')  # <-- Gebruik 'instrument' consistent
+            if not instrument:
+                logger.error("No instrument in signal")
                 return
             
-            # Haal subscribers op die deze style hebben gekozen
-            subscribers = self.db.supabase.table('subscriber_preferences').select('*').eq('instrument', signal['instrument']).eq('style', trading_style).execute()
+            subscribers = self.db.supabase.table('subscriber_preferences') \
+                .select('*') \
+                .eq('instrument', instrument) \  # <-- Gebruik 'instrument' consistent
+                .eq('style', trading_style) \
+                .execute()
             
             if not subscribers.data:
-                logger.info(f"No subscribers found for {signal['instrument']} with style {trading_style}")
+                logger.info(f"No subscribers found for {instrument} {trading_style}")
                 return
             
-            # Format het signal met de juiste velden gebaseerd op BUY/SELL
-            if signal['signal'] == "BUY":
+            # Format signal
+            if signal.get('signal') == 'BUY':
                 formatted_signal = await self.format_signal_with_ai({
-                    'symbol': signal['instrument'],
+                    'symbol': instrument,  # <-- Verander naar 'instrument'
                     'action': "BUY",
                     'price': signal['price'],
-                    'takeProfit1': signal['tp1'],
-                    'takeProfit2': signal['tp2'],
-                    'takeProfit3': signal['tp3'],
+                    'takeProfit1': signal['tp'],
+                    'takeProfit2': signal['tp'],
+                    'takeProfit3': signal['tp'],
                     'stopLoss': signal['sl'],
-                    'timeframe': signal['timeframe']
+                    'timeframe': timeframe
                 })
             else:  # SELL signal
                 formatted_signal = await self.format_signal_with_ai({
-                    'symbol': signal['instrument'],
+                    'symbol': instrument,  # <-- Verander naar 'instrument'
                     'action': "SELL",
                     'price': signal['price'],
-                    'takeProfit1': signal['tp1'],
-                    'takeProfit2': signal['tp2'],
-                    'takeProfit3': signal['tp3'],
+                    'takeProfit1': signal['tp'],
+                    'takeProfit2': signal['tp'],
+                    'takeProfit3': signal['tp'],
                     'stopLoss': signal['sl'],
-                    'timeframe': signal['timeframe']
+                    'timeframe': timeframe
                 })
             
             # Maak keyboard
             keyboard = [
                 [
-                    InlineKeyboardButton("📊 Technical Analysis", callback_data=f"chart_{signal['instrument']}_{signal['timeframe']}"),
-                    InlineKeyboardButton("🤖 Market Sentiment", callback_data=f"sentiment_{signal['instrument']}")
+                    InlineKeyboardButton("📊 Technical Analysis", callback_data=f"chart_{instrument}_{timeframe}"),
+                    InlineKeyboardButton("🤖 Market Sentiment", callback_data=f"sentiment_{instrument}")
                 ],
-                [InlineKeyboardButton("📅 Economic Calendar", callback_data=f"calendar_{signal['instrument']}")]
+                [InlineKeyboardButton("📅 Economic Calendar", callback_data=f"calendar_{instrument}")]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
@@ -1091,8 +1098,8 @@ Risk Management:
                         'text': formatted_signal,
                         'parse_mode': 'HTML',
                         'preload_key': message_key,
-                        'symbol': signal['instrument'],
-                        'timeframe': signal['timeframe']
+                        'symbol': instrument,
+                        'timeframe': timeframe
                     }
                     self.redis.hmset(signal_key, cache_data)
                     self.redis.expire(signal_key, 3600)
