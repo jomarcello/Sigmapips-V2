@@ -47,23 +47,26 @@ async def webhook(request: Request):
         logger.info(f"Received TradingView signal: {signal}")
         
         # Validate required fields
-        required_fields = ['instrument', 'timeframe', 'signal', 'price', 'tp1', 'tp2', 'tp3', 'sl']
+        required_fields = ['instrument', 'timeframe', 'signal', 'price', 'sl', 'tp']
         if not all(field in signal for field in required_fields):
             logger.error(f"Missing required fields in signal. Required: {required_fields}, Received: {list(signal.keys())}")
             return {"status": "error", "message": "Invalid signal format"}
-            
-        # Format validation
-        if not isinstance(signal['timeframe'], str):
-            signal['timeframe'] = str(signal['timeframe'])
-            
-        # Clean price values
-        for field in ['price', 'tp1', 'tp2', 'tp3', 'sl']:
-            if isinstance(signal[field], str):
-                signal[field] = signal[field].strip()
+        
+        # Convert to our internal format
+        converted_signal = {
+            "instrument": signal["instrument"],
+            "timeframe": signal["timeframe"],
+            "signal": signal["signal"],
+            "price": signal["price"],
+            "tp1": signal["tp"],  # Gebruik enkele tp
+            "tp2": signal["tp"],  # Duplicate voor compatibiliteit
+            "tp3": signal["tp"],  # Duplicate voor compatibiliteit
+            "sl": signal["sl"]
+        }
         
         # Broadcast signal
         message_key = f"signal:{signal['instrument']}:{signal['timeframe']}"
-        await telegram.broadcast_signal(signal, message_key)
+        await telegram.broadcast_signal(converted_signal, message_key)
         
         return {"status": "success"}
         
