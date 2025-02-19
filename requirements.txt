@@ -13,8 +13,5 @@ selenium==4.16.0
 pillow==10.2.0
 webdriver_manager==4.0.1
 
-# AI Services
-deepseek-ai==1.0.0
-
 # Utils
 python-multipart==0.0.6
