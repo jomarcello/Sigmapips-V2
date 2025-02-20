@@ -27,18 +27,21 @@ from trading_bot.services.calendar_service.calendar import EconomicCalendarServi
 logger = logging.getLogger(__name__)
 
 # States
-CHOOSE_ANALYSIS = 0  # Eerste state - kies analyse type
-CHOOSE_MARKET = 1    # Tweede state - kies market
-CHOOSE_INSTRUMENT = 2  # Derde state - kies instrument
-CHOOSE_STYLE = 3     # Vierde state - kies trading stijl (alleen voor signals)
-SHOW_RESULT = 4      # Laatste state - toon resultaat
+CHOOSE_MENU = 0      # Eerste state - hoofdmenu
+CHOOSE_ANALYSIS = 1  # Analyse submenu
+CHOOSE_SIGNALS = 2   # Signals submenu
+CHOOSE_MARKET = 3    # Market keuze
+CHOOSE_INSTRUMENT = 4
+CHOOSE_STYLE = 5     # Vierde state - kies trading stijl (alleen voor signals)
+SHOW_RESULT = 6      # Laatste state - toon resultaat
 
 # Messages
 WELCOME_MESSAGE = """
 Welcome to SigmaPips Trading Bot!
 
-I will help you set up your trading preferences.
-Please select your preferred market:
+I offer two main services:
+• Market Analysis - Get technical, sentiment and economic insights
+• Trading Signals - Receive automated trading signals for your preferred pairs
 """
 
 MENU_MESSAGE = """
@@ -160,12 +163,25 @@ AFTER_SETUP_KEYBOARD = [
     [InlineKeyboardButton("Back to Start", callback_data="back_to_menu")]
 ]
 
-# Analysis Type Keyboard
+# Start menu keyboard
+START_KEYBOARD = [
+    [InlineKeyboardButton("Analyse Market", callback_data="menu_analyse")],
+    [InlineKeyboardButton("Trading Signals", callback_data="menu_signals")]
+]
+
+# Analysis menu keyboard
 ANALYSIS_KEYBOARD = [
     [InlineKeyboardButton("Technical Analysis", callback_data="analysis_technical")],
     [InlineKeyboardButton("Market Sentiment", callback_data="analysis_sentiment")],
     [InlineKeyboardButton("Economic Calendar", callback_data="analysis_calendar")],
-    [InlineKeyboardButton("Trading Signals", callback_data="analysis_signals")]
+    [InlineKeyboardButton("Back", callback_data="back")]
+]
+
+# Signals menu keyboard
+SIGNALS_KEYBOARD = [
+    [InlineKeyboardButton("Add New Pairs", callback_data="signals_add")],
+    [InlineKeyboardButton("Manage Preferences", callback_data="signals_manage")],
+    [InlineKeyboardButton("Back", callback_data="back")]
 ]
 
 # Timeframe mapping based on style
@@ -209,8 +225,16 @@ class TelegramService:
             conv_handler = ConversationHandler(
                 entry_points=[CommandHandler("start", self.start)],
                 states={
+                    CHOOSE_MENU: [
+                        CallbackQueryHandler(self.menu_choice, pattern="^menu_")
+                    ],
                     CHOOSE_ANALYSIS: [
-                        CallbackQueryHandler(self.analysis_choice, pattern="^analysis_")
+                        CallbackQueryHandler(self.analysis_choice, pattern="^analysis_"),
+                        CallbackQueryHandler(self.start, pattern="^back$")
+                    ],
+                    CHOOSE_SIGNALS: [
+                        CallbackQueryHandler(self.signals_choice, pattern="^signals_"),
+                        CallbackQueryHandler(self.start, pattern="^back$")
                     ],
                     CHOOSE_MARKET: [
                         CallbackQueryHandler(self.market_choice, pattern="^market_"),
@@ -232,9 +256,9 @@ class TelegramService:
                 },
                 fallbacks=[
                     CommandHandler("cancel", self.cancel),
-                    CommandHandler("start", self.start)  # Toevoegen start als fallback
+                    CommandHandler("start", self.start)
                 ],
-                allow_reentry=True  # Sta hergebruik van de handler toe
+                allow_reentry=True
             )
             
             # Add handlers
@@ -405,20 +429,56 @@ Risk Management:
         return message
 
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-        """Start the conversation and ask for analysis type"""
+        """Start the conversation and show main menu"""
         try:
             user_id = update.effective_user.id
             logger.info(f"Starting conversation with user {user_id}")
             
             await update.message.reply_text(
-                "Welcome! What would you like to analyze?",
-                reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
+                "Welcome! Please select what you would like to do:",
+                reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
             )
-            return CHOOSE_ANALYSIS
+            return CHOOSE_MENU
             
         except Exception as e:
             logger.error(f"Error in start command: {str(e)}")
             return ConversationHandler.END
+
+    async def menu_choice(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        """Handle main menu selection"""
+        query = update.callback_query
+        await query.answer()
+        
+        choice = query.data.replace('menu_', '')
+        
+        if choice == 'analyse':
+            await query.edit_message_text(
+                text="Select your analysis type:",
+                reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
+            )
+            return CHOOSE_ANALYSIS
+        elif choice == 'signals':
+            await query.edit_message_text(
+                text="What would you like to do with trading signals?",
+                reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD)
+            )
+            return CHOOSE_SIGNALS
+
+    async def signals_choice(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        """Handle signals menu selection"""
+        query = update.callback_query
+        await query.answer()
+        
+        choice = query.data.replace('signals_', '')
+        
+        if choice == 'add':
+            await query.edit_message_text(
+                text="Please select your preferred market:",
+                reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
+            )
+            return CHOOSE_MARKET
+        elif choice == 'manage':
+            return await self.manage_preferences(update, context)
 
     async def market_choice(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle market selection"""
@@ -1130,3 +1190,25 @@ Risk Management:
             logger.error(f"Error in cancel command: {str(e)}")
             logger.exception(e)
             return ConversationHandler.END
+
+    async def send_test_signal(self):
+        """Stuur een test trading signal"""
+        test_signal = {
+            "instrument": "EURUSD",
+            "market": "forex",
+            "timeframe": "1h",
+            "action": "BUY",
+            "price": "1.0950",
+            "takeProfit1": "1.0965",
+            "takeProfit2": "1.0980",
+            "takeProfit3": "1.0995",
+            "stopLoss": "1.0935",
+            "strategy": "Test Strategy"
+        }
+        
+        try:
+            # Format en verstuur het signaal
+            await self.broadcast_signal(test_signal)
+            logger.info("Test signal sent successfully")
+        except Exception as e:
+            logger.error(f"Error sending test signal: {str(e)}")
