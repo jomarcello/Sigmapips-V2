@@ -1,147 +1,183 @@
-from fastapi import FastAPI, HTTPException, Request
-import logging
-import os
-from typing import Dict, Any
-from telegram import Update
-import asyncio
-import time
-import base64
+# SigmapipsAI Trading Bot
 
-# Correcte absolute imports
-from trading_bot.services.telegram_service.bot import TelegramService
-from trading_bot.services.chart_service.chart import ChartService
-from trading_bot.services.database.db import Database
+An advanced Telegram trading bot deployed on Railway for processing and distributing trading signals with real-time analysis.
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+## Live Bot
+Bot is live on Telegram: [@SignapipsAI_bot](https://t.me/SignapipsAI_bot)
 
-app = FastAPI()
-port = int(os.getenv("PORT", 8080))
+## Features
 
-# Initialize services
-db = Database()
-telegram = TelegramService(db)
-chart = ChartService()
+### 1. Telegram Service
+- Fully automated signal distribution
+- AI-powered signal formatting using GPT-4
+- Personalized preferences per user
+- Support for multiple markets:
+  - Forex
+  - Indices 
+  - Commodities
+  - Crypto
+- Interactive buttons for analysis
 
-@app.on_event("startup")
-async def startup_event():
-    """Initialize async services on startup"""
-    await telegram.initialize()
-    
-    webhook_url = os.getenv("RAILWAY_PUBLIC_DOMAIN")
-    if webhook_url:
-        # Verwijder eventuele trailing karakters
-        webhook_url = webhook_url.strip(';').strip()
-        full_url = f"https://{webhook_url}/webhook"  # Voeg /webhook toe aan het pad
-        await telegram.set_webhook(full_url)
-        logger.info(f"Webhook set to: {full_url}")
+### 2. Real-time Analysis
+- 📊 Technical Analysis Charts
+  - Multiple timeframes (1m to 1d)
+  - Automatic chart generation
+  - Cached for quick access
+- 🤖 Market Sentiment Analysis
+  - AI-powered sentiment analysis
+  - Real-time news processing
+  - Perplexity AI integration
+- 📅 Economic Calendar
+  - Important economic events
+  - Impact level filtering
+  - Currency-specific events
 
-@app.get("/health")
-async def health_check():
-    return {"status": "healthy"}
+### 3. Caching & Performance
+- Redis caching for:
+  - Trading signals
+  - Technical analysis charts
+  - Market sentiment data
+  - Economic calendar events
+- Base64 encoding for binary data
+- Cache TTL: 1 hour
+- Optimal performance through caching
 
-@app.post("/webhook")
-async def webhook(request: Request):
-    """Handle Telegram webhook"""
-    try:
-        data = await request.json()
-        logger.info(f"Received webhook: {data}")
-        
-        # Check of dit een Telegram update is
-        if 'update_id' in data:
-            # Dit is een Telegram update
-            if 'callback_query' in data:
-                callback_query = data['callback_query']
-                data_parts = callback_query['data'].split('_')
-                action = data_parts[0]
-                
-                if action == 'chart':
-                    instrument, timeframe = data_parts[1:]
-                    await telegram.handle_chart_button(callback_query, instrument, timeframe)
-                elif action == 'sentiment':
-                    instrument = data_parts[1]
-                    await telegram.handle_sentiment_button(callback_query, instrument)
-                elif action == 'calendar':
-                    instrument = data_parts[1]
-                    await telegram.handle_calendar_button(callback_query, instrument)
-                    
-            # Laat de application handler dit afhandelen
-            await telegram.application.update_queue.put(Update.de_json(data, telegram.application.bot))
-            return {"status": "success"}
-            
-        # Anders is het een trading signal
-        signal = data
-        logger.info(f"Received TradingView signal: {signal}")
-        
-        # Validate required fields
-        required_fields = ['instrument', 'timeframe', 'signal', 'price', 'sl', 'tp']
-        if not all(field in signal for field in required_fields):
-            logger.error(f"Missing required fields in signal. Required: {required_fields}, Received: {list(signal.keys())}")
-            return {"status": "error", "message": "Invalid signal format"}
-            
-        # Broadcast signal
-        await telegram.broadcast_signal(signal)
-        
-        return {"status": "success"}
-        
-    except Exception as e:
-        logger.error(f"Error processing webhook: {str(e)}")
-        return {"status": "error", "message": str(e)}
+## Tech Stack
 
-def _detect_market(symbol: str) -> str:
-    """Detecteer market type gebaseerd op symbol"""
-    symbol = symbol.upper()
-    
-    # Commodities eerst checken (uitgebreide lijst)
-    commodities = [
-        "XAUUSD",  # Gold
-        "XAGUSD",  # Silver
-        "WTIUSD",  # Oil WTI
-        "BCOUSD",  # Oil Brent
-        "NATGAS",  # Natural Gas
-        "COPPER",  # Copper
-        "PLATINUM", # Platinum
-        "PALLADIUM" # Palladium
-    ]
-    if symbol in commodities:
-        logger.info(f"Detected {symbol} as commodity")
-        return "commodities"
-    
-    # Crypto pairs
-    crypto_base = ["BTC", "ETH", "XRP", "SOL", "BNB", "ADA", "DOT", "LINK"]
-    if any(c in symbol for c in crypto_base):
-        logger.info(f"Detected {symbol} as crypto")
-        return "crypto"
-    
-    # Major indices
-    indices = [
-        "US30", "US500", "US100",  # US indices
-        "UK100", "DE40", "FR40",   # European indices
-        "JP225", "AU200", "HK50"   # Asian indices
-    ]
-    if symbol in indices:
-        logger.info(f"Detected {symbol} as index")
-        return "indices"
-    
-    # Forex pairs als default
-    logger.info(f"Detected {symbol} as forex")
-    return "forex"
+### Backend
+- FastAPI (Python 3.11)
+- python-telegram-bot v20
+- Redis for caching
+- Supabase (PostgreSQL) for data storage
 
-@app.post("/signal")
-async def receive_signal(signal: Dict[str, Any]):
-    """Receive and process trading signal"""
-    try:
-        logger.info(f"Received TradingView signal: {signal}")
-        
-        # Detect market type
-        market_type = _detect_market(signal.get('instrument', ''))
-        signal['market'] = market_type
-        
-        # Broadcast signal to subscribers
-        await telegram.broadcast_signal(signal)
-        
-        return {"status": "success"}
-        
-    except Exception as e:
-        logger.error(f"Error processing signal: {str(e)}")
-        return {"status": "error", "message": str(e)}
+### AI Services
+- OpenAI GPT-4 API for signal formatting
+- Perplexity AI for market sentiment
+- Custom prompts for consistent output
+
+### Deployment
+- Hosted on Railway
+- Automatic deployments
+- Webhook integration
+- Health checks
+- Auto-scaling
+- Redis persistence
+
+## Setup & Installation
+
+1. Clone the repository:
+```bash
+git clone https://github.com/yourusername/sigmapips-bot.git
+cd sigmapips-bot
+```
+
+2. Create a .env file:
+```env
+# Telegram
+TELEGRAM_BOT_TOKEN=your_bot_token
+
+# Supabase
+SUPABASE_URL=your_supabase_url 
+SUPABASE_KEY=your_supabase_key
+
+# Redis
+REDIS_URL=your_redis_url
+
+# OpenAI
+OPENAI_API_KEY=your_openai_key
+
+# Perplexity
+PERPLEXITY_API_KEY=your_perplexity_key
+
+# Railway
+RAILWAY_PUBLIC_DOMAIN=your_railway_domain
+```
+
+3. Start locally with Docker:
+```bash
+docker-compose up -d
+```
+
+## Bot Commands
+
+- `/start` - Start setting up trading preferences
+- `/manage` - Manage existing preferences
+- `/menu` - Show main menu
+- `/help` - Show help information
+
+## Database Schema
+
+```sql
+CREATE TABLE subscriber_preferences (
+    id bigint PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+    user_id bigint NOT NULL,
+    market text NOT NULL,
+    instrument text NOT NULL, 
+    timeframe text NOT NULL,
+    created_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
+    updated_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
+    is_active boolean DEFAULT true,
+    UNIQUE(user_id, market, instrument, timeframe)
+);
+```
+
+## API Endpoints
+
+### Signal Endpoint
+```http
+POST /signal
+{
+    "symbol": "EURUSD",
+    "action": "BUY/SELL",
+    "price": "1.0850",
+    "stopLoss": "1.0800",
+    "takeProfit": "1.0900",
+    "timeframe": "1h",
+    "market": "forex"
+}
+```
+
+### Webhook Endpoint
+```http
+POST /webhook
+- Handles Telegram updates
+```
+
+### Health Check
+```http
+GET /health
+- Returns service status
+```
+
+## Error Handling
+
+- Extensive logging of all operations
+- Automatic retry mechanisms for API calls
+- Graceful degradation during service outages
+- Fallback options for AI services
+
+## Railway Deployment
+
+The application runs on Railway with:
+- Automatic deployments via GitHub
+- Webhook integration for Telegram
+- Redis persistence for caching
+- Health checks for uptime monitoring
+- Auto-scaling based on load
+- Zero-downtime deployments
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Commit your changes
+4. Push to the branch
+5. Open a Pull Request
+
+## License
+
+MIT License
+
+## Contact
+
+For questions or suggestions, open an issue or submit a PR.
