@@ -151,3 +151,24 @@ class Database:
         except Exception as e:
             logger.error(f"Error saving preferences: {str(e)}")
             raise 
+
+    async def get_subscribers(self, instrument: str, timeframe: str = None):
+        """Get all subscribers for an instrument and timeframe"""
+        query = self.supabase.table('subscriber_preferences')\
+            .select('*')\
+            .eq('instrument', instrument)
+        
+        # Als timeframe '1m' is, voeg style='test' toe
+        if timeframe == '1m':
+            query = query.eq('style', 'test')
+        elif timeframe:
+            # Map timeframe naar style
+            style_map = {
+                '15m': 'scalp',
+                '1h': 'intraday',
+                '4h': 'swing'
+            }
+            if timeframe in style_map:
+                query = query.eq('style', style_map[timeframe])
+        
+        return query.execute() 
