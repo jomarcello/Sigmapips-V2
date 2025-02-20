@@ -47,42 +47,51 @@ async def webhook(request: Request):
         data = await request.json()
         logger.info(f"Received webhook: {data}")
         
-        if 'update_id' in data and 'callback_query' in data:
-            callback_query = data['callback_query']
-            data_parts = callback_query['data'].split('_')
-            action = data_parts[0]
+        # Check of dit een Telegram update is
+        if 'update_id' in data:
+            # Maak een Update object
+            update = Update.de_json(data, telegram.application.bot)
             
-            if action == 'analysis':
-                # Stap 1: Gebruiker kiest Market Sentiment
-                analysis_type = data_parts[1]
-                if analysis_type == 'sentiment':
-                    # Stap 2: Toon market keuze
-                    await telegram.show_market_selection(callback_query, analysis_type)
+            # Handle commands (/start, etc.)
+            if update.message and update.message.text and update.message.text.startswith('/'):
+                await telegram.application.process_update(update)
+                return {"status": "success"}
+            
+            # Handle callback queries
+            if update.callback_query:
+                callback_query = update.callback_query
+                data_parts = callback_query.data.split('_')
+                action = data_parts[0]
+                
+                if action == 'analysis':
+                    analysis_type = data_parts[1]
+                    if analysis_type in ['technical', 'sentiment']:
+                        await telegram.show_market_selection(callback_query, analysis_type)
+                    elif analysis_type == 'calendar':
+                        await telegram.handle_calendar_button(callback_query, None)
                     return {"status": "success"}
                     
-            elif action == 'market':
-                # Stap 3: Gebruiker kiest market
-                market = data_parts[1]
-                analysis_type = data_parts[2]  # bijv. 'sentiment'
-                await telegram.show_instruments(callback_query, market, analysis_type)
-                return {"status": "success"}
-                
-            elif action == 'instrument':
-                # Stap 5: Gebruiker kiest instrument
-                instrument = data_parts[1]
-                analysis_type = data_parts[2]  # bijv. 'sentiment'
-                if analysis_type == 'sentiment':
-                    # Stap 6: Toon sentiment analyse
-                    await telegram.show_sentiment_analysis(callback_query, instrument)
+                elif action == 'market':
+                    market = data_parts[1]
+                    analysis_type = data_parts[-1]
+                    await telegram.show_instruments(callback_query, market, analysis_type)
                     return {"status": "success"}
-            
-            # Laat de application handler andere callbacks afhandelen
-            await telegram.application.update_queue.put(Update.de_json(data, telegram.application.bot))
+                    
+                elif action == 'instrument':
+                    instrument = data_parts[1]
+                    analysis_type = data_parts[-1]
+                    if analysis_type == 'sentiment':
+                        await telegram.show_sentiment_analysis(callback_query, instrument)
+                    return {"status": "success"}
+                
+                # Voor andere callback queries
+                await telegram.application.process_update(update)
+                return {"status": "success"}
             
         return {"status": "success"}
         
     except Exception as e:
-        logger.error(f"Error in webhook: {str(e)}")
+        logger.error(f"Error processing webhook: {str(e)}")
         return {"status": "error", "message": str(e)}
 
 def _detect_market(symbol: str) -> str:
