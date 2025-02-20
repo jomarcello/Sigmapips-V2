@@ -1166,7 +1166,7 @@ Risk Management:
 {sentiment_data['implications']}"""
 
             # Toon resultaat met back button
-            keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data=f"back_to_instruments")]]
+            keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_instruments")]]
             
             await callback_query.edit_message_text(
                 text=message,
@@ -1254,11 +1254,18 @@ Risk Management:
             for row in MARKET_KEYBOARD:
                 new_row = []
                 for button in row:
-                    # Voeg analysis_type toe aan callback_data
-                    new_button = InlineKeyboardButton(
-                        text=button.text,
-                        callback_data=f"{button.callback_data}_{analysis_type}"
-                    )
+                    if button.text == "Back":
+                        # Voor back button, ga terug naar analyse keuze
+                        new_button = InlineKeyboardButton(
+                            text=button.text,
+                            callback_data="back_analysis"
+                        )
+                    else:
+                        # Voor market buttons, voeg analysis_type toe
+                        new_button = InlineKeyboardButton(
+                            text=button.text,
+                            callback_data=f"{button.callback_data}_{analysis_type}"
+                        )
                     new_row.append(new_button)
                 keyboard.append(new_row)
             
@@ -1272,7 +1279,6 @@ Risk Management:
     async def show_instruments(self, callback_query: CallbackQuery, market: str, analysis_type: str):
         """Toon instrumenten voor gekozen market"""
         try:
-            # Kies juiste keyboard op basis van market
             keyboard_map = {
                 'forex': FOREX_KEYBOARD,
                 'crypto': CRYPTO_KEYBOARD,
@@ -1281,15 +1287,22 @@ Risk Management:
             }
             base_keyboard = keyboard_map.get(market, FOREX_KEYBOARD)
             
-            # Voeg analysis_type toe aan callback data
             keyboard = []
             for row in base_keyboard:
                 new_row = []
                 for button in row:
-                    new_button = InlineKeyboardButton(
-                        text=button.text,
-                        callback_data=f"{button.callback_data}_{analysis_type}"
-                    )
+                    if button.text == "Back":
+                        # Voor back button, ga terug naar market selectie
+                        new_button = InlineKeyboardButton(
+                            text=button.text,
+                            callback_data="back_market"
+                        )
+                    else:
+                        # Voor instrument buttons, voeg analysis_type toe
+                        new_button = InlineKeyboardButton(
+                            text=button.text,
+                            callback_data=f"{button.callback_data}_{analysis_type}"
+                        )
                     new_row.append(new_button)
                 keyboard.append(new_row)
             
@@ -1370,7 +1383,7 @@ Risk Management:
 {sentiment_data['implications']}"""
 
             # Toon resultaat met back button
-            keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_instruments")]]
+            keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]]
             
             await callback_query.edit_message_text(
                 text=message,
@@ -1382,6 +1395,6 @@ Risk Management:
             await callback_query.edit_message_text(
                 text=f"Sorry, an error occurred while analyzing {instrument}. Please try again.",
                 reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("⬅️ Back", callback_data="back_instruments")
+                    InlineKeyboardButton("⬅️ Back", callback_data="back_market")
                 ]])
             )
