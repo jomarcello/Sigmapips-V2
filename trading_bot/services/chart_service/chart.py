@@ -92,24 +92,54 @@ class ChartService:
             chart_url = self._get_chart_url(symbol)
             logger.info(f"Using chart URL: {chart_url}")
             
+            # Extra Chrome options voor betere stabiliteit
+            self.chrome_options.add_argument('--no-sandbox')
+            self.chrome_options.add_argument('--disable-dev-shm-usage')
+            self.chrome_options.add_argument('--disable-gpu')
+            self.chrome_options.add_argument('--disable-software-rasterizer')
+            self.chrome_options.add_argument('--disable-extensions')
+            
             # Initialize Chrome webdriver
             driver = webdriver.Chrome(options=self.chrome_options)
+            driver.set_page_load_timeout(30)
             
             try:
                 # Load page
                 driver.get(chart_url)
                 
-                # Wait for chart to load with een betere selector
-                WebDriverWait(driver, 30).until(
-                    EC.presence_of_element_located((By.CSS_SELECTOR, "div[class*='chart-container']"))
-                )
+                # Wacht eerst op de pagina load
+                await asyncio.sleep(5)
                 
-                # Geef de chart wat extra tijd om te renderen
-                await asyncio.sleep(2)
+                # Probeer verschillende selectors
+                selectors = [
+                    "div[class*='chart-container']",
+                    "div[class*='chart-markup-table']",
+                    "div[class*='layout__area--center']"
+                ]
+                
+                chart_element = None
+                for selector in selectors:
+                    try:
+                        # Wacht op element
+                        element = WebDriverWait(driver, 10).until(
+                            EC.presence_of_element_located((By.CSS_SELECTOR, selector))
+                        )
+                        chart_element = element
+                        logger.info(f"Found chart element with selector: {selector}")
+                        break
+                    except Exception as e:
+                        logger.warning(f"Selector {selector} failed: {str(e)}")
+                        continue
+                
+                if chart_element is None:
+                    raise Exception("Could not find chart element with any selector")
+                
+                # Extra wachttijd voor chart rendering
+                await asyncio.sleep(3)
                 
                 # Take screenshot
-                chart_element = driver.find_element(By.CSS_SELECTOR, "div[class*='chart-container']")
                 screenshot = chart_element.screenshot_as_png
+                logger.info("Successfully captured chart screenshot")
                 
                 return screenshot
                 
