@@ -1144,44 +1144,31 @@ Risk Management:
     async def handle_sentiment_button(self, callback_query: Dict[str, Any], instrument: str):
         """Handle sentiment button click"""
         try:
-            # Get sentiment
+            await callback_query.edit_message_text(
+                text=f"⏳ Analyzing {instrument}..."
+            )
+            
+            # Fix market type detection
+            market = 'crypto' if any(crypto in instrument for crypto in ['BTC', 'ETH', 'XRP']) else 'forex'
+            
             sentiment_data = await self.sentiment.get_market_sentiment({
                 'symbol': instrument,
-                'market': 'crypto' if 'USD' in instrument else 'forex'
+                'market': market
             })
             
-            # Format message met HTML
-            message = f"""🤖 <b>Market Sentiment: {instrument}</b>
-
-<b>Market Direction:</b> {sentiment_data['direction']}
-
-<b>Key Levels:</b>
-• Support: {sentiment_data['support']}
-• Resistance: {sentiment_data['resistance']}
-
-<b>Risk Factors:</b>
-{sentiment_data['risks']}
-
-<b>Trading Implications:</b>
-{sentiment_data['implications']}"""
-
-            # Toon resultaat met back button
-            keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_instruments")]]
+            keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]]
             
             await callback_query.edit_message_text(
-                text=message,
-                parse_mode=ParseMode.HTML,
+                text=sentiment_data,
+                parse_mode=ParseMode.HTML,  # Gebruik HTML i.p.v. MARKDOWN
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
         except Exception as e:
-            logger.error(f"Error handling sentiment button: {str(e)}")
-            # Stuur een foutmelding naar de gebruiker
-            await self.bot.edit_message_text(
-                chat_id=callback_query['message']['chat']['id'],
-                message_id=callback_query['message']['message_id'],
-                text=f"Sorry, er is een fout opgetreden bij het ophalen van de sentiment analyse voor {instrument}. Probeer het later opnieuw.",
+            logger.error(f"Error showing sentiment analysis: {str(e)}")
+            await callback_query.edit_message_text(
+                text=f"Error analyzing {instrument}. Please try again.",
                 reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("⬅️ Back", callback_data=f"back_to_signal_{instrument}")
+                    InlineKeyboardButton("⬅️ Back", callback_data="back_market")
                 ]])
             )
 
@@ -1347,45 +1334,29 @@ Risk Management:
     async def show_sentiment_analysis(self, callback_query: CallbackQuery, instrument: str):
         """Toon sentiment analyse voor gekozen instrument"""
         try:
-            # Toon loading message
             await callback_query.edit_message_text(
-                text=f"⏳ Analyzing market sentiment for {instrument}...\n"
-                     "Please wait while I gather the data 📊"
+                text=f"⏳ Analyzing {instrument}..."
             )
             
-            # Get sentiment data
+            # Fix market type detection
+            market = 'crypto' if any(crypto in instrument for crypto in ['BTC', 'ETH', 'XRP']) else 'forex'
+            
             sentiment_data = await self.sentiment.get_market_sentiment({
                 'symbol': instrument,
-                'market': 'crypto' if 'USD' in instrument else 'forex'
+                'market': market
             })
             
-            # Format message met HTML
-            message = f"""🤖 <b>Market Sentiment: {instrument}</b>
-
-<b>Market Direction:</b> {sentiment_data['direction']}
-
-<b>Key Levels:</b>
-• Support: {sentiment_data['support']}
-• Resistance: {sentiment_data['resistance']}
-
-<b>Risk Factors:</b>
-{sentiment_data['risks']}
-
-<b>Trading Implications:</b>
-{sentiment_data['implications']}"""
-
-            # Toon resultaat met back button
             keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]]
             
             await callback_query.edit_message_text(
-                text=message,
-                parse_mode=ParseMode.HTML,
+                text=sentiment_data,
+                parse_mode=ParseMode.HTML,  # Gebruik HTML i.p.v. MARKDOWN
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
         except Exception as e:
             logger.error(f"Error showing sentiment analysis: {str(e)}")
             await callback_query.edit_message_text(
-                text=f"Sorry, an error occurred while analyzing {instrument}. Please try again.",
+                text=f"Error analyzing {instrument}. Please try again.",
                 reply_markup=InlineKeyboardMarkup([[
                     InlineKeyboardButton("⬅️ Back", callback_data="back_market")
                 ]])
