@@ -47,24 +47,31 @@ async def webhook(request: Request):
         data = await request.json()
         logger.info(f"Received webhook: {data}")
         
-        # Check of dit een callback query is
-        if 'callback_query' in data:
-            callback_query = data['callback_query']
-            data = callback_query['data']  # bijv. 'chart_BTCUSD_1m'
+        # Check of dit een Telegram update is
+        if 'update_id' in data:
+            # Dit is een Telegram update
+            if 'message' in data and 'entities' in data['message']:
+                # Dit is een command
+                await telegram.application.update_queue.put(Update.de_json(data, telegram.application.bot))
+                return {"status": "success"}
             
-            # Parse callback data
-            action, *params = data.split('_')
-            
-            if action == 'chart':
-                instrument, timeframe = params
-                await telegram.handle_chart_button(callback_query, instrument, timeframe)
-            elif action == 'sentiment':
-                instrument = params[0]
-                await telegram.handle_sentiment_button(callback_query, instrument)
-            elif action == 'calendar':
-                instrument = params[0]
-                await telegram.handle_calendar_button(callback_query, instrument)
+            if 'callback_query' in data:
+                callback_query = data['callback_query']
+                data_parts = callback_query['data'].split('_')
+                action = data_parts[0]
                 
+                if action == 'chart':
+                    instrument, timeframe = data_parts[1:]
+                    await telegram.handle_chart_button(callback_query, instrument, timeframe)
+                elif action == 'sentiment':
+                    instrument = data_parts[1]
+                    await telegram.handle_sentiment_button(callback_query, instrument)
+                elif action == 'calendar':
+                    instrument = data_parts[1]
+                    await telegram.handle_calendar_button(callback_query, instrument)
+                    
+            # Laat de application handler dit afhandelen
+            await telegram.application.update_queue.put(Update.de_json(data, telegram.application.bot))
             return {"status": "success"}
             
         # Anders is het een trading signal
