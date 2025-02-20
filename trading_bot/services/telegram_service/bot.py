@@ -1279,16 +1279,15 @@ Risk Management:
                 new_row = []
                 for button in row:
                     if button.text == "Back":
-                        # Voor back button, ga terug naar market selectie
                         new_button = InlineKeyboardButton(
                             text=button.text,
                             callback_data="back_market"
                         )
                     else:
-                        # Voor instrument buttons, voeg analysis_type toe
+                        # Fix: gebruik analysis_type direct in callback_data
                         new_button = InlineKeyboardButton(
                             text=button.text,
-                            callback_data=f"{button.callback_data}_{analysis_type}"
+                            callback_data=f"instrument_{button.text}_{analysis_type}"
                         )
                     new_row.append(new_button)
                 keyboard.append(new_row)
