@@ -174,7 +174,7 @@ ANALYSIS_KEYBOARD = [
     [InlineKeyboardButton("Technical Analysis", callback_data="analysis_technical")],
     [InlineKeyboardButton("Market Sentiment", callback_data="analysis_sentiment")],
     [InlineKeyboardButton("Economic Calendar", callback_data="analysis_calendar")],
-    [InlineKeyboardButton("Back", callback_data="back_to_menu")]
+    [InlineKeyboardButton("Back", callback_data="back_menu")]
 ]
 
 # Signals menu keyboard
@@ -1322,29 +1322,21 @@ Risk Management:
                     text=WELCOME_MESSAGE,
                     reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
                 )
-                return CHOOSE_MENU
-            
             elif back_type == 'analysis':
                 # Terug naar analyse type keuze
                 await callback_query.edit_message_text(
                     text="Select your analysis type:",
                     reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
                 )
-                return CHOOSE_ANALYSIS
-            
             elif back_type == 'market':
                 # Terug naar market selectie
                 analysis_type = callback_query.message.reply_markup.inline_keyboard[0][0].callback_data.split('_')[-1]
                 await self.show_market_selection(callback_query, analysis_type)
-                return CHOOSE_MARKET
-            
             elif back_type == 'instruments':
                 # Terug naar instrument selectie
                 market = callback_query.message.reply_markup.inline_keyboard[0][0].callback_data.split('_')[1]
                 analysis_type = callback_query.message.reply_markup.inline_keyboard[0][0].callback_data.split('_')[-1]
                 await self.show_instruments(callback_query, market, analysis_type)
-                return CHOOSE_INSTRUMENT
-            
         except Exception as e:
             logger.error(f"Error handling back button: {str(e)}")
             await callback_query.edit_message_text(
