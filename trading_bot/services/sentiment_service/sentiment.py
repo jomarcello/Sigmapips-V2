@@ -31,13 +31,13 @@ class MarketSentimentService:
 📈 Market Direction:
 [Analyze current price action, trend direction, and momentum. Include impact of latest economic data and central bank policies]
 
-📰 Latest News & Events:
+📡 Latest News & Events:
 • [Most recent significant news affecting {symbol}]
 • [Relevant economic data releases]
 • [Central bank actions/statements]
 • [Other market-moving events]
 
-🎚️ Key Levels:
+🎯 Key Levels:
 • Support Levels:
   - [Immediate support with exact price and technical/fundamental reason]
   - [Major support with exact price and historical significance]
