@@ -22,9 +22,72 @@ class MarketSentimentService:
             symbol = signal.get('symbol', '')
             market = 'crypto' if any(crypto in symbol for crypto in ['BTC', 'ETH', 'XRP']) else 'forex'
             logger.info(f"Getting market sentiment for {symbol} ({market})")
+            
+            # Create prompt for DeepSeek
+            prompt = f"""Analyze the current market sentiment and latest news for {symbol}. Include both technical analysis and fundamental factors.
 
-            # Tijdelijk direct fallback gebruiken voor testing
-            return self._get_fallback_sentiment(signal)
+<b>{symbol} Market Analysis</b>
+
+<b>Market Direction:</b>
+[Analyze current price action, trend direction, and momentum. Include impact of latest economic data and central bank policies]
+
+<b>Latest News & Events:</b>
+• [Most recent significant news affecting {symbol}]
+• [Relevant economic data releases]
+• [Central bank actions/statements]
+• [Other market-moving events]
+
+<b>Key Levels:</b>
+• Support Levels:
+  - [Immediate support with exact price and technical/fundamental reason]
+  - [Major support with exact price and historical significance]
+• Resistance Levels:
+  - [Immediate resistance with exact price and technical/fundamental reason]
+  - [Major resistance with exact price and historical significance]
+
+<b>Risk Factors:</b>
+• Economic: [Current economic risks and data impacts]
+• Political: [Relevant political factors affecting the pair]
+• Technical: [Key technical risks and pattern warnings]
+• Market: [Current market sentiment and positioning risks]
+
+<b>Trading Strategy:</b>
+• Short Term: [Day trading/swing trading strategy with specific entry/exit points]
+• Long Term: [Position trading outlook with key levels]
+• Risk Management: [Position sizing and stop loss recommendations]
+
+<b>Conclusion:</b>
+[Summarize overall outlook and provide specific actionable trading recommendation]
+
+Use HTML formatting, include specific price levels, and focus on actionable insights based on both technical and news analysis."""
+
+            payload = {
+                "model": "deepseek-chat",
+                "messages": [{
+                    "role": "system",
+                    "content": """You are a professional forex market analyst with expertise in both technical and fundamental analysis.
+                    Always include:
+                    - Latest market-moving news
+                    - Recent economic data impacts
+                    - Central bank actions
+                    - Specific price levels
+                    - Clear trading recommendations
+                    Base your analysis on current market conditions and recent events."""
+                }, {
+                    "role": "user",
+                    "content": prompt
+                }],
+                "temperature": 0.7
+            }
+
+            async with aiohttp.ClientSession() as session:
+                async with session.post(self.api_url, json=payload, headers=self.headers) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        return data['choices'][0]['message']['content']
+                    else:
+                        logger.error(f"DeepSeek API error: {response.status}")
+                        return self._get_fallback_sentiment(signal)
 
         except Exception as e:
             logger.error(f"Error getting sentiment: {str(e)}")
