@@ -6,10 +6,12 @@ from telegram import Update
 import asyncio
 import time
 import base64
+from datetime import datetime
 
 from trading_bot.services.telegram_service.bot import TelegramService
 from trading_bot.services.chart_service.chart import ChartService
 from trading_bot.services.database.db import Database
+from memory_manager import save_project_progress, get_project_context
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -85,11 +87,68 @@ async def webhook(request: Request):
         logger.error(f"Error processing webhook: {str(e)}")
         return {"status": "error", "message": str(e)}
 
+def _detect_market(symbol: str) -> str:
+    """Detecteer market type gebaseerd op symbol"""
+    symbol = symbol.upper()
+    
+    # Commodities eerst checken (uitgebreide lijst)
+    commodities = [
+        "XAUUSD",  # Gold
+        "XAGUSD",  # Silver
+        "WTIUSD",  # Oil WTI
+        "BCOUSD",  # Oil Brent
+        "NATGAS",  # Natural Gas
+        "COPPER",  # Copper
+        "PLATINUM", # Platinum
+        "PALLADIUM" # Palladium
+    ]
+    if symbol in commodities:
+        logger.info(f"Detected {symbol} as commodity")
+        return "commodities"
+    
+    # Crypto pairs
+    crypto_base = ["BTC", "ETH", "XRP", "SOL", "BNB", "ADA", "DOT", "LINK"]
+    if any(c in symbol for c in crypto_base):
+        logger.info(f"Detected {symbol} as crypto")
+        return "crypto"
+    
+    # Major indices
+    indices = [
+        "US30", "US500", "US100",  # US indices
+        "UK100", "DE40", "FR40",   # European indices
+        "JP225", "AU200", "HK50"   # Asian indices
+    ]
+    if symbol in indices:
+        logger.info(f"Detected {symbol} as index")
+        return "indices"
+    
+    # Forex pairs als default
+    logger.info(f"Detected {symbol} as forex")
+    return "forex"
+
 @app.post("/signal")
 async def receive_signal(signal: Dict[str, Any]):
     """Receive and process trading signal"""
     try:
         logger.info(f"Received TradingView signal: {signal}")
+        
+        # Detect market type
+        market_type = _detect_market(signal.get('instrument', ''))
+        signal['market'] = market_type
+        
+        # Log het ontvangen signaal
+        save_project_progress(f"""
+Nieuw trading signaal ontvangen:
+- Instrument: {signal.get('instrument')}
+- Market: {market_type}
+- Timeframe: {signal.get('timeframe')}
+- Actie: {signal.get('signal')}
+- Prijs: {signal.get('price')}
+- Take Profit: {signal.get('tp')}
+- Stop Loss: {signal.get('sl')}
+
+Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+""")
         
         # Broadcast signal to subscribers
         await telegram.broadcast_signal(signal)
@@ -98,29 +157,11 @@ async def receive_signal(signal: Dict[str, Any]):
         
     except Exception as e:
         logger.error(f"Error processing signal: {str(e)}")
-        return {"status": "error", "message": str(e)}
+        save_project_progress(f"""
+ERROR bij verwerken signaal:
+- Error: {str(e)}
+- Signaal: {signal}
 
-def _detect_market(symbol: str) -> str:
-    """Detecteer market type gebaseerd op symbol"""
-    symbol = symbol.upper()
-    
-    # Commodities eerst checken
-    commodities = ["XAUUSD", "XAGUSD", "WTI", "BRENT", "NGAS"]
-    if symbol in commodities:
-        return "commodities"
-    
-    # Crypto
-    crypto_symbols = ["BTC", "ETH", "XRP", "SOL", "LTC"]
-    if any(c in symbol for c in crypto_symbols):
-        return "crypto"
-        
-    # Indices
-    indices = ["SPX500", "NAS100", "US30", "DAX40", "FTSE100"]
-    if symbol in indices:
-        return "indices"
-    
-    # Forex pairs als laatste (default)
-    if len(symbol) == 6 and symbol.isalpha():
-        return "forex"
-        
-    return "forex"  # Fallback
+Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+""")
+        return {"status": "error", "message": str(e)}
