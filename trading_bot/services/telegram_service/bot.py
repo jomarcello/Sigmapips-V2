@@ -174,14 +174,14 @@ ANALYSIS_KEYBOARD = [
     [InlineKeyboardButton("Technical Analysis", callback_data="analysis_technical")],
     [InlineKeyboardButton("Market Sentiment", callback_data="analysis_sentiment")],
     [InlineKeyboardButton("Economic Calendar", callback_data="analysis_calendar")],
-    [InlineKeyboardButton("Back", callback_data="back")]
+    [InlineKeyboardButton("Back", callback_data="back_to_menu")]
 ]
 
 # Signals menu keyboard
 SIGNALS_KEYBOARD = [
     [InlineKeyboardButton("Add New Pairs", callback_data="signals_add")],
     [InlineKeyboardButton("Manage Preferences", callback_data="signals_manage")],
-    [InlineKeyboardButton("Back", callback_data="back")]
+    [InlineKeyboardButton("Back", callback_data="back_to_menu")]
 ]
 
 # Timeframe mapping based on style
@@ -230,11 +230,11 @@ class TelegramService:
                     ],
                     CHOOSE_ANALYSIS: [
                         CallbackQueryHandler(self.analysis_choice, pattern="^analysis_"),
-                        CallbackQueryHandler(self.start, pattern="^back$")
+                        CallbackQueryHandler(self.back_to_menu, pattern="^back_to_menu$")
                     ],
                     CHOOSE_SIGNALS: [
                         CallbackQueryHandler(self.signals_choice, pattern="^signals_"),
-                        CallbackQueryHandler(self.start, pattern="^back$")
+                        CallbackQueryHandler(self.back_to_menu, pattern="^back_to_menu$")
                     ],
                     CHOOSE_MARKET: [
                         CallbackQueryHandler(self.market_choice, pattern="^market_"),
@@ -1073,16 +1073,12 @@ Risk Management:
         # Reset user_data
         context.user_data.clear()
         
-        # Terug naar hoofdmenu
-        keyboard = [
-            [InlineKeyboardButton("Add New Pairs", callback_data="start")],
-            [InlineKeyboardButton("Manage Preferences", callback_data="manage")]
-        ]
+        # Terug naar hoofdmenu met START_KEYBOARD
         await query.edit_message_text(
-            text=MENU_MESSAGE,
-            reply_markup=InlineKeyboardMarkup(keyboard)
+            text="Welcome! Please select what you would like to do:",
+            reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
         )
-        return ConversationHandler.END  # Beëindig huidige conversatie
+        return CHOOSE_MENU  # Belangrijk: we gaan terug naar CHOOSE_MENU state
 
     def _create_signal_prompt(self, signal: Dict[str, Any]) -> str:
         """Create prompt for signal formatting"""
