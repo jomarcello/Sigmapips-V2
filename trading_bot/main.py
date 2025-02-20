@@ -57,25 +57,29 @@ async def webhook(request: Request):
                 
                 if action == 'analysis':
                     analysis_type = data_parts[1]
-                    if analysis_type == 'sentiment':
-                        # Haal instrument uit user data of gebruik default
-                        instrument = "EURUSD"  # Default instrument
-                        await telegram.handle_sentiment_button(callback_query, instrument)
+                    if analysis_type in ['technical', 'sentiment']:
+                        # Voor technical en sentiment analyses, ga naar market selectie
+                        await telegram.market_choice(callback_query, analysis_type)
                         return {"status": "success"}
                     elif analysis_type == 'calendar':
-                        # Voor calendar hoeven we geen instrument te hebben
+                        # Calendar kan direct getoond worden
                         await telegram.handle_calendar_button(callback_query, None)
                         return {"status": "success"}
                 
-                elif action in ['chart', 'sentiment', 'calendar']:
+                elif action == 'market':
+                    # Handle market selection
+                    market = data_parts[1]
+                    await telegram.handle_market_selection(callback_query, market)
+                    return {"status": "success"}
+                
+                elif action == 'instrument':
+                    # Handle instrument selection
                     instrument = data_parts[1]
-                    if action == 'chart':
-                        timeframe = data_parts[2] if len(data_parts) > 2 else "1h"
-                        await telegram.handle_chart_button(callback_query, instrument, timeframe)
-                    elif action == 'sentiment':
+                    analysis_type = callback_query.get('message', {}).get('reply_markup', {}).get('analysis_type')
+                    if analysis_type == 'sentiment':
                         await telegram.handle_sentiment_button(callback_query, instrument)
-                    elif action == 'calendar':
-                        await telegram.handle_calendar_button(callback_query, instrument)
+                    elif analysis_type == 'technical':
+                        await telegram.handle_chart_button(callback_query, instrument)
                     return {"status": "success"}
             
             # Laat de application handler dit afhandelen
