@@ -72,19 +72,19 @@ DELETE_BUTTON = InlineKeyboardButton("Delete", callback_data="delete_prefs")
 # Keyboard layouts voor verschillende markten
 FOREX_KEYBOARD = [
     [
-        InlineKeyboardButton("EUR/USD", callback_data="instrument_EURUSD"),
-        InlineKeyboardButton("EUR/GBP", callback_data="instrument_EURGBP"),
-        InlineKeyboardButton("EUR/CHF", callback_data="instrument_EURCHF")
+        InlineKeyboardButton("EURUSD", callback_data="instrument_EURUSD"),
+        InlineKeyboardButton("EURGBP", callback_data="instrument_EURGBP"),
+        InlineKeyboardButton("EURCHF", callback_data="instrument_EURCHF")
     ],
     [
-        InlineKeyboardButton("EUR/JPY", callback_data="instrument_EURJPY"),
-        InlineKeyboardButton("EUR/CAD", callback_data="instrument_EURCAD"),
-        InlineKeyboardButton("EUR/AUD", callback_data="instrument_EURAUD")
+        InlineKeyboardButton("EURJPY", callback_data="instrument_EURJPY"),
+        InlineKeyboardButton("EURCAD", callback_data="instrument_EURCAD"),
+        InlineKeyboardButton("EURAUD", callback_data="instrument_EURAUD")
     ],
     [
-        InlineKeyboardButton("GBP/USD", callback_data="instrument_GBPUSD"),
-        InlineKeyboardButton("GBP/JPY", callback_data="instrument_GBPJPY"),
-        InlineKeyboardButton("GBP/CHF", callback_data="instrument_GBPCHF")
+        InlineKeyboardButton("GBPUSD", callback_data="instrument_GBPUSD"),
+        InlineKeyboardButton("GBPJPY", callback_data="instrument_GBPJPY"),
+        InlineKeyboardButton("GBPCHF", callback_data="instrument_GBPCHF")
     ],
     # ... meer rijen van 3
     [InlineKeyboardButton("Back", callback_data="back")]
@@ -92,27 +92,27 @@ FOREX_KEYBOARD = [
 
 CRYPTO_KEYBOARD = [
     [
-        InlineKeyboardButton("BTC/USD", callback_data="instrument_BTCUSD"),
-        InlineKeyboardButton("ETH/USD", callback_data="instrument_ETHUSD"),
-        InlineKeyboardButton("XRP/USD", callback_data="instrument_XRPUSD")
+        InlineKeyboardButton("BTCUSD", callback_data="instrument_BTCUSD"),
+        InlineKeyboardButton("ETHUSD", callback_data="instrument_ETHUSD"),
+        InlineKeyboardButton("XRPUSD", callback_data="instrument_XRPUSD")
     ],
     [
-        InlineKeyboardButton("SOL/USD", callback_data="instrument_SOLUSD"),
-        InlineKeyboardButton("BNB/USD", callback_data="instrument_BNBUSD"),
-        InlineKeyboardButton("ADA/USD", callback_data="instrument_ADAUSD")
+        InlineKeyboardButton("SOLUSD", callback_data="instrument_SOLUSD"),
+        InlineKeyboardButton("BNBUSD", callback_data="instrument_BNBUSD"),
+        InlineKeyboardButton("ADAUSD", callback_data="instrument_ADAUSD")
     ],
     [
-        InlineKeyboardButton("DOT/USD", callback_data="instrument_DOTUSD"),
-        InlineKeyboardButton("LTC/USD", callback_data="instrument_LTCUSD"),
-        InlineKeyboardButton("LINK/USD", callback_data="instrument_LNKUSD")
+        InlineKeyboardButton("DOTUSD", callback_data="instrument_DOTUSD"),
+        InlineKeyboardButton("LTCUSD", callback_data="instrument_LTCUSD"),
+        InlineKeyboardButton("LNKUSD", callback_data="instrument_LNKUSD")
     ],
     [InlineKeyboardButton("Back", callback_data="back")]
 ]
 
 COMMODITIES_KEYBOARD = [
     [
-        InlineKeyboardButton("XAU/USD", callback_data="instrument_XAUUSD"),
-        InlineKeyboardButton("XTI/USD", callback_data="instrument_XTIUSD")
+        InlineKeyboardButton("XAUUSD", callback_data="instrument_XAUUSD"),
+        InlineKeyboardButton("XTIUSD", callback_data="instrument_XTIUSD")
     ],
     [InlineKeyboardButton("Back", callback_data="back")]
 ]
@@ -141,7 +141,8 @@ MARKET_KEYBOARD = [
     [InlineKeyboardButton("Forex", callback_data="market_forex")],
     [InlineKeyboardButton("Crypto", callback_data="market_crypto")],
     [InlineKeyboardButton("Commodities", callback_data="market_commodities")],
-    [InlineKeyboardButton("Indices", callback_data="market_indices")]
+    [InlineKeyboardButton("Indices", callback_data="market_indices")],
+    [InlineKeyboardButton("Back", callback_data="back")]
 ]
 
 STYLE_KEYBOARD = [
@@ -225,10 +226,15 @@ class TelegramService:
                     ],
                     SHOW_RESULT: [
                         CallbackQueryHandler(self.add_more, pattern="^add_more$"),
-                        CallbackQueryHandler(self.manage_preferences, pattern="^manage_prefs$")
+                        CallbackQueryHandler(self.manage_preferences, pattern="^manage_prefs$"),
+                        CallbackQueryHandler(self.back_to_menu, pattern="^back_to_menu$")
                     ]
                 },
-                fallbacks=[CommandHandler("cancel", self.cancel)]
+                fallbacks=[
+                    CommandHandler("cancel", self.cancel),
+                    CommandHandler("start", self.start)  # Toevoegen start als fallback
+                ],
+                allow_reentry=True  # Sta hergebruik van de handler toe
             )
             
             # Add handlers
@@ -656,13 +662,15 @@ Risk Management:
         query = update.callback_query
         await query.answer()
         
-        # Ga terug naar market selectie voor nieuwe toevoeging
-        reply_markup = InlineKeyboardMarkup(MARKET_KEYBOARD)
+        # Reset user_data voor nieuwe sessie
+        context.user_data.clear()
+        
+        # Start nieuwe setup flow
         await query.edit_message_text(
-            text="Please select a market for Trading Signals:",
-            reply_markup=reply_markup
+            text="Welcome! What would you like to analyze?",
+            reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
         )
-        return CHOOSE_MARKET
+        return CHOOSE_ANALYSIS
 
     async def manage_preferences(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle manage preferences button"""
@@ -670,6 +678,9 @@ Risk Management:
         await query.answer()
         
         try:
+            # Reset user_data voor nieuwe sessie
+            context.user_data.clear()
+            
             # Haal user preferences op
             user_id = update.effective_user.id
             preferences = self.db.supabase.table('subscriber_preferences').select('*').eq('user_id', user_id).execute()
@@ -700,11 +711,7 @@ Risk Management:
             
         except Exception as e:
             logger.error(f"Error managing preferences: {str(e)}")
-            await query.edit_message_text(
-                text="Error retrieving preferences. Please try again.",
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back to Menu", callback_data="back_to_menu")]])
-            )
-            return SHOW_RESULT
+            return ConversationHandler.END  # Belangrijk: beëindig conversatie bij error
 
     async def set_webhook(self, webhook_url: str):
         """Set webhook for telegram bot"""
@@ -964,18 +971,58 @@ Risk Management:
             logger.error(f"Error handling back button: {str(e)}")
             return CHOOSE_INSTRUMENT
 
-    async def _back_to_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def back_to_analysis(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        """Ga terug naar analyse type keuze"""
+        query = update.callback_query
+        await query.answer()
+        
+        await query.edit_message_text(
+            text="Welcome! What would you like to analyze?",
+            reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
+        )
+        return CHOOSE_ANALYSIS
+
+    async def back_to_market(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        """Ga terug naar market keuze"""
+        query = update.callback_query
+        await query.answer()
+        
+        await query.edit_message_text(
+            text="Please select your preferred market:",
+            reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
+        )
+        return CHOOSE_MARKET
+
+    async def back_to_instrument(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        """Ga terug naar instrument keuze"""
+        query = update.callback_query
+        await query.answer()
+        
+        market = context.user_data.get('market', 'forex')
+        await query.edit_message_text(
+            text="Please select an instrument:",
+            reply_markup=InlineKeyboardMarkup(FOREX_KEYBOARD)  # Later kunnen we dit per market maken
+        )
+        return CHOOSE_INSTRUMENT
+
+    async def back_to_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle back to menu button"""
         query = update.callback_query
         await query.answer()
         
+        # Reset user_data
+        context.user_data.clear()
+        
         # Terug naar hoofdmenu
-        reply_markup = InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
+        keyboard = [
+            [InlineKeyboardButton("Add New Pairs", callback_data="start")],
+            [InlineKeyboardButton("Manage Preferences", callback_data="manage")]
+        ]
         await query.edit_message_text(
-            text="Welcome! What would you like to do?",
-            reply_markup=reply_markup
+            text=MENU_MESSAGE,
+            reply_markup=InlineKeyboardMarkup(keyboard)
         )
-        return CHOOSE_ANALYSIS
+        return ConversationHandler.END  # Beëindig huidige conversatie
 
     def _create_signal_prompt(self, signal: Dict[str, Any]) -> str:
         """Create prompt for signal formatting"""
@@ -1083,38 +1130,3 @@ Risk Management:
             logger.error(f"Error in cancel command: {str(e)}")
             logger.exception(e)
             return ConversationHandler.END
-
-    async def back_to_analysis(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-        """Ga terug naar analyse type keuze"""
-        query = update.callback_query
-        await query.answer()
-        
-        await query.edit_message_text(
-            text="Welcome! What would you like to analyze?",
-            reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
-        )
-        return CHOOSE_ANALYSIS
-
-    async def back_to_market(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-        """Ga terug naar market keuze"""
-        query = update.callback_query
-        await query.answer()
-        
-        await query.edit_message_text(
-            text="Please select your preferred market:",
-            reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
-        )
-        return CHOOSE_MARKET
-
-    async def back_to_instrument(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-        """Ga terug naar instrument keuze"""
-        query = update.callback_query
-        await query.answer()
-        
-        market = context.user_data.get('market', 'forex')
-        await query.edit_message_text(
-            text="Please select an instrument:",
-            reply_markup=InlineKeyboardMarkup(FOREX_KEYBOARD)  # Later kunnen we dit per market maken
-        )
-        return CHOOSE_INSTRUMENT
-            
