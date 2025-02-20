@@ -486,8 +486,9 @@ Risk Management:
         await query.answer()
         
         if query.data == "back":
+            # Terug naar analyse type keuze
             await query.edit_message_text(
-                text="Welcome! What would you like to analyze?",
+                text="Select your analysis type:",
                 reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
             )
             return CHOOSE_ANALYSIS
@@ -901,17 +902,17 @@ Risk Management:
         analysis_type = query.data.replace('analysis_', '')
         context.user_data['analysis_type'] = analysis_type
         
-        if analysis_type == 'signals':
+        if analysis_type == 'calendar':
+            # Direct calendar tonen zonder market/instrument selectie
+            await self._show_analysis(query, context)
+            return SHOW_RESULT
+        else:
+            # Voor technical, sentiment en signals naar market selectie
             await query.edit_message_text(
                 text="Please select your preferred market:",
                 reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
             )
-            logger.info(f"User {update.effective_user.id} selected Trading Signals")
             return CHOOSE_MARKET
-        else:
-            # Handle andere analyse types (technical, sentiment, calendar)
-            await self._show_analysis(query, context)
-            return SHOW_RESULT
 
     async def _show_analysis(self, query: CallbackQuery, context: ContextTypes.DEFAULT_TYPE):
         """Toon analyse gebaseerd op type"""
@@ -969,27 +970,6 @@ Risk Management:
                 
                 new_message = await query.message.reply_text(
                     text=f"🤖 Market Sentiment Analysis for {instrument}\n\n{sentiment_data}",
-                    reply_markup=reply_markup
-                )
-                
-                context.user_data['last_message'] = new_message.message_id
-                
-            elif analysis_type == 'calendar':
-                # Economic Calendar
-                loading_message = await query.edit_message_text(
-                    text=f"⏳ Fetching economic events for {instrument}...\n\n"
-                         f"Please wait while I check the calendar 📅"
-                )
-                
-                calendar_data = await self.calendar.get_economic_calendar(instrument)
-                
-                keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_to_instruments")]]
-                reply_markup = InlineKeyboardMarkup(keyboard)
-                
-                await loading_message.delete()
-                
-                new_message = await query.message.reply_text(
-                    text=f"📅 Economic Calendar for {instrument}\n\n{calendar_data}",
                     reply_markup=reply_markup
                 )
                 
