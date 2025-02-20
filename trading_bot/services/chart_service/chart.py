@@ -95,6 +95,22 @@ class ChartService:
     def initialize_browser(self):
         """Initialize browser en log in op TradingView"""
         try:
+            logger.info("Starting browser initialization...")
+            
+            # Voeg extra Chrome opties toe voor stabiliteit
+            self.chrome_options.add_argument('--headless=new')
+            self.chrome_options.add_argument('--no-sandbox')
+            self.chrome_options.add_argument('--disable-dev-shm-usage')
+            self.chrome_options.add_argument('--disable-gpu')
+            self.chrome_options.add_argument('--disable-software-rasterizer')
+            self.chrome_options.add_argument('--disable-extensions')
+            self.chrome_options.add_argument('--single-process')
+            self.chrome_options.add_argument('--ignore-certificate-errors')
+            
+            # Maak chrome-data directory als deze niet bestaat
+            os.makedirs('/app/chrome-data', exist_ok=True)
+            
+            logger.info("Starting Chrome webdriver...")
             self.browser = webdriver.Chrome(options=self.chrome_options)
             
             # Haal credentials uit environment variables
@@ -104,31 +120,48 @@ class ChartService:
             if not email or not password:
                 raise ValueError("Missing TradingView credentials in environment")
             
-            # Ga naar TradingView login pagina
+            logger.info("Navigating to TradingView login page...")
             self.browser.get('https://www.tradingview.com/accounts/signin/')
             
             # Wacht tot login form zichtbaar is
-            email_input = WebDriverWait(self.browser, 10).until(
-                EC.presence_of_element_located((By.NAME, "username"))
-            )
-            
-            # Vul login gegevens in
-            email_input.send_keys(email)
-            self.browser.find_element(By.NAME, "password").send_keys(password)
-            
-            # Klik login button
-            self.browser.find_element(By.XPATH, "//button[@type='submit']").click()
-            
-            # Wacht tot login compleet is
-            time.sleep(5)
-            
-            logger.info("Successfully logged in to TradingView")
-            
+            logger.info("Waiting for login form...")
+            try:
+                email_input = WebDriverWait(self.browser, 20).until(
+                    EC.presence_of_element_located((By.NAME, "username"))
+                )
+                logger.info("Login form found")
+                
+                # Vul login gegevens in
+                email_input.send_keys(email)
+                password_input = self.browser.find_element(By.NAME, "password")
+                password_input.send_keys(password)
+                
+                # Klik login button
+                logger.info("Submitting login form...")
+                submit_button = self.browser.find_element(By.XPATH, "//button[@type='submit']")
+                submit_button.click()
+                
+                # Wacht tot login compleet is
+                logger.info("Waiting for login completion...")
+                time.sleep(10)
+                
+                logger.info("Successfully logged in to TradingView")
+                
+            except Exception as e:
+                logger.error(f"Error during login process: {str(e)}")
+                if self.browser:
+                    logger.info("Current page source:")
+                    logger.info(self.browser.page_source[:1000])  # Log eerste 1000 chars
+                    self.browser.quit()
+                self.browser = None
+                raise
+                
         except Exception as e:
             logger.error(f"Error initializing browser: {str(e)}")
             if self.browser:
                 self.browser.quit()
             self.browser = None
+            raise
 
     async def generate_chart(self, symbol: str, timeframe: str = "1h") -> Optional[bytes]:
         """Generate chart using Chromium"""
