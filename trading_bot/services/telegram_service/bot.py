@@ -1178,7 +1178,7 @@ Risk Management:
                 message_id=callback_query['message']['message_id'],
                 text=calendar_data,
                 reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("⬅️ Back", callback_data="back_analysis")  # Fix: changed to back_analysis
+                    InlineKeyboardButton("⬅️ Back", callback_data="back_menu")  # Changed to back_menu
                 ]])
             )
         except Exception as e:
@@ -1188,7 +1188,7 @@ Risk Management:
                 message_id=callback_query['message']['message_id'],
                 text="Sorry, er is een fout opgetreden bij het ophalen van de economische kalender. Probeer het later opnieuw.",
                 reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("⬅️ Back", callback_data="back_analysis")  # Fix: changed to back_analysis
+                    InlineKeyboardButton("⬅️ Back", callback_data="back_menu")  # Changed to back_menu
                 ]])
             )
 
