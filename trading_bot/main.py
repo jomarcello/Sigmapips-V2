@@ -88,8 +88,10 @@ async def webhook(request: Request):
                     return {"status": "success"}
                 
                 elif data.startswith('instrument_'):
-                    instrument = data.split('_')[1]
-                    analysis_type = data.split('_')[-1]
+                    parts = data.split('_')
+                    instrument = parts[1]
+                    analysis_type = parts[2]  # Dit zou nu 'sentiment' moeten zijn
+                    
                     if analysis_type == 'sentiment':
                         await telegram.show_sentiment_analysis(callback_query, instrument)
                     return {"status": "success"}
