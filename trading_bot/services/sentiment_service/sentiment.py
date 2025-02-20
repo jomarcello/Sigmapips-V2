@@ -20,7 +20,8 @@ class MarketSentimentService:
         """Get market sentiment analysis"""
         try:
             symbol = signal.get('symbol', '')
-            market = signal.get('market', 'forex')
+            # Fix market type detection
+            market = 'crypto' if any(crypto in symbol for crypto in ['BTC', 'ETH', 'XRP']) else 'forex'
             logger.info(f"Getting market sentiment for {symbol} ({market})")
             
             # Create prompt for market analysis
@@ -67,15 +68,26 @@ Format the response as a JSON object with these exact keys:
                 "temperature": 0.7
             }
 
-            async with aiohttp.ClientSession() as session:
-                async with session.post(self.api_url, json=payload, headers=self.headers) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        sentiment = json.loads(data['choices'][0]['message']['content'])
-                        return self._format_sentiment_html(symbol, sentiment)
-                    else:
-                        logger.error(f"DeepSeek API error: {response.status}")
-                        return self._get_fallback_sentiment(signal)
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.post(self.api_url, json=payload, headers=self.headers) as response:
+                        if response.status == 200:
+                            data = await response.json()
+                            response_text = data['choices'][0]['message']['content']
+                            try:
+                                # Extra error handling voor JSON parsing
+                                sentiment = json.loads(response_text)
+                                return self._format_sentiment_html(symbol, sentiment)
+                            except json.JSONDecodeError as je:
+                                logger.error(f"Failed to parse JSON response: {je}")
+                                return self._get_fallback_sentiment(signal)
+                        else:
+                            logger.error(f"DeepSeek API error: {response.status}")
+                            return self._get_fallback_sentiment(signal)
+
+            except Exception as e:
+                logger.error(f"API request error: {str(e)}")
+                return self._get_fallback_sentiment(signal)
 
         except Exception as e:
             logger.error(f"Error getting sentiment: {str(e)}")
