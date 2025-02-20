@@ -97,11 +97,7 @@ class ChartService:
         try:
             logger.info(f"Generating chart for {symbol}")
             
-            # Get chart URL
-            chart_url = self._get_chart_url(symbol)
-            logger.info(f"Using chart URL: {chart_url}")
-            
-            # Initialize new browser instance voor deze request
+            # Initialize new browser instance
             service = Service()
             driver = webdriver.Chrome(
                 service=service,
@@ -110,21 +106,56 @@ class ChartService:
             driver.set_page_load_timeout(30)
             
             try:
-                # Load page
-                driver.get(chart_url)
-                logger.info("Page loaded, waiting for elements...")
+                # Eerst inloggen
+                logger.info("Logging in to TradingView...")
+                driver.get('https://www.tradingview.com/accounts/signin/')
+                await asyncio.sleep(5)
                 
-                # Wacht tot chart geladen is
+                # Wacht tot login form zichtbaar is
+                email_input = WebDriverWait(driver, 20).until(
+                    EC.presence_of_element_located((By.NAME, "username"))
+                )
+                
+                # Login gegevens invullen
+                email = os.getenv("TRADINGVIEW_EMAIL")
+                password = os.getenv("TRADINGVIEW_PASSWORD")
+                
+                email_input.send_keys(email)
+                await asyncio.sleep(1)
+                
+                password_input = driver.find_element(By.NAME, "password")
+                password_input.send_keys(password)
+                await asyncio.sleep(1)
+                
+                # Login button klikken
+                submit_button = driver.find_element(By.XPATH, "//button[@type='submit']")
+                submit_button.click()
+                
+                # Wacht tot login compleet is
                 await asyncio.sleep(10)
                 
-                # Neem screenshot van hele pagina
+                # Check of we ingelogd zijn
+                logger.info("Checking login status...")
+                if "Welcome to TradingView" in driver.page_source:
+                    logger.info("Successfully logged in")
+                else:
+                    logger.warning("Login might have failed")
+                
+                # Nu naar de chart met indicators
+                chart_url = self._get_chart_url(symbol)
+                logger.info(f"Navigating to chart: {chart_url}")
+                driver.get(chart_url)
+                
+                # Wacht tot chart en indicators geladen zijn
+                await asyncio.sleep(15)  # Langere wachttijd voor indicators
+                
+                # Screenshot maken
                 screenshot = driver.get_screenshot_as_png()
-                logger.info("Successfully captured chart screenshot")
+                logger.info("Successfully captured chart with indicators")
                 
                 return screenshot
                 
             finally:
-                # Altijd browser afsluiten
                 driver.quit()
                 
         except Exception as e:
