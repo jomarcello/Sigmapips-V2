@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 class EconomicCalendarService:
     def __init__(self):
         """Initialize calendar service"""
-        self.api_key = os.getenv("DEEPSEEK_API_KEY", "sk-274ea5952e7e4b87aba4b14de3990c7d")
+        self.api_key = os.getenv("DEEPSEEK_API_KEY")
         self.api_url = "https://api.deepseek.com/v1/chat/completions"
         self.headers = {
             "Authorization": f"Bearer {self.api_key}",
@@ -19,54 +19,45 @@ class EconomicCalendarService:
     async def get_economic_calendar(self, instrument: str = None) -> str:
         """Get economic calendar data"""
         try:
-            # Create prompt for DeepSeek
-            prompt = f"""Analyze and format the economic calendar for {instrument if instrument else 'major currencies'} in this exact format:
+            # Eerst echte kalender data ophalen
+            calendar_data = await self.get_calendar_data()
+            
+            if not calendar_data:
+                return self._get_fallback_calendar()
 
-🇺🇸 United States (USD):
-⏰ 01:00 EST - Consumer Inflation Expectations (Feb)
-🟡 Medium Impact
+            # Format de data met DeepSeek
+            prompt = f"""Format this economic calendar data for {instrument if instrument else 'major currencies'} 
+            in an organized way with these exact requirements:
 
-🇯🇵 Japan (JPY):
-⏰ 23:50 EST - Foreign Bond Investment
-🟡 Medium Impact
-⏰ 23:50 EST - Foreign Investment in Japanese Stocks
-⚪ Low Impact
+            1. Group events by currency/country with flag emoji
+            2. Show exact event times with ⏰ emoji
+            3. Show impact levels with colored circles (🔴 High, 🟡 Medium, ⚪ Low)
+            4. Sort events chronologically within each currency section
+            5. Show "No confirmed events scheduled" for currencies without events
+            6. End with impact level legend
 
-🇬🇧 United Kingdom (GBP):
-⏰ 00:01 EST - RICS House Price Balance (Jan)
-🟡 Medium Impact
-⏰ 02:00 EST - Business Investment (QoQ) (Q4)
-🟡 Medium Impact
-⏰ 02:00 EST - Business Investment (YoY) (Q4)
-⚪ Low Impact
-⏰ 02:00 EST - GDP (QoQ) (Q4)
-🔴 High Impact
-⏰ 02:00 EST - GDP (YoY) (Q4)
-🔴 High Impact
-
-🇨🇭 Switzerland (CHF):
-No confirmed events scheduled.
-
-🇳🇿 New Zealand (NZD):
-No confirmed events scheduled.
-
--------------------
-🔴 High Impact
-🟡 Medium Impact
-⚪ Low Impact"""
+            Calendar Data:
+            {calendar_data}"""
 
             payload = {
                 "model": "deepseek-chat",
                 "messages": [{
                     "role": "system",
-                    "content": """You are an economic calendar analyst. Format the response exactly like the example with:
-                    - Country flags and currency codes
-                    - Clock emoji for times
-                    - Colored circles for impact levels
-                    - Exact event names and times
-                    - Group by country/currency
-                    - Include 'No confirmed events scheduled.' for countries without events
-                    - End with impact level legend"""
+                    "content": """You are an economic calendar analyst. Format the response exactly like:
+
+🇺🇸 United States (USD):
+⏰ [TIME] EST - [EVENT NAME]
+[IMPACT EMOJI] [IMPACT LEVEL]
+
+Use:
+- Country flags and currency codes
+- ⏰ for times
+- 🔴 for High Impact
+- 🟡 for Medium Impact
+- ⚪ for Low Impact
+- Group by country
+- Sort by time
+- End with impact legend"""
                 }, {
                     "role": "user",
                     "content": prompt
