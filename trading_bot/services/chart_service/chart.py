@@ -5,18 +5,20 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from typing import Optional
-from selenium.webdriver.firefox.options import Options as FirefoxOptions
-from selenium.webdriver import Firefox
+from selenium.webdriver.chrome.options import Options
+import asyncio
 
 logger = logging.getLogger(__name__)
 
 class ChartService:
     def __init__(self):
-        """Initialize chart service with Firefox"""
-        self.firefox_options = FirefoxOptions()
-        self.firefox_options.add_argument('--headless')
-        self.firefox_options.add_argument('--width=1920')
-        self.firefox_options.add_argument('--height=1080')
+        """Initialize chart service with Chromium"""
+        self.chrome_options = Options()
+        self.chrome_options.add_argument('--headless')
+        self.chrome_options.add_argument('--no-sandbox')
+        self.chrome_options.add_argument('--disable-dev-shm-usage')
+        self.chrome_options.add_argument('--disable-gpu')
+        self.chrome_options.add_argument('--window-size=1920,1080')
         
         # Chart URL mapping
         self.chart_urls = {
@@ -82,7 +84,7 @@ class ChartService:
         }
 
     async def generate_chart(self, symbol: str, timeframe: str = "1h") -> Optional[bytes]:
-        """Generate chart using Firefox"""
+        """Generate chart using Chromium"""
         try:
             logger.info(f"Generating chart for {symbol}")
             
@@ -90,20 +92,23 @@ class ChartService:
             chart_url = self._get_chart_url(symbol)
             logger.info(f"Using chart URL: {chart_url}")
             
-            # Initialize driver with stored options
-            driver = Firefox(options=self.firefox_options)
+            # Initialize Chrome webdriver
+            driver = webdriver.Chrome(options=self.chrome_options)
             
             try:
                 # Load page
                 driver.get(chart_url)
                 
-                # Wait for chart to load
+                # Wait for chart to load with een betere selector
                 WebDriverWait(driver, 30).until(
-                    EC.presence_of_element_located((By.CLASS_NAME, "chart-container"))
+                    EC.presence_of_element_located((By.CSS_SELECTOR, "div[class*='chart-container']"))
                 )
                 
+                # Geef de chart wat extra tijd om te renderen
+                await asyncio.sleep(2)
+                
                 # Take screenshot
-                chart_element = driver.find_element(By.CLASS_NAME, "chart-container")
+                chart_element = driver.find_element(By.CSS_SELECTOR, "div[class*='chart-container']")
                 screenshot = chart_element.screenshot_as_png
                 
                 return screenshot
