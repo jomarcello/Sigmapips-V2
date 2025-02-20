@@ -901,15 +901,15 @@ Risk Management:
                 'timeframe': timeframe
             })
             
-            # Cache all data
+            # Cache all data (met null checks)
             cache_data = {
                 'text': formatted_signal,
                 'parse_mode': 'HTML',
                 'symbol': instrument,
                 'timeframe': timeframe,
-                'chart': base64.b64encode(chart_image).decode('utf-8') if chart_image else None,
-                'sentiment': sentiment_data,
-                'calendar': calendar_data
+                'chart': base64.b64encode(chart_image).decode('utf-8') if chart_image else '',
+                'sentiment': sentiment_data or '',
+                'calendar': calendar_data or ''
             }
             
             # Query subscribers
