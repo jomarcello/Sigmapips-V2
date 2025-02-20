@@ -199,93 +199,53 @@ TIMEFRAME_STYLE_MAP = {
 class TelegramService:
     def __init__(self, db: Database):
         """Initialize telegram service"""
-        self.token = os.getenv("TELEGRAM_BOT_TOKEN")
-        if not self.token:
-            raise ValueError("Missing TELEGRAM_BOT_TOKEN")
-            
-        # DeepSeek setup
-        self.api_key = os.getenv("DEEPSEEK_API_KEY", "sk-274ea5952e7e4b87aba4b14de3990c7d")
-        self.api_url = "https://api.deepseek.com/v1/chat/completions"
-        self.headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json"
-        }
-        
-        self.db = db
-        self.chart = ChartService()
-        
-        # Redis setup met Railway credentials
-        redis_url = os.getenv("REDIS_URL", "redis://default:kcXeNDIt~!Pg6onj9B4t9IcudGehM1Ed@autorack.proxy.rlwy.net:42803")
         try:
-            self.redis = redis.from_url(
-                redis_url,
-                decode_responses=True,
-                encoding='utf-8'
-            )
-            # Test Redis connectie
-            self.redis.ping()
-            logger.info("Successfully connected to Redis")
-        except Exception as e:
-            logger.error(f"Failed to connect to Redis: {str(e)}")
-            raise
-        
-        # SSL setup zonder verificatie voor ontwikkeling
-        ssl_context = ssl.create_default_context()
-        ssl_context.check_hostname = False
-        ssl_context.verify_mode = ssl.CERT_NONE
-        
-        # Gebruik Application builder voor bot setup
-        self.app = Application.builder().token(self.token).build()
-        self.bot = self.app.bot
-        
-        # Conversation handler setup
-        conv_handler = ConversationHandler(
-            entry_points=[CommandHandler("start", self._start_command)],
-            states={
-                CHOOSE_ANALYSIS: [
-                    CallbackQueryHandler(self._analysis_choice, pattern="^analysis_")
-                ],
-                CHOOSE_MARKET: [
-                    CallbackQueryHandler(self._market_choice, pattern="^market_|back$")
-                ],
-                CHOOSE_INSTRUMENT: [
-                    CallbackQueryHandler(self._instrument_choice, pattern="^instrument_|back$")
-                ],
-                CHOOSE_STYLE: [
-                    CallbackQueryHandler(self._style_choice, pattern="^style_|back$")
-                ],
-                SHOW_RESULT: [
-                    CallbackQueryHandler(self._back_to_menu, pattern="^back_to_menu$"),
-                    CallbackQueryHandler(self._add_more, pattern="^add_more$"),
-                    CallbackQueryHandler(self._manage_preferences, pattern="^manage_prefs$"),
-                    CallbackQueryHandler(self._back_to_instruments, pattern="^back_to_instruments$")
-                ]
-            },
-            fallbacks=[CommandHandler("start", self._start_command)]
-        )
-        
-        # Add handlers
-        self.app.add_handler(conv_handler)
-        
-        # Voeg losse command handlers toe
-        self.app.add_handler(CommandHandler("start", self._start_command))
-        self.app.add_handler(CommandHandler("manage", self._manage_command))
-        self.app.add_handler(CommandHandler("menu", self._menu_command))
-        self.app.add_handler(CommandHandler("help", self._help_command))
-        
-        # Voeg button click handler toe
-        self.app.add_handler(CallbackQueryHandler(self._button_click, pattern="^(chart|back_to_signal|sentiment|calendar)_"))
-        
-        self.message_cache = {}  # Dict om originele berichten op te slaan
-        
-        # Sentiment service setup
-        self.sentiment = MarketSentimentService()
-        
-        # Calendar service setup
-        self.calendar = EconomicCalendarService()
-        
-        logger.info("Telegram service initialized")
+            # Initialize bot
+            self.token = os.getenv("TELEGRAM_BOT_TOKEN")
+            if not self.token:
+                raise ValueError("Missing Telegram bot token")
             
+            self.bot = Bot(self.token)
+            self.application = Application.builder().token(self.token).build()
+            
+            # Store database instance
+            self.db = db
+            self.redis = db.redis
+            
+            # Setup services
+            self.chart = ChartService()
+            self.sentiment = MarketSentimentService()
+            self.calendar = EconomicCalendarService()
+            
+            # Setup conversation handler
+            conv_handler = ConversationHandler(
+                entry_points=[CommandHandler("start", self.start)],
+                states={
+                    CHOOSE_MARKET: [
+                        CallbackQueryHandler(self.market_choice, pattern="^market_")
+                    ],
+                    CHOOSE_INSTRUMENT: [
+                        CallbackQueryHandler(self.instrument_choice, pattern="^instrument_")
+                    ],
+                    CHOOSE_STYLE: [
+                        CallbackQueryHandler(self.style_choice, pattern="^style_")
+                    ]
+                },
+                fallbacks=[CommandHandler("cancel", self.cancel)],
+            )
+            
+            # Add handlers
+            self.application.add_handler(conv_handler)
+            self.application.add_handler(CommandHandler("menu", self.menu))
+            self.application.add_handler(CommandHandler("help", self.help))
+            self.application.add_handler(CallbackQueryHandler(self._button_click))
+            
+            logger.info("Telegram service initialized")
+            
+        except Exception as e:
+            logger.error(f"Error initializing Telegram service: {str(e)}")
+            raise
+
     async def initialize(self):
         """Async initialization"""
         try:
@@ -302,8 +262,8 @@ class TelegramService:
             await self.bot.set_my_commands(commands)
             
             # Initialize the application
-            await self.app.initialize()
-            await self.app.start()
+            await self.application.initialize()
+            await self.application.start()
             
             # Log webhook info
             webhook_info = await self.bot.get_webhook_info()
@@ -441,21 +401,33 @@ Risk Management:
             
         return message
 
-    async def _start_command(self, update: Update, context):
+    async def start(self, update: Update, context):
         """Handle start command"""
         try:
-            # Start met analyse type keuze
-            reply_markup = InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
+            logger.info(f"Starting new conversation with user: {update.effective_user.id}")
+            
+            # Create keyboard with market options
+            keyboard = [
+                [InlineKeyboardButton("Forex", callback_data="market_forex")],
+                [InlineKeyboardButton("Crypto", callback_data="market_crypto")],
+                [InlineKeyboardButton("Commodities", callback_data="market_commodities")],
+                [InlineKeyboardButton("Indices", callback_data="market_indices")]
+            ]
+            
             await update.message.reply_text(
-                "Welcome! What would you like to analyze?",
-                reply_markup=reply_markup
+                WELCOME_MESSAGE,
+                reply_markup=InlineKeyboardMarkup(keyboard)
             )
-            logger.info(f"Start command handled for user {update.effective_user.id}")
-            return CHOOSE_ANALYSIS
+            logger.info("Sent market selection keyboard")
+            
+            return CHOOSE_MARKET
+            
         except Exception as e:
-            logger.error(f"Error handling start command: {str(e)}")
+            logger.error(f"Error in start command: {str(e)}")
+            logger.exception(e)
+            return ConversationHandler.END
 
-    async def _market_choice(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def market_choice(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle market selection"""
         query = update.callback_query
         await query.answer()
@@ -487,7 +459,7 @@ Risk Management:
         )
         return CHOOSE_INSTRUMENT
 
-    async def _instrument_choice(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def instrument_choice(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle instrument selection"""
         query = update.callback_query
         await query.answer()
@@ -517,7 +489,7 @@ Risk Management:
             await self._show_analysis(query, context)
             return SHOW_RESULT
 
-    async def _style_choice(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def style_choice(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle style selection"""
         query = update.callback_query
         await query.answer()
@@ -718,7 +690,7 @@ Risk Management:
             )
             return ConversationHandler.END
 
-    async def _menu_command(self, update: Update, context):
+    async def menu(self, update: Update, context):
         """Handle menu command"""
         try:
             keyboard = [
@@ -733,7 +705,7 @@ Risk Management:
         except Exception as e:
             logger.error(f"Error handling menu command: {str(e)}")
 
-    async def _add_more(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def add_more(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle add more button"""
         query = update.callback_query
         await query.answer()
@@ -746,7 +718,7 @@ Risk Management:
         )
         return CHOOSE_MARKET
 
-    async def _manage_preferences(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def manage_preferences(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle manage preferences button"""
         query = update.callback_query
         await query.answer()
@@ -813,7 +785,7 @@ Risk Management:
             logger.error(f"Failed to set webhook: {str(e)}")
             raise
 
-    async def _help_command(self, update: Update, context):
+    async def help(self, update: Update, context):
         """Handle help command"""
         try:
             await update.message.reply_text(HELP_MESSAGE)
