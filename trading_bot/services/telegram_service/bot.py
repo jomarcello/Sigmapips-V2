@@ -877,8 +877,40 @@ Risk Management:
                 logger.error("No instrument in signal")
                 return
             
-            # Generate message key
-            message_key = f"signal:{instrument}:{int(time.time())}"
+            # Pre-load all data
+            tasks = []
+            tasks.append(self.chart.generate_chart(instrument, timeframe))
+            tasks.append(self.sentiment.get_market_sentiment({
+                'symbol': instrument,
+                'market': 'crypto' if 'USD' in instrument else 'forex'
+            }))
+            tasks.append(self.calendar.get_economic_calendar())
+            
+            # Wait for all data
+            chart_image, sentiment_data, calendar_data = await asyncio.gather(*tasks)
+            
+            # Format signal
+            formatted_signal = await self.format_signal_with_ai({
+                'symbol': instrument,
+                'action': signal.get('signal'),
+                'price': signal.get('price'),
+                'takeProfit1': signal.get('tp'),
+                'takeProfit2': signal.get('tp'),
+                'takeProfit3': signal.get('tp'),
+                'stopLoss': signal.get('sl'),
+                'timeframe': timeframe
+            })
+            
+            # Cache all data
+            cache_data = {
+                'text': formatted_signal,
+                'parse_mode': 'HTML',
+                'symbol': instrument,
+                'timeframe': timeframe,
+                'chart': base64.b64encode(chart_image).decode('utf-8') if chart_image else None,
+                'sentiment': sentiment_data,
+                'calendar': calendar_data
+            }
             
             # Query subscribers
             subscribers = (self.db.supabase.table('subscriber_preferences')
@@ -887,50 +919,26 @@ Risk Management:
                 .eq('style', trading_style)
                 .execute())
             
-            if not subscribers.data:
-                logger.info(f"No subscribers found for {instrument} {trading_style}")
-                return
-            
-            # Format signal
-            formatted_signal = await self.format_signal_with_ai({
-                'symbol': instrument,
-                'action': signal.get('signal'),
-                'price': signal.get('price'),
-                'takeProfit1': signal.get('tp'),  # Gebruik enkele tp
-                'takeProfit2': signal.get('tp'),  # Gebruik enkele tp
-                'takeProfit3': signal.get('tp'),  # Gebruik enkele tp
-                'stopLoss': signal.get('sl'),
-                'timeframe': timeframe
-            })
-            
-            # Maak keyboard
-            keyboard = [
-                [
-                    InlineKeyboardButton("📊 Technical Analysis", callback_data=f"chart_{instrument}_{timeframe}"),
-                    InlineKeyboardButton("🤖 Market Sentiment", callback_data=f"sentiment_{instrument}")
-                ],
-                [InlineKeyboardButton("📅 Economic Calendar", callback_data=f"calendar_{instrument}")]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            
-            # Stuur naar elke subscriber
+            # Send to each subscriber
             for subscriber in subscribers.data:
                 try:
+                    keyboard = [
+                        [
+                            InlineKeyboardButton("📊 Technical Analysis", callback_data=f"chart_{instrument}_{timeframe}"),
+                            InlineKeyboardButton("🤖 Market Sentiment", callback_data=f"sentiment_{instrument}")
+                        ],
+                        [InlineKeyboardButton("📅 Economic Calendar", callback_data=f"calendar_{instrument}")]
+                    ]
+                    
                     sent_message = await self.bot.send_message(
                         chat_id=subscriber['user_id'],
                         text=formatted_signal,
                         parse_mode=ParseMode.HTML,
-                        reply_markup=reply_markup
+                        reply_markup=InlineKeyboardMarkup(keyboard)
                     )
                     
-                    # Cache voor back button
+                    # Cache data for this message
                     signal_key = f"signal:{sent_message.message_id}"
-                    cache_data = {
-                        'text': formatted_signal,
-                        'parse_mode': 'HTML',
-                        'symbol': instrument,
-                        'timeframe': timeframe
-                    }
                     self.redis.hmset(signal_key, cache_data)
                     self.redis.expire(signal_key, 3600)
                     
@@ -1149,11 +1157,14 @@ Risk Management:
     async def handle_chart_button(self, callback_query: Dict[str, Any], instrument: str, timeframe: str):
         """Handle chart button click"""
         try:
-            # Generate chart
-            chart_image = await self.chart.generate_chart(instrument, timeframe)
+            # Get cached chart
+            signal_key = f"signal:{callback_query['message']['message_id']}"
+            cached_data = self.redis.hgetall(signal_key)
             
-            if chart_image:
-                # Update existing message with chart
+            if cached_data and cached_data.get('chart'):
+                chart_image = base64.b64decode(cached_data['chart'])
+                
+                # Update message with cached chart
                 await self.bot.edit_message_media(
                     chat_id=callback_query['message']['chat']['id'],
                     message_id=callback_query['message']['message_id'],
