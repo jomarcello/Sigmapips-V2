@@ -165,8 +165,7 @@ class TelegramService:
                     ],
                     SHOW_RESULT: [
                         CallbackQueryHandler(self.add_more, pattern="^add_more$"),
-                        CallbackQueryHandler(self.manage_preferences, pattern="^manage_prefs$"),
-                        CallbackQueryHandler(self.back_to_menu, pattern="^back_to_menu$")
+                        CallbackQueryHandler(self.manage_preferences, pattern="^manage_prefs$")
                     ]
                 },
                 fallbacks=[CommandHandler("cancel", self.cancel)]
@@ -417,89 +416,50 @@ Risk Management:
             await self._show_analysis(query, context)
             return SHOW_RESULT
 
-    async def style_choice(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def style_choice(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """Handle style selection"""
         query = update.callback_query
         await query.answer()
         
         if query.data == "back":
             # Terug naar instrument keuze
-            keyboard_map = {
-                'forex': FOREX_KEYBOARD,
-                'indices': FOREX_KEYBOARD,
-                'commodities': FOREX_KEYBOARD,
-                'crypto': FOREX_KEYBOARD
-            }
-            
-            reply_markup = InlineKeyboardMarkup(keyboard_map[context.user_data['market']])
             await query.edit_message_text(
                 text=f"Please select an instrument:",
-                reply_markup=reply_markup
+                reply_markup=InlineKeyboardMarkup(FOREX_KEYBOARD)
             )
             return CHOOSE_INSTRUMENT
         
-        # Store the chosen style and corresponding timeframe
         style = query.data.replace('style_', '')
         context.user_data['style'] = style
         context.user_data['timeframe'] = STYLE_TIMEFRAME_MAP[style]
         
         try:
-            user_id = update.effective_user.id
-            new_preferences = {
-                'user_id': user_id,
-                'market': context.user_data['market'],
-                'instrument': context.user_data['instrument'],
-                'style': context.user_data['style'],
-                'timeframe': context.user_data['timeframe']  # Dit wordt automatisch gezet
-            }
+            # Save preferences
+            await self.db.save_preferences(
+                user_id=update.effective_user.id,
+                market=context.user_data['market'],
+                instrument=context.user_data['instrument'],
+                style=style
+            )
             
-            # Check voor dubbele combinaties
-            existing = self.db.supabase.table('subscriber_preferences').select('*').eq('user_id', user_id).execute()
-            
-            for pref in existing.data:
-                if (pref['market'] == new_preferences['market'] and 
-                    pref['instrument'] == new_preferences['instrument'] and 
-                    pref['style'] == new_preferences['style'] and 
-                    pref['timeframe'] == new_preferences['timeframe']):
-                    
-                    keyboard = [
-                        [InlineKeyboardButton("Try Again", callback_data="add_more")],
-                        [InlineKeyboardButton("Manage Preferences", callback_data="manage_prefs")]
-                    ]
-                    
-                    await query.edit_message_text(
-                        text="You already have this combination saved!\n\n"
-                             f"Market: {new_preferences['market']}\n"
-                             f"Instrument: {new_preferences['instrument']}\n"
-                             f"Style: {new_preferences['style']}\n"
-                             f"Timeframe: {new_preferences['timeframe']}",
-                        reply_markup=InlineKeyboardMarkup(keyboard)
-                    )
-                    return SHOW_RESULT
-            
-            # Als er geen dubbele combinatie is, ga door met opslaan
-            response = self.db.supabase.table('subscriber_preferences').insert(new_preferences).execute()
-            logger.info(f"Added new preferences: {new_preferences}")
-            
-            logger.info(f"Database response: {response}")
-            
-            reply_markup = InlineKeyboardMarkup(AFTER_SETUP_KEYBOARD)
+            # Show success message with options
             await query.edit_message_text(
-                text=f"Preferences saved!\n\n"
+                text=f"✅ Successfully saved your preferences!\n\n"
                      f"Market: {context.user_data['market']}\n"
                      f"Instrument: {context.user_data['instrument']}\n"
-                     f"Style: {context.user_data['style']}\n"
-                     f"Timeframe: {context.user_data['timeframe']}",
-                reply_markup=reply_markup
+                     f"Style: {style} ({STYLE_TIMEFRAME_MAP[style]})",
+                reply_markup=InlineKeyboardMarkup(AFTER_SETUP_KEYBOARD)
             )
+            logger.info(f"Saved preferences for user {update.effective_user.id}")
             return SHOW_RESULT
-        
+            
         except Exception as e:
             logger.error(f"Error saving preferences: {str(e)}")
             await query.edit_message_text(
-                text="Error saving preferences. Please try again."
+                text="❌ Error saving preferences. Please try again.",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Try Again", callback_data="back_to_market")]])
             )
-            return ConversationHandler.END
+            return CHOOSE_MARKET
 
     async def _show_result(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle result selection"""
@@ -808,29 +768,25 @@ Risk Management:
             logger.error(f"Error broadcasting signal: {str(e)}")
             logger.exception(e)
 
-    async def _analysis_choice(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def analysis_choice(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """Handle analysis type selection"""
         query = update.callback_query
         await query.answer()
         
-        # Store the chosen analysis type
         analysis_type = query.data.replace('analysis_', '')
         context.user_data['analysis_type'] = analysis_type
         
         if analysis_type == 'signals':
-            # Voor trading signals, ga naar market selectie
             await query.edit_message_text(
                 text="Please select your preferred market:",
                 reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
             )
+            logger.info(f"User {update.effective_user.id} selected Trading Signals")
             return CHOOSE_MARKET
         else:
-            # Voor andere analyses, direct naar market selectie
-            await query.edit_message_text(
-                text=f"Please select a market for {analysis_type.replace('_', ' ').title()}:",
-                reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
-            )
-            return CHOOSE_MARKET
+            # Handle andere analyse types (technical, sentiment, calendar)
+            await self._show_analysis(query, context)
+            return SHOW_RESULT
 
     async def _show_analysis(self, query: CallbackQuery, context: ContextTypes.DEFAULT_TYPE):
         """Toon analyse gebaseerd op type"""
