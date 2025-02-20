@@ -69,19 +69,79 @@ BACK_BUTTON = InlineKeyboardButton("Back", callback_data="back")
 # Delete button
 DELETE_BUTTON = InlineKeyboardButton("Delete", callback_data="delete_prefs")
 
+# Keyboard layouts voor verschillende markten
+FOREX_KEYBOARD = [
+    [
+        InlineKeyboardButton("EUR/USD", callback_data="instrument_EURUSD"),
+        InlineKeyboardButton("EUR/GBP", callback_data="instrument_EURGBP"),
+        InlineKeyboardButton("EUR/CHF", callback_data="instrument_EURCHF")
+    ],
+    [
+        InlineKeyboardButton("EUR/JPY", callback_data="instrument_EURJPY"),
+        InlineKeyboardButton("EUR/CAD", callback_data="instrument_EURCAD"),
+        InlineKeyboardButton("EUR/AUD", callback_data="instrument_EURAUD")
+    ],
+    [
+        InlineKeyboardButton("GBP/USD", callback_data="instrument_GBPUSD"),
+        InlineKeyboardButton("GBP/JPY", callback_data="instrument_GBPJPY"),
+        InlineKeyboardButton("GBP/CHF", callback_data="instrument_GBPCHF")
+    ],
+    # ... meer rijen van 3
+    [InlineKeyboardButton("Back", callback_data="back")]
+]
+
+CRYPTO_KEYBOARD = [
+    [
+        InlineKeyboardButton("BTC/USD", callback_data="instrument_BTCUSD"),
+        InlineKeyboardButton("ETH/USD", callback_data="instrument_ETHUSD"),
+        InlineKeyboardButton("XRP/USD", callback_data="instrument_XRPUSD")
+    ],
+    [
+        InlineKeyboardButton("SOL/USD", callback_data="instrument_SOLUSD"),
+        InlineKeyboardButton("BNB/USD", callback_data="instrument_BNBUSD"),
+        InlineKeyboardButton("ADA/USD", callback_data="instrument_ADAUSD")
+    ],
+    [
+        InlineKeyboardButton("DOT/USD", callback_data="instrument_DOTUSD"),
+        InlineKeyboardButton("LTC/USD", callback_data="instrument_LTCUSD"),
+        InlineKeyboardButton("LINK/USD", callback_data="instrument_LNKUSD")
+    ],
+    [InlineKeyboardButton("Back", callback_data="back")]
+]
+
+COMMODITIES_KEYBOARD = [
+    [
+        InlineKeyboardButton("XAU/USD", callback_data="instrument_XAUUSD"),
+        InlineKeyboardButton("XTI/USD", callback_data="instrument_XTIUSD")
+    ],
+    [InlineKeyboardButton("Back", callback_data="back")]
+]
+
+INDICES_KEYBOARD = [
+    [
+        InlineKeyboardButton("US30", callback_data="instrument_US30"),
+        InlineKeyboardButton("US500", callback_data="instrument_US500"),
+        InlineKeyboardButton("US100", callback_data="instrument_US100")
+    ],
+    [
+        InlineKeyboardButton("UK100", callback_data="instrument_UK100"),
+        InlineKeyboardButton("DE40", callback_data="instrument_DE40"),
+        InlineKeyboardButton("FR40", callback_data="instrument_FR40")
+    ],
+    [
+        InlineKeyboardButton("JP225", callback_data="instrument_JP225"),
+        InlineKeyboardButton("AU200", callback_data="instrument_AU200"),
+        InlineKeyboardButton("HK50", callback_data="instrument_HK50")
+    ],
+    [InlineKeyboardButton("Back", callback_data="back")]
+]
+
 # Keyboard layouts
 MARKET_KEYBOARD = [
     [InlineKeyboardButton("Forex", callback_data="market_forex")],
     [InlineKeyboardButton("Crypto", callback_data="market_crypto")],
     [InlineKeyboardButton("Commodities", callback_data="market_commodities")],
     [InlineKeyboardButton("Indices", callback_data="market_indices")]
-]
-
-FOREX_KEYBOARD = [
-    [InlineKeyboardButton("EURUSD", callback_data="instrument_EURUSD")],
-    [InlineKeyboardButton("GBPUSD", callback_data="instrument_GBPUSD")],
-    [InlineKeyboardButton("USDJPY", callback_data="instrument_USDJPY")],
-    [InlineKeyboardButton("Back", callback_data="back")]
 ]
 
 STYLE_KEYBOARD = [
@@ -360,29 +420,27 @@ Risk Management:
         await query.answer()
         
         if query.data == "back":
-            # Terug naar analyse type keuze
-            reply_markup = InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
             await query.edit_message_text(
-                text="Welcome! What would you like to do?",
-                reply_markup=reply_markup
+                text="Welcome! What would you like to analyze?",
+                reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
             )
             return CHOOSE_ANALYSIS
         
         # Store the chosen market
-        context.user_data['market'] = query.data.replace('market_', '')
+        market = query.data.replace('market_', '')
+        context.user_data['market'] = market
         
         # Show instruments based on market choice
         keyboard_map = {
             'forex': FOREX_KEYBOARD,
-            'indices': FOREX_KEYBOARD,
-            'commodities': FOREX_KEYBOARD,
-            'crypto': FOREX_KEYBOARD
+            'crypto': CRYPTO_KEYBOARD,
+            'commodities': COMMODITIES_KEYBOARD,
+            'indices': INDICES_KEYBOARD
         }
         
-        reply_markup = InlineKeyboardMarkup(keyboard_map[context.user_data['market']])
         await query.edit_message_text(
-            text=f"Please select an instrument for {context.user_data['analysis_type'].replace('_', ' ').title()}:",
-            reply_markup=reply_markup
+            text=f"Please select an instrument:",
+            reply_markup=InlineKeyboardMarkup(keyboard_map[market])
         )
         return CHOOSE_INSTRUMENT
 
@@ -1059,3 +1117,4 @@ Risk Management:
             reply_markup=InlineKeyboardMarkup(FOREX_KEYBOARD)  # Later kunnen we dit per market maken
         )
         return CHOOSE_INSTRUMENT
+            
