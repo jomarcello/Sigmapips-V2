@@ -435,14 +435,21 @@ Risk Management:
             user_id = update.effective_user.id
             logger.info(f"Starting conversation with user {user_id}")
             
+            # Reset user data
+            context.user_data.clear()
+            
+            # Stuur welkomstbericht met START_KEYBOARD
             await update.message.reply_text(
-                "Welcome! Please select what you would like to do:",
+                text=WELCOME_MESSAGE,
                 reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
             )
             return CHOOSE_MENU
             
         except Exception as e:
             logger.error(f"Error in start command: {str(e)}")
+            await update.message.reply_text(
+                "Sorry, something went wrong. Please try again with /start"
+            )
             return ConversationHandler.END
 
     async def menu_choice(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -1130,6 +1137,7 @@ Risk Management:
                     reply_markup=InlineKeyboardMarkup([[
                         InlineKeyboardButton("⬅️ Back", callback_data=f"back_to_signal_{instrument}")
                     ]])
+                )
                 )
         except Exception as e:
             logger.error(f"Error handling chart button: {str(e)}")
