@@ -6,7 +6,6 @@ from telegram import Update
 import asyncio
 import time
 import base64
-from datetime import datetime
 
 from trading_bot.services.telegram_service.bot import TelegramService
 from trading_bot.services.chart_service.chart import ChartService
