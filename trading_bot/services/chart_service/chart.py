@@ -7,6 +7,14 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from PIL import Image
 import io
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+import pandas as pd
+import yfinance as yf
+from typing import Optional
+import mplfinance as mpf
+from selenium.webdriver.firefox.options import Options as FirefoxOptions
+from selenium.webdriver import Firefox
 
 logger = logging.getLogger(__name__)
 
@@ -82,43 +90,36 @@ class ChartService:
             'DE40': 'https://www.tradingview.com/chart/OWzg0XNw/'
         }
 
-    async def generate_chart(self, symbol: str, timeframe: str = None) -> bytes:
-        """Generate chart image for given symbol"""
+    async def generate_chart(self, symbol: str, timeframe: str = "1h") -> Optional[bytes]:
+        """Generate chart using Firefox"""
         try:
-            logger.info(f"Generating chart for {symbol}")
-            
-            # Get chart URL for symbol
-            chart_url = self.chart_urls.get(symbol.upper().replace('/', ''))
-            if not chart_url:
-                logger.error(f"No chart URL found for symbol: {symbol}")
-                return None
-                
-            logger.info(f"Using chart URL: {chart_url}")
+            # Setup Firefox options
+            firefox_options = FirefoxOptions()
+            firefox_options.add_argument('--headless')
+            firefox_options.add_argument('--width=1920')
+            firefox_options.add_argument('--height=1080')
             
             # Initialize driver
-            driver = webdriver.Chrome(options=self.chrome_options)
+            driver = Firefox(options=firefox_options)
             
-            try:
-                driver.get(chart_url)
-                
-                # Wait for chart to load
-                WebDriverWait(driver, 20).until(
-                    EC.presence_of_element_located((By.CLASS_NAME, "chart-container"))
-                )
-                
-                # Remove UI elements
-                self._remove_ui_elements(driver)
-                
-                # Take screenshot
-                chart_element = driver.find_element(By.CLASS_NAME, "chart-container")
-                screenshot = chart_element.screenshot_as_png
-                
-                logger.info(f"Successfully generated chart for {symbol}")
-                return screenshot
-                
-            finally:
-                driver.quit()
-                
+            logger.info(f"Generating chart for {symbol}")
+            
+            # Get data
+            ticker = yf.Ticker(symbol)
+            df = ticker.history(period="1d", interval=timeframe)
+            
+            # Create figure
+            buf = io.BytesIO()
+            mpf.plot(df, 
+                    type='candle',
+                    volume=True,
+                    style='charles',
+                    title=f'\n{symbol} Chart',
+                    savefig=buf)
+            
+            buf.seek(0)
+            return buf.getvalue()
+            
         except Exception as e:
             logger.error(f"Error generating chart: {str(e)}")
             logger.exception(e)
