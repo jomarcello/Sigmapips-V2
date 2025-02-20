@@ -47,62 +47,42 @@ async def webhook(request: Request):
         data = await request.json()
         logger.info(f"Received webhook: {data}")
         
-        # Check of dit een Telegram update is
-        if 'update_id' in data:
-            # Dit is een Telegram update
-            if 'callback_query' in data:
-                callback_query = data['callback_query']
-                data_parts = callback_query['data'].split('_')
-                action = data_parts[0]
-                
-                if action == 'analysis':
-                    analysis_type = data_parts[1]
-                    if analysis_type in ['technical', 'sentiment']:
-                        # Voor technical en sentiment analyses, ga naar market selectie
-                        await telegram.market_choice(callback_query, analysis_type)
-                        return {"status": "success"}
-                    elif analysis_type == 'calendar':
-                        # Calendar kan direct getoond worden
-                        await telegram.handle_calendar_button(callback_query, None)
-                        return {"status": "success"}
-                
-                elif action == 'market':
-                    # Handle market selection
-                    market = data_parts[1]
-                    await telegram.handle_market_selection(callback_query, market)
+        if 'update_id' in data and 'callback_query' in data:
+            callback_query = data['callback_query']
+            data_parts = callback_query['data'].split('_')
+            action = data_parts[0]
+            
+            if action == 'analysis':
+                # Stap 1: Gebruiker kiest Market Sentiment
+                analysis_type = data_parts[1]
+                if analysis_type == 'sentiment':
+                    # Stap 2: Toon market keuze
+                    await telegram.show_market_selection(callback_query, analysis_type)
                     return {"status": "success"}
+                    
+            elif action == 'market':
+                # Stap 3: Gebruiker kiest market
+                market = data_parts[1]
+                analysis_type = data_parts[2]  # bijv. 'sentiment'
+                await telegram.show_instruments(callback_query, market, analysis_type)
+                return {"status": "success"}
                 
-                elif action == 'instrument':
-                    # Handle instrument selection
-                    instrument = data_parts[1]
-                    analysis_type = callback_query.get('message', {}).get('reply_markup', {}).get('analysis_type')
-                    if analysis_type == 'sentiment':
-                        await telegram.handle_sentiment_button(callback_query, instrument)
-                    elif analysis_type == 'technical':
-                        await telegram.handle_chart_button(callback_query, instrument)
+            elif action == 'instrument':
+                # Stap 5: Gebruiker kiest instrument
+                instrument = data_parts[1]
+                analysis_type = data_parts[2]  # bijv. 'sentiment'
+                if analysis_type == 'sentiment':
+                    # Stap 6: Toon sentiment analyse
+                    await telegram.show_sentiment_analysis(callback_query, instrument)
                     return {"status": "success"}
             
-            # Laat de application handler dit afhandelen
+            # Laat de application handler andere callbacks afhandelen
             await telegram.application.update_queue.put(Update.de_json(data, telegram.application.bot))
-            return {"status": "success"}
             
-        # Anders is het een trading signal
-        signal = data
-        logger.info(f"Received TradingView signal: {signal}")
-        
-        # Validate required fields
-        required_fields = ['instrument', 'timeframe', 'signal', 'price', 'sl', 'tp']
-        if not all(field in signal for field in required_fields):
-            logger.error(f"Missing required fields in signal. Required: {required_fields}, Received: {list(signal.keys())}")
-            return {"status": "error", "message": "Invalid signal format"}
-            
-        # Broadcast signal
-        await telegram.broadcast_signal(signal)
-        
         return {"status": "success"}
         
     except Exception as e:
-        logger.error(f"Error processing webhook: {str(e)}")
+        logger.error(f"Error in webhook: {str(e)}")
         return {"status": "error", "message": str(e)}
 
 def _detect_market(symbol: str) -> str:
