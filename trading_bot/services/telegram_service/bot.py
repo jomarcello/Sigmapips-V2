@@ -867,84 +867,42 @@ Risk Management:
     async def broadcast_signal(self, signal: Dict[str, Any]):
         """Broadcast signal to subscribers"""
         try:
-            # Map timeframe to trading style
-            timeframe = signal.get('timeframe', '1m')
-            trading_style = TIMEFRAME_STYLE_MAP.get(timeframe, 'test')
+            logger.info(f"Starting broadcast for signal: {signal}")
             
-            # Get subscribers for this instrument and style
-            instrument = signal.get('instrument')
-            if not instrument:
-                logger.error("No instrument in signal")
+            # Get subscribers met timeframe filter
+            subscribers = await self.db.get_subscribers(
+                instrument=signal['instrument'],
+                timeframe=signal.get('timeframe')
+            )
+            logger.info(f"Found {len(subscribers.data)} subscribers for {signal['instrument']} ({signal.get('timeframe')})")
+            
+            if not subscribers.data:
+                logger.warning(f"No subscribers found for {signal['instrument']} with timeframe {signal.get('timeframe')}")
                 return
             
-            # Pre-load all data
-            tasks = []
-            tasks.append(self.chart.generate_chart(instrument, timeframe))
-            tasks.append(self.sentiment.get_market_sentiment({
-                'symbol': instrument,
-                'market': 'crypto' if 'USD' in instrument else 'forex'
-            }))
-            tasks.append(self.calendar.get_economic_calendar())
+            # Generate chart
+            chart_image = await self.chart.generate_chart(signal['instrument'])
             
-            # Wait for all data
-            chart_image, sentiment_data, calendar_data = await asyncio.gather(*tasks)
-            
-            # Format signal
-            formatted_signal = await self.format_signal_with_ai({
-                'symbol': instrument,
-                'action': signal.get('signal'),
-                'price': signal.get('price'),
-                'takeProfit1': signal.get('tp'),
-                'takeProfit2': signal.get('tp'),
-                'takeProfit3': signal.get('tp'),
-                'stopLoss': signal.get('sl'),
-                'timeframe': timeframe
+            # Get sentiment met correcte market type
+            sentiment_data = await self.sentiment.get_market_sentiment({
+                'symbol': signal['instrument'],
+                'market': signal['market']  # Nu gebruiken we de correcte market type
             })
             
-            # Cache all data (met null checks)
-            cache_data = {
-                'text': formatted_signal,
-                'parse_mode': 'HTML',
-                'symbol': instrument,
-                'timeframe': timeframe,
-                'chart': base64.b64encode(chart_image).decode('utf-8') if chart_image else '',
-                'sentiment': sentiment_data or '',
-                'calendar': calendar_data or ''
-            }
-            
-            # Query subscribers
-            subscribers = (self.db.supabase.table('subscriber_preferences')
-                .select('*')
-                .eq('instrument', instrument)
-                .eq('style', trading_style)
-                .execute())
+            # Format signal
+            message = await self._format_signal(signal, sentiment_data)
             
             # Send to each subscriber
             for subscriber in subscribers.data:
                 try:
-                    keyboard = [
-                        [
-                            InlineKeyboardButton("📊 Technical Analysis", callback_data=f"chart_{instrument}_{timeframe}"),
-                            InlineKeyboardButton("🤖 Market Sentiment", callback_data=f"sentiment_{instrument}")
-                        ],
-                        [InlineKeyboardButton("📅 Economic Calendar", callback_data=f"calendar_{instrument}")]
-                    ]
-                    
-                    sent_message = await self.bot.send_message(
+                    await self.bot.send_message(
                         chat_id=subscriber['user_id'],
-                        text=formatted_signal,
-                        parse_mode=ParseMode.HTML,
-                        reply_markup=InlineKeyboardMarkup(keyboard)
+                        text=message,
+                        parse_mode=ParseMode.MARKDOWN
                     )
-                    
-                    # Cache data for this message
-                    signal_key = f"signal:{sent_message.message_id}"
-                    self.redis.hmset(signal_key, cache_data)
-                    self.redis.expire(signal_key, 3600)
-                    
+                    logger.info(f"Signal sent to {subscriber['user_id']}")
                 except Exception as e:
                     logger.error(f"Failed to send signal to {subscriber['user_id']}: {str(e)}")
-                    continue
                 
         except Exception as e:
             logger.error(f"Error broadcasting signal: {str(e)}")
@@ -1183,7 +1141,7 @@ Risk Management:
         """Handle sentiment button click"""
         try:
             # Get sentiment
-            sentiment = await self.sentiment.get_market_sentiment({
+            sentiment_data = await self.sentiment.get_market_sentiment({
                 'symbol': instrument,
                 'market': 'crypto' if 'USD' in instrument else 'forex'
             })
@@ -1192,7 +1150,7 @@ Risk Management:
             await self.bot.edit_message_text(
                 chat_id=callback_query['message']['chat']['id'],
                 message_id=callback_query['message']['message_id'],
-                text=f"🤖 Market Sentiment for {instrument}\n\n{sentiment}",
+                text=f"🤖 Market Sentiment for {instrument}\n\n{sentiment_data}",
                 reply_markup=InlineKeyboardMarkup([[
                     InlineKeyboardButton("⬅️ Back", callback_data=f"back_to_signal_{instrument}")
                 ]])
@@ -1204,13 +1162,13 @@ Risk Management:
         """Handle calendar button click"""
         try:
             # Get calendar
-            calendar = await self.calendar.get_economic_calendar()
+            calendar_data = await self.calendar.get_economic_calendar()
             
             # Update existing message with calendar
             await self.bot.edit_message_text(
                 chat_id=callback_query['message']['chat']['id'],
                 message_id=callback_query['message']['message_id'],
-                text=f"📅 Economic Calendar for {instrument}\n\n{calendar}",
+                text=f"📅 Economic Calendar for {instrument}\n\n{calendar_data}",
                 reply_markup=InlineKeyboardMarkup([[
                     InlineKeyboardButton("⬅️ Back", callback_data=f"back_to_signal_{instrument}")
                 ]])
