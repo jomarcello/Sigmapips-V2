@@ -1,6 +1,7 @@
 import os
 import logging
 import aiohttp
+import json
 from typing import Dict, Any
 
 logger = logging.getLogger(__name__)
@@ -15,7 +16,7 @@ class MarketSentimentService:
             "Content-Type": "application/json"
         }
 
-    async def get_market_sentiment(self, signal: Dict[str, Any]) -> str:
+    async def get_market_sentiment(self, signal: Dict[str, Any]) -> Dict[str, str]:
         """Get market sentiment analysis"""
         try:
             symbol = signal.get('symbol', '')
@@ -23,25 +24,27 @@ class MarketSentimentService:
             logger.info(f"Getting market sentiment for {symbol} ({market})")
             
             # Create prompt for market analysis
-            prompt = f"""Analyze the current market sentiment for {symbol} considering:
-            1. Current price action
-            2. Technical indicators
-            3. Market trends
-            4. Trading volume
-            5. Key support/resistance levels
+            prompt = f"""Analyze the current market sentiment for {symbol} and provide a concise analysis with these exact sections:
+            1. Market direction (1-2 sentences)
+            2. Support and resistance levels (key levels only)
+            3. Main risk factors (bullet points)
+            4. Trading implications (2-3 key points)
             
-            Format the response with:
-            - Market direction
-            - Key levels
-            - Risk factors
-            - Trading implications
+            Format the response as a JSON object with these exact keys:
+            {{
+                "direction": "market direction text",
+                "support": "support levels",
+                "resistance": "resistance levels",
+                "risks": "bullet points of risks",
+                "implications": "trading implications"
+            }}
             """
             
             payload = {
                 "model": "deepseek-chat",
                 "messages": [{
                     "role": "system",
-                    "content": "You are a professional market analyst."
+                    "content": "You are a professional market analyst. Provide concise, structured analysis."
                 }, {
                     "role": "user",
                     "content": prompt
@@ -53,8 +56,9 @@ class MarketSentimentService:
                 async with session.post(self.api_url, json=payload, headers=self.headers) as response:
                     if response.status == 200:
                         data = await response.json()
-                        logger.info("Successfully retrieved market sentiment from DeepSeek")
-                        return data['choices'][0]['message']['content']
+                        sentiment = json.loads(data['choices'][0]['message']['content'])
+                        logger.info("Successfully retrieved market sentiment")
+                        return sentiment
                     else:
                         logger.error(f"DeepSeek API error: {response.status}")
                         return self._get_fallback_sentiment(signal)
@@ -63,21 +67,13 @@ class MarketSentimentService:
             logger.error(f"Error getting sentiment: {str(e)}")
             return self._get_fallback_sentiment(signal)
 
-    def _get_fallback_sentiment(self, signal: Dict[str, Any]) -> str:
+    def _get_fallback_sentiment(self, signal: Dict[str, Any]) -> Dict[str, str]:
         """Fallback sentiment analysis"""
         symbol = signal.get('symbol', 'Unknown')
-        return f"""Market Sentiment Analysis for {symbol}:
-
-Market Direction: Neutral
-Key Levels:
-- Support: Not available
-- Resistance: Not available
-
-Risk Factors:
-- Market volatility
-- Limited data availability
-
-Trading Implications:
-- Exercise caution
-- Wait for clearer market conditions
-- Use proper risk management""" 
+        return {
+            "direction": "Market direction is currently neutral with mixed signals",
+            "support": "Previous low",
+            "resistance": "Previous high",
+            "risks": "• Market volatility\n• Limited data availability\n• Uncertain conditions",
+            "implications": "• Exercise caution\n• Wait for clearer signals\n• Use proper risk management"
+        } 
