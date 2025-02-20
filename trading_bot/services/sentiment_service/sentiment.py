@@ -18,10 +18,12 @@ class MarketSentimentService:
     async def get_market_sentiment(self, signal: Dict[str, Any]) -> str:
         """Get market sentiment analysis"""
         try:
-            logger.info(f"Getting market sentiment for {signal}")
+            symbol = signal.get('symbol', '')
+            market = signal.get('market', 'forex')
+            logger.info(f"Getting market sentiment for {symbol} ({market})")
             
             # Create prompt for market analysis
-            prompt = f"""Analyze the current market sentiment for {signal['symbol']} considering:
+            prompt = f"""Analyze the current market sentiment for {symbol} considering:
             1. Current price action
             2. Technical indicators
             3. Market trends
@@ -62,7 +64,20 @@ class MarketSentimentService:
             return self._get_fallback_sentiment(signal)
 
     def _get_fallback_sentiment(self, signal: Dict[str, Any]) -> str:
-        # Implementation of _get_fallback_sentiment method
-        # This method should return a fallback sentiment analysis
-        # For now, we'll use a placeholder return
-        return "Fallback sentiment analysis" 
+        """Fallback sentiment analysis"""
+        symbol = signal.get('symbol', 'Unknown')
+        return f"""Market Sentiment Analysis for {symbol}:
+
+Market Direction: Neutral
+Key Levels:
+- Support: Not available
+- Resistance: Not available
+
+Risk Factors:
+- Market volatility
+- Limited data availability
+
+Trading Implications:
+- Exercise caution
+- Wait for clearer market conditions
+- Use proper risk management""" 
