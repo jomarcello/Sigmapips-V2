@@ -18,23 +18,13 @@ class ChartService:
         """Initialize chart service with Chromium"""
         # Chrome options
         self.chrome_options = Options()
-        self.chrome_options.add_argument('--headless=new')  # Nieuwe headless mode
+        self.chrome_options.add_argument('--headless=new')
         self.chrome_options.add_argument('--no-sandbox')
         self.chrome_options.add_argument('--disable-dev-shm-usage')
         self.chrome_options.add_argument('--disable-gpu')
         self.chrome_options.add_argument('--window-size=1920,1080')
         self.chrome_options.add_argument('--disable-software-rasterizer')
         self.chrome_options.add_argument('--disable-extensions')
-        self.chrome_options.add_argument('--single-process')
-        self.chrome_options.add_argument('--ignore-certificate-errors')
-        self.chrome_options.add_argument('--remote-debugging-port=9222')  # Enable debugging
-        
-        # Voeg user data directory toe voor persistente login
-        self.chrome_options.add_argument('--user-data-dir=/app/chrome-data')
-        
-        # Initialize een browser session bij startup
-        self.browser = None
-        self.initialize_browser()
         
         # Chart URL mapping
         self.chart_urls = {
@@ -98,167 +88,47 @@ class ChartService:
             'US30': 'https://www.tradingview.com/chart/heV5Zitn/',
             'DE40': 'https://www.tradingview.com/chart/OWzg0XNw/'
         }
-
-    def initialize_browser(self):
-        """Initialize browser en log in op TradingView"""
-        try:
-            logger.info("Starting browser initialization...")
-            
-            # Maak chrome-data directory als deze niet bestaat
-            os.makedirs('/app/chrome-data', exist_ok=True)
-            
-            # Service object voor betere browser management
-            service = Service()
-            
-            logger.info("Starting Chrome webdriver...")
-            self.browser = webdriver.Chrome(
-                service=service,
-                options=self.chrome_options
-            )
-            
-            # Set page load timeout
-            self.browser.set_page_load_timeout(30)
-            
-            # Haal credentials uit environment variables
-            email = os.getenv("TRADINGVIEW_EMAIL")
-            password = os.getenv("TRADINGVIEW_PASSWORD")
-            
-            if not email or not password:
-                raise ValueError("Missing TradingView credentials in environment")
-            
-            logger.info("Navigating to TradingView login page...")
-            self.browser.get('https://www.tradingview.com/')  # Eerst naar homepage
-            time.sleep(5)  # Wacht even
-            
-            logger.info("Going to login page...")
-            self.browser.get('https://www.tradingview.com/accounts/signin/')
-            time.sleep(5)  # Wacht tot pagina geladen is
-            
-            # Wacht tot login form zichtbaar is
-            logger.info("Waiting for login form...")
-            try:
-                email_input = WebDriverWait(self.browser, 20).until(
-                    EC.presence_of_element_located((By.NAME, "username"))
-                )
-                logger.info("Login form found")
-                
-                # Vul login gegevens in
-                email_input.send_keys(email)
-                time.sleep(1)  # Kleine pauze
-                
-                password_input = self.browser.find_element(By.NAME, "password")
-                password_input.send_keys(password)
-                time.sleep(1)  # Kleine pauze
-                
-                # Klik login button
-                logger.info("Submitting login form...")
-                submit_button = self.browser.find_element(By.XPATH, "//button[@type='submit']")
-                submit_button.click()
-                
-                # Wacht tot login compleet is
-                logger.info("Waiting for login completion...")
-                time.sleep(10)
-                
-                logger.info("Successfully logged in to TradingView")
-                
-            except Exception as e:
-                logger.error(f"Error during login process: {str(e)}")
-                if self.browser:
-                    logger.info("Current page source:")
-                    logger.info(self.browser.page_source[:1000])
-                    self.browser.quit()
-                self.browser = None
-                raise
-                
-        except Exception as e:
-            logger.error(f"Error initializing browser: {str(e)}")
-            if self.browser:
-                self.browser.quit()
-            self.browser = None
-            raise
+        
+        # Geen browser initialisatie in __init__
+        self.browser = None
 
     async def generate_chart(self, symbol: str, timeframe: str = "1h") -> Optional[bytes]:
         """Generate chart using Chromium"""
         try:
-            if not self.browser:
-                self.initialize_browser()
-            
             logger.info(f"Generating chart for {symbol}")
             
             # Get chart URL
             chart_url = self._get_chart_url(symbol)
             logger.info(f"Using chart URL: {chart_url}")
             
-            # Extra Chrome options voor betere stabiliteit
-            self.chrome_options.add_argument('--headless=new')  # Nieuwe headless mode
-            self.chrome_options.add_argument('--no-sandbox')
-            self.chrome_options.add_argument('--disable-dev-shm-usage')
-            self.chrome_options.add_argument('--disable-gpu')
-            self.chrome_options.add_argument('--window-size=1920,1080')
-            self.chrome_options.add_argument('--start-maximized')
-            self.chrome_options.add_argument('--force-device-scale-factor=1')
-            
-            # Initialize Chrome webdriver
-            driver = webdriver.Chrome(options=self.chrome_options)
-            driver.set_page_load_timeout(60)  # Langere timeout
+            # Initialize new browser instance voor deze request
+            service = Service()
+            driver = webdriver.Chrome(
+                service=service,
+                options=self.chrome_options
+            )
+            driver.set_page_load_timeout(30)
             
             try:
                 # Load page
                 driver.get(chart_url)
                 logger.info("Page loaded, waiting for elements...")
                 
-                # Langere initiële wachttijd
+                # Wacht tot chart geladen is
                 await asyncio.sleep(10)
                 
-                # Probeer verschillende selectors met logging
-                selectors = [
-                    "div.chart-container",
-                    "div.chart-markup-table",
-                    "div.layout__area--center",
-                    "div[data-name='chart-container']",
-                    "div.chart-widget",
-                    "div.chart-container-border"
-                ]
-                
-                # Log de page source voor debugging
-                logger.info(f"Page source: {driver.page_source[:500]}...")  # Eerste 500 chars
-                
-                chart_element = None
-                for selector in selectors:
-                    try:
-                        logger.info(f"Trying selector: {selector}")
-                        # Wacht op element
-                        element = WebDriverWait(driver, 15).until(
-                            EC.presence_of_element_located((By.CSS_SELECTOR, selector))
-                        )
-                        chart_element = element
-                        logger.info(f"Found chart element with selector: {selector}")
-                        break
-                    except Exception as e:
-                        logger.warning(f"Selector {selector} failed: {str(e)}")
-                        continue
-                
-                if chart_element is None:
-                    # Probeer een volledige pagina screenshot als fallback
-                    logger.info("No chart element found, taking full page screenshot")
-                    screenshot = driver.get_screenshot_as_png()
-                    return screenshot
-                
-                # Extra wachttijd voor chart rendering
-                await asyncio.sleep(5)
-                
-                # Take screenshot
-                screenshot = chart_element.screenshot_as_png
+                # Neem screenshot van hele pagina
+                screenshot = driver.get_screenshot_as_png()
                 logger.info("Successfully captured chart screenshot")
                 
                 return screenshot
                 
             finally:
+                # Altijd browser afsluiten
                 driver.quit()
                 
         except Exception as e:
             logger.error(f"Error generating chart: {str(e)}")
-            logger.exception(e)
             return None
 
     def _get_chart_url(self, symbol: str) -> str:
