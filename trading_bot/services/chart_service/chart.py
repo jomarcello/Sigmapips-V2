@@ -9,18 +9,25 @@ from selenium.webdriver.chrome.options import Options
 import asyncio
 import time
 import base64
+from selenium.webdriver.chrome.service import Service
 
 logger = logging.getLogger(__name__)
 
 class ChartService:
     def __init__(self):
         """Initialize chart service with Chromium"""
+        # Chrome options
         self.chrome_options = Options()
-        self.chrome_options.add_argument('--headless')
+        self.chrome_options.add_argument('--headless=new')  # Nieuwe headless mode
         self.chrome_options.add_argument('--no-sandbox')
         self.chrome_options.add_argument('--disable-dev-shm-usage')
         self.chrome_options.add_argument('--disable-gpu')
         self.chrome_options.add_argument('--window-size=1920,1080')
+        self.chrome_options.add_argument('--disable-software-rasterizer')
+        self.chrome_options.add_argument('--disable-extensions')
+        self.chrome_options.add_argument('--single-process')
+        self.chrome_options.add_argument('--ignore-certificate-errors')
+        self.chrome_options.add_argument('--remote-debugging-port=9222')  # Enable debugging
         
         # Voeg user data directory toe voor persistente login
         self.chrome_options.add_argument('--user-data-dir=/app/chrome-data')
@@ -97,21 +104,20 @@ class ChartService:
         try:
             logger.info("Starting browser initialization...")
             
-            # Voeg extra Chrome opties toe voor stabiliteit
-            self.chrome_options.add_argument('--headless=new')
-            self.chrome_options.add_argument('--no-sandbox')
-            self.chrome_options.add_argument('--disable-dev-shm-usage')
-            self.chrome_options.add_argument('--disable-gpu')
-            self.chrome_options.add_argument('--disable-software-rasterizer')
-            self.chrome_options.add_argument('--disable-extensions')
-            self.chrome_options.add_argument('--single-process')
-            self.chrome_options.add_argument('--ignore-certificate-errors')
-            
             # Maak chrome-data directory als deze niet bestaat
             os.makedirs('/app/chrome-data', exist_ok=True)
             
+            # Service object voor betere browser management
+            service = Service()
+            
             logger.info("Starting Chrome webdriver...")
-            self.browser = webdriver.Chrome(options=self.chrome_options)
+            self.browser = webdriver.Chrome(
+                service=service,
+                options=self.chrome_options
+            )
+            
+            # Set page load timeout
+            self.browser.set_page_load_timeout(30)
             
             # Haal credentials uit environment variables
             email = os.getenv("TRADINGVIEW_EMAIL")
@@ -121,7 +127,12 @@ class ChartService:
                 raise ValueError("Missing TradingView credentials in environment")
             
             logger.info("Navigating to TradingView login page...")
+            self.browser.get('https://www.tradingview.com/')  # Eerst naar homepage
+            time.sleep(5)  # Wacht even
+            
+            logger.info("Going to login page...")
             self.browser.get('https://www.tradingview.com/accounts/signin/')
+            time.sleep(5)  # Wacht tot pagina geladen is
             
             # Wacht tot login form zichtbaar is
             logger.info("Waiting for login form...")
@@ -133,8 +144,11 @@ class ChartService:
                 
                 # Vul login gegevens in
                 email_input.send_keys(email)
+                time.sleep(1)  # Kleine pauze
+                
                 password_input = self.browser.find_element(By.NAME, "password")
                 password_input.send_keys(password)
+                time.sleep(1)  # Kleine pauze
                 
                 # Klik login button
                 logger.info("Submitting login form...")
@@ -151,7 +165,7 @@ class ChartService:
                 logger.error(f"Error during login process: {str(e)}")
                 if self.browser:
                     logger.info("Current page source:")
-                    logger.info(self.browser.page_source[:1000])  # Log eerste 1000 chars
+                    logger.info(self.browser.page_source[:1000])
                     self.browser.quit()
                 self.browser = None
                 raise
