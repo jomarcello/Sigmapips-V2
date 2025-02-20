@@ -1150,14 +1150,28 @@ Risk Management:
                 'market': 'crypto' if 'USD' in instrument else 'forex'
             })
             
-            # Update existing message with sentiment
-            await self.bot.edit_message_text(
-                chat_id=callback_query['message']['chat']['id'],
-                message_id=callback_query['message']['message_id'],
-                text=f"🤖 Market Sentiment for {instrument}\n\n{sentiment_data}",
-                reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("⬅️ Back", callback_data=f"back_to_signal_{instrument}")
-                ]])
+            # Format message met HTML
+            message = f"""🤖 <b>Market Sentiment: {instrument}</b>
+
+<b>Market Direction:</b> {sentiment_data['direction']}
+
+<b>Key Levels:</b>
+• Support: {sentiment_data['support']}
+• Resistance: {sentiment_data['resistance']}
+
+<b>Risk Factors:</b>
+{sentiment_data['risks']}
+
+<b>Trading Implications:</b>
+{sentiment_data['implications']}"""
+
+            # Toon resultaat met back button
+            keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data=f"back_to_instruments")]]
+            
+            await callback_query.edit_message_text(
+                text=message,
+                parse_mode=ParseMode.HTML,
+                reply_markup=InlineKeyboardMarkup(keyboard)
             )
         except Exception as e:
             logger.error(f"Error handling sentiment button: {str(e)}")
@@ -1286,6 +1300,45 @@ Risk Management:
         except Exception as e:
             logger.error(f"Error showing instruments: {str(e)}")
 
+    async def handle_back(self, callback_query: CallbackQuery, back_type: str):
+        """Handle back button clicks"""
+        try:
+            if back_type == 'menu':
+                # Terug naar hoofdmenu
+                await callback_query.edit_message_text(
+                    text=WELCOME_MESSAGE,
+                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
+                )
+                return CHOOSE_MENU
+            
+            elif back_type == 'analysis':
+                # Terug naar analyse type keuze
+                await callback_query.edit_message_text(
+                    text="Select your analysis type:",
+                    reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
+                )
+                return CHOOSE_ANALYSIS
+            
+            elif back_type == 'market':
+                # Terug naar market selectie
+                analysis_type = callback_query.message.reply_markup.inline_keyboard[0][0].callback_data.split('_')[-1]
+                await self.show_market_selection(callback_query, analysis_type)
+                return CHOOSE_MARKET
+            
+            elif back_type == 'instruments':
+                # Terug naar instrument selectie
+                market = callback_query.message.reply_markup.inline_keyboard[0][0].callback_data.split('_')[1]
+                analysis_type = callback_query.message.reply_markup.inline_keyboard[0][0].callback_data.split('_')[-1]
+                await self.show_instruments(callback_query, market, analysis_type)
+                return CHOOSE_INSTRUMENT
+            
+        except Exception as e:
+            logger.error(f"Error handling back button: {str(e)}")
+            await callback_query.edit_message_text(
+                text="Sorry, something went wrong. Please use /start to begin again.",
+                reply_markup=None
+            )
+
     async def show_sentiment_analysis(self, callback_query: CallbackQuery, instrument: str):
         """Toon sentiment analyse voor gekozen instrument"""
         try:
@@ -1301,11 +1354,27 @@ Risk Management:
                 'market': 'crypto' if 'USD' in instrument else 'forex'
             })
             
+            # Format message met HTML
+            message = f"""🤖 <b>Market Sentiment: {instrument}</b>
+
+<b>Market Direction:</b> {sentiment_data['direction']}
+
+<b>Key Levels:</b>
+• Support: {sentiment_data['support']}
+• Resistance: {sentiment_data['resistance']}
+
+<b>Risk Factors:</b>
+{sentiment_data['risks']}
+
+<b>Trading Implications:</b>
+{sentiment_data['implications']}"""
+
             # Toon resultaat met back button
-            keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data=f"back_to_instruments")]]
+            keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_instruments")]]
             
             await callback_query.edit_message_text(
-                text=f"🤖 Market Sentiment Analysis for {instrument}\n\n{sentiment_data}",
+                text=message,
+                parse_mode=ParseMode.HTML,
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
         except Exception as e:
@@ -1313,6 +1382,6 @@ Risk Management:
             await callback_query.edit_message_text(
                 text=f"Sorry, an error occurred while analyzing {instrument}. Please try again.",
                 reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("⬅️ Back", callback_data="back_to_instruments")
+                    InlineKeyboardButton("⬅️ Back", callback_data="back_instruments")
                 ]])
             )
