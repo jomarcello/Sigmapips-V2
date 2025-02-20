@@ -12,12 +12,11 @@ logger = logging.getLogger(__name__)
 
 class ChartService:
     def __init__(self):
-        """Initialize chart service with Selenium"""
-        self.chrome_options = Options()
-        self.chrome_options.add_argument('--headless')
-        self.chrome_options.add_argument('--no-sandbox')
-        self.chrome_options.add_argument('--disable-dev-shm-usage')
-        self.chrome_options.add_argument('--window-size=1920,1080')
+        """Initialize chart service with Firefox"""
+        self.firefox_options = FirefoxOptions()
+        self.firefox_options.add_argument('--headless')
+        self.firefox_options.add_argument('--width=1920')
+        self.firefox_options.add_argument('--height=1080')
         
         # Chart URL mapping
         self.chart_urls = {
@@ -91,14 +90,8 @@ class ChartService:
             chart_url = self._get_chart_url(symbol)
             logger.info(f"Using chart URL: {chart_url}")
             
-            # Setup Firefox options
-            firefox_options = FirefoxOptions()
-            firefox_options.add_argument('--headless')
-            firefox_options.add_argument('--width=1920')
-            firefox_options.add_argument('--height=1080')
-            
-            # Initialize driver
-            driver = Firefox(options=firefox_options)
+            # Initialize driver with stored options
+            driver = Firefox(options=self.firefox_options)
             
             try:
                 # Load page
