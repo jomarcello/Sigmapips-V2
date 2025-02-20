@@ -148,17 +148,28 @@ class TelegramService:
             conv_handler = ConversationHandler(
                 entry_points=[CommandHandler("start", self.start)],
                 states={
+                    CHOOSE_ANALYSIS: [
+                        CallbackQueryHandler(self.analysis_choice, pattern="^analysis_")
+                    ],
                     CHOOSE_MARKET: [
-                        CallbackQueryHandler(self.market_choice, pattern="^market_")
+                        CallbackQueryHandler(self.market_choice, pattern="^market_"),
+                        CallbackQueryHandler(self.back_to_analysis, pattern="^back$")
                     ],
                     CHOOSE_INSTRUMENT: [
-                        CallbackQueryHandler(self.instrument_choice, pattern="^instrument_")
+                        CallbackQueryHandler(self.instrument_choice, pattern="^instrument_"),
+                        CallbackQueryHandler(self.back_to_market, pattern="^back$")
                     ],
                     CHOOSE_STYLE: [
-                        CallbackQueryHandler(self.style_choice, pattern="^style_")
+                        CallbackQueryHandler(self.style_choice, pattern="^style_"),
+                        CallbackQueryHandler(self.back_to_instrument, pattern="^back$")
+                    ],
+                    SHOW_RESULT: [
+                        CallbackQueryHandler(self.add_more, pattern="^add_more$"),
+                        CallbackQueryHandler(self.manage_preferences, pattern="^manage_prefs$"),
+                        CallbackQueryHandler(self.back_to_menu, pattern="^back_to_menu$")
                     ]
                 },
-                fallbacks=[CommandHandler("cancel", self.cancel)],
+                fallbacks=[CommandHandler("cancel", self.cancel)]
             )
             
             # Add handlers
@@ -802,41 +813,22 @@ Risk Management:
         query = update.callback_query
         await query.answer()
         
-        if query.data == "back":
-            reply_markup = InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
-            await query.edit_message_text(
-                text="Welcome! What would you like to do?",
-                reply_markup=reply_markup
-            )
-            return CHOOSE_ANALYSIS
-        
+        # Store the chosen analysis type
         analysis_type = query.data.replace('analysis_', '')
         context.user_data['analysis_type'] = analysis_type
         
-        if analysis_type == 'calendar':
-            # Direct naar calendar zonder market/instrument selectie
-            loading_message = await query.edit_message_text(
-                text="⏳ Fetching economic calendar...\n\n"
-                     "Please wait while I check upcoming events 📅"
+        if analysis_type == 'signals':
+            # Voor trading signals, ga naar market selectie
+            await query.edit_message_text(
+                text="Please select your preferred market:",
+                reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
             )
-            
-            calendar_data = await self.calendar.get_economic_calendar()
-            
-            keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_to_menu")]]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            
-            await loading_message.edit_text(
-                text=f"📅 Economic Calendar\n\n{calendar_data}",
-                reply_markup=reply_markup
-            )
-            return SHOW_RESULT
-        
+            return CHOOSE_MARKET
         else:
-            # Voor andere analyses naar market selectie
-            reply_markup = InlineKeyboardMarkup(MARKET_KEYBOARD)
+            # Voor andere analyses, direct naar market selectie
             await query.edit_message_text(
                 text=f"Please select a market for {analysis_type.replace('_', ' ').title()}:",
-                reply_markup=reply_markup
+                reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
             )
             return CHOOSE_MARKET
 
