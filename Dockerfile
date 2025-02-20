@@ -30,4 +30,4 @@ ENV PYTHONPATH=/app
 ENV PORT=8080
 
 # Start command
-CMD ["uvicorn", "trading_bot.main:app", "--host", "0.0.0.0", "--port", "808"]
+CMD ["uvicorn", "trading_bot.main:app", "--host", "0.0.0.0", "--port", "8080"]
