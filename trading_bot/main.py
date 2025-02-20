@@ -63,7 +63,13 @@ async def webhook(request: Request):
                 data_parts = callback_query.data.split('_')
                 action = data_parts[0]
                 
-                if action == 'analysis':
+                if action == 'back':
+                    # Handle back button
+                    back_type = data_parts[1] if len(data_parts) > 1 else 'menu'
+                    await telegram.handle_back(callback_query, back_type)
+                    return {"status": "success"}
+                    
+                elif action == 'analysis':
                     analysis_type = data_parts[1]
                     if analysis_type in ['technical', 'sentiment']:
                         await telegram.show_market_selection(callback_query, analysis_type)
