@@ -1,28 +1,32 @@
 FROM python:3.11-slim
 
-# Set PYTHONPATH first and explicitly
-ENV PYTHONPATH="/app:${PYTHONPATH}"
-ENV PORT=8080
-
-WORKDIR /app
-
-# System dependencies
+# Install system dependencies
 RUN apt-get update && apt-get install -y \
-    build-essential \
-    chromium \
-    chromium-driver \
+    firefox-esr=102.15.0esr-1~deb11u1 \
+    wget \
     && rm -rf /var/lib/apt/lists/*
 
-# Python dependencies
+# Install geckodriver
+RUN wget https://github.com/mozilla/geckodriver/releases/download/v0.32.0/geckodriver-v0.32.0-linux64.tar.gz \
+    && tar -xvzf geckodriver-v0.32.0-linux64.tar.gz \
+    && chmod +x geckodriver \
+    && mv geckodriver /usr/local/bin/ \
+    && rm geckodriver-v0.32.0-linux64.tar.gz
+
+# Set up app directory
+WORKDIR /app
+
+# Copy requirements and install
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Application code
+# Copy app code
 COPY . .
 
-# Create logs directory
-RUN mkdir -p logs
+# Set environment variables
+ENV PYTHONPATH=/app
+ENV PORT=8080
+ENV MOZ_HEADLESS=1
 
-# Start de main applicatie
-CMD python -m uvicorn trading_bot.main:app --host 0.0.0.0 --port $PORT
-# Trigger rebuild $(date)
+# Run the app
+CMD ["uvicorn", "trading_bot.main:app", "--host", "0.0.0.0", "--port", "8080"]
