@@ -481,36 +481,47 @@ Risk Management:
         elif choice == 'manage':
             return await self.manage_preferences(update, context)
 
-    async def market_choice(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle market selection"""
-        query = update.callback_query
-        await query.answer()
-        
-        if query.data == "back":
-            # Terug naar analyse type keuze
-            await query.edit_message_text(
-                text="Select your analysis type:",
-                reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
+    async def market_choice(self, callback_query: CallbackQuery, analysis_type: str):
+        """Handle market selection after analysis type"""
+        try:
+            # Sla analysis type op in reply markup data
+            keyboard = MARKET_KEYBOARD.copy()
+            for row in keyboard:
+                for button in row:
+                    button.callback_data = f"{button.callback_data}_{analysis_type}"
+            
+            await callback_query.edit_message_text(
+                text="Please select your preferred market:",
+                reply_markup=InlineKeyboardMarkup(keyboard)
             )
-            return CHOOSE_ANALYSIS
-        
-        # Store the chosen market
-        market = query.data.replace('market_', '')
-        context.user_data['market'] = market
-        
-        # Show instruments based on market choice
-        keyboard_map = {
-            'forex': FOREX_KEYBOARD,
-            'crypto': CRYPTO_KEYBOARD,
-            'commodities': COMMODITIES_KEYBOARD,
-            'indices': INDICES_KEYBOARD
-        }
-        
-        await query.edit_message_text(
-            text=f"Please select an instrument:",
-            reply_markup=InlineKeyboardMarkup(keyboard_map[market])
-        )
-        return CHOOSE_INSTRUMENT
+        except Exception as e:
+            logger.error(f"Error in market choice: {str(e)}")
+
+    async def handle_market_selection(self, callback_query: CallbackQuery, market: str):
+        """Handle market selection and show instruments"""
+        try:
+            # Bepaal welke keyboard te tonen op basis van market
+            keyboard_map = {
+                'forex': FOREX_KEYBOARD,
+                'crypto': CRYPTO_KEYBOARD,
+                'commodities': COMMODITIES_KEYBOARD,
+                'indices': INDICES_KEYBOARD
+            }
+            
+            keyboard = keyboard_map.get(market, FOREX_KEYBOARD)
+            
+            # Voeg analysis type toe aan callback data
+            analysis_type = callback_query.data.split('_')[-1]
+            for row in keyboard:
+                for button in row:
+                    button.callback_data = f"{button.callback_data}_{analysis_type}"
+            
+            await callback_query.edit_message_text(
+                text=f"Please select an instrument from {market.title()}:",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+        except Exception as e:
+            logger.error(f"Error in handle market selection: {str(e)}")
 
     async def instrument_choice(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle instrument selection"""
