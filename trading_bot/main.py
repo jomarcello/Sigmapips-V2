@@ -11,7 +11,6 @@ from datetime import datetime
 from trading_bot.services.telegram_service.bot import TelegramService
 from trading_bot.services.chart_service.chart import ChartService
 from trading_bot.services.database.db import Database
-from memory_manager import save_project_progress, get_project_context
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -136,20 +135,6 @@ async def receive_signal(signal: Dict[str, Any]):
         market_type = _detect_market(signal.get('instrument', ''))
         signal['market'] = market_type
         
-        # Log het ontvangen signaal
-        save_project_progress(f"""
-Nieuw trading signaal ontvangen:
-- Instrument: {signal.get('instrument')}
-- Market: {market_type}
-- Timeframe: {signal.get('timeframe')}
-- Actie: {signal.get('signal')}
-- Prijs: {signal.get('price')}
-- Take Profit: {signal.get('tp')}
-- Stop Loss: {signal.get('sl')}
-
-Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-""")
-        
         # Broadcast signal to subscribers
         await telegram.broadcast_signal(signal)
         
@@ -157,11 +142,4 @@ Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
         
     except Exception as e:
         logger.error(f"Error processing signal: {str(e)}")
-        save_project_progress(f"""
-ERROR bij verwerken signaal:
-- Error: {str(e)}
-- Signaal: {signal}
-
-Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-""")
         return {"status": "error", "message": str(e)}
