@@ -7,6 +7,8 @@ from selenium.webdriver.support import expected_conditions as EC
 from typing import Optional
 from selenium.webdriver.chrome.options import Options
 import asyncio
+import time
+import base64
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +21,13 @@ class ChartService:
         self.chrome_options.add_argument('--disable-dev-shm-usage')
         self.chrome_options.add_argument('--disable-gpu')
         self.chrome_options.add_argument('--window-size=1920,1080')
+        
+        # Voeg user data directory toe voor persistente login
+        self.chrome_options.add_argument('--user-data-dir=/app/chrome-data')
+        
+        # Initialize een browser session bij startup
+        self.browser = None
+        self.initialize_browser()
         
         # Chart URL mapping
         self.chart_urls = {
@@ -83,9 +92,50 @@ class ChartService:
             'DE40': 'https://www.tradingview.com/chart/OWzg0XNw/'
         }
 
+    def initialize_browser(self):
+        """Initialize browser en log in op TradingView"""
+        try:
+            self.browser = webdriver.Chrome(options=self.chrome_options)
+            
+            # Haal credentials uit environment variables
+            email = os.getenv("TRADINGVIEW_EMAIL")
+            password = os.getenv("TRADINGVIEW_PASSWORD")
+            
+            if not email or not password:
+                raise ValueError("Missing TradingView credentials in environment")
+            
+            # Ga naar TradingView login pagina
+            self.browser.get('https://www.tradingview.com/accounts/signin/')
+            
+            # Wacht tot login form zichtbaar is
+            email_input = WebDriverWait(self.browser, 10).until(
+                EC.presence_of_element_located((By.NAME, "username"))
+            )
+            
+            # Vul login gegevens in
+            email_input.send_keys(email)
+            self.browser.find_element(By.NAME, "password").send_keys(password)
+            
+            # Klik login button
+            self.browser.find_element(By.XPATH, "//button[@type='submit']").click()
+            
+            # Wacht tot login compleet is
+            time.sleep(5)
+            
+            logger.info("Successfully logged in to TradingView")
+            
+        except Exception as e:
+            logger.error(f"Error initializing browser: {str(e)}")
+            if self.browser:
+                self.browser.quit()
+            self.browser = None
+
     async def generate_chart(self, symbol: str, timeframe: str = "1h") -> Optional[bytes]:
         """Generate chart using Chromium"""
         try:
+            if not self.browser:
+                self.initialize_browser()
+            
             logger.info(f"Generating chart for {symbol}")
             
             # Get chart URL
@@ -93,35 +143,45 @@ class ChartService:
             logger.info(f"Using chart URL: {chart_url}")
             
             # Extra Chrome options voor betere stabiliteit
+            self.chrome_options.add_argument('--headless=new')  # Nieuwe headless mode
             self.chrome_options.add_argument('--no-sandbox')
             self.chrome_options.add_argument('--disable-dev-shm-usage')
             self.chrome_options.add_argument('--disable-gpu')
-            self.chrome_options.add_argument('--disable-software-rasterizer')
-            self.chrome_options.add_argument('--disable-extensions')
+            self.chrome_options.add_argument('--window-size=1920,1080')
+            self.chrome_options.add_argument('--start-maximized')
+            self.chrome_options.add_argument('--force-device-scale-factor=1')
             
             # Initialize Chrome webdriver
             driver = webdriver.Chrome(options=self.chrome_options)
-            driver.set_page_load_timeout(30)
+            driver.set_page_load_timeout(60)  # Langere timeout
             
             try:
                 # Load page
                 driver.get(chart_url)
+                logger.info("Page loaded, waiting for elements...")
                 
-                # Wacht eerst op de pagina load
-                await asyncio.sleep(5)
+                # Langere initiële wachttijd
+                await asyncio.sleep(10)
                 
-                # Probeer verschillende selectors
+                # Probeer verschillende selectors met logging
                 selectors = [
-                    "div[class*='chart-container']",
-                    "div[class*='chart-markup-table']",
-                    "div[class*='layout__area--center']"
+                    "div.chart-container",
+                    "div.chart-markup-table",
+                    "div.layout__area--center",
+                    "div[data-name='chart-container']",
+                    "div.chart-widget",
+                    "div.chart-container-border"
                 ]
+                
+                # Log de page source voor debugging
+                logger.info(f"Page source: {driver.page_source[:500]}...")  # Eerste 500 chars
                 
                 chart_element = None
                 for selector in selectors:
                     try:
+                        logger.info(f"Trying selector: {selector}")
                         # Wacht op element
-                        element = WebDriverWait(driver, 10).until(
+                        element = WebDriverWait(driver, 15).until(
                             EC.presence_of_element_located((By.CSS_SELECTOR, selector))
                         )
                         chart_element = element
@@ -132,10 +192,13 @@ class ChartService:
                         continue
                 
                 if chart_element is None:
-                    raise Exception("Could not find chart element with any selector")
+                    # Probeer een volledige pagina screenshot als fallback
+                    logger.info("No chart element found, taking full page screenshot")
+                    screenshot = driver.get_screenshot_as_png()
+                    return screenshot
                 
                 # Extra wachttijd voor chart rendering
-                await asyncio.sleep(3)
+                await asyncio.sleep(5)
                 
                 # Take screenshot
                 screenshot = chart_element.screenshot_as_png
