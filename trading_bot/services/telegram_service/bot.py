@@ -813,42 +813,44 @@ Risk Management:
             await query.answer()
             
             # Parse button data
-            data = query.data  # bijv. 'chart_BTCUSD_1m' of 'back_to_signal_BTCUSD'
-            action, *params = data.split('_')
+            data = query.data
             
-            if action == 'back':
-                # Haal originele signal op uit Redis
-                signal_key = f"signal:{query.message.message_id}"
-                cached_data = self.redis.hgetall(signal_key)
+            if data == "back":
+                # Bepaal waar we naartoe moeten gaan op basis van context
+                if 'analysis_type' in context.user_data:
+                    if context.user_data['analysis_type'] in ['technical', 'sentiment']:
+                        # Terug naar instrument selectie
+                        await query.edit_message_text(
+                            text="Please select an instrument:",
+                            reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
+                        )
+                        return CHOOSE_MARKET
                 
-                if cached_data:
-                    # Herstel originele keyboard
-                    keyboard = [
-                        [
-                            InlineKeyboardButton("📊 Technical Analysis", callback_data=f"chart_{cached_data['symbol']}_{cached_data['timeframe']}"),
-                            InlineKeyboardButton("🤖 Market Sentiment", callback_data=f"sentiment_{cached_data['symbol']}")
-                        ],
-                        [InlineKeyboardButton("📅 Economic Calendar", callback_data=f"calendar_{cached_data['symbol']}")]
-                    ]
-                    
-                    # Update message terug naar originele signal
-                    await query.message.edit_text(
-                        text=cached_data['text'],
-                        parse_mode=cached_data['parse_mode'],
-                        reply_markup=InlineKeyboardMarkup(keyboard)
-                    )
-                    logger.info("Restored original signal")
-                    
-            elif action == 'chart':
-                await self.handle_chart_button(query, params[0], params[1])
-            elif action == 'sentiment':
-                await self.handle_sentiment_button(query, params[0])
-            elif action == 'calendar':
-                await self.handle_calendar_button(query, params[0])
+                # Default: terug naar hoofdmenu
+                await query.edit_message_text(
+                    text="Welcome! Please select what you would like to do:",
+                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
+                )
+                return CHOOSE_MENU
+            
+            elif data.startswith('chart_'):
+                instrument = data.split('_')[1]
+                await self.handle_chart_button(query, instrument)
+            elif data.startswith('sentiment_'):
+                instrument = data.split('_')[1]
+                await self.handle_sentiment_button(query, instrument)
+            elif data.startswith('calendar_'):
+                instrument = data.split('_')[1]
+                await self.handle_calendar_button(query, instrument)
             
         except Exception as e:
             logger.error(f"Error handling button click: {str(e)}")
-            logger.exception(e)
+            # Stuur gebruiker terug naar hoofdmenu bij error
+            await query.edit_message_text(
+                text="Sorry, something went wrong. Please start over:",
+                reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
+            )
+            return CHOOSE_MENU
 
     async def broadcast_signal(self, signal: Dict[str, Any]):
         """Broadcast signal to subscribers"""
@@ -1090,7 +1092,7 @@ Risk Management:
 🤖 SigmaPips AI Verdict:
 ✅ Trade aligns with market analysis"""
 
-    async def handle_chart_button(self, callback_query: Dict[str, Any], instrument: str, timeframe: str):
+    async def handle_chart_button(self, callback_query: Dict[str, Any], instrument: str):
         """Handle chart button click"""
         try:
             # Get cached chart
