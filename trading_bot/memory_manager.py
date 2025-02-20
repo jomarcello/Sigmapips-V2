@@ -22,4 +22,15 @@ class ProjectMemoryManager:
     def get_latest_context(self):
         """Leest het gehele geheugenbestand"""
         with open(self.memory_file, 'r', encoding='utf-8') as f:
-            return f.read() 
+            return f.read()
+
+# Singleton instance voor het hele project
+memory_manager = ProjectMemoryManager()
+
+def save_project_progress(summary):
+    """Sla projectvoortgang op in het geheugenbestand"""
+    memory_manager.add_progress_update(summary)
+
+def get_project_context():
+    """Haal de volledige projectcontext op"""
+    return memory_manager.get_latest_context()
