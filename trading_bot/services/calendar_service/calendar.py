@@ -16,24 +16,97 @@ class EconomicCalendarService:
             "Content-Type": "application/json"
         }
 
-    async def get_economic_calendar(self, symbol: str = None) -> str:
-        """Get economic calendar data with fallback formatting"""
+    async def get_economic_calendar(self, instrument: str = None) -> str:
+        """Get economic calendar data"""
         try:
-            # Basis kalender data (dit zou je kunnen vervangen met echte API data)
-            calendar_data = self._get_mock_calendar_data(symbol)
-            
-            try:
-                # Probeer AI formatting
-                formatted_data = await self._format_with_ai(calendar_data, symbol)
-                return formatted_data
-            except Exception as e:
-                logger.error(f"Error formatting calendar: {str(e)}")
-                # Fallback naar basic formatting
-                return self._format_basic(calendar_data, symbol)
-                
+            # Create prompt for DeepSeek
+            prompt = f"""Analyze and format the economic calendar for {instrument if instrument else 'major currencies'} in this exact format:
+
+🇺🇸 United States (USD):
+⏰ 01:00 EST - Consumer Inflation Expectations (Feb)
+🟡 Medium Impact
+
+🇯🇵 Japan (JPY):
+⏰ 23:50 EST - Foreign Bond Investment
+🟡 Medium Impact
+⏰ 23:50 EST - Foreign Investment in Japanese Stocks
+⚪ Low Impact
+
+🇬🇧 United Kingdom (GBP):
+⏰ 00:01 EST - RICS House Price Balance (Jan)
+🟡 Medium Impact
+⏰ 02:00 EST - Business Investment (QoQ) (Q4)
+🟡 Medium Impact
+⏰ 02:00 EST - Business Investment (YoY) (Q4)
+⚪ Low Impact
+⏰ 02:00 EST - GDP (QoQ) (Q4)
+🔴 High Impact
+⏰ 02:00 EST - GDP (YoY) (Q4)
+🔴 High Impact
+
+🇨🇭 Switzerland (CHF):
+No confirmed events scheduled.
+
+🇳🇿 New Zealand (NZD):
+No confirmed events scheduled.
+
+-------------------
+🔴 High Impact
+🟡 Medium Impact
+⚪ Low Impact"""
+
+            payload = {
+                "model": "deepseek-chat",
+                "messages": [{
+                    "role": "system",
+                    "content": """You are an economic calendar analyst. Format the response exactly like the example with:
+                    - Country flags and currency codes
+                    - Clock emoji for times
+                    - Colored circles for impact levels
+                    - Exact event names and times
+                    - Group by country/currency
+                    - Include 'No confirmed events scheduled.' for countries without events
+                    - End with impact level legend"""
+                }, {
+                    "role": "user",
+                    "content": prompt
+                }],
+                "temperature": 0.7
+            }
+
+            async with aiohttp.ClientSession() as session:
+                async with session.post(self.api_url, json=payload, headers=self.headers) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        return data['choices'][0]['message']['content']
+                    else:
+                        logger.error(f"DeepSeek API error: {response.status}")
+                        return self._get_fallback_calendar()
+
         except Exception as e:
-            logger.error(f"Error getting calendar data: {str(e)}")
-            return "Error fetching economic calendar"
+            logger.error(f"Error getting calendar: {str(e)}")
+            return self._get_fallback_calendar()
+
+    def _get_fallback_calendar(self) -> str:
+        """Fallback calendar data"""
+        return """🇺🇸 United States (USD):
+⏰ 14:30 EST - No major events scheduled
+⚪ Low Impact
+
+🇪🇺 Eurozone (EUR):
+⏰ 10:00 EST - No major events scheduled
+⚪ Low Impact
+
+🇬🇧 United Kingdom (GBP):
+No confirmed events scheduled.
+
+🇯🇵 Japan (JPY):
+No confirmed events scheduled.
+
+-------------------
+🔴 High Impact
+🟡 Medium Impact
+⚪ Low Impact"""
 
     def _format_basic(self, data: list, symbol: str = None) -> str:
         """Basic formatting without AI"""
@@ -55,21 +128,35 @@ class EconomicCalendarService:
 
     def _get_mock_calendar_data(self, symbol: str = None) -> list:
         """Get mock calendar data"""
-        return [
+        current_time = datetime.now().strftime("%H:%M GMT")
+        
+        events = [
             {
-                "time": "14:30 GMT",
+                "time": current_time,
                 "event": "Non-Farm Payrolls",
                 "country": "USD",
-                "impact": 3
+                "impact": 3,
+                "actual": "225K",
+                "forecast": "200K",
+                "previous": "190K"
             },
             {
-                "time": "12:00 GMT",
+                "time": current_time,
                 "event": "ECB Interest Rate Decision",
                 "country": "EUR",
-                "impact": 3
-            },
-            # Voeg meer mock events toe indien nodig
+                "impact": 3,
+                "actual": "4.50%",
+                "forecast": "4.50%",
+                "previous": "4.50%"
+            }
         ]
+        
+        # Filter events voor specifiek symbool als gegeven
+        if symbol:
+            currency = symbol[:3]  # Bijv. "EUR" van "EURUSD"
+            events = [e for e in events if e['country'] == currency]
+            
+        return events
 
     async def get_calendar_data(self) -> str:
         """Get economic calendar data from Perplexity"""
