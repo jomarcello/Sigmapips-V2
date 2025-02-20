@@ -454,23 +454,32 @@ Risk Management:
 
     async def menu_choice(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """Handle main menu selection"""
-        query = update.callback_query
-        await query.answer()
-        
-        choice = query.data.replace('menu_', '')
-        
-        if choice == 'analyse':
+        try:
+            query = update.callback_query
+            await query.answer()
+            
+            choice = query.data.replace('menu_', '')
+            
+            if choice == 'analyse':
+                await query.edit_message_text(
+                    text="Select your analysis type:",
+                    reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
+                )
+            elif choice == 'signals':
+                await query.edit_message_text(
+                    text="What would you like to do with trading signals?",
+                    reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD)
+                )
+            
+            return CHOOSE_MENU
+            
+        except Exception as e:
+            logger.error(f"Error in menu choice: {str(e)}")
             await query.edit_message_text(
-                text="Select your analysis type:",
-                reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
+                text="Sorry, something went wrong. Please use /start to begin again.",
+                reply_markup=None
             )
-            return CHOOSE_ANALYSIS
-        elif choice == 'signals':
-            await query.edit_message_text(
-                text="What would you like to do with trading signals?",
-                reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD)
-            )
-            return CHOOSE_SIGNALS
+            return ConversationHandler.END
 
     async def signals_choice(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """Handle signals menu selection"""
