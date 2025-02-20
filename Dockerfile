@@ -15,6 +15,11 @@ RUN apt-get update && apt-get install -y \
     libgtk-3-0 \
     && rm -rf /var/lib/apt/lists/*
 
+# Set up Chrome environment variables
+ENV CHROME_BIN=/usr/bin/chromium
+ENV CHROMEDRIVER_PATH=/usr/bin/chromedriver
+ENV DISPLAY=:99
+
 # Maak app directory
 WORKDIR /app
 
@@ -29,5 +34,6 @@ COPY . .
 ENV PYTHONPATH=/app
 ENV PORT=8080
 
-# Start command
-CMD ["uvicorn", "trading_bot.main:app", "--host", "0.0.0.0", "--port", "8080"]
+# Start Xvfb en de applicatie
+CMD Xvfb :99 -screen 0 1920x1080x24 > /dev/null 2>&1 & \
+    uvicorn trading_bot.main:app --host 0.0.0.0 --port 8080
