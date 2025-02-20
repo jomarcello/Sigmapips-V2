@@ -74,66 +74,66 @@ DELETE_BUTTON = InlineKeyboardButton("Delete", callback_data="delete_prefs")
 
 # Start menu keyboard
 START_KEYBOARD = [
-    [InlineKeyboardButton("Analyse Market", callback_data="menu_analyse")],
-    [InlineKeyboardButton("Trading Signals", callback_data="menu_signals")]
+    [InlineKeyboardButton("🔍 Analyse Market", callback_data="menu_analyse")],
+    [InlineKeyboardButton("📊 Trading Signals", callback_data="menu_signals")]
 ]
 
 # Analysis menu keyboard
 ANALYSIS_KEYBOARD = [
-    [InlineKeyboardButton("Technical Analysis", callback_data="analysis_technical")],
-    [InlineKeyboardButton("Market Sentiment", callback_data="analysis_sentiment")],
-    [InlineKeyboardButton("Economic Calendar", callback_data="analysis_calendar")],
-    [InlineKeyboardButton("Back", callback_data="back_menu")]
+    [InlineKeyboardButton("📈 Technical Analysis", callback_data="analysis_technical")],
+    [InlineKeyboardButton("🧠 Market Sentiment", callback_data="analysis_sentiment")],
+    [InlineKeyboardButton("📅 Economic Calendar", callback_data="analysis_calendar")],
+    [InlineKeyboardButton("⬅️ Back", callback_data="back_menu")]
 ]
 
-# Market keyboard
+# Market keyboard (geen emoji's)
 MARKET_KEYBOARD = [
-    [InlineKeyboardButton("💱 Forex", callback_data="market_forex")],
-    [InlineKeyboardButton("🪙 Crypto", callback_data="market_crypto")],
-    [InlineKeyboardButton("🛢️ Commodities", callback_data="market_commodities")],
-    [InlineKeyboardButton("📊 Indices", callback_data="market_indices")],
+    [InlineKeyboardButton("Forex", callback_data="market_forex")],
+    [InlineKeyboardButton("Crypto", callback_data="market_crypto")],
+    [InlineKeyboardButton("Commodities", callback_data="market_commodities")],
+    [InlineKeyboardButton("Indices", callback_data="market_indices")],
     [InlineKeyboardButton("⬅️ Back", callback_data="back")]
 ]
 
 # Signals menu keyboard
 SIGNALS_KEYBOARD = [
-    [InlineKeyboardButton("Add New Pairs", callback_data="signals_add")],
-    [InlineKeyboardButton("Manage Preferences", callback_data="signals_manage")],
-    [InlineKeyboardButton("Back", callback_data="back_to_menu")]
+    [InlineKeyboardButton("➕ Add New Pairs", callback_data="signals_add")],
+    [InlineKeyboardButton("⚙️ Manage Preferences", callback_data="signals_manage")],
+    [InlineKeyboardButton("⬅️ Back", callback_data="back_to_menu")]
 ]
 
 # Style keyboard
 STYLE_KEYBOARD = [
-    [InlineKeyboardButton("Test (1m)", callback_data="style_test")],
-    [InlineKeyboardButton("Scalp (15m)", callback_data="style_scalp")],
-    [InlineKeyboardButton("Intraday (1h)", callback_data="style_intraday")],
-    [InlineKeyboardButton("Swing (4h)", callback_data="style_swing")],
-    [InlineKeyboardButton("Back", callback_data="back")]
+    [InlineKeyboardButton("⚡ Test (1m)", callback_data="style_test")],
+    [InlineKeyboardButton("🏃 Scalp (15m)", callback_data="style_scalp")],
+    [InlineKeyboardButton("📊 Intraday (1h)", callback_data="style_intraday")],
+    [InlineKeyboardButton("🌊 Swing (4h)", callback_data="style_swing")],
+    [InlineKeyboardButton("⬅️ Back", callback_data="back")]
 ]
 
 # After setup keyboard
 AFTER_SETUP_KEYBOARD = [
-    [InlineKeyboardButton("Add More", callback_data="add_more")],
-    [InlineKeyboardButton("Manage Preferences", callback_data="manage_prefs")],
-    [InlineKeyboardButton("Back to Start", callback_data="back_to_menu")]
+    [InlineKeyboardButton("➕ Add More", callback_data="add_more")],
+    [InlineKeyboardButton("⚙️ Manage Preferences", callback_data="manage_prefs")],
+    [InlineKeyboardButton("🏠 Back to Start", callback_data="back_to_menu")]
 ]
 
-# Forex keyboard
+# Forex keyboard (geen emoji's)
 FOREX_KEYBOARD = [
     [
-        InlineKeyboardButton("💶 EURUSD", callback_data="instrument_EURUSD"),
-        InlineKeyboardButton("💷 EURGBP", callback_data="instrument_EURGBP"),
-        InlineKeyboardButton("💰 EURCHF", callback_data="instrument_EURCHF")
+        InlineKeyboardButton("EURUSD", callback_data="instrument_EURUSD"),
+        InlineKeyboardButton("EURGBP", callback_data="instrument_EURGBP"),
+        InlineKeyboardButton("EURCHF", callback_data="instrument_EURCHF")
     ],
     [
-        InlineKeyboardButton("💴 EURJPY", callback_data="instrument_EURJPY"),
-        InlineKeyboardButton("💵 EURCAD", callback_data="instrument_EURCAD"),
-        InlineKeyboardButton("💸 EURAUD", callback_data="instrument_EURAUD")
+        InlineKeyboardButton("EURJPY", callback_data="instrument_EURJPY"),
+        InlineKeyboardButton("EURCAD", callback_data="instrument_EURCAD"),
+        InlineKeyboardButton("EURAUD", callback_data="instrument_EURAUD")
     ],
     [
-        InlineKeyboardButton("💷 GBPUSD", callback_data="instrument_GBPUSD"),
-        InlineKeyboardButton("💴 GBPJPY", callback_data="instrument_GBPJPY"),
-        InlineKeyboardButton("💰 GBPCHF", callback_data="instrument_GBPCHF")
+        InlineKeyboardButton("GBPUSD", callback_data="instrument_GBPUSD"),
+        InlineKeyboardButton("GBPJPY", callback_data="instrument_GBPJPY"),
+        InlineKeyboardButton("GBPCHF", callback_data="instrument_GBPCHF")
     ],
     [InlineKeyboardButton("⬅️ Back", callback_data="back")]
 ]
@@ -141,9 +141,9 @@ FOREX_KEYBOARD = [
 # Crypto keyboard
 CRYPTO_KEYBOARD = [
     [
-        InlineKeyboardButton("₿ BTCUSD", callback_data="instrument_BTCUSD"),
-        InlineKeyboardButton("⟠ ETHUSD", callback_data="instrument_ETHUSD"),
-        InlineKeyboardButton("🔄 XRPUSD", callback_data="instrument_XRPUSD")
+        InlineKeyboardButton("BTCUSD", callback_data="instrument_BTCUSD"),
+        InlineKeyboardButton("ETHUSD", callback_data="instrument_ETHUSD"),
+        InlineKeyboardButton("XRPUSD", callback_data="instrument_XRPUSD")
     ],
     [InlineKeyboardButton("⬅️ Back", callback_data="back")]
 ]
@@ -151,19 +151,19 @@ CRYPTO_KEYBOARD = [
 # Indices keyboard
 INDICES_KEYBOARD = [
     [
-        InlineKeyboardButton("🇺🇸 US30", callback_data="instrument_US30"),
-        InlineKeyboardButton("🇺🇸 US500", callback_data="instrument_US500"),
-        InlineKeyboardButton("🇺🇸 US100", callback_data="instrument_US100")
+        InlineKeyboardButton("US30", callback_data="instrument_US30"),
+        InlineKeyboardButton("US500", callback_data="instrument_US500"),
+        InlineKeyboardButton("US100", callback_data="instrument_US100")
     ],
     [
-        InlineKeyboardButton("🇬🇧 UK100", callback_data="instrument_UK100"),
-        InlineKeyboardButton("🇩🇪 DE40", callback_data="instrument_DE40"),
-        InlineKeyboardButton("🇫🇷 FR40", callback_data="instrument_FR40")
+        InlineKeyboardButton("UK100", callback_data="instrument_UK100"),
+        InlineKeyboardButton("DE40", callback_data="instrument_DE40"),
+        InlineKeyboardButton("FR40", callback_data="instrument_FR40")
     ],
     [
-        InlineKeyboardButton("🇯🇵 JP225", callback_data="instrument_JP225"),
-        InlineKeyboardButton("🇦🇺 AU200", callback_data="instrument_AU200"),
-        InlineKeyboardButton("🇭🇰 HK50", callback_data="instrument_HK50")
+        InlineKeyboardButton("JP225", callback_data="instrument_JP225"),
+        InlineKeyboardButton("AU200", callback_data="instrument_AU200"),
+        InlineKeyboardButton("HK50", callback_data="instrument_HK50")
     ],
     [InlineKeyboardButton("⬅️ Back", callback_data="back")]
 ]
@@ -171,9 +171,9 @@ INDICES_KEYBOARD = [
 # Commodities keyboard
 COMMODITIES_KEYBOARD = [
     [
-        InlineKeyboardButton("🛢️ XAUUSD", callback_data="instrument_XAUUSD"),
-        InlineKeyboardButton("🛢️ XAGUSD", callback_data="instrument_XAGUSD"),
-        InlineKeyboardButton("🛢️ USOIL", callback_data="instrument_USOIL")
+        InlineKeyboardButton("XAUUSD", callback_data="instrument_XAUUSD"),
+        InlineKeyboardButton("XAGUSD", callback_data="instrument_XAGUSD"),
+        InlineKeyboardButton("USOIL", callback_data="instrument_USOIL")
     ],
     [InlineKeyboardButton("⬅️ Back", callback_data="back")]
 ]
