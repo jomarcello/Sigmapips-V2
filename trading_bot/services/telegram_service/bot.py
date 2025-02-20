@@ -251,7 +251,8 @@ class TelegramService:
                     SHOW_RESULT: [
                         CallbackQueryHandler(self.add_more, pattern="^add_more$"),
                         CallbackQueryHandler(self.manage_preferences, pattern="^manage_prefs$"),
-                        CallbackQueryHandler(self.back_to_menu, pattern="^back_to_menu$")
+                        CallbackQueryHandler(self.back_to_menu, pattern="^back_to_menu$"),
+                        CallbackQueryHandler(self.back_to_instruments, pattern="^back_to_instruments$")
                     ]
                 },
                 fallbacks=[
@@ -984,34 +985,39 @@ Risk Management:
                 reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_to_instruments")]])
             )
 
-    async def _back_to_instruments(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def back_to_instruments(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """Handle back to instruments button"""
         query = update.callback_query
         await query.answer()
         
         try:
-            # Verwijder de chart message
+            # Verwijder de huidige message (chart/sentiment/calendar)
             await query.message.delete()
             
-            # Stuur nieuwe message met instrument keuze
+            # Bepaal welke keyboard te tonen op basis van market
+            market = context.user_data.get('market', 'forex')
             keyboard_map = {
-                'technical': FOREX_KEYBOARD,
-                'sentiment': FOREX_KEYBOARD,
-                'calendar': FOREX_KEYBOARD
+                'forex': FOREX_KEYBOARD,
+                'crypto': CRYPTO_KEYBOARD,
+                'commodities': COMMODITIES_KEYBOARD,
+                'indices': INDICES_KEYBOARD
             }
             
-            analysis_type = context.user_data['analysis_type']
-            reply_markup = InlineKeyboardMarkup(keyboard_map[analysis_type])
-            
+            # Stuur nieuwe message met instrument keuze
             await query.message.reply_text(
-                text=f"Please select an instrument for {analysis_type.replace('_', ' ').title()} Analysis:",
-                reply_markup=reply_markup
+                text="Please select an instrument:",
+                reply_markup=InlineKeyboardMarkup(keyboard_map[market])
             )
             return CHOOSE_INSTRUMENT
             
         except Exception as e:
-            logger.error(f"Error handling back button: {str(e)}")
-            return CHOOSE_INSTRUMENT
+            logger.error(f"Error handling back to instruments: {str(e)}")
+            # Bij error terug naar hoofdmenu
+            await query.message.reply_text(
+                text="Sorry, something went wrong. Please select what you would like to do:",
+                reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
+            )
+            return CHOOSE_MENU
 
     async def back_to_analysis(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """Ga terug naar analyse type keuze"""
