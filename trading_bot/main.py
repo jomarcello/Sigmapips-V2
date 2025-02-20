@@ -60,32 +60,36 @@ async def webhook(request: Request):
             # Handle callback queries
             if update.callback_query:
                 callback_query = update.callback_query
-                data_parts = callback_query.data.split('_')
-                action = data_parts[0]
+                data = callback_query.data
+                logger.info(f"Received callback data: {data}")  # Log callback data
                 
-                if action == 'back':
+                if data.startswith('back_'):
                     # Handle back button
-                    back_type = data_parts[1]  # 'analysis', 'market', etc.
+                    back_type = data.split('_')[1]
                     await telegram.handle_back(callback_query, back_type)
                     return {"status": "success"}
-                    
-                elif action == 'analysis':
-                    analysis_type = data_parts[1]
-                    if analysis_type in ['technical', 'sentiment']:
-                        await telegram.show_market_selection(callback_query, analysis_type)
-                    elif analysis_type == 'calendar':
-                        await telegram.handle_calendar_button(callback_query, None)
+                
+                elif data == 'analysis_technical':
+                    await telegram.show_market_selection(callback_query, 'technical')
                     return {"status": "success"}
-                    
-                elif action == 'market':
-                    market = data_parts[1]
-                    analysis_type = data_parts[-1]
+                
+                elif data == 'analysis_sentiment':
+                    await telegram.show_market_selection(callback_query, 'sentiment')
+                    return {"status": "success"}
+                
+                elif data == 'analysis_calendar':
+                    await telegram.handle_calendar_button(callback_query, None)
+                    return {"status": "success"}
+                
+                elif data.startswith('market_'):
+                    market = data.split('_')[1]
+                    analysis_type = data.split('_')[-1]
                     await telegram.show_instruments(callback_query, market, analysis_type)
                     return {"status": "success"}
-                    
-                elif action == 'instrument':
-                    instrument = data_parts[1]
-                    analysis_type = data_parts[-1]
+                
+                elif data.startswith('instrument_'):
+                    instrument = data.split('_')[1]
+                    analysis_type = data.split('_')[-1]
                     if analysis_type == 'sentiment':
                         await telegram.show_sentiment_analysis(callback_query, instrument)
                     return {"status": "success"}
