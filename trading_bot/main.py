@@ -51,17 +51,9 @@ async def webhook(request: Request):
             update = Update.de_json(data, telegram.application.bot)
             
             # Handle commands (/start, etc.)
-            if update.message and update.message.text:
-                if update.message.text == '/start':
-                    try:
-                        await update.message.reply_text(
-                            text=WELCOME_MESSAGE,
-                            reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
-                        )
-                        return {"status": "success"}
-                    except Exception as e:
-                        logger.error(f"Error handling start command: {e}")
-                        return {"status": "error"}
+            if update.message and update.message.text and update.message.text.startswith('/'):
+                await telegram.application.process_update(update)
+                return {"status": "success"}
             
             # Handle callback queries
             if update.callback_query:
@@ -69,12 +61,7 @@ async def webhook(request: Request):
                 data = callback_query.data
                 logger.info(f"Received callback data: {data}")
                 
-                if data.startswith('menu_'):
-                    # Handle menu selections
-                    await telegram.menu_choice(update, {})
-                    return {"status": "success"}
-                
-                elif data.startswith('back_'):
+                if data.startswith('back_'):
                     # Handle back button
                     back_type = data.split('_')[1]
                     await telegram.handle_back(callback_query, back_type)
@@ -101,7 +88,7 @@ async def webhook(request: Request):
                 elif data.startswith('instrument_'):
                     parts = data.split('_')
                     instrument = parts[1]
-                    analysis_type = parts[2]  # Dit zou nu 'sentiment' moeten zijn
+                    analysis_type = parts[2]
                     
                     if analysis_type == 'sentiment':
                         await telegram.show_sentiment_analysis(callback_query, instrument)
