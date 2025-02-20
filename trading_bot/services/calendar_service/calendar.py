@@ -19,45 +19,51 @@ class EconomicCalendarService:
     async def get_economic_calendar(self, instrument: str = None) -> str:
         """Get economic calendar data"""
         try:
-            # Eerst echte kalender data ophalen
-            calendar_data = await self.get_calendar_data()
-            
-            if not calendar_data:
-                return self._get_fallback_calendar()
+            prompt = f"""Search and analyze today's economic calendar events for all major currency pairs.
 
-            # Format de data met DeepSeek
-            prompt = f"""Format this economic calendar data for {instrument if instrument else 'major currencies'} 
-            in an organized way with these exact requirements:
+1. First, search for today's economic events for these major currencies in order:
+   - EUR (Eurozone)
+   - USD (United States)
+   - GBP (United Kingdom)
+   - JPY (Japan)
+   - CHF (Switzerland)
+   - AUD (Australia)
+   - NZD (New Zealand)
 
-            1. Group events by currency/country with flag emoji
-            2. Show exact event times with ⏰ emoji
-            3. Show impact levels with colored circles (🔴 High, 🟡 Medium, ⚪ Low)
-            4. Sort events chronologically within each currency section
-            5. Show "No confirmed events scheduled" for currencies without events
-            6. End with impact level legend
+2. For each event include:
+   - Exact scheduled time in EST
+   - Full event name with any relevant period/dates
+   - Impact level on markets
+   
+3. Format the response like this:
 
-            Calendar Data:
-            {calendar_data}"""
+🇺🇸 United States (USD):
+⏰ 08:30 EST - Non-Farm Employment Change (Jan)
+🔴 High Impact
+
+🇪🇺 Eurozone (EUR):
+⏰ 05:00 EST - ECB Monetary Policy Statement
+🔴 High Impact
+
+For currencies with no events today, show:
+"No confirmed events scheduled."
+
+End with impact level legend."""
 
             payload = {
                 "model": "deepseek-chat",
                 "messages": [{
                     "role": "system",
-                    "content": """You are an economic calendar analyst. Format the response exactly like:
-
-🇺🇸 United States (USD):
-⏰ [TIME] EST - [EVENT NAME]
-[IMPACT EMOJI] [IMPACT LEVEL]
-
-Use:
-- Country flags and currency codes
-- ⏰ for times
-- 🔴 for High Impact
-- 🟡 for Medium Impact
-- ⚪ for Low Impact
-- Group by country
-- Sort by time
-- End with impact legend"""
+                    "content": """You are a real-time economic calendar analyst. Your task is to:
+                    1. Search for TODAY's actual economic events
+                    2. Only include confirmed events
+                    3. Sort events chronologically within each currency
+                    4. Use exact times in EST timezone
+                    5. Include full event names with periods (Q1, Jan, etc)
+                    6. Mark impact levels accurately:
+                       - 🔴 High: Rate decisions, NFP, GDP, CPI
+                       - 🟡 Medium: Trade balance, retail sales
+                       - ⚪ Low: Minor economic indicators"""
                 }, {
                     "role": "user",
                     "content": prompt
