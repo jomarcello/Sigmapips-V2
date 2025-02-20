@@ -24,7 +24,7 @@ class ChartService:
         self.chrome_options.add_argument('--disable-dev-shm-usage')
         self.chrome_options.add_argument('--window-size=1920,1080')
         
-        # Chart URL mapping voor alle instrumenten
+        # Chart URL mapping met exacte URLs
         self.chart_urls = {
             # Commodities
             'XAUUSD': 'https://www.tradingview.com/chart/bylCuCgc/',
@@ -92,15 +92,14 @@ class ChartService:
         try:
             logger.info(f"Generating chart for {symbol}")
             
-            # Get correct URL for symbol
-            chart_url = self.chart_urls.get(symbol)
-            if not chart_url:
-                # Fallback URL als symbol niet in mapping staat
-                chart_url = f"{self.base_url}?symbol={symbol}"
+            # Get base URL for symbol
+            base_url = self.chart_urls.get(symbol)
+            if not base_url:
+                logger.error(f"No chart URL found for symbol: {symbol}")
+                return None
             
-            # Voeg timeframe toe
-            chart_url = f"{chart_url}&interval={timeframe}"
-            
+            # Voeg timeframe toe aan bestaande URL
+            chart_url = f"{base_url}&interval={timeframe}"
             logger.info(f"Using chart URL: {chart_url}")
             
             service = Service()
@@ -109,31 +108,56 @@ class ChartService:
             
             try:
                 # Load chart
+                logger.info("Opening URL in Chrome...")
                 driver.get(chart_url)
-                logger.info("Waiting for chart to load...")
                 
-                # Wacht tot chart elementen geladen zijn
-                WebDriverWait(driver, 15).until(  # Langere timeout
-                    EC.presence_of_element_located((By.CLASS_NAME, "chart-container"))
+                # Wacht tot pagina geladen is
+                logger.info("Waiting for initial page load...")
+                WebDriverWait(driver, 10).until(
+                    EC.presence_of_element_located((By.TAG_NAME, "body"))
                 )
                 
-                # Extra wachttijd voor indicators
-                await asyncio.sleep(8)  # Iets langere wachttijd
+                # Check of er een error pagina is
+                if "Error" in driver.title:
+                    logger.error(f"TradingView error page: {driver.title}")
+                    return None
                 
-                # Verwijder UI elementen voor cleaner screenshot
+                logger.info("Waiting for chart container...")
+                try:
+                    WebDriverWait(driver, 15).until(
+                        EC.presence_of_element_located((By.CLASS_NAME, "chart-container"))
+                    )
+                except Exception as e:
+                    logger.error(f"Chart container not found: {str(e)}")
+                    logger.info(f"Current page source: {driver.page_source[:500]}")
+                    return None
+                
+                logger.info("Chart container found, waiting for indicators...")
+                await asyncio.sleep(8)
+                
+                # Verwijder UI elementen
+                logger.info("Removing UI elements...")
                 self._remove_ui_elements(driver)
                 
                 # Screenshot maken
+                logger.info("Taking screenshot...")
                 screenshot = driver.get_screenshot_as_png()
                 logger.info("Chart captured successfully")
                 
                 return screenshot
                 
+            except Exception as e:
+                logger.error(f"Error in Chrome: {str(e)}")
+                if driver:
+                    logger.error(f"Page source: {driver.page_source[:500]}")
+                return None
+                
             finally:
-                driver.quit()
+                if driver:
+                    driver.quit()
                 
         except Exception as e:
-            logger.error(f"Error generating chart: {str(e)}")
+            logger.error(f"Error in generate_chart: {str(e)}")
             return None
 
     def _get_chart_url(self, symbol: str) -> str:
