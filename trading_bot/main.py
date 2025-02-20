@@ -47,23 +47,20 @@ async def webhook(request: Request):
         data = await request.json()
         logger.info(f"Received webhook: {data}")
         
-        # Check of dit een Telegram update is
         if 'update_id' in data:
-            # Maak een Update object
             update = Update.de_json(data, telegram.application.bot)
             
-            # Handle commands (/start, etc.)
-            if update.message and update.message.text and update.message.text.startswith('/'):
-                await telegram.application.process_update(update)
-                return {"status": "success"}
-            
-            # Handle callback queries
             if update.callback_query:
                 callback_query = update.callback_query
                 data = callback_query.data
-                logger.info(f"Received callback data: {data}")  # Log callback data
+                logger.info(f"Received callback data: {data}")
                 
-                if data.startswith('back_'):
+                if data.startswith('menu_'):
+                    # Handle menu selections
+                    await telegram.menu_choice(update, {})
+                    return {"status": "success"}
+                
+                elif data.startswith('back_'):
                     # Handle back button
                     back_type = data.split('_')[1]
                     await telegram.handle_back(callback_query, back_type)
@@ -78,7 +75,7 @@ async def webhook(request: Request):
                     return {"status": "success"}
                 
                 elif data == 'analysis_calendar':
-                    await telegram.handle_calendar_button(callback_query, None)
+                    await telegram.handle_calendar_button(callback_query.to_dict(), None)
                     return {"status": "success"}
                 
                 elif data.startswith('market_'):
