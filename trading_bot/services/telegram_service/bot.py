@@ -1162,27 +1162,33 @@ Risk Management:
     async def handle_calendar_button(self, callback_query: Dict[str, Any], instrument: str):
         """Handle calendar button click"""
         try:
-            # Get calendar data
-            calendar_data = await self.calendar.get_economic_calendar(instrument)
-            
-            # Update existing message with calendar
+            # Toon loading message
             await self.bot.edit_message_text(
                 chat_id=callback_query['message']['chat']['id'],
                 message_id=callback_query['message']['message_id'],
-                text=f"📅 Economic Calendar for {instrument}\n\n{calendar_data}",
+                text="⏳ Loading Economic Calendar...\n\nFetching latest economic events..."
+            )
+
+            # Get calendar data
+            calendar_data = await self.calendar.get_economic_calendar(instrument)
+            
+            # Update message with calendar data
+            await self.bot.edit_message_text(
+                chat_id=callback_query['message']['chat']['id'],
+                message_id=callback_query['message']['message_id'],
+                text=calendar_data,
                 reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("⬅️ Back", callback_data=f"back_to_signal_{instrument}")
+                    InlineKeyboardButton("⬅️ Back", callback_data="back_analysis")  # Fix: changed to back_analysis
                 ]])
             )
         except Exception as e:
             logger.error(f"Error handling calendar button: {str(e)}")
-            # Stuur een foutmelding naar de gebruiker
             await self.bot.edit_message_text(
                 chat_id=callback_query['message']['chat']['id'],
                 message_id=callback_query['message']['message_id'],
-                text=f"Sorry, er is een fout opgetreden bij het ophalen van de economische kalender voor {instrument}. Probeer het later opnieuw.",
+                text="Sorry, er is een fout opgetreden bij het ophalen van de economische kalender. Probeer het later opnieuw.",
                 reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("⬅️ Back", callback_data=f"back_to_signal_{instrument}")
+                    InlineKeyboardButton("⬅️ Back", callback_data="back_analysis")  # Fix: changed to back_analysis
                 ]])
             )
 
