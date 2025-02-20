@@ -26,18 +26,18 @@ class MarketSentimentService:
             # Create prompt for DeepSeek
             prompt = f"""Analyze the current market sentiment and latest news for {symbol}. Include both technical analysis and fundamental factors.
 
-<b>{symbol} Market Analysis</b>
+🎯 {symbol} Market Analysis
 
-<b>Market Direction:</b>
+📈 Market Direction:
 [Analyze current price action, trend direction, and momentum. Include impact of latest economic data and central bank policies]
 
-<b>Latest News & Events:</b>
+📰 Latest News & Events:
 • [Most recent significant news affecting {symbol}]
 • [Relevant economic data releases]
 • [Central bank actions/statements]
 • [Other market-moving events]
 
-<b>Key Levels:</b>
+🎚️ Key Levels:
 • Support Levels:
   - [Immediate support with exact price and technical/fundamental reason]
   - [Major support with exact price and historical significance]
@@ -45,21 +45,14 @@ class MarketSentimentService:
   - [Immediate resistance with exact price and technical/fundamental reason]
   - [Major resistance with exact price and historical significance]
 
-<b>Risk Factors:</b>
+⚠️ Risk Factors:
 • Economic: [Current economic risks and data impacts]
 • Political: [Relevant political factors affecting the pair]
 • Technical: [Key technical risks and pattern warnings]
 • Market: [Current market sentiment and positioning risks]
 
-<b>Trading Strategy:</b>
-• Short Term: [Day trading/swing trading strategy with specific entry/exit points]
-• Long Term: [Position trading outlook with key levels]
-• Risk Management: [Position sizing and stop loss recommendations]
-
-<b>Conclusion:</b>
-[Summarize overall outlook and provide specific actionable trading recommendation]
-
-Use HTML formatting, include specific price levels, and focus on actionable insights based on both technical and news analysis."""
+💡 Conclusion:
+[Summarize overall outlook and provide specific actionable trading recommendation]"""
 
             payload = {
                 "model": "deepseek-chat",
@@ -72,7 +65,8 @@ Use HTML formatting, include specific price levels, and focus on actionable insi
                     - Central bank actions
                     - Specific price levels
                     - Clear trading recommendations
-                    Base your analysis on current market conditions and recent events."""
+                    Base your analysis on current market conditions and recent events.
+                    Do not include any HTML tags or formatting marks in your response."""
                 }, {
                     "role": "user",
                     "content": prompt
