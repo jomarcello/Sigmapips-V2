@@ -92,14 +92,12 @@ class ChartService:
         try:
             logger.info(f"Generating chart for {symbol}")
             
-            # Get base URL for symbol
-            base_url = self.chart_urls.get(symbol)
-            if not base_url:
+            # Get exact URL for symbol
+            chart_url = self.chart_urls.get(symbol)
+            if not chart_url:
                 logger.error(f"No chart URL found for symbol: {symbol}")
                 return None
             
-            # Voeg timeframe toe aan bestaande URL
-            chart_url = f"{base_url}&interval={timeframe}"
             logger.info(f"Using chart URL: {chart_url}")
             
             service = Service()
