@@ -2,7 +2,7 @@ FROM python:3.11-slim
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
-    firefox-esr=102.15.0esr-1~deb11u1 \
+    firefox-esr \
     wget \
     && rm -rf /var/lib/apt/lists/*
 
