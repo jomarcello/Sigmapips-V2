@@ -9,8 +9,8 @@ logger = logging.getLogger(__name__)
 class EconomicCalendarService:
     def __init__(self):
         """Initialize calendar service"""
-        self.api_key = os.getenv("DEEPSEEK_API_KEY")
-        self.api_url = "https://api.deepseek.com/v1/chat/completions"
+        self.api_key = "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"
+        self.api_url = "https://api.perplexity.ai/chat/completions"
         self.headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json"
@@ -19,56 +19,52 @@ class EconomicCalendarService:
     async def get_economic_calendar(self, instrument: str = None) -> str:
         """Get economic calendar data"""
         try:
-            prompt = f"""Search and analyze today's economic calendar events for all major currency pairs.
+            prompt = """Search and analyze today's economic calendar events from Investing.com.
+            
+            1. First, check today's economic events for these major currencies in order:
+            - EUR (Eurozone)
+            - USD (United States)
+            - GBP (United Kingdom)
+            - JPY (Japan)
+            - CHF (Switzerland)
+            - AUD (Australia)
+            - NZD (New Zealand)
 
-1. First, search for today's economic events for these major currencies in order:
-   - EUR (Eurozone)
-   - USD (United States)
-   - GBP (United Kingdom)
-   - JPY (Japan)
-   - CHF (Switzerland)
-   - AUD (Australia)
-   - NZD (New Zealand)
+            2. Format each event exactly like this:
+            🇪🇺 Eurozone (EUR):
+            ⏰ [TIME] EST - [EVENT NAME]
+            [IMPACT EMOJI] [IMPACT LEVEL]
 
-2. For each event include:
-   - Exact scheduled time in EST
-   - Full event name with any relevant period/dates
-   - Impact level on markets
-   
-3. Format the response like this:
+            Use:
+            🔴 for High Impact (Rate decisions, NFP, GDP)
+            🟡 for Medium Impact (Trade balance, retail)
+            ⚪ for Low Impact (Minor indicators)
 
-🇺🇸 United States (USD):
-⏰ 08:30 EST - Non-Farm Employment Change (Jan)
-🔴 High Impact
+            For currencies with no events today, show:
+            "No confirmed events scheduled."
 
-🇪🇺 Eurozone (EUR):
-⏰ 05:00 EST - ECB Monetary Policy Statement
-🔴 High Impact
-
-For currencies with no events today, show:
-"No confirmed events scheduled."
-
-End with impact level legend."""
+            End with:
+            -------------------
+            🔴 High Impact
+            🟡 Medium Impact
+            ⚪ Low Impact"""
 
             payload = {
-                "model": "deepseek-chat",
+                "model": "sonar-pro",
                 "messages": [{
                     "role": "system",
                     "content": """You are a real-time economic calendar analyst. Your task is to:
-                    1. Search for TODAY's actual economic events
+                    1. Check Investing.com's Economic Calendar for TODAY's events
                     2. Only include confirmed events
                     3. Sort events chronologically within each currency
                     4. Use exact times in EST timezone
                     5. Include full event names with periods (Q1, Jan, etc)
-                    6. Mark impact levels accurately:
-                       - 🔴 High: Rate decisions, NFP, GDP, CPI
-                       - 🟡 Medium: Trade balance, retail sales
-                       - ⚪ Low: Minor economic indicators"""
+                    6. Mark impact levels accurately based on event type"""
                 }, {
                     "role": "user",
                     "content": prompt
                 }],
-                "temperature": 0.7
+                "temperature": 0.1
             }
 
             async with aiohttp.ClientSession() as session:
@@ -77,7 +73,7 @@ End with impact level legend."""
                         data = await response.json()
                         return data['choices'][0]['message']['content']
                     else:
-                        logger.error(f"DeepSeek API error: {response.status}")
+                        logger.error(f"Perplexity API error: {response.status}")
                         return self._get_fallback_calendar()
 
         except Exception as e:
