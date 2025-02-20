@@ -1138,7 +1138,6 @@ Risk Management:
                         InlineKeyboardButton("⬅️ Back", callback_data=f"back_to_signal_{instrument}")
                     ]])
                 )
-                )
         except Exception as e:
             logger.error(f"Error handling chart button: {str(e)}")
 
