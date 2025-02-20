@@ -2,7 +2,7 @@ from fastapi import FastAPI, HTTPException, Request
 import logging
 import os
 from typing import Dict, Any
-from telegram import Update
+from telegram import Update, InlineKeyboardMarkup
 import asyncio
 import time
 import base64
@@ -50,6 +50,20 @@ async def webhook(request: Request):
         if 'update_id' in data:
             update = Update.de_json(data, telegram.application.bot)
             
+            # Handle commands (/start, etc.)
+            if update.message and update.message.text:
+                if update.message.text == '/start':
+                    try:
+                        await update.message.reply_text(
+                            text=WELCOME_MESSAGE,
+                            reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
+                        )
+                        return {"status": "success"}
+                    except Exception as e:
+                        logger.error(f"Error handling start command: {e}")
+                        return {"status": "error"}
+            
+            # Handle callback queries
             if update.callback_query:
                 callback_query = update.callback_query
                 data = callback_query.data
