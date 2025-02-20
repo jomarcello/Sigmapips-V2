@@ -1143,12 +1143,21 @@ Risk Management:
             )
         except Exception as e:
             logger.error(f"Error handling sentiment button: {str(e)}")
+            # Stuur een foutmelding naar de gebruiker
+            await self.bot.edit_message_text(
+                chat_id=callback_query['message']['chat']['id'],
+                message_id=callback_query['message']['message_id'],
+                text=f"Sorry, er is een fout opgetreden bij het ophalen van de sentiment analyse voor {instrument}. Probeer het later opnieuw.",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("⬅️ Back", callback_data=f"back_to_signal_{instrument}")
+                ]])
+            )
 
     async def handle_calendar_button(self, callback_query: Dict[str, Any], instrument: str):
         """Handle calendar button click"""
         try:
-            # Get calendar
-            calendar_data = await self.calendar.get_economic_calendar()
+            # Get calendar data
+            calendar_data = await self.calendar.get_economic_calendar(instrument)
             
             # Update existing message with calendar
             await self.bot.edit_message_text(
@@ -1161,6 +1170,15 @@ Risk Management:
             )
         except Exception as e:
             logger.error(f"Error handling calendar button: {str(e)}")
+            # Stuur een foutmelding naar de gebruiker
+            await self.bot.edit_message_text(
+                chat_id=callback_query['message']['chat']['id'],
+                message_id=callback_query['message']['message_id'],
+                text=f"Sorry, er is een fout opgetreden bij het ophalen van de economische kalender voor {instrument}. Probeer het later opnieuw.",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("⬅️ Back", callback_data=f"back_to_signal_{instrument}")
+                ]])
+            )
 
     async def cancel(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """Cancel and end the conversation."""
