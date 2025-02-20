@@ -972,7 +972,7 @@ Risk Management:
                 # Sentiment Analysis
                 loading_message = await query.edit_message_text(
                     text=f"⏳ Analyzing market sentiment for {instrument}...\n\n"
-                         f"Please wait while I gather the data ��"
+                         f"Please wait while I gather the data 📊"
                 )
                 
                 sentiment_data = await self.sentiment.get_market_sentiment(instrument)
@@ -1225,3 +1225,87 @@ Risk Management:
             logger.info("Test signal sent successfully")
         except Exception as e:
             logger.error(f"Error sending test signal: {str(e)}")
+
+    async def show_market_selection(self, callback_query: CallbackQuery, analysis_type: str):
+        """Toon market selectie met analysis type in callback data"""
+        try:
+            keyboard = []
+            for row in MARKET_KEYBOARD:
+                new_row = []
+                for button in row:
+                    # Voeg analysis_type toe aan callback_data
+                    new_button = InlineKeyboardButton(
+                        text=button.text,
+                        callback_data=f"{button.callback_data}_{analysis_type}"
+                    )
+                    new_row.append(new_button)
+                keyboard.append(new_row)
+            
+            await callback_query.edit_message_text(
+                text="Please select a market:",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+        except Exception as e:
+            logger.error(f"Error showing market selection: {str(e)}")
+
+    async def show_instruments(self, callback_query: CallbackQuery, market: str, analysis_type: str):
+        """Toon instrumenten voor gekozen market"""
+        try:
+            # Kies juiste keyboard op basis van market
+            keyboard_map = {
+                'forex': FOREX_KEYBOARD,
+                'crypto': CRYPTO_KEYBOARD,
+                'commodities': COMMODITIES_KEYBOARD,
+                'indices': INDICES_KEYBOARD
+            }
+            base_keyboard = keyboard_map.get(market, FOREX_KEYBOARD)
+            
+            # Voeg analysis_type toe aan callback data
+            keyboard = []
+            for row in base_keyboard:
+                new_row = []
+                for button in row:
+                    new_button = InlineKeyboardButton(
+                        text=button.text,
+                        callback_data=f"{button.callback_data}_{analysis_type}"
+                    )
+                    new_row.append(new_button)
+                keyboard.append(new_row)
+            
+            await callback_query.edit_message_text(
+                text=f"Select an instrument from {market.title()}:",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+        except Exception as e:
+            logger.error(f"Error showing instruments: {str(e)}")
+
+    async def show_sentiment_analysis(self, callback_query: CallbackQuery, instrument: str):
+        """Toon sentiment analyse voor gekozen instrument"""
+        try:
+            # Toon loading message
+            await callback_query.edit_message_text(
+                text=f"⏳ Analyzing market sentiment for {instrument}...\n"
+                     "Please wait while I gather the data 📊"
+            )
+            
+            # Get sentiment data
+            sentiment_data = await self.sentiment.get_market_sentiment({
+                'symbol': instrument,
+                'market': 'crypto' if 'USD' in instrument else 'forex'
+            })
+            
+            # Toon resultaat met back button
+            keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data=f"back_to_instruments")]]
+            
+            await callback_query.edit_message_text(
+                text=f"🤖 Market Sentiment Analysis for {instrument}\n\n{sentiment_data}",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+        except Exception as e:
+            logger.error(f"Error showing sentiment analysis: {str(e)}")
+            await callback_query.edit_message_text(
+                text=f"Sorry, an error occurred while analyzing {instrument}. Please try again.",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("⬅️ Back", callback_data="back_to_instruments")
+                ]])
+            )
