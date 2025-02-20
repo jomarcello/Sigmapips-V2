@@ -65,7 +65,7 @@ async def webhook(request: Request):
                 
                 if action == 'back':
                     # Handle back button
-                    back_type = data_parts[1] if len(data_parts) > 1 else 'menu'
+                    back_type = data_parts[1]  # 'analysis', 'market', etc.
                     await telegram.handle_back(callback_query, back_type)
                     return {"status": "success"}
                     
