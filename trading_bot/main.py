@@ -50,26 +50,34 @@ async def webhook(request: Request):
         # Check of dit een Telegram update is
         if 'update_id' in data:
             # Dit is een Telegram update
-            if 'message' in data and 'entities' in data['message']:
-                # Dit is een command
-                await telegram.application.update_queue.put(Update.de_json(data, telegram.application.bot))
-                return {"status": "success"}
-            
             if 'callback_query' in data:
                 callback_query = data['callback_query']
                 data_parts = callback_query['data'].split('_')
                 action = data_parts[0]
                 
-                if action == 'chart':
-                    instrument, timeframe = data_parts[1:]
-                    await telegram.handle_chart_button(callback_query, instrument, timeframe)
-                elif action == 'sentiment':
+                if action == 'analysis':
+                    analysis_type = data_parts[1]
+                    if analysis_type == 'sentiment':
+                        # Haal instrument uit user data of gebruik default
+                        instrument = "EURUSD"  # Default instrument
+                        await telegram.handle_sentiment_button(callback_query, instrument)
+                        return {"status": "success"}
+                    elif analysis_type == 'calendar':
+                        # Voor calendar hoeven we geen instrument te hebben
+                        await telegram.handle_calendar_button(callback_query, None)
+                        return {"status": "success"}
+                
+                elif action in ['chart', 'sentiment', 'calendar']:
                     instrument = data_parts[1]
-                    await telegram.handle_sentiment_button(callback_query, instrument)
-                elif action == 'calendar':
-                    instrument = data_parts[1]
-                    await telegram.handle_calendar_button(callback_query, instrument)
-                    
+                    if action == 'chart':
+                        timeframe = data_parts[2] if len(data_parts) > 2 else "1h"
+                        await telegram.handle_chart_button(callback_query, instrument, timeframe)
+                    elif action == 'sentiment':
+                        await telegram.handle_sentiment_button(callback_query, instrument)
+                    elif action == 'calendar':
+                        await telegram.handle_calendar_button(callback_query, instrument)
+                    return {"status": "success"}
+            
             # Laat de application handler dit afhandelen
             await telegram.application.update_queue.put(Update.de_json(data, telegram.application.bot))
             return {"status": "success"}
@@ -149,4 +157,14 @@ async def receive_signal(signal: Dict[str, Any]):
         
     except Exception as e:
         logger.error(f"Error processing signal: {str(e)}")
+        return {"status": "error", "message": str(e)}
+
+@app.post("/test-signal")
+async def send_test_signal():
+    """Endpoint om een test signaal te versturen"""
+    try:
+        await telegram.send_test_signal()
+        return {"status": "success", "message": "Test signal sent"}
+    except Exception as e:
+        logger.error(f"Error sending test signal: {str(e)}")
         return {"status": "error", "message": str(e)}
