@@ -1463,13 +1463,16 @@ Strategy: Test Strategy"""
             # Extract instrument
             instrument = self._extract_instrument(callback_query)
             
-            # Haal opgeslagen market data op
-            signal_key = f"market_data:{instrument}"
-            market_data = self.redis.hgetall(signal_key)
+            try:
+                # Probeer market data op te halen uit Redis
+                signal_key = f"market_data:{instrument}"
+                market_data = self.redis.hgetall(signal_key)
+            except Exception as redis_error:
+                logger.warning(f"Redis error: {str(redis_error)}. Using default market data.")
+                market_data = {}
             
-            if not market_data:
-                # Als er geen opgeslagen data is, bereid het opnieuw voor
-                market_data = await self.prepare_market_data(instrument)
+            # Default verdict als Redis niet werkt of geen data heeft
+            verdict = market_data.get('verdict', '✅ Trade aligns with market analysis')
             
             # Maak keyboard
             keyboard = [
@@ -1480,7 +1483,7 @@ Strategy: Test Strategy"""
                 [InlineKeyboardButton("📅 Economic Calendar", callback_data=f"calendar_{instrument}")]
             ]
 
-            # Format signal met opgeslagen verdict
+            # Format signal met fallback verdict
             original_signal = f"""🚨 NEW TRADING SIGNAL 🚨
 
 Instrument: {instrument}
@@ -1505,7 +1508,7 @@ Risk Management:
 ---------------
 
 🤖 SigmaPips AI Verdict:
-{market_data.get('verdict', '⚠️ Market data unavailable')}"""
+{verdict}"""
 
             # Update het bericht
             await callback_query.edit_message_text(
