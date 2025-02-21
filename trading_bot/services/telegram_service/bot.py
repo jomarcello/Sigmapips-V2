@@ -1434,26 +1434,32 @@ Strategy: Test Strategy"""
                 # Converteer bytes naar strings
                 original_data = {k.decode('utf-8'): v.decode('utf-8') for k, v in original_data.items()}
                 
-                # Parse keyboard data
-                keyboard_data = json.loads(original_data['keyboard'])
-                keyboard = []
-                for row in keyboard_data:
-                    keyboard_row = []
-                    for button in row:
-                        keyboard_row.append(InlineKeyboardButton(
-                            text=button['text'],
-                            callback_data=button['callback_data']
-                        ))
-                    keyboard.append(keyboard_row)
+                # Maak de originele keyboard voor trading signals
+                keyboard = [
+                    [
+                        InlineKeyboardButton("📊 Technical Analysis", callback_data=f"chart_{callback_query.message.text.split()[1]}"),
+                        InlineKeyboardButton("🤖 Market Sentiment", callback_data=f"sentiment_{callback_query.message.text.split()[1]}")
+                    ],
+                    [InlineKeyboardButton("📅 Economic Calendar", callback_data=f"calendar_{callback_query.message.text.split()[1]}")]
+                ]
                 
                 # Update het bericht
                 await callback_query.edit_message_text(
-                    text=original_data['text'],
+                    text=original_data.get('text', "Signal not found"),
                     parse_mode=original_data.get('parse_mode', 'HTML'),
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
             else:
+                # Fallback als er geen cached data is
                 logger.warning(f"No cached data found for message {callback_query.message.message_id}")
+                # Stuur een generiek bericht terug
+                await callback_query.edit_message_text(
+                    text="Sorry, the original signal could not be retrieved.",
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("⬅️ Back to Menu", callback_data="back_menu")
+                    ]])
+                )
             
         except Exception as e:
             logger.error(f"Error showing original signal: {str(e)}")
+            await callback_query.answer("Error: Could not retrieve original signal")
