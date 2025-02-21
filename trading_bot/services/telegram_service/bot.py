@@ -99,7 +99,7 @@ MARKET_KEYBOARD = [
 SIGNALS_KEYBOARD = [
     [InlineKeyboardButton("➕ Add New Pairs", callback_data="signals_add")],
     [InlineKeyboardButton("⚙️ Manage Preferences", callback_data="signals_manage")],
-    [InlineKeyboardButton("⬅️ Back", callback_data="back_to_menu")]
+    [InlineKeyboardButton("⬅️ Back", callback_data="back_menu")]
 ]
 
 # Style keyboard
