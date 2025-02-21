@@ -408,26 +408,13 @@ Risk Management:
         return message
 
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-        """Start the conversation and show main menu"""
+        """Start the conversation."""
         try:
-            user_id = update.effective_user.id
-            logger.info(f"Starting conversation with user {user_id}")
+            user = update.effective_user
+            logger.info(f"Starting conversation with user {user.id}")
             
             # Reset user data
             context.user_data.clear()
-            
-            # Sla het bericht op in de chat geschiedenis
-            message = update.message.text
-            self.chat_history.save_chat(
-                session_name=f"user_{user_id}",
-                chat_text=message
-            )
-            
-            # Haal relevante context op voor dit gesprek
-            relevant_context = self.chat_history.get_context_for_session(
-                session_name=f"user_{user_id}",
-                query=message
-            )
             
             # Stuur welkomstbericht met START_KEYBOARD
             await update.message.reply_text(
