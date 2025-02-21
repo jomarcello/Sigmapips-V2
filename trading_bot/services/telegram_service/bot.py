@@ -1422,3 +1422,38 @@ Strategy: Test Strategy"""
             )
         except Exception as e:
             logger.error(f"Error handling back to signals: {str(e)}")
+
+    async def show_original_signal(self, callback_query: CallbackQuery) -> None:
+        """Toon het originele signaal bericht"""
+        try:
+            # Haal het originele bericht op uit Redis
+            message_key = f"signal:{callback_query.message.message_id}"
+            original_data = self.redis.hgetall(message_key)
+            
+            if original_data:
+                # Converteer bytes naar strings
+                original_data = {k.decode('utf-8'): v.decode('utf-8') for k, v in original_data.items()}
+                
+                # Parse keyboard data
+                keyboard_data = json.loads(original_data['keyboard'])
+                keyboard = []
+                for row in keyboard_data:
+                    keyboard_row = []
+                    for button in row:
+                        keyboard_row.append(InlineKeyboardButton(
+                            text=button['text'],
+                            callback_data=button['callback_data']
+                        ))
+                    keyboard.append(keyboard_row)
+                
+                # Update het bericht
+                await callback_query.edit_message_text(
+                    text=original_data['text'],
+                    parse_mode=original_data.get('parse_mode', 'HTML'),
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            else:
+                logger.warning(f"No cached data found for message {callback_query.message.message_id}")
+            
+        except Exception as e:
+            logger.error(f"Error showing original signal: {str(e)}")
