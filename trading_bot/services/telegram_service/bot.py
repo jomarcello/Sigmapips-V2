@@ -92,7 +92,7 @@ MARKET_KEYBOARD = [
     [InlineKeyboardButton("Crypto", callback_data="market_crypto")],
     [InlineKeyboardButton("Commodities", callback_data="market_commodities")],
     [InlineKeyboardButton("Indices", callback_data="market_indices")],
-    [InlineKeyboardButton("⬅️ Back", callback_data="back")]
+    [InlineKeyboardButton("⬅️ Back", callback_data="back_signals")]
 ]
 
 # Signals menu keyboard
@@ -1295,26 +1295,23 @@ Risk Management:
         """Handle back button clicks"""
         try:
             if back_type == 'menu':
-                # Terug naar hoofdmenu
                 await callback_query.edit_message_text(
                     text=WELCOME_MESSAGE,
                     reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
                 )
             elif back_type == 'analysis':
-                # Terug naar analyse type keuze
                 await callback_query.edit_message_text(
                     text="Select your analysis type:",
                     reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
                 )
+            elif back_type == 'signals':
+                await callback_query.edit_message_text(
+                    text="What would you like to do with trading signals?",
+                    reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD)
+                )
             elif back_type == 'market':
-                # Terug naar market selectie
                 analysis_type = callback_query.message.reply_markup.inline_keyboard[0][0].callback_data.split('_')[-1]
                 await self.show_market_selection(callback_query, analysis_type)
-            elif back_type == 'instruments':
-                # Terug naar instrument selectie
-                market = callback_query.message.reply_markup.inline_keyboard[0][0].callback_data.split('_')[1]
-                analysis_type = callback_query.message.reply_markup.inline_keyboard[0][0].callback_data.split('_')[-1]
-                await self.show_instruments(callback_query, market, analysis_type)
         except Exception as e:
             logger.error(f"Error handling back button: {str(e)}")
             await callback_query.edit_message_text(
