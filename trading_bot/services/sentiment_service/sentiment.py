@@ -19,20 +19,20 @@ class MarketSentimentService:
     async def get_market_sentiment(self, signal: Dict[str, Any]) -> str:
         """Get market sentiment analysis"""
         try:
-            symbol = signal.get('symbol', '')
-            market = 'crypto' if any(crypto in symbol for crypto in ['BTC', 'ETH', 'XRP']) else 'forex'
-            logger.info(f"Getting market sentiment for {symbol} ({market})")
+            instrument = signal.get('instrument', '')
+            market = signal.get('market', 'forex')
+            logger.info(f"Getting market sentiment for {instrument} ({market})")
             
             # Create prompt for DeepSeek
-            prompt = f"""Analyze the current market sentiment and latest news for {symbol}. Include both technical analysis and fundamental factors.
+            prompt = f"""Analyze the current market sentiment and latest news for {instrument}. Include both technical analysis and fundamental factors.
 
-🎯 {symbol} Market Analysis
+🎯 {instrument} Market Analysis
 
 📈 Market Direction:
 [Analyze current price action, trend direction, and momentum. Include impact of latest economic data and central bank policies]
 
 📡 Latest News & Events:
-• [Most recent significant news affecting {symbol}]
+• [Most recent significant news affecting {instrument}]
 • [Relevant economic data releases]
 • [Central bank actions/statements]
 • [Other market-moving events]
@@ -113,7 +113,7 @@ class MarketSentimentService:
 
     def _get_fallback_sentiment(self, signal: Dict[str, Any]) -> str:
         """Fallback sentiment analysis"""
-        symbol = signal.get('symbol', 'Unknown')
+        symbol = signal.get('instrument', 'Unknown')
         return f"""<b>{symbol} Market Analysis</b>
 
 <b>Market Direction:</b>
