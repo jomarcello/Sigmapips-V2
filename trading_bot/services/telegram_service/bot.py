@@ -1193,36 +1193,34 @@ Strategy: Test Strategy"""
                 ]])
             )
 
-    async def handle_calendar_button(self, callback_query: Dict[str, Any], instrument: str):
+    async def handle_calendar_button(self, callback_query: CallbackQuery, instrument: str):
         """Handle calendar button click"""
         try:
             # Toon loading message
-            await self.bot.edit_message_text(
-                chat_id=callback_query['message']['chat']['id'],
-                message_id=callback_query['message']['message_id'],
-                text="⏳ Loading Economic Calendar...\n\nFetching latest economic events..."
+            await callback_query.edit_message_text(
+                text="⏳ Loading Economic Calendar...\n\nFetching latest economic events...",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal")
+                ]])
             )
 
             # Get calendar data
             calendar_data = await self.calendar.get_economic_calendar(instrument)
             
             # Update message with calendar data
-            await self.bot.edit_message_text(
-                chat_id=callback_query['message']['chat']['id'],
-                message_id=callback_query['message']['message_id'],
+            await callback_query.edit_message_text(
                 text=calendar_data,
+                parse_mode=ParseMode.HTML,
                 reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("⬅️ Back", callback_data="back_analysis")  # Changed to back_analysis
+                    InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal")
                 ]])
             )
         except Exception as e:
             logger.error(f"Error handling calendar button: {str(e)}")
-            await self.bot.edit_message_text(
-                chat_id=callback_query['message']['chat']['id'],
-                message_id=callback_query['message']['message_id'],
+            await callback_query.edit_message_text(
                 text="Sorry, er is een fout opgetreden bij het ophalen van de economische kalender. Probeer het later opnieuw.",
                 reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("⬅️ Back", callback_data="back_analysis")  # Changed to back_analysis
+                    InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal")
                 ]])
             )
 
