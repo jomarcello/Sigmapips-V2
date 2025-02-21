@@ -120,16 +120,12 @@ def _detect_market(symbol: str) -> str:
     """Detecteer market type gebaseerd op symbol"""
     symbol = symbol.upper()
     
-    # Commodities eerst checken (uitgebreide lijst)
+    # Commodities eerst checken
     commodities = [
         "XAUUSD",  # Gold
         "XAGUSD",  # Silver
         "WTIUSD",  # Oil WTI
         "BCOUSD",  # Oil Brent
-        "NATGAS",  # Natural Gas
-        "COPPER",  # Copper
-        "PLATINUM", # Platinum
-        "PALLADIUM" # Palladium
     ]
     if symbol in commodities:
         logger.info(f"Detected {symbol} as commodity")
