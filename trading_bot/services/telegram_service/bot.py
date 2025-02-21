@@ -1431,10 +1431,36 @@ Strategy: Test Strategy"""
         except Exception as e:
             logger.error(f"Error handling back to signals: {str(e)}")
 
+    def _extract_instrument(self, callback_query: CallbackQuery) -> str:
+        """Extract instrument from callback query data or message"""
+        try:
+            # Probeer eerst uit callback data
+            if callback_query.data:
+                # Voor calendar_EURUSD of sentiment_BTCUSD etc.
+                parts = callback_query.data.split('_')
+                if len(parts) >= 2:
+                    return parts[1]
+            
+            # Als dat niet lukt, probeer uit het originele bericht
+            if callback_query.message and callback_query.message.text:
+                # Zoek naar "Instrument: XXX" in het bericht
+                lines = callback_query.message.text.split('\n')
+                for line in lines:
+                    if line.startswith('Instrument:'):
+                        return line.split(':')[1].strip()
+            
+            # Fallback naar default instrument
+            logger.warning("Could not extract instrument, using default")
+            return "EURUSD"
+            
+        except Exception as e:
+            logger.error(f"Error extracting instrument: {str(e)}")
+            return "EURUSD"
+
     async def show_original_signal(self, callback_query: CallbackQuery) -> None:
         """Toon het originele signaal bericht"""
         try:
-            # Extract instrument (je bestaande code)
+            # Extract instrument
             instrument = self._extract_instrument(callback_query)
             
             # Haal opgeslagen market data op
@@ -1448,7 +1474,7 @@ Strategy: Test Strategy"""
             # Maak keyboard
             keyboard = [
                 [
-                    InlineKeyboardButton("�� Technical Analysis", callback_data=f"chart_{instrument}"),
+                    InlineKeyboardButton("📊 Technical Analysis", callback_data=f"chart_{instrument}"),
                     InlineKeyboardButton("🤖 Market Sentiment", callback_data=f"sentiment_{instrument}")
                 ],
                 [InlineKeyboardButton("📅 Economic Calendar", callback_data=f"calendar_{instrument}")]
@@ -1479,7 +1505,7 @@ Risk Management:
 ---------------
 
 🤖 SigmaPips AI Verdict:
-{market_data['verdict']}"""
+{market_data.get('verdict', '⚠️ Market data unavailable')}"""
 
             # Update het bericht
             await callback_query.edit_message_text(
