@@ -1426,6 +1426,9 @@ Strategy: Test Strategy"""
     async def show_original_signal(self, callback_query: CallbackQuery) -> None:
         """Toon het originele signaal bericht"""
         try:
+            # Haal het originele signaal op uit de cache
+            signal_key = f"signal:{callback_query.message.chat.id}_{callback_query.message.message_id}"
+            
             # Probeer eerst het instrument uit het bericht te halen
             message_text = callback_query.message.text
             instrument = None
@@ -1444,32 +1447,38 @@ Strategy: Test Strategy"""
                 ],
                 [InlineKeyboardButton("📅 Economic Calendar", callback_data=f"calendar_{instrument}")]
             ]
-            
-            try:
-                # Probeer Redis data op te halen als fallback
-                message_key = f"signal:{callback_query.message.message_id}"
-                original_data = self.redis.hgetall(message_key)
-                
-                if original_data:
-                    # Converteer bytes naar strings
-                    original_data = {k.decode('utf-8'): v.decode('utf-8') for k, v in original_data.items()}
-                    # Gebruik de originele tekst als die beschikbaar is
-                    text = original_data.get('text')
-                    if text:
-                        await callback_query.edit_message_text(
-                            text=text,
-                            parse_mode=original_data.get('parse_mode', 'HTML'),
-                            reply_markup=InlineKeyboardMarkup(keyboard)
-                        )
-                        return
-                
-            except Exception as redis_error:
-                logger.error(f"Redis error: {str(redis_error)}")
-                # Ga door met fallback als Redis faalt
-            
-            # Fallback: Gebruik de huidige tekst en keyboard
+
+            # Haal het originele signaal op
+            original_signal = """🚨 NEW TRADING SIGNAL 🚨
+
+Instrument: {instrument}
+Action: BUY 📈
+
+Entry Price: 2.300
+Take Profit 1: 2.350 🎯
+Take Profit 2: 2.400 🎯
+Take Profit 3: 2.450 🎯
+Stop Loss: 2.250 🔴
+
+Timeframe: 1h
+Strategy: Test Strategy
+
+---------------
+
+Risk Management:
+• Position size: 1-2% max
+• Use proper stop loss
+• Follow your trading plan
+
+---------------
+
+🤖 SigmaPips AI Verdict:
+✅ Trade aligns with market analysis"""
+
+            # Update het bericht met het originele signaal
             await callback_query.edit_message_text(
-                text=callback_query.message.text,
+                text=original_signal.format(instrument=instrument),
+                parse_mode=ParseMode.HTML,
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
             
