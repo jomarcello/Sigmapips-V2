@@ -1426,40 +1426,56 @@ Strategy: Test Strategy"""
     async def show_original_signal(self, callback_query: CallbackQuery) -> None:
         """Toon het originele signaal bericht"""
         try:
-            # Haal het originele bericht op uit Redis
-            message_key = f"signal:{callback_query.message.message_id}"
-            original_data = self.redis.hgetall(message_key)
+            # Probeer eerst het instrument uit het bericht te halen
+            message_text = callback_query.message.text
+            instrument = None
+            if message_text and "Market Analysis" in message_text:
+                instrument = message_text.split()[1]  # Bijvoorbeeld "XAUUSD" uit "🎯 XAUUSD Market Analysis"
             
-            if original_data:
-                # Converteer bytes naar strings
-                original_data = {k.decode('utf-8'): v.decode('utf-8') for k, v in original_data.items()}
+            if not instrument:
+                logger.warning("Could not extract instrument from message")
+                instrument = "Unknown"
+            
+            # Maak de standaard keyboard met het gevonden instrument
+            keyboard = [
+                [
+                    InlineKeyboardButton("📊 Technical Analysis", callback_data=f"chart_{instrument}"),
+                    InlineKeyboardButton("🤖 Market Sentiment", callback_data=f"sentiment_{instrument}")
+                ],
+                [InlineKeyboardButton("📅 Economic Calendar", callback_data=f"calendar_{instrument}")]
+            ]
+            
+            try:
+                # Probeer Redis data op te halen als fallback
+                message_key = f"signal:{callback_query.message.message_id}"
+                original_data = self.redis.hgetall(message_key)
                 
-                # Maak de originele keyboard voor trading signals
-                keyboard = [
-                    [
-                        InlineKeyboardButton("📊 Technical Analysis", callback_data=f"chart_{callback_query.message.text.split()[1]}"),
-                        InlineKeyboardButton("🤖 Market Sentiment", callback_data=f"sentiment_{callback_query.message.text.split()[1]}")
-                    ],
-                    [InlineKeyboardButton("📅 Economic Calendar", callback_data=f"calendar_{callback_query.message.text.split()[1]}")]
-                ]
+                if original_data:
+                    # Converteer bytes naar strings
+                    original_data = {k.decode('utf-8'): v.decode('utf-8') for k, v in original_data.items()}
+                    # Gebruik de originele tekst als die beschikbaar is
+                    text = original_data.get('text')
+                    if text:
+                        await callback_query.edit_message_text(
+                            text=text,
+                            parse_mode=original_data.get('parse_mode', 'HTML'),
+                            reply_markup=InlineKeyboardMarkup(keyboard)
+                        )
+                        return
                 
-                # Update het bericht
-                await callback_query.edit_message_text(
-                    text=original_data.get('text', "Signal not found"),
-                    parse_mode=original_data.get('parse_mode', 'HTML'),
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
-            else:
-                # Fallback als er geen cached data is
-                logger.warning(f"No cached data found for message {callback_query.message.message_id}")
-                # Stuur een generiek bericht terug
-                await callback_query.edit_message_text(
-                    text="Sorry, the original signal could not be retrieved.",
-                    reply_markup=InlineKeyboardMarkup([[
-                        InlineKeyboardButton("⬅️ Back to Menu", callback_data="back_menu")
-                    ]])
-                )
+            except Exception as redis_error:
+                logger.error(f"Redis error: {str(redis_error)}")
+                # Ga door met fallback als Redis faalt
+            
+            # Fallback: Gebruik de huidige tekst en keyboard
+            await callback_query.edit_message_text(
+                text=callback_query.message.text,
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
             
         except Exception as e:
             logger.error(f"Error showing original signal: {str(e)}")
-            await callback_query.answer("Error: Could not retrieve original signal")
+            try:
+                await callback_query.answer("Error: Could not restore original view")
+            except Exception as answer_error:
+                logger.error(f"Error sending callback answer: {str(answer_error)}")
