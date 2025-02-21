@@ -1378,3 +1378,63 @@ Strategy: Test Strategy"""
                     InlineKeyboardButton("⬅️ Back", callback_data="back_market")
                 ]])
             )
+
+    async def handle_delete_preferences(self, callback_query: CallbackQuery) -> None:
+        """Handle delete preferences button"""
+        try:
+            user_id = callback_query.from_user.id
+            
+            # Get current preferences
+            preferences = await self.db.get_user_preferences(user_id)
+            
+            if not preferences:
+                await callback_query.edit_message_text(
+                    text="You don't have any preferences to delete.",
+                    reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD)
+                )
+                return
+            
+            # Create keyboard with delete buttons for each preference
+            keyboard = []
+            for pref in preferences:
+                button_text = f"❌ {pref['instrument']} ({pref['timeframe']} - {pref['style']})"
+                callback_data = f"delete_pref_{pref['instrument']}"
+                keyboard.append([InlineKeyboardButton(button_text, callback_data=callback_data)])
+            
+            # Add back button
+            keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="back_to_manage")])
+            
+            await callback_query.edit_message_text(
+                text="Select preferences to delete:",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            
+        except Exception as e:
+            logger.error(f"Error handling delete preferences: {str(e)}")
+            await callback_query.edit_message_text(
+                text="Sorry, something went wrong while deleting preferences.",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("⬅️ Back", callback_data="back_signals")
+                ]])
+            )
+
+    async def delete_single_preference(self, callback_query: CallbackQuery) -> None:
+        """Delete a single preference"""
+        try:
+            user_id = callback_query.from_user.id
+            instrument = callback_query.data.split('_')[2]  # delete_pref_EURUSD -> EURUSD
+            
+            # Delete from database
+            await self.db.delete_preference(user_id, instrument)
+            
+            # Show updated preferences
+            await self.manage_preferences(callback_query)
+            
+        except Exception as e:
+            logger.error(f"Error deleting preference: {str(e)}")
+            await callback_query.edit_message_text(
+                text="Sorry, something went wrong while deleting the preference.",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("⬅️ Back", callback_data="back_signals")
+                ]])
+            )
