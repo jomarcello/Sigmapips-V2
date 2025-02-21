@@ -19,17 +19,17 @@ logger = logging.getLogger(__name__)
 app = FastAPI()
 port = int(os.getenv("PORT", 8080))
 
-# Initialize services
+# Initialize services once
 db = Database()
 telegram = TelegramService(db)
 chart = ChartService()
 
+# Remove TradingBot class or update it
 class TradingBot:
     def __init__(self):
-        self.db = Database()
-        self.telegram = TelegramService(self.db)
-        self.chart = ChartService()
-        
+        self.db = db  # Use existing instance
+        self.telegram = telegram  # Use existing instance
+        self.chart = chart  # Use existing instance
 
 # Initialiseer de bot
 bot = TradingBot()
@@ -41,9 +41,9 @@ async def startup_event():
     
     webhook_url = os.getenv("RAILWAY_PUBLIC_DOMAIN")
     if webhook_url:
-        # Verwijder eventuele trailing karakters
-        webhook_url = webhook_url.strip(';').strip()
-        full_url = f"https://{webhook_url}/webhook"  # Voeg /webhook toe aan het pad
+        # Strip any trailing characters including semicolons
+        webhook_url = webhook_url.strip().rstrip(';')
+        full_url = f"https://{webhook_url}/webhook"
         await telegram.set_webhook(full_url)
         logger.info(f"Webhook set to: {full_url}")
 
