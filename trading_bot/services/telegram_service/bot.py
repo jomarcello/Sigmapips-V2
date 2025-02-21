@@ -806,6 +806,7 @@ Risk Management:
                 reply_markup=InlineKeyboardMarkup([[
                     InlineKeyboardButton("⬅️ Back", callback_data="back_signals")
                 ]])
+            )
 
     async def set_webhook(self, webhook_url: str):
         """Set webhook for telegram bot"""
