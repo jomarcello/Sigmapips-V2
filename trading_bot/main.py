@@ -225,5 +225,5 @@ def initialize_services():
     return {
         "db": db,
         "telegram": telegram,
-        "chart": char
+        "chart": chart
     }
