@@ -341,12 +341,22 @@ Risk Management:
             # Format met AI
             message = await self.format_signal_with_ai(signal)
             
+            # Voor menu sentiment analyse
             keyboard = [
                 [
-                    InlineKeyboardButton("📊 Technical Analysis", callback_data=f"chart_{signal['instrument']}_{signal['timeframe']}"),
-                    InlineKeyboardButton("🤖 Market Sentiment", callback_data=f"sentiment_{signal['instrument']}")
+                    InlineKeyboardButton("📈 Chart", callback_data=f"chart_{signal['instrument']}_menu"),
+                    InlineKeyboardButton("🧠 Sentiment", callback_data=f"sentiment_{signal['instrument']}_menu")
                 ],
-                [InlineKeyboardButton("📅 Economic Calendar", callback_data=f"calendar_{signal['instrument']}")]
+                [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
+            ]
+            
+            # Voor signal sentiment analyse
+            keyboard = [
+                [
+                    InlineKeyboardButton("📈 Chart", callback_data=f"chart_{signal['instrument']}_signal"),
+                    InlineKeyboardButton("🧠 Sentiment", callback_data=f"sentiment_{signal['instrument']}_signal")
+                ],
+                [InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal")]
             ]
             
             reply_markup = InlineKeyboardMarkup(keyboard)
@@ -914,22 +924,31 @@ Risk Management:
             # Send to each subscriber
             for subscriber in subscribers.data:
                 try:
+                    # Voor menu sentiment analyse
                     keyboard = [
                         [
-                            InlineKeyboardButton("📊 Technical Analysis", 
-                                callback_data=f"chart_{signal['instrument']}_{signal['timeframe']}"),
-                            InlineKeyboardButton("🤖 Market Sentiment", 
-                                callback_data=f"sentiment_{signal['instrument']}")
+                            InlineKeyboardButton("📈 Chart", callback_data=f"chart_{signal['instrument']}_menu"),
+                            InlineKeyboardButton("🧠 Sentiment", callback_data=f"sentiment_{signal['instrument']}_menu")
                         ],
-                        [InlineKeyboardButton("📅 Economic Calendar", 
-                            callback_data=f"calendar_{signal['instrument']}")]
+                        [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
                     ]
+                    
+                    # Voor signal sentiment analyse
+                    keyboard = [
+                        [
+                            InlineKeyboardButton("📈 Chart", callback_data=f"chart_{signal['instrument']}_signal"),
+                            InlineKeyboardButton("🧠 Sentiment", callback_data=f"sentiment_{signal['instrument']}_signal")
+                        ],
+                        [InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal")]
+                    ]
+                    
+                    reply_markup = InlineKeyboardMarkup(keyboard)
                     
                     await self.bot.send_message(
                         chat_id=subscriber['user_id'],
                         text=message,
                         parse_mode=ParseMode.HTML,
-                        reply_markup=InlineKeyboardMarkup(keyboard)
+                        reply_markup=reply_markup
                     )
                     logger.info(f"Signal sent to {subscriber['user_id']}")
                     
@@ -1157,14 +1176,14 @@ Strategy: Test Strategy"""
     async def show_sentiment_analysis(self, callback_query: CallbackQuery, instrument: str):
         """Toon sentiment analyse voor gekozen instrument"""
         try:
-            # Check of dit vanuit een signaal of menu komt
-            is_from_signal = 'signal' in callback_query.data
+            # Check source of request (menu or signal)
+            source = callback_query.data.split('_')[-1] if '_' in callback_query.data else 'menu'
             
             # Eerst het laad bericht sturen
             await callback_query.edit_message_text(
                 text=f"⏳ Analyzing {instrument}...",
                 reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal" if is_from_signal else "back_market")
+                    InlineKeyboardButton("⬅️ Back", callback_data=f"back_to_{source}")
                 ]])
             )
             
@@ -1181,7 +1200,7 @@ Strategy: Test Strategy"""
             keyboard = [[
                 InlineKeyboardButton(
                     "⬅️ Back", 
-                    callback_data="back_to_signal" if is_from_signal else "back_market"
+                    callback_data=f"back_to_{source}"
                 )
             ]]
             
@@ -1197,7 +1216,7 @@ Strategy: Test Strategy"""
             await callback_query.edit_message_text(
                 text=f"Error analyzing {instrument}. Please try again.",
                 reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal" if is_from_signal else "back_market")
+                    InlineKeyboardButton("⬅️ Back", callback_data=f"back_to_{source}")
                 ]])
             )
 
