@@ -345,7 +345,7 @@ Risk Management:
             keyboard = [
                 [
                     InlineKeyboardButton("📊 Technical Analysis", callback_data=f"chart_{signal['instrument']}_{signal['timeframe']}"),
-                    InlineKeyboardButton("�� Market Sentiment", callback_data=f"sentiment_{signal['instrument']}")
+                    InlineKeyboardButton("🤖 Market Sentiment", callback_data=f"sentiment_{signal['instrument']}")
                 ],
                 [InlineKeyboardButton("📅 Economic Calendar", callback_data=f"calendar_{signal['instrument']}")]
             ]
@@ -919,7 +919,7 @@ Risk Management:
                     keyboard = [
                         [
                             InlineKeyboardButton("📊 Technical Analysis", callback_data=f"chart_{signal['instrument']}_{signal['timeframe']}"),
-                            InlineKeyboardButton("�� Market Sentiment", callback_data=f"sentiment_{signal['instrument']}")
+                            InlineKeyboardButton("🤖 Market Sentiment", callback_data=f"sentiment_{signal['instrument']}")
                         ],
                         [InlineKeyboardButton("📅 Economic Calendar", callback_data=f"calendar_{signal['instrument']}")]
                     ]
@@ -1158,14 +1158,11 @@ Strategy: Test Strategy"""
     async def show_sentiment_analysis(self, callback_query: CallbackQuery, instrument: str):
         """Toon sentiment analyse voor gekozen instrument"""
         try:
-            # Check source of request (menu or signal)
-            source = callback_query.data.split('_')[-1] if '_' in callback_query.data else 'menu'
-            
             # Eerst het laad bericht sturen
             await callback_query.edit_message_text(
                 text=f"⏳ Analyzing {instrument}...",
                 reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("⬅️ Back", callback_data=f"back_to_{source}")
+                    InlineKeyboardButton("⬅️ Back", callback_data="back_to_original")
                 ]])
             )
             
@@ -1178,19 +1175,13 @@ Strategy: Test Strategy"""
                 'market': market
             })
             
-            # Keyboard maken met juiste back button
-            keyboard = [[
-                InlineKeyboardButton(
-                    "⬅️ Back", 
-                    callback_data=f"back_to_{source}"
-                )
-            ]]
-            
             # Update het bericht met sentiment data
             await callback_query.edit_message_text(
                 text=sentiment_data,
                 parse_mode=ParseMode.HTML,
-                reply_markup=InlineKeyboardMarkup(keyboard)
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("⬅️ Back", callback_data="back_to_original")
+                ]])
             )
             
         except Exception as e:
@@ -1198,7 +1189,7 @@ Strategy: Test Strategy"""
             await callback_query.edit_message_text(
                 text=f"Error analyzing {instrument}. Please try again.",
                 reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("⬅️ Back", callback_data=f"back_to_{source}")
+                    InlineKeyboardButton("⬅️ Back", callback_data="back_to_original")
                 ]])
             )
 
