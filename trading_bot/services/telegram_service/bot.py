@@ -1196,18 +1196,15 @@ Strategy: Test Strategy"""
     async def handle_calendar_button(self, callback_query: CallbackQuery, instrument: str):
         """Handle calendar button click"""
         try:
-            # Toon loading message
+            # Toon loading message zonder back button
             await callback_query.edit_message_text(
-                text="⏳ Loading Economic Calendar...\n\nFetching latest economic events...",
-                reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal")
-                ]])
+                text="⏳ Loading Economic Calendar...\n\nFetching latest economic events..."
             )
 
             # Get calendar data
             calendar_data = await self.calendar.get_economic_calendar(instrument)
             
-            # Update message with calendar data
+            # Update message with calendar data and back button
             await callback_query.edit_message_text(
                 text=calendar_data,
                 parse_mode=ParseMode.HTML,
