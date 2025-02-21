@@ -344,19 +344,10 @@ Risk Management:
             # Voor menu sentiment analyse
             keyboard = [
                 [
-                    InlineKeyboardButton("📈 Chart", callback_data=f"chart_{signal['instrument']}_menu"),
-                    InlineKeyboardButton("🧠 Sentiment", callback_data=f"sentiment_{signal['instrument']}_menu")
+                    InlineKeyboardButton("📊 Technical Analysis", callback_data=f"chart_{signal['instrument']}_{signal['timeframe']}"),
+                    InlineKeyboardButton("�� Market Sentiment", callback_data=f"sentiment_{signal['instrument']}")
                 ],
-                [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
-            ]
-            
-            # Voor signal sentiment analyse
-            keyboard = [
-                [
-                    InlineKeyboardButton("📈 Chart", callback_data=f"chart_{signal['instrument']}_signal"),
-                    InlineKeyboardButton("🧠 Sentiment", callback_data=f"sentiment_{signal['instrument']}_signal")
-                ],
-                [InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal")]
+                [InlineKeyboardButton("📅 Economic Calendar", callback_data=f"calendar_{signal['instrument']}")]
             ]
             
             reply_markup = InlineKeyboardMarkup(keyboard)
@@ -927,19 +918,10 @@ Risk Management:
                     # Voor menu sentiment analyse
                     keyboard = [
                         [
-                            InlineKeyboardButton("📈 Chart", callback_data=f"chart_{signal['instrument']}_menu"),
-                            InlineKeyboardButton("🧠 Sentiment", callback_data=f"sentiment_{signal['instrument']}_menu")
+                            InlineKeyboardButton("📊 Technical Analysis", callback_data=f"chart_{signal['instrument']}_{signal['timeframe']}"),
+                            InlineKeyboardButton("�� Market Sentiment", callback_data=f"sentiment_{signal['instrument']}")
                         ],
-                        [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
-                    ]
-                    
-                    # Voor signal sentiment analyse
-                    keyboard = [
-                        [
-                            InlineKeyboardButton("📈 Chart", callback_data=f"chart_{signal['instrument']}_signal"),
-                            InlineKeyboardButton("🧠 Sentiment", callback_data=f"sentiment_{signal['instrument']}_signal")
-                        ],
-                        [InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal")]
+                        [InlineKeyboardButton("📅 Economic Calendar", callback_data=f"calendar_{signal['instrument']}")]
                     ]
                     
                     reply_markup = InlineKeyboardMarkup(keyboard)
