@@ -314,7 +314,7 @@ class TelegramService:
         """Basic signal formatting without AI"""
         return f"""🚨 NEW TRADING SIGNAL 🚨
 
-Instrument: {signal['symbol']}
+Instrument: {signal['instrument']}
 Action: {signal['action']} {'📈' if signal['action'] == 'BUY' else '📉'}
 
 Entry Price: {signal['price']}
@@ -346,10 +346,10 @@ Risk Management:
             
             keyboard = [
                 [
-                    InlineKeyboardButton("📊 Technical Analysis", callback_data=f"chart_{signal['symbol']}_{signal['timeframe']}"),
-                    InlineKeyboardButton("🤖 Market Sentiment", callback_data=f"sentiment_{signal['symbol']}")
+                    InlineKeyboardButton("📊 Technical Analysis", callback_data=f"chart_{signal['instrument']}_{signal['timeframe']}"),
+                    InlineKeyboardButton("🤖 Market Sentiment", callback_data=f"sentiment_{signal['instrument']}")
                 ],
-                [InlineKeyboardButton("📅 Economic Calendar", callback_data=f"calendar_{signal['symbol']}")]
+                [InlineKeyboardButton("📅 Economic Calendar", callback_data=f"calendar_{signal['instrument']}")]
             ]
             
             reply_markup = InlineKeyboardMarkup(keyboard)
@@ -806,7 +806,6 @@ Risk Management:
                 reply_markup=InlineKeyboardMarkup([[
                     InlineKeyboardButton("⬅️ Back", callback_data="back_signals")
                 ]])
-            )
 
     async def set_webhook(self, webhook_url: str):
         """Set webhook for telegram bot"""
@@ -1120,7 +1119,7 @@ Risk Management:
 
 🚨 NEW TRADING SIGNAL 🚨
 
-Instrument: {signal['symbol']}
+Instrument: {signal['instrument']}
 Action: {signal['action']} {'📈' if signal['action'] == 'BUY' else '📉'}
 
 Entry Price: {signal['price']}
@@ -1130,19 +1129,7 @@ Take Profit 3: {signal['takeProfit3']} 🎯
 Stop Loss: {signal['stopLoss']} 🔴
 
 Timeframe: {signal['timeframe']}
-Strategy: Test Strategy
-
----------------
-
-Risk Management:
-• Position size: 1-2% max
-• Use proper stop loss
-• Follow your trading plan
-
----------------
-
-🤖 SigmaPips AI Verdict:
-✅ Trade aligns with market analysis"""
+Strategy: Test Strategy"""
 
     async def handle_chart_button(self, callback_query: Dict[str, Any], instrument: str):
         """Handle chart button click"""
