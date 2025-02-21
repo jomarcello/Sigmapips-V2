@@ -1271,13 +1271,12 @@ Risk Management:
             for row in base_keyboard:
                 new_row = []
                 for button in row:
-                    if button.text == "Back":
+                    if "Back" in button.text:  # Check op tekst in plaats van exacte match
                         new_button = InlineKeyboardButton(
-                            text=button.text,
-                            callback_data="back_market"
+                            text="⬅️ Back",
+                            callback_data="back_market"  # Altijd consistente callback_data
                         )
                     else:
-                        # Fix: gebruik analysis_type direct in callback_data
                         new_button = InlineKeyboardButton(
                             text=button.text,
                             callback_data=f"instrument_{button.text}_{analysis_type}"
