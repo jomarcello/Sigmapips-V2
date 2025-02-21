@@ -473,7 +473,7 @@ Risk Management:
             )
             return CHOOSE_MARKET
         elif choice == 'manage':
-            return await self.manage_preferences(update, context)
+            return await self.manage_preferences(query)
 
     async def market_choice(self, callback_query: CallbackQuery, analysis_type: str):
         """Handle market selection after analysis type"""
@@ -739,46 +739,47 @@ Risk Management:
         )
         return CHOOSE_ANALYSIS
 
-    async def manage_preferences(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle manage preferences button"""
-        query = update.callback_query
-        await query.answer()
-        
+    async def manage_preferences(self, callback_query: CallbackQuery) -> None:
+        """Show user preferences"""
         try:
-            # Reset user_data voor nieuwe sessie
-            context.user_data.clear()
+            user_id = callback_query.from_user.id
             
-            # Haal user preferences op
-            user_id = update.effective_user.id
-            preferences = self.db.supabase.table('subscriber_preferences').select('*').eq('user_id', user_id).execute()
+            # Haal voorkeuren op uit database
+            preferences = await self.db.get_user_preferences(user_id)
             
-            if not preferences.data:
-                await query.edit_message_text(
-                    text="You don't have any saved preferences yet.\n\nUse /start to set up your first trading pair.",
-                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back to Menu", callback_data="back_to_menu")]])
+            if not preferences:
+                await callback_query.edit_message_text(
+                    text="You don't have any saved preferences yet.\n\nUse 'Add New Pairs' to set up your first trading pair.",
+                    reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD)
                 )
-                return SHOW_RESULT
+                return
             
-            # Format preferences text
-            prefs_text = "Your current preferences:\n\n"
-            keyboard = []
+            # Format preferences message
+            message = "Your current trading preferences:\n\n"
+            for pref in preferences:
+                message += f"• {pref['instrument']} ({pref['timeframe']})\n"
+                message += f"  Style: {pref['style']}\n\n"
             
-            for i, pref in enumerate(preferences.data, 1):
-                prefs_text += f"{i}. {pref['market']} - {pref['instrument']}\n"
-                prefs_text += f"   Style: {pref['style']}, Timeframe: {pref['timeframe']}\n\n"
+            # Add management options
+            keyboard = [
+                [InlineKeyboardButton("➕ Add More", callback_data="signals_add")],
+                [InlineKeyboardButton("🗑 Delete Preferences", callback_data="delete_prefs")],
+                [InlineKeyboardButton("⬅️ Back", callback_data="back_signals")]
+            ]
             
-            keyboard.append([InlineKeyboardButton("🗑️ Delete Preferences", callback_data="delete_prefs")])
-            keyboard.append([InlineKeyboardButton("⬅️ Back to Menu", callback_data="back_to_menu")])
-            
-            await query.edit_message_text(
-                text=prefs_text,
+            await callback_query.edit_message_text(
+                text=message,
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
-            return SHOW_RESULT
             
         except Exception as e:
             logger.error(f"Error managing preferences: {str(e)}")
-            return ConversationHandler.END  # Belangrijk: beëindig conversatie bij error
+            await callback_query.edit_message_text(
+                text="Sorry, something went wrong while fetching your preferences.",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("⬅️ Back", callback_data="back_signals")
+                ]])
+            )
 
     async def set_webhook(self, webhook_url: str):
         """Set webhook for telegram bot"""
