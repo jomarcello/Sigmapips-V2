@@ -121,6 +121,14 @@ async def webhook(request: Request):
                     await telegram.signals_choice(update, {})
                     return {"status": "success"}
                 
+                # Handle delete preferences
+                if data == 'delete_prefs':
+                    await telegram.handle_delete_preferences(callback_query)
+                    return {"status": "success"}
+                elif data.startswith('delete_pref_'):
+                    await telegram.delete_single_preference(callback_query)
+                    return {"status": "success"}
+                
                 # 4. Fallback voor andere callbacks
                 await telegram.application.process_update(update)
                 return {"status": "success"}
