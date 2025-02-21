@@ -172,3 +172,32 @@ class Database:
                 query = query.eq('style', style_map[timeframe])
         
         return query.execute() 
+
+    async def get_user_preferences(self, user_id: int):
+        """Get user preferences from database"""
+        try:
+            # Query subscriber_preferences table
+            response = self.supabase.table('subscriber_preferences')\
+                .select('*')\
+                .eq('user_id', user_id)\
+                .execute()
+                
+            logger.info(f"Found {len(response.data)} preferences for user {user_id}")
+            return response.data
+            
+        except Exception as e:
+            logger.error(f"Error getting user preferences: {str(e)}")
+            return []
+
+    async def delete_preference(self, user_id: int, instrument: str):
+        """Delete a specific preference"""
+        try:
+            response = self.supabase.table('subscriber_preferences')\
+                .delete()\
+                .eq('user_id', user_id)\
+                .eq('instrument', instrument)\
+                .execute()
+            return response
+        except Exception as e:
+            logger.error(f"Error deleting preference: {str(e)}")
+            raise 
