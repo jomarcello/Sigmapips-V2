@@ -473,7 +473,34 @@ Risk Management:
             )
             return CHOOSE_MARKET
         elif choice == 'manage':
-            return await self.manage_preferences(query)
+            # Haal voorkeuren op
+            user_id = update.effective_user.id
+            preferences = self.db.supabase.table('subscriber_preferences').select('*').eq('user_id', user_id).execute()
+            
+            if not preferences.data:
+                await query.edit_message_text(
+                    text="You don't have any saved preferences yet.\n\nUse 'Add New Pairs' to set up your first trading pair.",
+                    reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD)
+                )
+                return CHOOSE_SIGNALS
+            
+            # Format preferences text
+            prefs_text = "Your current preferences:\n\n"
+            for i, pref in enumerate(preferences.data, 1):
+                prefs_text += f"{i}. {pref['market']} - {pref['instrument']}\n"
+                prefs_text += f"   Style: {pref['style']}, Timeframe: {pref['timeframe']}\n\n"
+            
+            keyboard = [
+                [InlineKeyboardButton("➕ Add More", callback_data="signals_add")],
+                [InlineKeyboardButton("🗑 Delete Preferences", callback_data="delete_prefs")],
+                [InlineKeyboardButton("⬅️ Back", callback_data="back_signals")]
+            ]
+            
+            await query.edit_message_text(
+                text=prefs_text,
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            return CHOOSE_SIGNALS
 
     async def market_choice(self, callback_query: CallbackQuery, analysis_type: str):
         """Handle market selection after analysis type"""
