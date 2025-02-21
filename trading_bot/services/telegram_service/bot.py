@@ -1421,20 +1421,17 @@ Strategy: Test Strategy"""
     async def show_original_signal(self, callback_query: CallbackQuery) -> None:
         """Toon het originele signaal bericht"""
         try:
-            # Haal het originele signaal op uit de cache
-            signal_key = f"signal:{callback_query.message.chat.id}_{callback_query.message.message_id}"
-            
-            # Probeer eerst het instrument uit het bericht te halen
+            # Haal het instrument uit het bericht
             message_text = callback_query.message.text
             instrument = None
             if message_text and "Market Analysis" in message_text:
-                instrument = message_text.split()[1]  # Bijvoorbeeld "XAUUSD" uit "🎯 XAUUSD Market Analysis"
+                instrument = message_text.split()[1]
             
             if not instrument:
                 logger.warning("Could not extract instrument from message")
                 instrument = "Unknown"
             
-            # Maak de standaard keyboard met het gevonden instrument
+            # Maak keyboard
             keyboard = [
                 [
                     InlineKeyboardButton("📊 Technical Analysis", callback_data=f"chart_{instrument}"),
@@ -1443,8 +1440,22 @@ Strategy: Test Strategy"""
                 [InlineKeyboardButton("📅 Economic Calendar", callback_data=f"calendar_{instrument}")]
             ]
 
-            # Haal het originele signaal op
-            original_signal = """🚨 NEW TRADING SIGNAL 🚨
+            # Haal market sentiment op
+            try:
+                # Market type detecteren
+                market = 'crypto' if any(crypto in instrument for crypto in ['BTC', 'ETH', 'XRP']) else 'forex'
+                
+                # Sentiment ophalen
+                sentiment_data = await self.sentiment.get_market_sentiment({
+                    'instrument': instrument,
+                    'market': market
+                })
+                
+                # Analyseer sentiment data voor verdict
+                verdict = self._analyze_sentiment_for_verdict(sentiment_data)
+                
+                # Origineel signaal template met dynamisch verdict
+                original_signal = f"""🚨 NEW TRADING SIGNAL 🚨
 
 Instrument: {instrument}
 Action: BUY 📈
@@ -1468,9 +1479,38 @@ Risk Management:
 ---------------
 
 🤖 SigmaPips AI Verdict:
-✅ Trade aligns with market analysis"""
+{verdict}"""
 
-            # Update het bericht met het originele signaal
+            except Exception as sentiment_error:
+                logger.error(f"Error getting sentiment data: {str(sentiment_error)}")
+                # Fallback verdict als sentiment ophalen mislukt
+                original_signal = """�� NEW TRADING SIGNAL 🚨
+
+Instrument: {instrument}
+Action: BUY 📈
+
+Entry Price: 2.300
+Take Profit 1: 2.350 🎯
+Take Profit 2: 2.400 🎯
+Take Profit 3: 2.450 🎯
+Stop Loss: 2.250 🔴
+
+Timeframe: 1h
+Strategy: Test Strategy
+
+---------------
+
+Risk Management:
+• Position size: 1-2% max
+• Use proper stop loss
+• Follow your trading plan
+
+---------------
+
+🤖 SigmaPips AI Verdict:
+⚠️ Market sentiment data unavailable"""
+
+            # Update het bericht
             await callback_query.edit_message_text(
                 text=original_signal.format(instrument=instrument),
                 parse_mode=ParseMode.HTML,
@@ -1483,3 +1523,37 @@ Risk Management:
                 await callback_query.answer("Error: Could not restore original view")
             except Exception as answer_error:
                 logger.error(f"Error sending callback answer: {str(answer_error)}")
+
+    def _analyze_sentiment_for_verdict(self, sentiment_data: str) -> str:
+        """Analyseer sentiment data en genereer een verdict"""
+        try:
+            # Zoek naar belangrijke indicatoren in de sentiment data
+            sentiment_lower = sentiment_data.lower()
+            
+            # Positieve indicatoren
+            bullish_indicators = [
+                "bullish", "positive", "upward", "support", "buying pressure",
+                "higher", "strength", "momentum", "rally"
+            ]
+            
+            # Negatieve indicatoren
+            bearish_indicators = [
+                "bearish", "negative", "downward", "resistance", "selling pressure",
+                "lower", "weakness", "decline", "pullback"
+            ]
+            
+            # Tel indicatoren
+            bullish_count = sum(1 for indicator in bullish_indicators if indicator in sentiment_lower)
+            bearish_count = sum(1 for indicator in bearish_indicators if indicator in sentiment_lower)
+            
+            # Bepaal verdict op basis van sentiment
+            if bullish_count > bearish_count:
+                return "✅ Strong bullish sentiment detected\n📈 Trade aligns with market analysis"
+            elif bearish_count > bullish_count:
+                return "⚠️ Bearish sentiment detected\n❌ Trade conflicts with market analysis"
+            else:
+                return "⚠️ Mixed market sentiment\n⚖️ Consider additional confirmation"
+            
+        except Exception as e:
+            logger.error(f"Error analyzing sentiment: {str(e)}")
+            return "⚠️ Unable to analyze market sentiment"
