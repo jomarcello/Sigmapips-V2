@@ -806,7 +806,6 @@ Risk Management:
                 reply_markup=InlineKeyboardMarkup([[
                     InlineKeyboardButton("⬅️ Back", callback_data="back_signals")
                 ]])
-            )
 
     async def set_webhook(self, webhook_url: str):
         """Set webhook for telegram bot"""
@@ -908,21 +907,34 @@ Risk Management:
             # Get sentiment met correcte market type
             sentiment_data = await self.sentiment.get_market_sentiment({
                 'symbol': signal['instrument'],
-                'market': signal['market']  # Nu gebruiken we de correcte market type
+                'market': signal['market']
             })
             
-            # Format signal
-            message = await self._format_signal(signal, sentiment_data)
+            # Format signal met AI
+            message = await self.format_signal_with_ai(signal)
             
             # Send to each subscriber
             for subscriber in subscribers.data:
                 try:
+                    keyboard = [
+                        [
+                            InlineKeyboardButton("📊 Technical Analysis", 
+                                callback_data=f"chart_{signal['instrument']}_{signal['timeframe']}"),
+                            InlineKeyboardButton("🤖 Market Sentiment", 
+                                callback_data=f"sentiment_{signal['instrument']}")
+                        ],
+                        [InlineKeyboardButton("📅 Economic Calendar", 
+                            callback_data=f"calendar_{signal['instrument']}")]
+                    ]
+                    
                     await self.bot.send_message(
                         chat_id=subscriber['user_id'],
                         text=message,
-                        parse_mode=ParseMode.MARKDOWN
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
                     )
                     logger.info(f"Signal sent to {subscriber['user_id']}")
+                    
                 except Exception as e:
                     logger.error(f"Failed to send signal to {subscriber['user_id']}: {str(e)}")
                 
