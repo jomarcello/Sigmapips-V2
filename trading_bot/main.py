@@ -129,6 +129,10 @@ async def webhook(request: Request):
                     await telegram.delete_single_preference(callback_query)
                     return {"status": "success"}
                 
+                elif data == 'back_to_signals':
+                    await telegram.back_to_signals(callback_query)
+                    return {"status": "success"}
+                
                 # 4. Fallback voor andere callbacks
                 await telegram.application.process_update(update)
                 return {"status": "success"}
