@@ -1421,17 +1421,47 @@ Strategy: Test Strategy"""
     async def show_original_signal(self, callback_query: CallbackQuery) -> None:
         """Toon het originele signaal bericht"""
         try:
-            # Haal het instrument uit het bericht
+            # Verbeterde instrument extractie
             message_text = callback_query.message.text
             instrument = None
+            
+            # Probeer eerst uit Market Analysis te halen
             if message_text and "Market Analysis" in message_text:
                 instrument = message_text.split()[1]
+            # Anders proberen uit de sentiment analyse te halen
+            elif message_text and "analyzing" in message_text.lower():
+                instrument = message_text.split("analyzing")[1].strip().split()[0]
+            # Anders proberen uit de calendar data te halen
+            elif message_text and "Economic Calendar" in message_text:
+                # Probeer instrument uit callback data te halen
+                if callback_query.data.startswith('calendar_'):
+                    instrument = callback_query.data.split('_')[1]
             
+            # Als laatste optie, probeer uit de callback data te halen
+            if not instrument and callback_query.data:
+                data_parts = callback_query.data.split('_')
+                if len(data_parts) > 1:
+                    possible_instrument = data_parts[1]
+                    if possible_instrument not in ['menu', 'analysis', 'signals']:
+                        instrument = possible_instrument
+
             if not instrument:
-                logger.warning("Could not extract instrument from message")
+                logger.warning("Could not extract instrument from message or callback data")
+                # Probeer uit de message markup te halen als laatste redmiddel
+                if callback_query.message.reply_markup:
+                    for row in callback_query.message.reply_markup.inline_keyboard:
+                        for button in row:
+                            if 'chart_' in button.callback_data:
+                                instrument = button.callback_data.split('_')[1]
+                                break
+                        if instrument:
+                            break
+
+            if not instrument:
+                logger.error("Failed to extract instrument from all possible sources")
                 instrument = "Unknown"
             
-            # Maak keyboard
+            # Rest van de code blijft hetzelfde...
             keyboard = [
                 [
                     InlineKeyboardButton("📊 Technical Analysis", callback_data=f"chart_{instrument}"),
@@ -1440,21 +1470,15 @@ Strategy: Test Strategy"""
                 [InlineKeyboardButton("📅 Economic Calendar", callback_data=f"calendar_{instrument}")]
             ]
 
-            # Haal market sentiment op
+            # Haal market sentiment op...
             try:
-                # Market type detecteren
                 market = 'crypto' if any(crypto in instrument for crypto in ['BTC', 'ETH', 'XRP']) else 'forex'
-                
-                # Sentiment ophalen
                 sentiment_data = await self.sentiment.get_market_sentiment({
                     'instrument': instrument,
                     'market': market
                 })
-                
-                # Analyseer sentiment data voor verdict
                 verdict = self._analyze_sentiment_for_verdict(sentiment_data)
                 
-                # Origineel signaal template met dynamisch verdict
                 original_signal = f"""🚨 NEW TRADING SIGNAL 🚨
 
 Instrument: {instrument}
@@ -1484,7 +1508,7 @@ Risk Management:
             except Exception as sentiment_error:
                 logger.error(f"Error getting sentiment data: {str(sentiment_error)}")
                 # Fallback verdict als sentiment ophalen mislukt
-                original_signal = """�� NEW TRADING SIGNAL 🚨
+                original_signal = """🚨 NEW TRADING SIGNAL 🚨
 
 Instrument: {instrument}
 Action: BUY 📈
