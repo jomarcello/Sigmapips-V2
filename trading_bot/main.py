@@ -50,77 +50,60 @@ async def webhook(request: Request):
         if 'update_id' in data:
             update = Update.de_json(data, telegram.application.bot)
             
+            # 1. Eerst commands afhandelen
+            if update.message and update.message.text and update.message.text.startswith('/'):
+                await telegram.application.process_update(update)
+                return {"status": "success"}
+            
+            # 2. Dan callback queries
             if update.callback_query:
                 callback_query = update.callback_query
                 data = callback_query.data
                 logger.info(f"Received callback data: {data}")
-
-                # Handle back buttons first
-                if data == 'back_market':
-                    await telegram.handle_back(callback_query, 'market')
-                    return {"status": "success"}
-                elif data == 'back_analysis':
-                    await telegram.handle_back(callback_query, 'analysis')
-                    return {"status": "success"}
-                elif data == 'back_menu':
-                    await telegram.handle_back(callback_query, 'menu')
+                
+                # 3. Specifieke handlers
+                if data.startswith('back_'):
+                    back_type = data.split('_')[1]
+                    await telegram.handle_back(callback_query, back_type)
                     return {"status": "success"}
                 
-                # Handle commands (/start, etc.)
-                if update.message and update.message.text and update.message.text.startswith('/'):
-                    await telegram.application.process_update(update)
+                elif data.startswith('menu_'):
+                    await telegram.menu_choice(update, {})
                     return {"status": "success"}
                 
-                # Handle callback queries
-                if update.callback_query:
-                    callback_query = update.callback_query
-                    data = callback_query.data
-                    logger.info(f"Received callback data: {data}")
-                    
-                    if data.startswith('back_'):
-                        # Handle back button
-                        back_type = data.split('_')[1]
-                        await telegram.handle_back(callback_query, back_type)
-                        return {"status": "success"}
-                    
-                    elif data == 'analysis_technical':
+                elif data.startswith('analysis_'):
+                    if data == 'analysis_technical':
                         await telegram.show_market_selection(callback_query, 'technical')
-                        return {"status": "success"}
-                    
                     elif data == 'analysis_sentiment':
                         await telegram.show_market_selection(callback_query, 'sentiment')
-                        return {"status": "success"}
-                    
                     elif data == 'analysis_calendar':
                         await telegram.handle_calendar_button(callback_query.to_dict(), None)
-                        return {"status": "success"}
-                    
-                    elif data == 'signals_add':
+                    return {"status": "success"}
+                
+                elif data.startswith('market_'):
+                    market = data.split('_')[1]
+                    analysis_type = data.split('_')[-1]
+                    await telegram.show_instruments(callback_query, market, analysis_type)
+                    return {"status": "success"}
+                
+                elif data.startswith('instrument_'):
+                    parts = data.split('_')
+                    instrument = parts[1]
+                    analysis_type = parts[2]
+                    if analysis_type == 'sentiment':
+                        await telegram.show_sentiment_analysis(callback_query, instrument)
+                    return {"status": "success"}
+                
+                elif data.startswith('signals_'):
+                    if data == 'signals_add':
                         await telegram.signals_choice(update, {})
-                        return {"status": "success"}
-                    
                     elif data == 'signals_manage':
                         await telegram.manage_preferences(update, {})
-                        return {"status": "success"}
-                    
-                    elif data.startswith('market_'):
-                        market = data.split('_')[1]
-                        analysis_type = data.split('_')[-1]
-                        await telegram.show_instruments(callback_query, market, analysis_type)
-                        return {"status": "success"}
-                    
-                    elif data.startswith('instrument_'):
-                        parts = data.split('_')
-                        instrument = parts[1]
-                        analysis_type = parts[2]
-                        
-                        if analysis_type == 'sentiment':
-                            await telegram.show_sentiment_analysis(callback_query, instrument)
-                        return {"status": "success"}
-                    
-                    # Voor andere callback queries
-                    await telegram.application.process_update(update)
                     return {"status": "success"}
+                
+                # 4. Fallback voor andere callbacks
+                await telegram.application.process_update(update)
+                return {"status": "success"}
             
         return {"status": "success"}
         
