@@ -25,7 +25,16 @@ port = int(os.getenv("PORT", 8080))
 db = Database()
 telegram = TelegramService(db)
 chart = ChartService()
-redis = redis.Redis(host=os.getenv("REDIS_HOST", "localhost"), port=int(os.getenv("REDIS_PORT", 6379)), db=0)
+redis_host = os.getenv("REDIS_HOST", "redis")  # Gebruik 'redis' als default hostname
+redis_port = int(os.getenv("REDIS_PORT", 6379))
+redis = redis.Redis(
+    host=redis_host,
+    port=redis_port,
+    db=0,
+    decode_responses=True,  # Automatisch bytes naar strings decoderen
+    socket_connect_timeout=2,  # Timeout voor connectie
+    retry_on_timeout=True  # Retry bij timeout
+)
 
 # Remove TradingBot class or update it
 class TradingBot:
