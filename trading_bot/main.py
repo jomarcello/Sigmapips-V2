@@ -67,6 +67,14 @@ async def webhook(request: Request):
                     await telegram.handle_back(callback_query, back_type)
                     return {"status": "success"}
                 
+                elif data == 'signals_add':
+                    await telegram.show_market_selection(callback_query, 'signals')
+                    return {"status": "success"}
+                
+                elif data == 'signals_manage':
+                    await telegram.manage_preferences(callback_query)
+                    return {"status": "success"}
+                
                 elif data.startswith('menu_'):
                     await telegram.menu_choice(update, {})
                     return {"status": "success"}
@@ -92,13 +100,6 @@ async def webhook(request: Request):
                     analysis_type = parts[2]
                     if analysis_type == 'sentiment':
                         await telegram.show_sentiment_analysis(callback_query, instrument)
-                    return {"status": "success"}
-                
-                elif data.startswith('signals_'):
-                    if data == 'signals_add':
-                        await telegram.signals_choice(update, {})
-                    elif data == 'signals_manage':
-                        await telegram.manage_preferences(update, {})
                     return {"status": "success"}
                 
                 # 4. Fallback voor andere callbacks
