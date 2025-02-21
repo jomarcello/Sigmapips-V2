@@ -7,6 +7,8 @@ import asyncio
 import time
 import base64
 import aiohttp
+import json
+import redis
 
 # Correcte absolute imports
 from trading_bot.services.telegram_service.bot import TelegramService
@@ -23,6 +25,7 @@ port = int(os.getenv("PORT", 8080))
 db = Database()
 telegram = TelegramService(db)
 chart = ChartService()
+redis = redis.Redis(host=os.getenv("REDIS_HOST", "localhost"), port=int(os.getenv("REDIS_PORT", 6379)), db=0)
 
 # Remove TradingBot class or update it
 class TradingBot:
@@ -137,6 +140,19 @@ async def webhook(request: Request):
                 if data == 'back_to_signal':
                     # Haal het originele signaal op en toon het opnieuw
                     await telegram.show_original_signal(callback_query)
+                    return {"status": "success"}
+                
+                elif data == 'back_to_original':
+                    # Haal het originele bericht op uit Redis
+                    message_key = f"signal:{callback_query.message.message_id}"
+                    original_data = redis.hgetall(message_key)
+                    
+                    if original_data:
+                        await callback_query.edit_message_text(
+                            text=original_data['text'],
+                            parse_mode=original_data.get('parse_mode', 'HTML'),
+                            reply_markup=InlineKeyboardMarkup(json.loads(original_data['keyboard']))
+                        )
                     return {"status": "success"}
                 
                 # 4. Fallback voor andere callbacks
