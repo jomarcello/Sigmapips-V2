@@ -233,11 +233,8 @@ class TelegramService:
                         CallbackQueryHandler(self.back_to_instruments, pattern="^back_to_instruments$")
                     ]
                 },
-                fallbacks=[
-                    CommandHandler("cancel", self.cancel),
-                    CommandHandler("start", self.start)
-                ],
-                allow_reentry=True
+                fallbacks=[CommandHandler("cancel", self.cancel)],
+                per_message=True
             )
             
             # Add handlers
