@@ -89,7 +89,7 @@ async def webhook(request: Request):
                 logger.info(f"Received callback data: {data}")
                 
                 # Voeg deze handler toe voor back_to_original
-                if data == 'back_to_original':
+                if data == 'back_to_original' or data == 'back_to_signal':
                     await telegram.show_original_signal(callback_query)
                     return {"status": "success"}
                 
@@ -150,10 +150,9 @@ async def webhook(request: Request):
                     await telegram.back_to_signals(callback_query)
                     return {"status": "success"}
                 
-                # Handle back to signal
-                if data == 'back_to_signal':
-                    # Haal het originele signaal op en toon het opnieuw
-                    await telegram.show_original_signal(callback_query)
+                elif data.startswith('calendar_'):
+                    instrument = data.split('_')[1]
+                    await telegram.handle_calendar_button(callback_query, instrument)
                     return {"status": "success"}
                 
                 # 4. Fallback voor andere callbacks
