@@ -6,6 +6,7 @@ from telegram import Update, InlineKeyboardMarkup
 import asyncio
 import time
 import base64
+import aiohttp
 
 # Correcte absolute imports
 from trading_bot.services.telegram_service.bot import TelegramService
@@ -22,6 +23,16 @@ port = int(os.getenv("PORT", 8080))
 db = Database()
 telegram = TelegramService(db)
 chart = ChartService()
+
+class TradingBot:
+    def __init__(self):
+        self.db = Database()
+        self.telegram = TelegramService(self.db)
+        self.chart = ChartService()
+        
+
+# Initialiseer de bot
+bot = TradingBot()
 
 @app.on_event("startup")
 async def startup_event():
@@ -47,6 +58,10 @@ async def webhook(request: Request):
         data = await request.json()
         logger.info(f"Received webhook: {data}")
         
+        # Sla chat op als het een tekst bericht is
+        if 'message' in data and 'text' in data['message']:
+            chat_text = data['message']['text']
+            
         if 'update_id' in data:
             update = Update.de_json(data, telegram.application.bot)
             
@@ -179,3 +194,11 @@ async def send_test_signal():
     except Exception as e:
         logger.error(f"Error sending test signal: {str(e)}")
         return {"status": "error", "message": str(e)}
+
+def initialize_services():
+    """Initialize all services"""
+    return {
+        "db": db,
+        "telegram": telegram,
+        "chart": chart,
+    }
