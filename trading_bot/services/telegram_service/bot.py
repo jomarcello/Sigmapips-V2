@@ -208,11 +208,11 @@ class TelegramService:
                     ],
                     CHOOSE_ANALYSIS: [
                         CallbackQueryHandler(self.analysis_choice, pattern="^analysis_"),
-                        CallbackQueryHandler(self.back_to_menu, pattern="^back_to_menu$")
+                        CallbackQueryHandler(self.back_to_menu, pattern="^back_menu$")
                     ],
                     CHOOSE_SIGNALS: [
                         CallbackQueryHandler(self.signals_choice, pattern="^signals_"),
-                        CallbackQueryHandler(self.back_to_menu, pattern="^back_to_menu$")
+                        CallbackQueryHandler(self.back_to_menu, pattern="^back_menu$")
                     ],
                     CHOOSE_MARKET: [
                         CallbackQueryHandler(self.market_choice, pattern="^market_"),
@@ -229,11 +229,11 @@ class TelegramService:
                     SHOW_RESULT: [
                         CallbackQueryHandler(self.add_more, pattern="^add_more$"),
                         CallbackQueryHandler(self.manage_preferences, pattern="^manage_prefs$"),
-                        CallbackQueryHandler(self.back_to_menu, pattern="^back_to_menu$"),
+                        CallbackQueryHandler(self.back_to_menu, pattern="^back_menu$"),
                         CallbackQueryHandler(self.back_to_instruments, pattern="^back_to_instruments$")
                     ]
                 },
-                fallbacks=[CommandHandler("cancel", self.cancel)],
+                fallbacks=[CallbackQueryHandler(self.cancel, pattern="^cancel$")],
                 per_message=True
             )
             
