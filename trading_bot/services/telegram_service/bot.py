@@ -341,7 +341,7 @@ Risk Management:
             # Format met AI
             message = await self.format_signal_with_ai(signal)
             
-            # Voor menu sentiment analyse
+            # Maak keyboard
             keyboard = [
                 [
                     InlineKeyboardButton("📊 Technical Analysis", callback_data=f"chart_{signal['instrument']}_{signal['timeframe']}"),
@@ -350,25 +350,25 @@ Risk Management:
                 [InlineKeyboardButton("📅 Economic Calendar", callback_data=f"calendar_{signal['instrument']}")]
             ]
             
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            
+            # Verstuur bericht
             sent_message = await self.bot.send_message(
                 chat_id=chat_id,
                 text=message,
                 parse_mode=ParseMode.HTML,
-                reply_markup=reply_markup
+                reply_markup=InlineKeyboardMarkup(keyboard)
             )
             
-            # Cache voor back button
+            # Sla originele data op in Redis
             message_key = f"signal:{sent_message.message_id}"
             cache_data = {
                 'text': message,
-                'keyboard': json.dumps([[{"text": btn.text, "callback_data": btn.callback_data} for btn in row] for row in keyboard]),
+                'keyboard': json.dumps(keyboard, default=lambda x: x.__dict__),
                 'parse_mode': 'HTML'
             }
             
+            # Gebruik hmset voor Redis opslag
             self.redis.hmset(message_key, cache_data)
-            self.redis.expire(message_key, 3600)
+            self.redis.expire(message_key, 3600)  # 1 uur expiry
             
             return True
             
