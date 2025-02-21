@@ -23,6 +23,7 @@ from trading_bot.services.database.db import Database
 from trading_bot.services.chart_service.chart import ChartService
 from trading_bot.services.sentiment_service.sentiment import MarketSentimentService
 from trading_bot.services.calendar_service.calendar import EconomicCalendarService
+from trading_bot.services.chat_history_service.chat_history import ChatHistoryService
 
 logger = logging.getLogger(__name__)
 
@@ -198,6 +199,7 @@ class TelegramService:
             self.chart = ChartService()
             self.sentiment = MarketSentimentService()
             self.calendar = EconomicCalendarService()
+            self.chat_history = ChatHistoryService()
             
             # Setup conversation handler
             conv_handler = ConversationHandler(
@@ -415,6 +417,19 @@ Risk Management:
             
             # Reset user data
             context.user_data.clear()
+            
+            # Sla het bericht op in de chat geschiedenis
+            message = update.message.text
+            self.chat_history.save_chat(
+                session_name=f"user_{user_id}",
+                chat_text=message
+            )
+            
+            # Haal relevante context op voor dit gesprek
+            relevant_context = self.chat_history.get_context_for_session(
+                session_name=f"user_{user_id}",
+                query=message
+            )
             
             # Stuur welkomstbericht met START_KEYBOARD
             await update.message.reply_text(
