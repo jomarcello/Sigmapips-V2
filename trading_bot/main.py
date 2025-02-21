@@ -79,6 +79,14 @@ async def webhook(request: Request):
                     await telegram.handle_calendar_button(callback_query.to_dict(), None)
                     return {"status": "success"}
                 
+                elif data == 'signals_add':
+                    await telegram.signals_choice(update, {})
+                    return {"status": "success"}
+                
+                elif data == 'signals_manage':
+                    await telegram.manage_preferences(update, {})
+                    return {"status": "success"}
+                
                 elif data.startswith('market_'):
                     market = data.split('_')[1]
                     analysis_type = data.split('_')[-1]
