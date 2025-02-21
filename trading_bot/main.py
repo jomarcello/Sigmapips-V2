@@ -79,6 +79,11 @@ async def webhook(request: Request):
                 data = callback_query.data
                 logger.info(f"Received callback data: {data}")
                 
+                # Voeg deze handler toe voor back_to_original
+                if data == 'back_to_original':
+                    await telegram.show_original_signal(callback_query)
+                    return {"status": "success"}
+                
                 # 3. Specifieke handlers
                 if data.startswith('back_'):
                     back_type = data.split('_')[1]
@@ -139,10 +144,6 @@ async def webhook(request: Request):
                 # Handle back to signal
                 if data == 'back_to_signal':
                     # Haal het originele signaal op en toon het opnieuw
-                    await telegram.show_original_signal(callback_query)
-                    return {"status": "success"}
-                
-                elif data == 'back_to_original':
                     await telegram.show_original_signal(callback_query)
                     return {"status": "success"}
                 
