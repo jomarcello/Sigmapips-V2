@@ -102,6 +102,10 @@ async def webhook(request: Request):
                         await telegram.show_sentiment_analysis(callback_query, instrument)
                     return {"status": "success"}
                 
+                elif data.startswith('signals_'):
+                    await telegram.signals_choice(update, {})
+                    return {"status": "success"}
+                
                 # 4. Fallback voor andere callbacks
                 await telegram.application.process_update(update)
                 return {"status": "success"}
