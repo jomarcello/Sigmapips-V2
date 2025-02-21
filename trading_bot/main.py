@@ -2,7 +2,7 @@ from fastapi import FastAPI, HTTPException, Request
 import logging
 import os
 from typing import Dict, Any
-from telegram import Update, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 import asyncio
 import time
 import base64
@@ -143,16 +143,39 @@ async def webhook(request: Request):
                     return {"status": "success"}
                 
                 elif data == 'back_to_original':
-                    # Haal het originele bericht op uit Redis
-                    message_key = f"signal:{callback_query.message.message_id}"
-                    original_data = redis.hgetall(message_key)
+                    try:
+                        # Haal het originele bericht op uit Redis
+                        message_key = f"signal:{callback_query.message.message_id}"
+                        original_data = redis.hgetall(message_key)
+                        
+                        if original_data:
+                            # Converteer bytes naar strings
+                            original_data = {k.decode('utf-8'): v.decode('utf-8') for k, v in original_data.items()}
+                            
+                            # Parse keyboard data
+                            keyboard_data = json.loads(original_data['keyboard'])
+                            keyboard = []
+                            for row in keyboard_data:
+                                keyboard_row = []
+                                for button in row:
+                                    keyboard_row.append(InlineKeyboardButton(
+                                        text=button['text'],
+                                        callback_data=button['callback_data']
+                                    ))
+                                keyboard.append(keyboard_row)
+                            
+                            # Update het bericht
+                            await callback_query.edit_message_text(
+                                text=original_data['text'],
+                                parse_mode=original_data.get('parse_mode', 'HTML'),
+                                reply_markup=InlineKeyboardMarkup(keyboard)
+                            )
+                        else:
+                            logger.warning(f"No cached data found for message {callback_query.message.message_id}")
+                        
+                    except Exception as e:
+                        logger.error(f"Error handling back_to_original: {str(e)}")
                     
-                    if original_data:
-                        await callback_query.edit_message_text(
-                            text=original_data['text'],
-                            parse_mode=original_data.get('parse_mode', 'HTML'),
-                            reply_markup=InlineKeyboardMarkup(json.loads(original_data['keyboard']))
-                        )
                     return {"status": "success"}
                 
                 # 4. Fallback voor andere callbacks
