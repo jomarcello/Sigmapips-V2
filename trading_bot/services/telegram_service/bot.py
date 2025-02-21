@@ -23,7 +23,6 @@ from trading_bot.services.database.db import Database
 from trading_bot.services.chart_service.chart import ChartService
 from trading_bot.services.sentiment_service.sentiment import MarketSentimentService
 from trading_bot.services.calendar_service.calendar import EconomicCalendarService
-from trading_bot.services.chat_history_service.chat_history import ChatHistoryService
 
 logger = logging.getLogger(__name__)
 
@@ -199,7 +198,6 @@ class TelegramService:
             self.chart = ChartService()
             self.sentiment = MarketSentimentService()
             self.calendar = EconomicCalendarService()
-            self.chat_history = ChatHistoryService()
             
             # Setup conversation handler
             conv_handler = ConversationHandler(
