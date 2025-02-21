@@ -889,48 +889,62 @@ Risk Management:
         try:
             logger.info(f"Starting broadcast for signal: {signal}")
             
+            # Eerst market data voorbereiden
+            market_data = await self.prepare_market_data(signal['instrument'])
+            
             # Get subscribers met timeframe filter
             subscribers = await self.db.get_subscribers(
                 instrument=signal['instrument'],
                 timeframe=signal.get('timeframe')
             )
-            logger.info(f"Found {len(subscribers.data)} subscribers for {signal['instrument']} ({signal.get('timeframe')})")
             
             if not subscribers.data:
-                logger.warning(f"No subscribers found for {signal['instrument']} with timeframe {signal.get('timeframe')}")
+                logger.warning(f"No subscribers found for {signal['instrument']}")
                 return
             
-            # Generate chart
-            chart_image = await self.chart.generate_chart(signal['instrument'])
-            
-            # Get sentiment met correcte market type
-            sentiment_data = await self.sentiment.get_market_sentiment({
-                'symbol': signal['instrument'],
-                'market': signal['market']
-            })
-            
-            # Format signal met AI
-            message = await self.format_signal_with_ai(signal)
-            
+            # Format signal met vooraf geladen verdict
+            message = f"""🚨 NEW TRADING SIGNAL 🚨
+
+Instrument: {signal['instrument']}
+Action: {signal['action']} {'📈' if signal['action'] == 'BUY' else '📉'}
+
+Entry Price: {signal['price']}
+Take Profit 1: {signal['takeProfit1']} 🎯
+Take Profit 2: {signal['takeProfit2']} 🎯
+Take Profit 3: {signal['takeProfit3']} 🎯
+Stop Loss: {signal['stopLoss']} 🔴
+
+Timeframe: {signal['timeframe']}
+Strategy: Test Strategy
+
+---------------
+
+Risk Management:
+• Position size: 1-2% max
+• Use proper stop loss
+• Follow your trading plan
+
+---------------
+
+🤖 SigmaPips AI Verdict:
+{market_data['verdict']}"""
+
             # Send to each subscriber
             for subscriber in subscribers.data:
                 try:
-                    # Voor menu sentiment analyse
                     keyboard = [
                         [
-                            InlineKeyboardButton("📊 Technical Analysis", callback_data=f"chart_{signal['instrument']}_{signal['timeframe']}"),
+                            InlineKeyboardButton("📊 Technical Analysis", callback_data=f"chart_{signal['instrument']}"),
                             InlineKeyboardButton("🤖 Market Sentiment", callback_data=f"sentiment_{signal['instrument']}")
                         ],
                         [InlineKeyboardButton("📅 Economic Calendar", callback_data=f"calendar_{signal['instrument']}")]
                     ]
                     
-                    reply_markup = InlineKeyboardMarkup(keyboard)
-                    
                     await self.bot.send_message(
                         chat_id=subscriber['user_id'],
                         text=message,
                         parse_mode=ParseMode.HTML,
-                        reply_markup=reply_markup
+                        reply_markup=InlineKeyboardMarkup(keyboard)
                     )
                     logger.info(f"Signal sent to {subscriber['user_id']}")
                     
@@ -939,7 +953,6 @@ Risk Management:
                 
         except Exception as e:
             logger.error(f"Error broadcasting signal: {str(e)}")
-            logger.exception(e)
 
     async def analysis_choice(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """Handle analysis type selection"""
@@ -1421,65 +1434,28 @@ Strategy: Test Strategy"""
     async def show_original_signal(self, callback_query: CallbackQuery) -> None:
         """Toon het originele signaal bericht"""
         try:
-            # Verbeterde instrument extractie
-            message_text = callback_query.message.text
-            instrument = None
+            # Extract instrument (je bestaande code)
+            instrument = self._extract_instrument(callback_query)
             
-            # Probeer eerst uit Market Analysis te halen
-            if message_text and "Market Analysis" in message_text:
-                instrument = message_text.split()[1]
-            # Anders proberen uit de sentiment analyse te halen
-            elif message_text and "analyzing" in message_text.lower():
-                instrument = message_text.split("analyzing")[1].strip().split()[0]
-            # Anders proberen uit de calendar data te halen
-            elif message_text and "Economic Calendar" in message_text:
-                # Probeer instrument uit callback data te halen
-                if callback_query.data.startswith('calendar_'):
-                    instrument = callback_query.data.split('_')[1]
+            # Haal opgeslagen market data op
+            signal_key = f"market_data:{instrument}"
+            market_data = self.redis.hgetall(signal_key)
             
-            # Als laatste optie, probeer uit de callback data te halen
-            if not instrument and callback_query.data:
-                data_parts = callback_query.data.split('_')
-                if len(data_parts) > 1:
-                    possible_instrument = data_parts[1]
-                    if possible_instrument not in ['menu', 'analysis', 'signals']:
-                        instrument = possible_instrument
-
-            if not instrument:
-                logger.warning("Could not extract instrument from message or callback data")
-                # Probeer uit de message markup te halen als laatste redmiddel
-                if callback_query.message.reply_markup:
-                    for row in callback_query.message.reply_markup.inline_keyboard:
-                        for button in row:
-                            if 'chart_' in button.callback_data:
-                                instrument = button.callback_data.split('_')[1]
-                                break
-                        if instrument:
-                            break
-
-            if not instrument:
-                logger.error("Failed to extract instrument from all possible sources")
-                instrument = "Unknown"
+            if not market_data:
+                # Als er geen opgeslagen data is, bereid het opnieuw voor
+                market_data = await self.prepare_market_data(instrument)
             
-            # Rest van de code blijft hetzelfde...
+            # Maak keyboard
             keyboard = [
                 [
-                    InlineKeyboardButton("📊 Technical Analysis", callback_data=f"chart_{instrument}"),
+                    InlineKeyboardButton("�� Technical Analysis", callback_data=f"chart_{instrument}"),
                     InlineKeyboardButton("🤖 Market Sentiment", callback_data=f"sentiment_{instrument}")
                 ],
                 [InlineKeyboardButton("📅 Economic Calendar", callback_data=f"calendar_{instrument}")]
             ]
 
-            # Haal market sentiment op...
-            try:
-                market = 'crypto' if any(crypto in instrument for crypto in ['BTC', 'ETH', 'XRP']) else 'forex'
-                sentiment_data = await self.sentiment.get_market_sentiment({
-                    'instrument': instrument,
-                    'market': market
-                })
-                verdict = self._analyze_sentiment_for_verdict(sentiment_data)
-                
-                original_signal = f"""🚨 NEW TRADING SIGNAL 🚨
+            # Format signal met opgeslagen verdict
+            original_signal = f"""🚨 NEW TRADING SIGNAL 🚨
 
 Instrument: {instrument}
 Action: BUY 📈
@@ -1503,40 +1479,11 @@ Risk Management:
 ---------------
 
 🤖 SigmaPips AI Verdict:
-{verdict}"""
-
-            except Exception as sentiment_error:
-                logger.error(f"Error getting sentiment data: {str(sentiment_error)}")
-                # Fallback verdict als sentiment ophalen mislukt
-                original_signal = """🚨 NEW TRADING SIGNAL 🚨
-
-Instrument: {instrument}
-Action: BUY 📈
-
-Entry Price: 2.300
-Take Profit 1: 2.350 🎯
-Take Profit 2: 2.400 🎯
-Take Profit 3: 2.450 🎯
-Stop Loss: 2.250 🔴
-
-Timeframe: 1h
-Strategy: Test Strategy
-
----------------
-
-Risk Management:
-• Position size: 1-2% max
-• Use proper stop loss
-• Follow your trading plan
-
----------------
-
-🤖 SigmaPips AI Verdict:
-⚠️ Market sentiment data unavailable"""
+{market_data['verdict']}"""
 
             # Update het bericht
             await callback_query.edit_message_text(
-                text=original_signal.format(instrument=instrument),
+                text=original_signal,
                 parse_mode=ParseMode.HTML,
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
@@ -1551,7 +1498,6 @@ Risk Management:
     def _analyze_sentiment_for_verdict(self, sentiment_data: str) -> str:
         """Analyseer sentiment data en genereer een verdict"""
         try:
-            # Zoek naar belangrijke indicatoren in de sentiment data
             sentiment_lower = sentiment_data.lower()
             
             # Positieve indicatoren
@@ -1570,14 +1516,48 @@ Risk Management:
             bullish_count = sum(1 for indicator in bullish_indicators if indicator in sentiment_lower)
             bearish_count = sum(1 for indicator in bearish_indicators if indicator in sentiment_lower)
             
-            # Bepaal verdict op basis van sentiment
+            # Vereenvoudigde verdicts met één emoji en één zin
             if bullish_count > bearish_count:
-                return "✅ Strong bullish sentiment detected\n📈 Trade aligns with market analysis"
+                return "✅ Bullish market sentiment supports this trade"
             elif bearish_count > bullish_count:
-                return "⚠️ Bearish sentiment detected\n❌ Trade conflicts with market analysis"
+                return "⚠️ Bearish market sentiment detected"
             else:
-                return "⚠️ Mixed market sentiment\n⚖️ Consider additional confirmation"
+                return "⚖️ Mixed market sentiment signals"
             
         except Exception as e:
             logger.error(f"Error analyzing sentiment: {str(e)}")
             return "⚠️ Unable to analyze market sentiment"
+
+    async def prepare_market_data(self, instrument: str) -> Dict[str, str]:
+        """Bereid market data voor en sla op voor later gebruik"""
+        try:
+            # Market type detecteren
+            market = 'crypto' if any(crypto in instrument for crypto in ['BTC', 'ETH', 'XRP']) else 'forex'
+            
+            # Sentiment ophalen
+            sentiment_data = await self.sentiment.get_market_sentiment({
+                'instrument': instrument,
+                'market': market
+            })
+            
+            # Genereer verdict
+            verdict = self._analyze_sentiment_for_verdict(sentiment_data)
+            
+            # Sla op in Redis voor later gebruik
+            data = {
+                'sentiment': sentiment_data,
+                'verdict': verdict
+            }
+            
+            signal_key = f"market_data:{instrument}"
+            self.redis.hmset(signal_key, data)
+            self.redis.expire(signal_key, 3600)  # 1 uur geldig
+            
+            return data
+            
+        except Exception as e:
+            logger.error(f"Error preparing market data: {str(e)}")
+            return {
+                'sentiment': "Market sentiment data unavailable",
+                'verdict': "⚠️ Market data unavailable"
+            }
