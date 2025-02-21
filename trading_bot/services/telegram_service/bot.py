@@ -1157,31 +1157,44 @@ Strategy: Test Strategy"""
     async def handle_sentiment_button(self, callback_query: Dict[str, Any], instrument: str):
         """Handle sentiment button click"""
         try:
-            await callback_query.edit_message_text(
-                text=f"⏳ Analyzing {instrument}..."
+            # Eerst het laad bericht sturen
+            message = await callback_query.edit_message_text(
+                text=f"⏳ Analyzing {instrument}...",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("⬅️ Back", callback_data="back_to_signals" if callback_query.data.endswith('signals') else "back_market")
+                ]])
             )
             
-            # Fix market type detection
+            # Market type detecteren
             market = 'crypto' if any(crypto in instrument for crypto in ['BTC', 'ETH', 'XRP']) else 'forex'
             
+            # Sentiment ophalen
             sentiment_data = await self.sentiment.get_market_sentiment({
-                'symbol': instrument,
+                'instrument': instrument,  # Changed from 'symbol' to 'instrument'
                 'market': market
             })
             
-            keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]]
+            # Keyboard maken met juiste back button
+            keyboard = [[
+                InlineKeyboardButton(
+                    "⬅️ Back", 
+                    callback_data="back_to_signals" if callback_query.data.endswith('signals') else "back_market"
+                )
+            ]]
             
+            # Update het bericht met sentiment data
             await callback_query.edit_message_text(
                 text=sentiment_data,
-                parse_mode=ParseMode.HTML,  # Gebruik HTML i.p.v. MARKDOWN
+                parse_mode=ParseMode.HTML,
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
+            
         except Exception as e:
             logger.error(f"Error showing sentiment analysis: {str(e)}")
             await callback_query.edit_message_text(
                 text=f"Error analyzing {instrument}. Please try again.",
                 reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("⬅️ Back", callback_data="back_market")
+                    InlineKeyboardButton("⬅️ Back", callback_data="back_to_signals" if callback_query.data.endswith('signals') else "back_market")
                 ]])
             )
 
@@ -1348,31 +1361,44 @@ Strategy: Test Strategy"""
     async def show_sentiment_analysis(self, callback_query: CallbackQuery, instrument: str):
         """Toon sentiment analyse voor gekozen instrument"""
         try:
-            await callback_query.edit_message_text(
-                text=f"⏳ Analyzing {instrument}..."
+            # Eerst het laad bericht sturen
+            message = await callback_query.edit_message_text(
+                text=f"⏳ Analyzing {instrument}...",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("⬅️ Back", callback_data="back_to_signals" if callback_query.data.endswith('signals') else "back_market")
+                ]])
             )
             
-            # Fix market type detection
+            # Market type detecteren
             market = 'crypto' if any(crypto in instrument for crypto in ['BTC', 'ETH', 'XRP']) else 'forex'
             
+            # Sentiment ophalen
             sentiment_data = await self.sentiment.get_market_sentiment({
-                'symbol': instrument,
+                'instrument': instrument,  # Changed from 'symbol' to 'instrument'
                 'market': market
             })
             
-            keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]]
+            # Keyboard maken met juiste back button
+            keyboard = [[
+                InlineKeyboardButton(
+                    "⬅️ Back", 
+                    callback_data="back_to_signals" if callback_query.data.endswith('signals') else "back_market"
+                )
+            ]]
             
+            # Update het bericht met sentiment data
             await callback_query.edit_message_text(
                 text=sentiment_data,
-                parse_mode=ParseMode.HTML,  # Gebruik HTML i.p.v. MARKDOWN
+                parse_mode=ParseMode.HTML,
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
+            
         except Exception as e:
             logger.error(f"Error showing sentiment analysis: {str(e)}")
             await callback_query.edit_message_text(
                 text=f"Error analyzing {instrument}. Please try again.",
                 reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("⬅️ Back", callback_data="back_market")
+                    InlineKeyboardButton("⬅️ Back", callback_data="back_to_signals" if callback_query.data.endswith('signals') else "back_market")
                 ]])
             )
 
@@ -1435,3 +1461,13 @@ Strategy: Test Strategy"""
                     InlineKeyboardButton("⬅️ Back", callback_data="back_signals")
                 ]])
             )
+
+    async def back_to_signals(self, callback_query: CallbackQuery) -> None:
+        """Handle back to signals menu"""
+        try:
+            await callback_query.edit_message_text(
+                text="What would you like to do with trading signals?",
+                reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD)
+            )
+        except Exception as e:
+            logger.error(f"Error handling back to signals: {str(e)}")
