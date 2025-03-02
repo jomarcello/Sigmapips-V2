@@ -239,7 +239,6 @@ class TelegramService:
             
             # Add handlers
             self.application.add_handler(conv_handler)
-            self.application.add_handler(CommandHandler("menu", self.menu))
             self.application.add_handler(CommandHandler("help", self.help))
             self.application.add_handler(CallbackQueryHandler(self._button_click))
             
@@ -257,9 +256,7 @@ class TelegramService:
             
             # Set bot commands
             commands = [
-                ("start", "Set up new trading pairs"),
-                ("manage", "Manage your preferences"),
-                ("menu", "Show main menu"),
+                ("start", "Start the bot and show main menu"),
                 ("help", "Show help message")
             ]
             await self.bot.set_my_commands(commands)
@@ -408,13 +405,7 @@ Risk Management:
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """Start the conversation."""
         try:
-            user = update.effective_user
-            logger.info(f"Starting conversation with user {user.id}")
-            
-            # Reset user data
-            context.user_data.clear()
-            
-            # Stuur welkomstbericht met START_KEYBOARD
+            # Stuur welkomstbericht met hoofdmenu
             await update.message.reply_text(
                 text=WELCOME_MESSAGE,
                 reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
@@ -424,7 +415,7 @@ Risk Management:
         except Exception as e:
             logger.error(f"Error in start command: {str(e)}")
             await update.message.reply_text(
-                "Sorry, something went wrong. Please try again with /start"
+                "Sorry, something went wrong. Please try again later."
             )
             return ConversationHandler.END
 
@@ -733,21 +724,6 @@ Risk Management:
                 "Error loading preferences. Please try again."
             )
             return ConversationHandler.END
-
-    async def menu(self, update: Update, context):
-        """Handle menu command"""
-        try:
-            keyboard = [
-                [InlineKeyboardButton("➕ Add New Pairs", callback_data="start")],
-                [InlineKeyboardButton("⚙️ Manage Preferences", callback_data="manage")]
-            ]
-            await update.message.reply_text(
-                MENU_MESSAGE,
-                reply_markup=InlineKeyboardMarkup(keyboard)
-            )
-            return SHOW_RESULT
-        except Exception as e:
-            logger.error(f"Error handling menu command: {str(e)}")
 
     async def add_more(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle add more button"""
@@ -1239,7 +1215,7 @@ Strategy: Test Strategy"""
         try:
             logger.info(f"User {update.effective_user.id} canceled the conversation")
             await update.message.reply_text(
-                "Operation cancelled. Use /menu to see available commands."
+                "Operation cancelled. Use /start to see available commands."
             )
             return ConversationHandler.END
         except Exception as e:
