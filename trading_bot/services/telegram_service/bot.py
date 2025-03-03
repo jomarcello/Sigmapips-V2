@@ -1162,40 +1162,43 @@ Strategy: Test Strategy"""
             logger.error(f"Error handling chart button: {str(e)}")
 
     async def show_sentiment_analysis(self, callback_query: CallbackQuery, instrument: str):
-        """Toon sentiment analyse voor gekozen instrument"""
+        """Toon sentiment analyse voor een instrument"""
         try:
-            # Eerst het laad bericht sturen
+            # Toon loading message
             await callback_query.edit_message_text(
-                text=f"⏳ Analyzing {instrument}...",
-                reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("⬅️ Back", callback_data="back_to_original")
-                ]])
+                text=f"⏳ Analyzing market sentiment for {instrument}...\n\nThis may take a moment."
             )
             
-            # Market type detecteren
+            # Get sentiment data
             market = 'crypto' if any(crypto in instrument for crypto in ['BTC', 'ETH', 'XRP']) else 'forex'
-            
-            # Sentiment ophalen
             sentiment_data = await self.sentiment.get_market_sentiment({
                 'instrument': instrument,
                 'market': market
             })
             
-            # Update het bericht met sentiment data
+            # Bepaal de juiste back callback data
+            # Controleer of dit vanuit een trading signal komt of vanuit analyse
+            if 'signal' in callback_query.message.text.lower():
+                # Het komt van een trading signal
+                back_callback = f"back_to_signal_{instrument}"
+            else:
+                # Het komt van analyse
+                back_callback = f"back_to_instruments_{instrument}"
+            
+            # Update message with sentiment data
             await callback_query.edit_message_text(
-                text=sentiment_data,
+                text=f"🧠 <b>Market Sentiment Analysis for {instrument}</b>\n\n{sentiment_data}",
                 parse_mode=ParseMode.HTML,
                 reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("⬅️ Back", callback_data="back_to_original")
+                    InlineKeyboardButton("⬅️ Back", callback_data=back_callback)
                 ]])
             )
-            
         except Exception as e:
             logger.error(f"Error showing sentiment analysis: {str(e)}")
             await callback_query.edit_message_text(
-                text=f"Error analyzing {instrument}. Please try again.",
+                text=f"Sorry, er is een fout opgetreden bij het ophalen van sentiment data voor {instrument}. Probeer het later opnieuw.",
                 reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("⬅️ Back", callback_data="back_to_original")
+                    InlineKeyboardButton("⬅️ Back", callback_data="back_analysis")
                 ]])
             )
 
