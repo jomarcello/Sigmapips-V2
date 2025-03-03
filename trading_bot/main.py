@@ -92,6 +92,17 @@ async def webhook(request: Request):
                     return {"status": "success"}
                     
         if 'callback_query' in data:
+            callback_query = data['callback_query']
+            callback_data = callback_query.get('data', '')
+            logger.info(f"Received callback data: {callback_data}")
+            
+            if callback_data.startswith('menu_'):
+                # Direct aanroepen van menu_choice met een lege context
+                update = Update.de_json(data, telegram.bot)
+                await telegram.menu_choice(update, {})
+                return {"status": "success"}
+            
+            # Voor andere callbacks
             update = Update.de_json(data, telegram.bot)
             await telegram.application.process_update(update)
             
