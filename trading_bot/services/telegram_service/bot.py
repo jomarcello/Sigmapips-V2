@@ -43,8 +43,11 @@ I'm your AI-powered trading assistant, designed to help you make better trading 
 
 📊 <b>My Services:</b>
 • <b>Technical Analysis</b> - Get real-time chart analysis and key levels
+
 • <b>Market Sentiment</b> - Understand market mood and trends
+
 • <b>Economic Calendar</b> - Stay informed about market-moving events
+
 • <b>Trading Signals</b> - Receive precise entry/exit points for your favorite pairs
 
 Select an option below to get started:
