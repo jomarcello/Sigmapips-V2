@@ -192,7 +192,9 @@ async def webhook(request: Request):
                 
                 elif callback_data.startswith('back_to_instruments_'):
                     # Extract instrument en ga terug naar market selectie
-                    instrument = callback_data.split('_')[3]
+                    parts = callback_data.split('_')
+                    instrument = parts[3]  # back_to_instruments_EURUSD -> EURUSD
+                    
                     # Bepaal de market op basis van het instrument
                     if any(crypto in instrument for crypto in ['BTC', 'ETH', 'XRP']):
                         market = 'crypto'
