@@ -1139,27 +1139,55 @@ Strategy: Test Strategy"""
     async def handle_chart_button(self, callback_query: CallbackQuery, instrument: str):
         """Handle chart button click"""
         try:
-            # Get cached chart
-            signal_key = f"signal:{callback_query.message.message_id}"
-            cached_data = self.redis.hgetall(signal_key)
+            # Toon loading message
+            await callback_query.edit_message_text(
+                text=f"⏳ Generating chart for {instrument}...\n\nThis may take a moment."
+            )
             
-            if cached_data and cached_data.get('chart'):
-                chart_image = base64.b64decode(cached_data['chart'])
-                
-                # Update message with cached chart
-                await callback_query.edit_message_media(
-                    chat_id=callback_query.message.chat.id,
-                    message_id=callback_query.message.message_id,
-                    media=InputMediaPhoto(
-                        media=chart_image,
-                        caption=f"📊 Technical Analysis for {instrument}"
-                    ),
+            # Get chart image
+            chart_image = await self.chart.get_chart(instrument, timeframe="1h")
+            
+            if not chart_image:
+                await callback_query.edit_message_text(
+                    text=f"Sorry, could not generate chart for {instrument}. Please try again later.",
                     reply_markup=InlineKeyboardMarkup([[
                         InlineKeyboardButton("⬅️ Back", callback_data=f"back_to_signal_{instrument}")
                     ]])
                 )
+                return
+            
+            # Cache the chart in Redis for future use
+            try:
+                signal_key = f"signal:{callback_query.message.message_id}"
+                self.redis.hset(signal_key, "chart", base64.b64encode(chart_image).decode('utf-8'))
+                self.redis.expire(signal_key, 3600)  # 1 hour expiry
+            except Exception as redis_error:
+                logger.error(f"Redis caching error: {str(redis_error)}")
+            
+            # Determine back button callback data
+            if 'signal' in callback_query.message.text.lower():
+                back_callback = f"back_to_signal_{instrument}"
+            else:
+                back_callback = f"back_to_instruments_{instrument}"
+            
+            # Update message with chart image
+            await callback_query.edit_message_media(
+                media=InputMediaPhoto(
+                    media=chart_image,
+                    caption=f"📊 Technical Analysis for {instrument}"
+                ),
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("⬅️ Back", callback_data=back_callback)
+                ]])
+            )
         except Exception as e:
             logger.error(f"Error handling chart button: {str(e)}")
+            await callback_query.edit_message_text(
+                text=f"Sorry, an error occurred while generating the chart for {instrument}.",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("⬅️ Back", callback_data="back_analysis")
+                ]])
+            )
 
     async def show_sentiment_analysis(self, callback_query: CallbackQuery, instrument: str):
         """Toon sentiment analyse voor een instrument"""
@@ -1429,13 +1457,13 @@ Strategy: Test Strategy"""
                         reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
                     )
             else:
+                # Onbekend back type, fallback naar start menu
                 logger.warning(f"Unknown back type: {back_type}")
-            # Fallback naar start menu
-            await callback_query.edit_message_text(
-                text=WELCOME_MESSAGE,
-                parse_mode=ParseMode.HTML,
-                reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
-            )
+                await callback_query.edit_message_text(
+                    text=WELCOME_MESSAGE,
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
+                )
         except Exception as e:
             logger.error(f"Error handling back button: {str(e)}")
             await callback_query.edit_message_text(
