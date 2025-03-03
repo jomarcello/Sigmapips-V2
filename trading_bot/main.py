@@ -182,6 +182,14 @@ async def webhook(request: Request):
                     )
                     return {"status": "success"}
                 
+                elif callback_data == 'back_signals':
+                    # Terug naar signals menu
+                    await callback_query.edit_message_text(
+                        text="What would you like to do with trading signals?",
+                        reply_markup=InlineKeyboardMarkup(telegram.SIGNALS_KEYBOARD)
+                    )
+                    return {"status": "success"}
+                
             # 3. Fallback: laat de application handler het afhandelen
             await telegram.application.process_update(update)
             
