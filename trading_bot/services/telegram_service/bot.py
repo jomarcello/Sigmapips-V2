@@ -410,7 +410,7 @@ Risk Management:
                 text=WELCOME_MESSAGE,
                 reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
             )
-            return CHOOSE_MENU
+            return CHOOSE_MENU  # Dit zorgt ervoor dat de menu_choice handler getriggerd wordt
             
         except Exception as e:
             logger.error(f"Error in start command: {str(e)}")
