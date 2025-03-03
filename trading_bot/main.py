@@ -93,8 +93,8 @@ async def webhook(request: Request):
                 
                 # Specifieke callback handlers
                 if callback_data == 'start':
-                    # Simuleer /start command
-                    await telegram.start(update, {})
+                    # Gebruik de speciale functie voor callback queries
+                    await telegram.start_from_callback(update)
                     return {"status": "success"}
                 
                 elif callback_data == 'manage':
