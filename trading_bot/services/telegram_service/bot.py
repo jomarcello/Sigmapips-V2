@@ -1310,9 +1310,15 @@ Strategy: Test Strategy"""
                 new_row = []
                 for button in row:
                     if "Back" in button.text:  # Check op tekst in plaats van exacte match
+                        # Bepaal de juiste back callback data
+                        if analysis_type in ['technical', 'sentiment', 'calendar']:
+                            back_callback = "back_analysis"
+                        else:
+                            back_callback = "back_market"
+                        
                         new_button = InlineKeyboardButton(
                             text="⬅️ Back",
-                            callback_data="back_market"  # Altijd consistente callback_data
+                            callback_data=back_callback
                         )
                     else:
                         new_button = InlineKeyboardButton(
@@ -1332,29 +1338,68 @@ Strategy: Test Strategy"""
     async def handle_back(self, callback_query: CallbackQuery, back_type: str):
         """Handle back button clicks"""
         try:
+            logger.info(f"Handling back button with type: {back_type}")
+            
             if back_type == 'menu':
                 await callback_query.edit_message_text(
                     text=WELCOME_MESSAGE,
+                    parse_mode=ParseMode.HTML,
                     reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
                 )
             elif back_type == 'analysis':
+                # Terug naar analyse menu
                 await callback_query.edit_message_text(
                     text="Select your analysis type:",
                     reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
                 )
             elif back_type == 'signals':
+                # Terug naar signals menu
                 await callback_query.edit_message_text(
                     text="What would you like to do with trading signals?",
                     reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD)
                 )
             elif back_type == 'market':
-                analysis_type = callback_query.message.reply_markup.inline_keyboard[0][0].callback_data.split('_')[-1]
-                await self.show_market_selection(callback_query, analysis_type)
+                # Probeer de analysis_type te bepalen uit de callback data
+                try:
+                    # Probeer eerst uit de callback data
+                    if callback_query.data and len(callback_query.data.split('_')) > 2:
+                        parts = callback_query.data.split('_')
+                        analysis_type = parts[2] if len(parts) > 2 else 'analysis'
+                    else:
+                        # Anders probeer uit de keyboard data
+                        keyboard_data = callback_query.message.reply_markup.inline_keyboard[0][0].callback_data
+                        if 'technical' in keyboard_data:
+                            analysis_type = 'technical'
+                        elif 'sentiment' in keyboard_data:
+                            analysis_type = 'sentiment'
+                        elif 'calendar' in keyboard_data:
+                            analysis_type = 'calendar'
+                        else:
+                            analysis_type = 'analysis'
+                    
+                    # Als het technical, sentiment of calendar is, ga terug naar analyse menu
+                    if analysis_type in ['technical', 'sentiment', 'calendar']:
+                        await callback_query.edit_message_text(
+                            text="Select your analysis type:",
+                            reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
+                        )
+                    else:
+                        # Anders ga terug naar market selectie voor signals
+                        await self.show_market_selection(callback_query, 'signals')
+                except Exception as inner_e:
+                    logger.error(f"Error determining analysis type: {str(inner_e)}")
+                    # Fallback naar analyse menu
+                    await callback_query.edit_message_text(
+                        text="Select your analysis type:",
+                        reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
+                    )
         except Exception as e:
             logger.error(f"Error handling back button: {str(e)}")
             await callback_query.edit_message_text(
                 text="Sorry, something went wrong. Please use /start to begin again.",
-                reply_markup=None
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("🏠 Back to Start", callback_data="start")
+                ]])
             )
 
     async def handle_delete_preferences(self, callback_query: CallbackQuery) -> None:
