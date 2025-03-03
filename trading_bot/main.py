@@ -190,6 +190,23 @@ async def webhook(request: Request):
                     )
                     return {"status": "success"}
                 
+                elif callback_data.startswith('back_to_instruments_'):
+                    # Extract instrument en ga terug naar market selectie
+                    instrument = callback_data.split('_')[3]
+                    # Bepaal de market op basis van het instrument
+                    if any(crypto in instrument for crypto in ['BTC', 'ETH', 'XRP']):
+                        market = 'crypto'
+                    elif any(commodity in instrument for commodity in ['XAU', 'XAG', 'OIL']):
+                        market = 'commodities'
+                    elif any(index in instrument for index in ['30', '500', '100', 'UK', 'DE', 'FR', 'JP', 'AU', 'HK']):
+                        market = 'indices'
+                    else:
+                        market = 'forex'
+                    
+                    # Ga terug naar instrumenten voor die market
+                    await telegram.show_instruments(callback_query, market, 'sentiment')
+                    return {"status": "success"}
+                
             # 3. Fallback: laat de application handler het afhandelen
             await telegram.application.process_update(update)
             
