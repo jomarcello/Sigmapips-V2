@@ -1388,6 +1388,11 @@ Strategy: Test Strategy"""
                     text="What would you like to do with trading signals?",
                     reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD)
                 )
+            elif back_type == 'to':
+                # Dit is een back_to_instruments of back_to_signal callback
+                # Laat main.py dit afhandelen
+                logger.info("Letting main.py handle back_to callback")
+                pass
             elif back_type == 'market':
                 # Probeer de analysis_type te bepalen uit de callback data
                 try:
@@ -1423,6 +1428,14 @@ Strategy: Test Strategy"""
                         text="Select your analysis type:",
                         reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
                     )
+            else:
+                logger.warning(f"Unknown back type: {back_type}")
+            # Fallback naar start menu
+            await callback_query.edit_message_text(
+                text=WELCOME_MESSAGE,
+                parse_mode=ParseMode.HTML,
+                reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
+            )
         except Exception as e:
             logger.error(f"Error handling back button: {str(e)}")
             await callback_query.edit_message_text(
