@@ -92,7 +92,17 @@ async def webhook(request: Request):
                 logger.info(f"Received callback data: {callback_data}")
                 
                 # Specifieke callback handlers
-                if callback_data == 'back_to_original' or callback_data == 'back_to_signal':
+                if callback_data == 'start':
+                    # Simuleer /start command
+                    await telegram.start(update, {})
+                    return {"status": "success"}
+                
+                elif callback_data == 'manage':
+                    # Simuleer /manage command
+                    await telegram.manage_preferences(callback_query)
+                    return {"status": "success"}
+                
+                elif callback_data == 'back_to_original' or callback_data == 'back_to_signal':
                     await telegram.show_original_signal(callback_query)
                     return {"status": "success"}
                 
