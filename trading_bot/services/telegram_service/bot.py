@@ -37,11 +37,13 @@ SHOW_RESULT = 6      # Laatste state - toon resultaat
 
 # Messages
 WELCOME_MESSAGE = """
-Welcome to SigmaPips Trading Bot!
+Welkom bij SigmaPips Trading Bot!
 
-I offer two main services:
-• Market Analysis - Get technical, sentiment and economic insights
-• Trading Signals - Receive automated trading signals for your preferred pairs
+Ik bied twee hoofddiensten:
+• Marktanalyse - Krijg technische, sentiment en economische inzichten
+• Trading Signalen - Ontvang geautomatiseerde handelssignalen voor je favoriete paren
+
+Kies een optie hieronder:
 """
 
 MENU_MESSAGE = """
@@ -239,7 +241,6 @@ class TelegramService:
             
             # Add handlers
             self.application.add_handler(conv_handler)
-            self.application.add_handler(CommandHandler("menu", self.menu))
             self.application.add_handler(CommandHandler("help", self.help))
             self.application.add_handler(CallbackQueryHandler(self._button_click))
             
@@ -255,11 +256,9 @@ class TelegramService:
             info = await self.bot.get_me()
             logger.info(f"Successfully connected to Telegram API. Bot info: {info}")
             
-            # Set bot commands
+            # Set bot commands - alleen /start en /help
             commands = [
-                ("start", "Set up new trading pairs"),
-                ("manage", "Manage your preferences"),
-                ("menu", "Show main menu"),
+                ("start", "Start the bot and see available options"),
                 ("help", "Show help message")
             ]
             await self.bot.set_my_commands(commands)
@@ -412,7 +411,8 @@ Risk Management:
             logger.info(f"Starting conversation with user {user.id}")
             
             # Reset user data
-            context.user_data.clear()
+            if context:
+                context.user_data.clear()
             
             # Stuur welkomstbericht met START_KEYBOARD
             await update.message.reply_text(
@@ -733,21 +733,6 @@ Risk Management:
                 "Error loading preferences. Please try again."
             )
             return ConversationHandler.END
-
-    async def menu(self, update: Update, context):
-        """Handle menu command"""
-        try:
-            keyboard = [
-                [InlineKeyboardButton("➕ Add New Pairs", callback_data="start")],
-                [InlineKeyboardButton("⚙️ Manage Preferences", callback_data="manage")]
-            ]
-            await update.message.reply_text(
-                MENU_MESSAGE,
-                reply_markup=InlineKeyboardMarkup(keyboard)
-            )
-            return SHOW_RESULT
-        except Exception as e:
-            logger.error(f"Error handling menu command: {str(e)}")
 
     async def add_more(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle add more button"""
@@ -1164,6 +1149,7 @@ Strategy: Test Strategy"""
                     reply_markup=InlineKeyboardMarkup([[
                         InlineKeyboardButton("⬅️ Back", callback_data=f"back_to_signal_{instrument}")
                     ]])
+                )
                 )
         except Exception as e:
             logger.error(f"Error handling chart button: {str(e)}")
