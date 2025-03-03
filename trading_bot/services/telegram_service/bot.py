@@ -1210,12 +1210,15 @@ Strategy: Test Strategy"""
             # Get calendar data
             calendar_data = await self.calendar.get_economic_calendar(instrument)
             
+            # Bepaal de juiste back callback data
+            back_callback = "back_to_signal" if instrument else "back_analysis"
+            
             # Update message with calendar data and back button
             await callback_query.edit_message_text(
                 text=calendar_data,
                 parse_mode=ParseMode.HTML,
                 reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal")
+                    InlineKeyboardButton("⬅️ Back", callback_data=back_callback)
                 ]])
             )
         except Exception as e:
@@ -1223,7 +1226,7 @@ Strategy: Test Strategy"""
             await callback_query.edit_message_text(
                 text="Sorry, er is een fout opgetreden bij het ophalen van de economische kalender. Probeer het later opnieuw.",
                 reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal")
+                    InlineKeyboardButton("⬅️ Back", callback_data="back_analysis")
                 ]])
             )
 
