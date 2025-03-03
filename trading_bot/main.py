@@ -71,13 +71,12 @@ async def health_check():
     return {"status": "healthy"}
 
 @app.post("/webhook")
-async def telegram_webhook(request: Request):
-    """Handle Telegram webhook updates"""
+async def webhook(request: Request):
+    """Handle Telegram webhook"""
     try:
         data = await request.json()
         logger.info(f"Received webhook: {data}")
         
-        # Handle commands
         if 'message' in data and 'text' in data['message']:
             message = data['message']
             if message['text'].startswith('/'):
@@ -85,30 +84,31 @@ async def telegram_webhook(request: Request):
                 chat_id = message['chat']['id']
                 
                 if command == '/start':
-                    # Handle start command
                     await telegram.bot.send_message(
                         chat_id=chat_id,
                         text=WELCOME_MESSAGE,
                         reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
                     )
                     return {"status": "success"}
-                elif command == '/help':
-                    # Handle help command
-                    await telegram.bot.send_message(
-                        chat_id=chat_id,
-                        text=HELP_MESSAGE
-                    )
-                    return {"status": "success"}
                     
-        # Handle callback queries
         if 'callback_query' in data:
+            callback_query = data['callback_query']
+            data = callback_query.get('data', '')
+            logger.info(f"Received callback data: {data}")
+            
+            # Handle menu choices
+            if data.startswith('menu_'):
+                await telegram.menu_choice(Update.de_json(data, telegram.bot), {})
+                return {"status": "success"}
+            
+            # Process other callbacks through application
             update = Update.de_json(data, telegram.bot)
             await telegram.application.process_update(update)
             
         return {"status": "success"}
         
     except Exception as e:
-        logger.error(f"Error handling webhook: {str(e)}")
+        logger.error(f"Error processing webhook: {str(e)}")
         return {"status": "error", "message": str(e)}
 
 def _detect_market(symbol: str) -> str:
