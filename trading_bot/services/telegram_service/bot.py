@@ -1266,23 +1266,32 @@ Strategy: Test Strategy"""
             logger.error(f"Error sending test signal: {str(e)}")
 
     async def show_market_selection(self, callback_query: CallbackQuery, analysis_type: str):
-        """Toon market selectie met analysis type in callback data"""
+        """Toon market selectie"""
         try:
+            logger.info(f"Showing market selection for analysis_type: {analysis_type}")
+            
+            # Maak een nieuwe keyboard met aangepaste callback data
             keyboard = []
             for row in MARKET_KEYBOARD:
                 new_row = []
                 for button in row:
-                    if button.text == "Back":
-                        # Voor back button, ga terug naar analyse keuze
+                    if "Back" in button.text:
+                        # Bepaal de juiste back callback data
+                        if analysis_type in ['technical', 'sentiment', 'calendar']:
+                            back_callback = "back_analysis"
+                        else:
+                            back_callback = "back_signals"
+                        
                         new_button = InlineKeyboardButton(
-                            text=button.text,
-                            callback_data="back_analysis"
+                            text="⬅️ Back",
+                            callback_data=back_callback
                         )
                     else:
-                        # Voor market buttons, voeg analysis_type toe
+                        # Voor market buttons, voeg analysis_type toe aan callback data
+                        market = button.text.lower()
                         new_button = InlineKeyboardButton(
                             text=button.text,
-                            callback_data=f"{button.callback_data}_{analysis_type}"
+                            callback_data=f"market_{market}_{analysis_type}"
                         )
                     new_row.append(new_button)
                 keyboard.append(new_row)
@@ -1293,6 +1302,12 @@ Strategy: Test Strategy"""
             )
         except Exception as e:
             logger.error(f"Error showing market selection: {str(e)}")
+            await callback_query.edit_message_text(
+                text="Sorry, something went wrong. Please use /start to begin again.",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("🏠 Back to Start", callback_data="start")
+                ]])
+            )
 
     async def show_instruments(self, callback_query: CallbackQuery, market: str, analysis_type: str):
         """Toon instrumenten voor gekozen market"""
