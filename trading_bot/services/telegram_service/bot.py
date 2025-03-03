@@ -37,13 +37,17 @@ SHOW_RESULT = 6      # Laatste state - toon resultaat
 
 # Messages
 WELCOME_MESSAGE = """
-Welkom bij SigmaPips Trading Bot!
+🚀 *Welcome to SigmaPips Trading Bot!* 🚀
 
-Ik bied twee hoofddiensten:
-• Marktanalyse - Krijg technische, sentiment en economische inzichten
-• Trading Signalen - Ontvang geautomatiseerde handelssignalen voor je favoriete paren
+I'm your AI-powered trading assistant, designed to help you make better trading decisions.
 
-Kies een optie hieronder:
+📊 *My Services:*
+• *Technical Analysis* - Get real-time chart analysis and key levels
+• *Market Sentiment* - Understand market mood and trends
+• *Economic Calendar* - Stay informed about market-moving events
+• *Trading Signals* - Receive precise entry/exit points for your favorite pairs
+
+Select an option below to get started:
 """
 
 MENU_MESSAGE = """
