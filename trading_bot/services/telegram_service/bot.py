@@ -201,7 +201,6 @@ class TelegramService:
             
             # Store database instance
             self.db = db
-            self.redis = db.redis
             
             # Setup services
             self.chart = ChartService()
@@ -252,6 +251,25 @@ class TelegramService:
             self.application.add_handler(CallbackQueryHandler(self._button_click))
             
             logger.info("Telegram service initialized")
+            
+            # Redis voor caching
+            redis_host = os.getenv("REDIS_HOST", "redis")
+            redis_port = int(os.getenv("REDIS_PORT", 6379))
+            try:
+                self.redis = redis.Redis(
+                    host=redis_host,
+                    port=redis_port,
+                    db=0,
+                    decode_responses=True,
+                    socket_connect_timeout=2,
+                    retry_on_timeout=True
+                )
+                # Test de verbinding
+                self.redis.ping()
+                logger.info("Redis connection established")
+            except Exception as redis_error:
+                logger.warning(f"Redis connection failed: {str(redis_error)}. Using local caching.")
+                self.redis = None
             
         except Exception as e:
             logger.error(f"Error initializing Telegram service: {str(e)}")
@@ -1144,8 +1162,11 @@ Strategy: Test Strategy"""
                 text=f"⏳ Generating chart for {instrument}...\n\nThis may take a moment."
             )
             
+            # Normaliseer instrument (verwijder /)
+            instrument = instrument.upper().replace("/", "")
+            
             # Get chart image
-            chart_image = await self.chart.get_chart(instrument, timeframe="1h")
+            chart_image = await self.chart.get_chart(instrument)
             
             if not chart_image:
                 await callback_query.edit_message_text(
@@ -1155,14 +1176,6 @@ Strategy: Test Strategy"""
                     ]])
                 )
                 return
-            
-            # Cache the chart in Redis for future use
-            try:
-                signal_key = f"signal:{callback_query.message.message_id}"
-                self.redis.hset(signal_key, "chart", base64.b64encode(chart_image).decode('utf-8'))
-                self.redis.expire(signal_key, 3600)  # 1 hour expiry
-            except Exception as redis_error:
-                logger.error(f"Redis caching error: {str(redis_error)}")
             
             # Determine back button callback data
             if 'signal' in callback_query.message.text.lower():
