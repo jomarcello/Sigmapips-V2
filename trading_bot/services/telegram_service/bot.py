@@ -1297,6 +1297,9 @@ Strategy: Test Strategy"""
     async def show_instruments(self, callback_query: CallbackQuery, market: str, analysis_type: str):
         """Toon instrumenten voor gekozen market"""
         try:
+            logger.info(f"Showing instruments for market: {market}, analysis_type: {analysis_type}")
+            
+            # Bepaal welke keyboard te gebruiken
             keyboard_map = {
                 'forex': FOREX_KEYBOARD,
                 'crypto': CRYPTO_KEYBOARD,
@@ -1305,25 +1308,28 @@ Strategy: Test Strategy"""
             }
             base_keyboard = keyboard_map.get(market, FOREX_KEYBOARD)
             
+            # Maak een nieuwe keyboard met aangepaste callback data
             keyboard = []
             for row in base_keyboard:
                 new_row = []
                 for button in row:
-                    if "Back" in button.text:  # Check op tekst in plaats van exacte match
+                    if "Back" in button.text:
                         # Bepaal de juiste back callback data
                         if analysis_type in ['technical', 'sentiment', 'calendar']:
                             back_callback = "back_analysis"
                         else:
-                            back_callback = "back_market"
+                            back_callback = "back_signals"
                         
                         new_button = InlineKeyboardButton(
                             text="⬅️ Back",
                             callback_data=back_callback
                         )
                     else:
+                        # Voor instrument buttons, voeg analysis_type toe aan callback data
+                        instrument = button.text
                         new_button = InlineKeyboardButton(
-                            text=button.text,
-                            callback_data=f"instrument_{button.text}_{analysis_type}"
+                            text=instrument,
+                            callback_data=f"instrument_{instrument}_{analysis_type}"
                         )
                     new_row.append(new_button)
                 keyboard.append(new_row)
@@ -1334,6 +1340,12 @@ Strategy: Test Strategy"""
             )
         except Exception as e:
             logger.error(f"Error showing instruments: {str(e)}")
+            await callback_query.edit_message_text(
+                text="Sorry, something went wrong. Please use /start to begin again.",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("🏠 Back to Start", callback_data="start")
+                ]])
+            )
 
     async def handle_back(self, callback_query: CallbackQuery, back_type: str):
         """Handle back button clicks"""
