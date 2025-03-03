@@ -19,66 +19,29 @@ class EconomicCalendarService:
     async def get_economic_calendar(self, instrument: str = None) -> str:
         """Get economic calendar data"""
         try:
-            prompt = """Search and analyze today's economic calendar events from Investing.com.
+            # Fetch calendar data
+            calendar_data = await self._fetch_calendar_data()
             
-            1. First, check today's economic events for these major currencies in order:
-            - EUR (Eurozone)
-            - USD (United States)
-            - GBP (United Kingdom)
-            - JPY (Japan)
-            - CHF (Switzerland)
-            - AUD (Australia)
-            - NZD (New Zealand)
-
-            2. Format each event exactly like this:
-            🇪🇺 Eurozone (EUR):
-            ⏰ [TIME] EST - [EVENT NAME]
-            [IMPACT EMOJI] [IMPACT LEVEL]
-
-            Use:
-            🔴 for High Impact (Rate decisions, NFP, GDP)
-            🟡 for Medium Impact (Trade balance, retail)
-            ⚪ for Low Impact (Minor indicators)
-
-            For currencies with no events today, show:
-            "No confirmed events scheduled."
-
-            End with:
-            -------------------
-            🔴 High Impact
-            🟡 Medium Impact
-            ⚪ Low Impact"""
-
-            payload = {
-                "model": "sonar-pro",
-                "messages": [{
-                    "role": "system",
-                    "content": """You are a real-time economic calendar analyst. Your task is to:
-                    1. Check Investing.com's Economic Calendar for TODAY's events
-                    2. Only include confirmed events
-                    3. Sort events chronologically within each currency
-                    4. Use exact times in EST timezone
-                    5. Include full event names with periods (Q1, Jan, etc)
-                    6. Mark impact levels accurately based on event type"""
-                }, {
-                    "role": "user",
-                    "content": prompt
-                }],
-                "temperature": 0.1
-            }
-
-            async with aiohttp.ClientSession() as session:
-                async with session.post(self.api_url, json=payload, headers=self.headers) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        return data['choices'][0]['message']['content']
-                    else:
-                        logger.error(f"Perplexity API error: {response.status}")
-                        return self._get_fallback_calendar()
-
+            if not calendar_data:
+                return "No economic calendar data available at this time."
+            
+            # Filter by instrument if provided
+            if instrument:
+                filtered_data = self._filter_by_instrument(calendar_data, instrument)
+            else:
+                filtered_data = calendar_data
+            
+            # Format the data
+            formatted_data = self._format_calendar_data(filtered_data)
+            
+            # Verwijder de Investing.com vermelding
+            formatted_data = formatted_data.replace("from Investing.com, formatted as requested:", "")
+            
+            return formatted_data
+            
         except Exception as e:
-            logger.error(f"Error getting calendar: {str(e)}")
-            return self._get_fallback_calendar()
+            logger.error(f"Error getting economic calendar: {str(e)}")
+            return "Error retrieving economic calendar data."
 
     def _get_fallback_calendar(self) -> str:
         """Fallback calendar data"""
