@@ -37,15 +37,15 @@ SHOW_RESULT = 6      # Laatste state - toon resultaat
 
 # Messages
 WELCOME_MESSAGE = """
-🚀 *Welcome to SigmaPips Trading Bot!* 🚀
+🚀 <b>Welcome to SigmaPips Trading Bot!</b> 🚀
 
 I'm your AI-powered trading assistant, designed to help you make better trading decisions.
 
-📊 *My Services:*
-• *Technical Analysis* - Get real-time chart analysis and key levels
-• *Market Sentiment* - Understand market mood and trends
-• *Economic Calendar* - Stay informed about market-moving events
-• *Trading Signals* - Receive precise entry/exit points for your favorite pairs
+📊 <b>My Services:</b>
+• <b>Technical Analysis</b> - Get real-time chart analysis and key levels
+• <b>Market Sentiment</b> - Understand market mood and trends
+• <b>Economic Calendar</b> - Stay informed about market-moving events
+• <b>Trading Signals</b> - Receive precise entry/exit points for your favorite pairs
 
 Select an option below to get started:
 """
@@ -421,6 +421,7 @@ Risk Management:
             # Stuur welkomstbericht met START_KEYBOARD
             await update.message.reply_text(
                 text=WELCOME_MESSAGE,
+                parse_mode=ParseMode.HTML,
                 reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
             )
             return CHOOSE_MENU
@@ -1587,6 +1588,7 @@ Risk Management:
             await update.callback_query.answer()
             await update.callback_query.edit_message_text(
                 text=WELCOME_MESSAGE,
+                parse_mode=ParseMode.HTML,
                 reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
             )
             
