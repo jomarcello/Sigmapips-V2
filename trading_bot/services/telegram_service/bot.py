@@ -1136,20 +1136,20 @@ Stop Loss: {signal['stopLoss']} 🔴
 Timeframe: {signal['timeframe']}
 Strategy: Test Strategy"""
 
-    async def handle_chart_button(self, callback_query: Dict[str, Any], instrument: str):
+    async def handle_chart_button(self, callback_query: CallbackQuery, instrument: str):
         """Handle chart button click"""
         try:
             # Get cached chart
-            signal_key = f"signal:{callback_query['message']['message_id']}"
+            signal_key = f"signal:{callback_query.message.message_id}"
             cached_data = self.redis.hgetall(signal_key)
             
             if cached_data and cached_data.get('chart'):
                 chart_image = base64.b64decode(cached_data['chart'])
                 
                 # Update message with cached chart
-                await self.bot.edit_message_media(
-                    chat_id=callback_query['message']['chat']['id'],
-                    message_id=callback_query['message']['message_id'],
+                await callback_query.edit_message_media(
+                    chat_id=callback_query.message.chat.id,
+                    message_id=callback_query.message.message_id,
                     media=InputMediaPhoto(
                         media=chart_image,
                         caption=f"📊 Technical Analysis for {instrument}"
@@ -1158,7 +1158,6 @@ Strategy: Test Strategy"""
                         InlineKeyboardButton("⬅️ Back", callback_data=f"back_to_signal_{instrument}")
                     ]])
                 )
-            )
         except Exception as e:
             logger.error(f"Error handling chart button: {str(e)}")
 
