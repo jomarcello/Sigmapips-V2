@@ -86,8 +86,20 @@ class ChartService:
             if instrument in self.chart_links:
                 chart_url = self.chart_links[instrument]
                 
-                # Maak een screenshot van de chart
-                return await self.make_screenshot(chart_url)
+                # Probeer eerst de directe TradingView snapshot API
+                chart_id = chart_url.split("/")[-2]
+                snapshot_url = f"https://s3.tradingview.com/snapshots/{chart_id}.png"
+                
+                logger.info(f"Getting snapshot from TradingView: {snapshot_url}")
+                
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(snapshot_url) as response:
+                        if response.status == 200:
+                            return await response.read()
+                        else:
+                            logger.error(f"TradingView snapshot error: {response.status}")
+                            # Fallback naar screenshot service
+                            return await self.make_screenshot(chart_url)
             else:
                 logger.error(f"No chart link found for instrument: {instrument}")
                 return None
@@ -116,20 +128,25 @@ class ChartService:
             return await self.try_alternative_service(url)
     
     async def try_alternative_service(self, url: str) -> Optional[bytes]:
-        """Try an alternative screenshot service"""
-        try:
-            # Probeer een andere screenshot service
-            screenshot_url = f"https://image.thum.io/get/width/1280/crop/800/png/{quote(url)}"
-            
-            logger.info(f"Getting screenshot from alternative service: {screenshot_url}")
-            
-            async with aiohttp.ClientSession() as session:
-                async with session.get(screenshot_url) as response:
-                    if response.status == 200:
-                        return await response.read()
-                    else:
-                        logger.error(f"Alternative screenshot service error: {response.status}")
-                        return None
-        except Exception as e:
-            logger.error(f"Error with alternative screenshot service: {str(e)}")
-            return None
+        """Try multiple alternative screenshot services"""
+        services = [
+            f"https://image.thum.io/get/width/1280/crop/800/png/{quote(url)}",
+            f"https://api.apiflash.com/v1/urltoimage?access_key=your_api_key&url={quote(url)}",
+            f"https://api.screenshotmachine.com/?key=your_api_key&url={quote(url)}",
+            f"https://shot.screenshotapi.net/screenshot?token=your_api_key&url={quote(url)}&output=image&file_type=png"
+        ]
+        
+        for service_url in services:
+            try:
+                logger.info(f"Trying screenshot service: {service_url}")
+                
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(service_url) as response:
+                        if response.status == 200:
+                            return await response.read()
+                        else:
+                            logger.error(f"Screenshot service error: {response.status}")
+            except Exception as e:
+                logger.error(f"Error with screenshot service: {str(e)}")
+        
+        return None
