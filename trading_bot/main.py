@@ -10,6 +10,13 @@ import aiohttp
 import json
 import redis
 
+# Import de constanten
+from trading_bot.services.telegram_service.bot import (
+    WELCOME_MESSAGE, 
+    START_KEYBOARD,
+    HELP_MESSAGE
+)
+
 # Correcte absolute imports
 from trading_bot.services.telegram_service.bot import TelegramService
 from trading_bot.services.chart_service.chart import ChartService
@@ -74,7 +81,7 @@ async def telegram_webhook(request: Request):
         if 'message' in data and 'text' in data['message']:
             message = data['message']
             if message['text'].startswith('/'):
-                command = message['text'].split()[0].lower()  # Get first word and convert to lowercase
+                command = message['text'].split()[0].lower()
                 chat_id = message['chat']['id']
                 
                 if command == '/start':
@@ -95,8 +102,8 @@ async def telegram_webhook(request: Request):
                     
         # Handle callback queries
         if 'callback_query' in data:
-            callback_query = data['callback_query']
-            await telegram.handle_callback_query(callback_query)
+            update = Update.de_json(data, telegram.bot)
+            await telegram.application.process_update(update)
             
         return {"status": "success"}
         
