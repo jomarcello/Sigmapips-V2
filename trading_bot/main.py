@@ -10,6 +10,13 @@ import aiohttp
 import json
 import redis
 
+# Import de constanten
+from trading_bot.services.telegram_service.bot import (
+    WELCOME_MESSAGE, 
+    START_KEYBOARD,
+    HELP_MESSAGE
+)
+
 # Correcte absolute imports
 from trading_bot.services.telegram_service.bot import TelegramService
 from trading_bot.services.chart_service.chart import ChartService
@@ -70,10 +77,6 @@ async def webhook(request: Request):
         data = await request.json()
         logger.info(f"Received webhook: {data}")
         
-        # Sla chat op als het een tekst bericht is
-        if 'message' in data and 'text' in data['message']:
-            chat_text = data['message']['text']
-            
         if 'update_id' in data:
             update = Update.de_json(data, telegram.application.bot)
             
@@ -85,80 +88,82 @@ async def webhook(request: Request):
             # 2. Dan callback queries
             if update.callback_query:
                 callback_query = update.callback_query
-                data = callback_query.data
-                logger.info(f"Received callback data: {data}")
+                callback_data = callback_query.data
+                logger.info(f"Received callback data: {callback_data}")
                 
-                # Voeg deze handler toe voor back_to_original
-                if data == 'back_to_original':
+                # Specifieke callback handlers
+                if callback_data == 'back_to_original' or callback_data == 'back_to_signal':
                     await telegram.show_original_signal(callback_query)
                     return {"status": "success"}
                 
-                # 3. Specifieke handlers
-                if data.startswith('back_'):
-                    back_type = data.split('_')[1]
+                elif callback_data.startswith('chart_'):
+                    instrument = callback_data.split('_')[1]
+                    await telegram.handle_chart_button(callback_query, instrument)
+                    return {"status": "success"}
+                
+                elif callback_data.startswith('sentiment_'):
+                    instrument = callback_data.split('_')[1]
+                    await telegram.show_sentiment_analysis(callback_query, instrument)
+                    return {"status": "success"}
+                
+                elif callback_data.startswith('calendar_'):
+                    instrument = callback_data.split('_')[1]
+                    await telegram.handle_calendar_button(callback_query, instrument)
+                    return {"status": "success"}
+                
+                elif callback_data.startswith('back_'):
+                    back_type = callback_data.split('_')[1]
                     await telegram.handle_back(callback_query, back_type)
                     return {"status": "success"}
                 
-                elif data == 'signals_add':
+                elif callback_data == 'signals_add':
                     await telegram.show_market_selection(callback_query, 'signals')
                     return {"status": "success"}
                 
-                elif data == 'signals_manage':
+                elif callback_data == 'signals_manage':
                     await telegram.manage_preferences(callback_query)
                     return {"status": "success"}
                 
-                elif data.startswith('menu_'):
+                elif callback_data.startswith('menu_'):
                     await telegram.menu_choice(update, {})
                     return {"status": "success"}
                 
-                elif data.startswith('analysis_'):
-                    if data == 'analysis_technical':
+                elif callback_data.startswith('analysis_'):
+                    analysis_type = callback_data.replace('analysis_', '')
+                    if analysis_type == 'technical':
                         await telegram.show_market_selection(callback_query, 'technical')
-                    elif data == 'analysis_sentiment':
+                    elif analysis_type == 'sentiment':
                         await telegram.show_market_selection(callback_query, 'sentiment')
-                    elif data == 'analysis_calendar':
-                        await telegram.handle_calendar_button(callback_query.to_dict(), None)
+                    elif analysis_type == 'calendar':
+                        await telegram.handle_calendar_button(callback_query, None)
                     return {"status": "success"}
                 
-                elif data.startswith('market_'):
-                    market = data.split('_')[1]
-                    analysis_type = data.split('_')[-1]
+                elif callback_data.startswith('market_'):
+                    parts = callback_data.split('_')
+                    market = parts[1]
+                    analysis_type = parts[2] if len(parts) > 2 else 'technical'
                     await telegram.show_instruments(callback_query, market, analysis_type)
                     return {"status": "success"}
                 
-                elif data.startswith('instrument_'):
-                    parts = data.split('_')
+                elif callback_data.startswith('instrument_'):
+                    parts = callback_data.split('_')
                     instrument = parts[1]
-                    analysis_type = parts[2]
-                    if analysis_type == 'sentiment':
+                    analysis_type = parts[2] if len(parts) > 2 else 'technical'
+                    
+                    if analysis_type == 'technical':
+                        await telegram.handle_chart_button(callback_query, instrument)
+                    elif analysis_type == 'sentiment':
                         await telegram.show_sentiment_analysis(callback_query, instrument)
+                    elif analysis_type == 'calendar':
+                        await telegram.handle_calendar_button(callback_query, instrument)
                     return {"status": "success"}
                 
-                elif data.startswith('signals_'):
-                    await telegram.signals_choice(update, {})
-                    return {"status": "success"}
-                
-                # Handle delete preferences
-                if data == 'delete_prefs':
-                    await telegram.handle_delete_preferences(callback_query)
-                    return {"status": "success"}
-                elif data.startswith('delete_pref_'):
-                    await telegram.delete_single_preference(callback_query)
-                    return {"status": "success"}
-                
-                elif data == 'back_to_signals':
-                    await telegram.back_to_signals(callback_query)
-                    return {"status": "success"}
-                
-                # Handle back to signal
-                if data == 'back_to_signal':
-                    # Haal het originele signaal op en toon het opnieuw
-                    await telegram.show_original_signal(callback_query)
-                    return {"status": "success"}
-                
-                # 4. Fallback voor andere callbacks
+                # Fallback: laat de application handler het afhandelen
                 await telegram.application.process_update(update)
                 return {"status": "success"}
+            
+            # 3. Andere updates
+            await telegram.application.process_update(update)
             
         return {"status": "success"}
         
