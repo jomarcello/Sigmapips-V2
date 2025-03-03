@@ -21,7 +21,6 @@ from trading_bot.services.telegram_service.bot import (
 from trading_bot.services.telegram_service.bot import TelegramService
 from trading_bot.services.chart_service.chart import ChartService
 from trading_bot.services.database.db import Database
-from trading_bot.services.tradingview_service.tradingview import TradingViewService
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -310,16 +309,17 @@ def initialize_services():
 def main():
     # ... bestaande code ...
     
+    # Commentaar de TradingView code uit
     # Initialiseer TradingView service
-    tradingview_service = TradingViewService()
+    # tradingview_service = TradingViewService()
     
     # Haal inloggegevens uit omgevingsvariabelen
-    tradingview_username = os.getenv("TRADINGVIEW_USERNAME")
-    tradingview_password = os.getenv("TRADINGVIEW_PASSWORD")
+    # tradingview_username = os.getenv("TRADINGVIEW_USERNAME")
+    # tradingview_password = os.getenv("TRADINGVIEW_PASSWORD")
     
     # Log in op TradingView
-    if tradingview_username and tradingview_password:
-        tradingview_service.login_tradingview(tradingview_username, tradingview_password)
+    # if tradingview_username and tradingview_password:
+    #     tradingview_service.login_tradingview(tradingview_username, tradingview_password)
     
     # ... bestaande code ...
     
@@ -328,6 +328,7 @@ def main():
         # ... bestaande code ...
         pass
     finally:
-        tradingview_service.close()
+        # tradingview_service.close()
+        pass
 
 # ... bestaande code ...
