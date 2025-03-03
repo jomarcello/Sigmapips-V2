@@ -88,150 +88,18 @@ async def health_check():
 
 @app.post("/webhook")
 async def webhook(request: Request):
-    """Handle Telegram webhook"""
+    """Webhook endpoint voor Telegram updates"""
     try:
+        logger.info("Webhook aangeroepen")
         data = await request.json()
-        logger.info(f"Received webhook: {data}")
+        logger.info(f"Webhook data: {data}")
         
-        if 'update_id' in data:
-            update = Update.de_json(data, telegram.application.bot)
-            
-            # 1. Eerst specifieke commands afhandelen
-            if update.message and update.message.text:
-                if update.message.text == '/start':
-                    # Direct de start functie aanroepen
-                    await telegram.start(update, {})
-                    return {"status": "success"}
-                elif update.message.text == '/help':
-                    # Direct de help functie aanroepen
-                    await telegram.help(update, {})
-                    return {"status": "success"}
-            
-            # 2. Dan callback queries
-            if update.callback_query:
-                callback_query = update.callback_query
-                callback_data = callback_query.data
-                logger.info(f"Received callback data: {callback_data}")
-                
-                # Specifieke callback handlers
-                if callback_data == 'start':
-                    # Gebruik de speciale functie voor callback queries
-                    await telegram.start_from_callback(update)
-                    return {"status": "success"}
-                
-                elif callback_data == 'manage':
-                    # Simuleer /manage command
-                    await telegram.manage_preferences(callback_query)
-                    return {"status": "success"}
-                
-                elif callback_data == 'back_to_original' or callback_data == 'back_to_signal':
-                    await telegram.show_original_signal(callback_query)
-                    return {"status": "success"}
-                
-                elif callback_data.startswith('chart_'):
-                    instrument = callback_data.split('_')[1]
-                    await telegram.handle_chart_button(callback_query, instrument)
-                    return {"status": "success"}
-                
-                elif callback_data.startswith('sentiment_'):
-                    instrument = callback_data.split('_')[1]
-                    await telegram.show_sentiment_analysis(callback_query, instrument)
-                    return {"status": "success"}
-                
-                elif callback_data.startswith('calendar_'):
-                    instrument = callback_data.split('_')[1]
-                    await telegram.handle_calendar_button(callback_query, instrument)
-                    return {"status": "success"}
-                
-                elif callback_data.startswith('back_'):
-                    back_type = callback_data.split('_')[1]
-                    await telegram.handle_back(callback_query, back_type)
-                    return {"status": "success"}
-                
-                elif callback_data == 'signals_add':
-                    await telegram.show_market_selection(callback_query, 'signals')
-                    return {"status": "success"}
-                
-                elif callback_data == 'signals_manage':
-                    await telegram.manage_preferences(callback_query)
-                    return {"status": "success"}
-                
-                elif callback_data.startswith('menu_'):
-                    await telegram.menu_choice(update, {})
-                    return {"status": "success"}
-                
-                elif callback_data.startswith('analysis_'):
-                    analysis_type = callback_data.replace('analysis_', '')
-                    if analysis_type == 'technical':
-                        await telegram.show_market_selection(callback_query, 'technical')
-                    elif analysis_type == 'sentiment':
-                        await telegram.show_market_selection(callback_query, 'sentiment')
-                    elif analysis_type == 'calendar':
-                        await telegram.handle_calendar_button(callback_query, None)
-                    return {"status": "success"}
-                
-                elif callback_data.startswith('market_'):
-                    parts = callback_data.split('_')
-                    market = parts[1]
-                    analysis_type = parts[2] if len(parts) > 2 else 'technical'
-                    await telegram.show_instruments(callback_query, market, analysis_type)
-                    return {"status": "success"}
-                
-                elif callback_data.startswith('instrument_'):
-                    parts = callback_data.split('_')
-                    instrument = parts[1]
-                    analysis_type = parts[2] if len(parts) > 2 else 'technical'
-                    
-                    if analysis_type == 'technical':
-                        await telegram.handle_chart_button(callback_query, instrument)
-                    elif analysis_type == 'sentiment':
-                        await telegram.show_sentiment_analysis(callback_query, instrument)
-                    elif analysis_type == 'calendar':
-                        await telegram.handle_calendar_button(callback_query, instrument)
-                    return {"status": "success"}
-                
-                elif callback_data == 'back_analysis':
-                    # Terug naar analyse menu
-                    await callback_query.edit_message_text(
-                        text="Select your analysis type:",
-                        reply_markup=InlineKeyboardMarkup(telegram.ANALYSIS_KEYBOARD)
-                    )
-                    return {"status": "success"}
-                
-                elif callback_data == 'back_signals':
-                    # Terug naar signals menu
-                    await callback_query.edit_message_text(
-                        text="What would you like to do with trading signals?",
-                        reply_markup=InlineKeyboardMarkup(telegram.SIGNALS_KEYBOARD)
-                    )
-                    return {"status": "success"}
-                
-                elif callback_data.startswith('back_to_instruments_'):
-                    # Extract instrument en ga terug naar market selectie
-                    parts = callback_data.split('_')
-                    instrument = parts[3]  # back_to_instruments_EURUSD -> EURUSD
-                    
-                    # Bepaal de market op basis van het instrument
-                    if any(crypto in instrument for crypto in ['BTC', 'ETH', 'XRP']):
-                        market = 'crypto'
-                    elif any(commodity in instrument for commodity in ['XAU', 'XAG', 'OIL']):
-                        market = 'commodities'
-                    elif any(index in instrument for index in ['30', '500', '100', 'UK', 'DE', 'FR', 'JP', 'AU', 'HK']):
-                        market = 'indices'
-                    else:
-                        market = 'forex'
-                    
-                    # Ga terug naar instrumenten voor die market
-                    await telegram.show_instruments(callback_query, market, 'sentiment')
-                    return {"status": "success"}
-                
-            # 3. Fallback: laat de application handler het afhandelen
-            await telegram.application.process_update(update)
-            
+        # Verwerk de update
+        await telegram.process_update(data)
+        
         return {"status": "success"}
-        
     except Exception as e:
-        logger.error(f"Error processing webhook: {str(e)}")
+        logger.error(f"Error in webhook: {str(e)}")
         return {"status": "error", "message": str(e)}
 
 def _detect_market(symbol: str) -> str:
@@ -296,6 +164,50 @@ async def send_test_signal():
         return {"status": "success", "message": "Test signal sent"}
     except Exception as e:
         logger.error(f"Error sending test signal: {str(e)}")
+        return {"status": "error", "message": str(e)}
+
+@app.post("/test-webhook")
+async def test_webhook():
+    """Test endpoint voor de webhook"""
+    logger.info("Test webhook endpoint aangeroepen")
+    return {"status": "success"}
+
+@app.get("/test-chart/{instrument}")
+async def test_chart(instrument: str):
+    """Test endpoint voor de chart service"""
+    try:
+        logger.info(f"Test chart endpoint aangeroepen voor instrument: {instrument}")
+        
+        # Haal de chart op
+        chart_image = await chart.get_chart(instrument)
+        
+        if not chart_image:
+            logger.error(f"Failed to get chart for {instrument}")
+            return {"status": "error", "message": f"Failed to get chart for {instrument}"}
+        
+        logger.info(f"Successfully got chart for {instrument}, size: {len(chart_image)} bytes")
+        
+        # Converteer de bytes naar base64 voor weergave in de browser
+        chart_base64 = base64.b64encode(chart_image).decode('utf-8')
+        
+        # Retourneer een HTML-pagina met de afbeelding
+        html_content = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Chart Test</title>
+        </head>
+        <body>
+            <h1>Chart for {instrument}</h1>
+            <img src="data:image/png;base64,{chart_base64}" alt="Chart for {instrument}" />
+        </body>
+        </html>
+        """
+        
+        from fastapi.responses import HTMLResponse
+        return HTMLResponse(content=html_content)
+    except Exception as e:
+        logger.error(f"Error in test chart endpoint: {str(e)}")
         return {"status": "error", "message": str(e)}
 
 def initialize_services():
