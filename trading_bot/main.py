@@ -174,6 +174,14 @@ async def webhook(request: Request):
                         await telegram.handle_calendar_button(callback_query, instrument)
                     return {"status": "success"}
                 
+                elif callback_data == 'back_analysis':
+                    # Terug naar analyse menu
+                    await callback_query.edit_message_text(
+                        text="Select your analysis type:",
+                        reply_markup=InlineKeyboardMarkup(telegram.ANALYSIS_KEYBOARD)
+                    )
+                    return {"status": "success"}
+                
             # 3. Fallback: laat de application handler het afhandelen
             await telegram.application.process_update(update)
             
