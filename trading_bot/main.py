@@ -80,10 +80,16 @@ async def webhook(request: Request):
         if 'update_id' in data:
             update = Update.de_json(data, telegram.application.bot)
             
-            # 1. Eerst commands afhandelen
-            if update.message and update.message.text and update.message.text.startswith('/'):
-                await telegram.application.process_update(update)
-                return {"status": "success"}
+            # 1. Eerst specifieke commands afhandelen
+            if update.message and update.message.text:
+                if update.message.text == '/start':
+                    # Direct de start functie aanroepen
+                    await telegram.start(update, {})
+                    return {"status": "success"}
+                elif update.message.text == '/help':
+                    # Direct de help functie aanroepen
+                    await telegram.help(update, {})
+                    return {"status": "success"}
             
             # 2. Dan callback queries
             if update.callback_query:
@@ -168,11 +174,7 @@ async def webhook(request: Request):
                         await telegram.handle_calendar_button(callback_query, instrument)
                     return {"status": "success"}
                 
-                # Fallback: laat de application handler het afhandelen
-                await telegram.application.process_update(update)
-                return {"status": "success"}
-            
-            # 3. Andere updates
+            # 3. Fallback: laat de application handler het afhandelen
             await telegram.application.process_update(update)
             
         return {"status": "success"}
