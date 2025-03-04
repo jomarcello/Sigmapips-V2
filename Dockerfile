@@ -68,6 +68,9 @@ ENV TWOCAPTCHA_API_KEY=442b77082098300c2d00291e4a99372f
 # Stel debug mode in
 ENV TRADINGVIEW_DEBUG=true
 
+# Voeg deze regel toe aan je Dockerfile
+COPY tradingview_cookies.json /app/tradingview_cookies.json
+
 # Start Xvfb en de applicatie
 CMD Xvfb :99 -screen 0 1920x1080x24 > /dev/null 2>&1 & \
     uvicorn trading_bot.main:app --host 0.0.0.0 --port 8080
