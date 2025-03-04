@@ -260,6 +260,67 @@ async def test_tradingview(instrument: str):
         logger.error(f"Error in test TradingView endpoint: {str(e)}")
         return {"status": "error", "message": str(e)}
 
+@app.get("/health-tradingview")
+async def health_tradingview():
+    """Controleer de gezondheid van de TradingView service"""
+    try:
+        if chart.tradingview and chart.tradingview.is_logged_in:
+            return {
+                "status": "healthy",
+                "tradingview": "logged_in",
+                "message": "TradingView service is running and logged in"
+            }
+        elif chart.tradingview:
+            return {
+                "status": "warning",
+                "tradingview": "initialized_not_logged_in",
+                "message": "TradingView service is running but not logged in"
+            }
+        else:
+            return {
+                "status": "warning",
+                "tradingview": "not_initialized",
+                "message": "TradingView service is not initialized"
+            }
+    except Exception as e:
+        return {
+            "status": "error",
+            "tradingview": "error",
+            "message": f"Error checking TradingView service: {str(e)}"
+        }
+
+@app.get("/login-tradingview")
+async def login_tradingview():
+    """Handmatig inloggen op TradingView"""
+    try:
+        if not chart.tradingview:
+            from trading_bot.services.tradingview_service.tradingview import TradingViewService
+            chart.tradingview = TradingViewService()
+            await chart.tradingview.initialize()
+        
+        if chart.tradingview.is_logged_in:
+            return {
+                "status": "success",
+                "message": "Already logged in to TradingView"
+            }
+        
+        success = await chart.tradingview.login()
+        if success:
+            return {
+                "status": "success",
+                "message": "Successfully logged in to TradingView"
+            }
+        else:
+            return {
+                "status": "error",
+                "message": "Failed to log in to TradingView"
+            }
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": f"Error logging in to TradingView: {str(e)}"
+        }
+
 def initialize_services():
     """Initialize all services"""
     return {
