@@ -21,7 +21,7 @@ from trading_bot.services.telegram_service.bot import (
 from trading_bot.services.telegram_service.bot import TelegramService
 from trading_bot.services.chart_service.chart import ChartService
 from trading_bot.services.database.db import Database
-from trading_bot.services.tradingview_service.tradingview import TradingViewService
+from trading_bot.services.chart_service.tradingview import TradingViewService
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
