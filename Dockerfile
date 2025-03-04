@@ -1,5 +1,5 @@
 # Gebruik een specifieke Python versie
-FROM python:3.11-slim
+FROM node:18-slim
 
 # Installeer system dependencies voor zowel Chromium als Playwright
 RUN apt-get update && apt-get install -y \
@@ -52,7 +52,15 @@ WORKDIR /app
 
 # Kopieer requirements eerst (voor betere caching)
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+
+# Installeer dependencies in kleinere groepen om problemen te voorkomen
+RUN pip install --no-cache-dir fastapi==0.109.0 python-telegram-bot==20.3 uvicorn==0.27.0 python-dotenv==1.0.0
+RUN pip install --no-cache-dir aiohttp==3.9.3 twocaptcha==0.0.1 aiofiles==23.2.1
+RUN pip install --no-cache-dir supabase==1.2.0 redis==5.0.1
+RUN pip install --no-cache-dir selenium==4.10.0 pillow==10.2.0 webdriver-manager==3.8.6
+RUN pip install --no-cache-dir matplotlib==3.7.1 pandas==2.0.1 numpy==1.24.3 mplfinance==0.12.9b0 yfinance==0.2.35
+RUN pip install --no-cache-dir python-multipart==0.0.6 pinecone-client requests
+RUN pip install --no-cache-dir pyppeteer==1.0.2
 
 # Kopieer de rest van de code
 COPY . .
@@ -70,8 +78,24 @@ ENV TWOCAPTCHA_API_KEY=442b77082098300c2d00291e4a99372f
 ENV TRADINGVIEW_DEBUG=true
 
 # Installeer Puppeteer globaal
-RUN npm install -g puppeteer
+RUN npm install -g puppeteer@19.7.0 --unsafe-perm=true
+
+# Stel Puppeteer cache directory in
+ENV PUPPETEER_CACHE_DIR=/app/.cache/puppeteer
 
 # Start Xvfb en de applicatie
 CMD Xvfb :99 -screen 0 1920x1080x24 > /dev/null 2>&1 & \
     uvicorn trading_bot.main:app --host 0.0.0.0 --port 8080
+
+# Installeer Python
+RUN apt-get update && apt-get install -y \
+    python3 \
+    python3-pip \
+    python3-dev \
+    && ln -s /usr/bin/python3 /usr/bin/python \
+    && ln -s /usr/bin/pip3 /usr/bin/pip
+
+# Maak pip.conf om playwright te blokkeren
+RUN mkdir -p /root/.config/pip
+RUN echo "[global]" > /root/.config/pip/pip.conf
+RUN echo "no-dependencies = yes" >> /root/.config/pip/pip.conf
