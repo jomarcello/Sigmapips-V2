@@ -6,6 +6,7 @@ RUN apt-get update && apt-get install -y \
     python3 \
     python3-pip \
     python3-dev \
+    python3-venv \
     && if [ ! -e /usr/bin/python ]; then ln -s /usr/bin/python3 /usr/bin/python; fi \
     && if [ ! -e /usr/bin/pip ]; then ln -s /usr/bin/pip3 /usr/bin/pip; fi
 
@@ -55,22 +56,16 @@ ENV DISPLAY=:99
 # Maak app directory
 WORKDIR /app
 
-# Maak pip.conf om playwright te blokkeren
-RUN mkdir -p /root/.config/pip
-RUN echo "[global]" > /root/.config/pip/pip.conf
-RUN echo "no-dependencies = yes" >> /root/.config/pip/pip.conf
+# Maak een virtuele omgeving en activeer deze
+RUN python -m venv /app/venv
+ENV PATH="/app/venv/bin:$PATH"
 
 # Kopieer requirements eerst (voor betere caching)
 COPY requirements.txt .
 
-# Installeer dependencies in kleinere groepen om problemen te voorkomen
-RUN pip install --no-cache-dir fastapi==0.109.0 python-telegram-bot==20.3 uvicorn==0.27.0 python-dotenv==1.0.0
-RUN pip install --no-cache-dir aiohttp==3.9.3 twocaptcha==0.0.1 aiofiles==23.2.1
-RUN pip install --no-cache-dir supabase==1.2.0 redis==5.0.1
-RUN pip install --no-cache-dir selenium==4.10.0 pillow==10.2.0 webdriver-manager==3.8.6
-RUN pip install --no-cache-dir matplotlib==3.7.1 pandas==2.0.1 numpy==1.24.3 mplfinance==0.12.9b0 yfinance==0.2.35
-RUN pip install --no-cache-dir python-multipart==0.0.6 pinecone-client requests
-RUN pip install --no-cache-dir pyppeteer==1.0.2
+# Installeer dependencies in de virtuele omgeving
+RUN pip install --upgrade pip
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Installeer Puppeteer globaal
 RUN npm install -g puppeteer@19.7.0 --unsafe-perm=true
