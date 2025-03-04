@@ -21,6 +21,7 @@ from trading_bot.services.telegram_service.bot import (
 from trading_bot.services.telegram_service.bot import TelegramService
 from trading_bot.services.chart_service.chart import ChartService
 from trading_bot.services.database.db import Database
+from trading_bot.services.tradingview_service.tradingview import TradingViewService
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -208,6 +209,55 @@ async def test_chart(instrument: str):
         return HTMLResponse(content=html_content)
     except Exception as e:
         logger.error(f"Error in test chart endpoint: {str(e)}")
+        return {"status": "error", "message": str(e)}
+
+@app.get("/test-tradingview/{instrument}")
+async def test_tradingview(instrument: str):
+    """Test endpoint voor de TradingView integratie"""
+    try:
+        logger.info(f"Test TradingView endpoint aangeroepen voor instrument: {instrument}")
+        
+        # Normaliseer instrument
+        instrument = instrument.upper().replace("/", "")
+        
+        # Controleer of we een link hebben voor dit instrument
+        if instrument in chart.chart_links:
+            chart_url = chart.chart_links[instrument]
+            
+            # Haal screenshot op
+            if chart.tradingview and chart.tradingview.is_logged_in:
+                screenshot = await chart.tradingview.get_chart_screenshot(chart_url)
+                
+                if screenshot:
+                    logger.info(f"Successfully got TradingView screenshot for {instrument}")
+                    
+                    # Converteer de bytes naar base64 voor weergave in de browser
+                    screenshot_base64 = base64.b64encode(screenshot).decode('utf-8')
+                    
+                    # Retourneer een HTML-pagina met de afbeelding
+                    html_content = f"""
+                    <!DOCTYPE html>
+                    <html>
+                    <head>
+                        <title>TradingView Test</title>
+                    </head>
+                    <body>
+                        <h1>TradingView Screenshot for {instrument}</h1>
+                        <img src="data:image/png;base64,{screenshot_base64}" alt="TradingView Screenshot for {instrument}" />
+                    </body>
+                    </html>
+                    """
+                    
+                    from fastapi.responses import HTMLResponse
+                    return HTMLResponse(content=html_content)
+                else:
+                    return {"status": "error", "message": f"Failed to get TradingView screenshot for {instrument}"}
+            else:
+                return {"status": "error", "message": "TradingView service not initialized or not logged in"}
+        else:
+            return {"status": "error", "message": f"No chart link found for instrument: {instrument}"}
+    except Exception as e:
+        logger.error(f"Error in test TradingView endpoint: {str(e)}")
         return {"status": "error", "message": str(e)}
 
 def initialize_services():
