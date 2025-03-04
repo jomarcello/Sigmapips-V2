@@ -36,6 +36,10 @@ RUN apt-get update && apt-get install -y \
     libxi6 \
     libxtst6 \
     libgtk-3-0 \
+    python3-tk \
+    python3-dev \
+    nodejs \
+    npm \
     && rm -rf /var/lib/apt/lists/*
 
 # Set up Chrome environment variables
@@ -67,6 +71,9 @@ ENV TWOCAPTCHA_API_KEY=442b77082098300c2d00291e4a99372f
 
 # Stel debug mode in
 ENV TRADINGVIEW_DEBUG=true
+
+# Installeer Puppeteer globaal
+RUN npm install -g puppeteer
 
 # Start Xvfb en de applicatie
 CMD Xvfb :99 -screen 0 1920x1080x24 > /dev/null 2>&1 & \
