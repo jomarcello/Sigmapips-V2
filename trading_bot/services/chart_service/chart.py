@@ -86,8 +86,17 @@ class ChartService:
         """Initialize chart service"""
         try:
             # Importeer TradingViewService vanuit dezelfde map
-            from trading_bot.services.chart_service.tradingview import TradingViewService
-            self.tradingview = TradingViewService()
+            try:
+                # Probeer eerst Puppeteer
+                from trading_bot.services.chart_service.tradingview_puppeteer import TradingViewPuppeteerService
+                self.tradingview = TradingViewPuppeteerService()
+                logger.info("Using Puppeteer for TradingView screenshots")
+            except ImportError:
+                # Als Puppeteer niet beschikbaar is, gebruik Playwright
+                from trading_bot.services.chart_service.tradingview import TradingViewService
+                self.tradingview = TradingViewService()
+                logger.info("Using Playwright for TradingView screenshots")
+            
             await self.tradingview.initialize()
             
             logger.info("Chart service initialized")
