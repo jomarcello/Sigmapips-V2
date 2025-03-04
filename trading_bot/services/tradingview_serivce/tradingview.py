@@ -5,6 +5,7 @@ import logging
 from typing import Optional
 import asyncio
 from playwright.async_api import async_playwright
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -31,54 +32,42 @@ class TradingViewService:
             logger.info("Initializing TradingView service browser")
             self.playwright = await async_playwright().start()
             
-            # Gebruik een niet-headless browser met Xvfb
-            self.browser = await self.playwright.chromium.launch(
-                headless=False,  # Gebruik een niet-headless browser
+            # Gebruik een persistente browser context
+            user_data_dir = os.path.join(os.getcwd(), "browser_data")
+            os.makedirs(user_data_dir, exist_ok=True)
+            
+            self.browser = await self.playwright.chromium.launch_persistent_context(
+                user_data_dir=user_data_dir,
+                headless=False,
                 args=[
                     '--no-sandbox',
                     '--disable-setuid-sandbox',
                     '--disable-dev-shm-usage',
                     '--disable-accelerated-2d-canvas',
                     '--no-first-run',
-                    '--no-zygote',
-                    '--single-process',
                     '--disable-gpu',
-                    '--display=' + os.getenv('DISPLAY', ':99'),  # Gebruik Xvfb display
-                    '--window-size=1920,1080'  # Grotere window size
+                    '--display=' + os.getenv('DISPLAY', ':99'),
+                    '--window-size=1920,1080'
                 ]
             )
             
-            # Gebruik een context met meer realistische browser eigenschappen
-            self.context = await self.browser.new_context(
-                viewport={"width": 1920, "height": 1080},
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.110 Safari/537.36",
-                locale="en-US",
-                timezone_id="Europe/Amsterdam",
-                permissions=["geolocation"],
-                color_scheme="light"
-            )
+            self.page = await self.browser.new_page()
             
-            # Voeg extra headers toe om meer op een echte browser te lijken
-            await self.context.set_extra_http_headers({
-                "Accept-Language": "en-US,en;q=0.9",
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
-                "Accept-Encoding": "gzip, deflate, br"
-            })
+            # Probeer eerst cookies te laden
+            if await self._load_cookies_from_json():
+                return True
             
-            self.page = await self.context.new_page()
+            # Als dat niet werkt, controleer of we al ingelogd zijn
+            await self.page.goto("https://www.tradingview.com/chart/", wait_until="networkidle")
             
-            # Probeer in te loggen met cookies
-            if await self._load_cookies():
-                logger.info("Loaded cookies, checking if logged in")
-                await self.page.goto("https://www.tradingview.com/chart/", wait_until="networkidle")
-                if await self._is_logged_in():
-                    logger.info("Successfully logged in with cookies")
-                    self.is_logged_in = True
-                    return True
+            if await self._is_logged_in():
+                logger.info("Already logged in to TradingView")
+                self.is_logged_in = True
+                return True
             
-            # Als cookies niet werken, log in met gebruikersnaam en wachtwoord
+            # Als we niet ingelogd zijn, probeer in te loggen
             if self.username and self.password:
-                logger.info("Logging in with username and password")
+                logger.info("Not logged in, trying to log in")
                 return await self.login()
             else:
                 logger.warning("No TradingView credentials provided")
@@ -89,104 +78,98 @@ class TradingViewService:
             return False
             
     async def login(self) -> bool:
-        """Login to TradingView"""
+        """Login to TradingView using direct navigation"""
         try:
-            logger.info("Logging in to TradingView")
+            logger.info("Logging in to TradingView using direct navigation")
             
-            # Ga direct naar de login pagina
+            # Ga direct naar de chart pagina
             await self.page.goto("https://www.tradingview.com/chart/", wait_until="networkidle")
-            await self.page.wait_for_timeout(3000)
             
-            # Debug informatie
-            logger.info(f"Page title: {await self.page.title()}")
-            logger.info(f"Page URL: {self.page.url}")
+            # Wacht even om de pagina te laten laden
+            await self.page.wait_for_timeout(5000)
             
-            # Maak een screenshot voor debugging
-            screenshot = await self.page.screenshot()
-            with open("chart_page.png", "wb") as f:
-                f.write(screenshot)
+            # Gebruik JavaScript om direct in te loggen
+            login_success = await self.page.evaluate(f"""
+                async () => {{
+                    try {{
+                        // Probeer de TradingView API te gebruiken om in te loggen
+                        if (window.TradingView && window.TradingView.User) {{
+                            // Als de TradingView API beschikbaar is
+                            const loginResult = await window.TradingView.User.login({{
+                                username: "{self.username}",
+                                password: "{self.password}"
+                            }});
+                            return loginResult && loginResult.success;
+                        }}
+                        
+                        // Als de API niet beschikbaar is, probeer de login knop te vinden
+                        const userMenuButton = document.querySelector('.tv-header__user-menu-button--anonymous');
+                        if (userMenuButton) {{
+                            userMenuButton.click();
+                            await new Promise(resolve => setTimeout(resolve, 1000));
+                            
+                            // Zoek naar de sign in knop in het menu
+                            const signInButton = Array.from(document.querySelectorAll('a')).find(
+                                a => a.href && a.href.includes('/signin/')
+                            );
+                            if (signInButton) {{
+                                signInButton.click();
+                                await new Promise(resolve => setTimeout(resolve, 3000));
+                                
+                                // Vul het email veld in
+                                const emailInput = document.querySelector('input[name="username"], input[type="email"]');
+                                if (emailInput) {{
+                                    emailInput.value = "{self.username}";
+                                    emailInput.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                                    await new Promise(resolve => setTimeout(resolve, 1000));
+                                    
+                                    // Klik op de continue knop
+                                    const continueButton = document.querySelector('button[type="submit"]');
+                                    if (continueButton) {{
+                                        continueButton.click();
+                                        await new Promise(resolve => setTimeout(resolve, 3000));
+                                        
+                                        // Vul het wachtwoord veld in
+                                        const passwordInput = document.querySelector('input[name="password"], input[type="password"]');
+                                        if (passwordInput) {{
+                                            passwordInput.value = "{self.password}";
+                                            passwordInput.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                                            await new Promise(resolve => setTimeout(resolve, 1000));
+                                            
+                                            // Klik op de sign in knop
+                                            const signInButton = document.querySelector('button[type="submit"]');
+                                            if (signInButton) {{
+                                                signInButton.click();
+                                                return true;
+                                            }}
+                                        }}
+                                    }}
+                                }}
+                            }}
+                        }}
+                        
+                        return false;
+                    }} catch (e) {{
+                        console.error("Error in login script:", e);
+                        return false;
+                    }}
+                }}
+            """)
             
-            # Klik op de Sign In knop (deze is altijd aanwezig op de chart pagina)
-            try:
-                # Zoek de user menu knop
-                user_menu = await self.page.query_selector('.tv-header__user-menu-button--anonymous')
-                if user_menu:
-                    logger.info("Found anonymous user menu button, clicking...")
-                    await user_menu.click()
-                    await self.page.wait_for_timeout(1000)
-                    
-                    # Zoek de Sign In knop in het menu
-                    sign_in_button = await self.page.query_selector('a[href="/signin/"]')
-                    if sign_in_button:
-                        logger.info("Found sign in button, clicking...")
-                        await sign_in_button.click()
-                        await self.page.wait_for_timeout(3000)
-                    else:
-                        logger.warning("Sign in button not found in menu")
-                else:
-                    logger.warning("Anonymous user menu button not found")
-                    
-                    # Probeer direct naar de signin pagina te gaan
-                    await self.page.goto("https://www.tradingview.com/signin/", wait_until="networkidle")
-            except Exception as e:
-                logger.warning(f"Error finding sign in button: {str(e)}")
+            logger.info(f"JavaScript login result: {login_success}")
             
-            # Wacht op het email input veld
-            try:
-                email_input = await self.page.wait_for_selector('input[name="username"], input[type="email"]', timeout=10000)
-                if email_input:
-                    logger.info("Found email input, filling...")
-                    await email_input.fill(self.username)
-                    await self.page.wait_for_timeout(1000)
-                    
-                    # Zoek de continue knop
-                    continue_button = await self.page.query_selector('button[type="submit"]')
-                    if continue_button:
-                        logger.info("Found continue button, clicking...")
-                        await continue_button.click()
-                        await self.page.wait_for_timeout(3000)
-                    else:
-                        logger.warning("Continue button not found")
-                else:
-                    logger.warning("Email input not found")
-            except Exception as e:
-                logger.warning(f"Error with email input: {str(e)}")
-            
-            # Wacht op het password input veld
-            try:
-                password_input = await self.page.wait_for_selector('input[name="password"], input[type="password"]', timeout=10000)
-                if password_input:
-                    logger.info("Found password input, filling...")
-                    await password_input.fill(self.password)
-                    await self.page.wait_for_timeout(1000)
-                    
-                    # Zoek de sign in knop
-                    sign_in_button = await self.page.query_selector('button[type="submit"]')
-                    if sign_in_button:
-                        logger.info("Found sign in button, clicking...")
-                        await sign_in_button.click()
-                        await self.page.wait_for_timeout(5000)
-                    else:
-                        logger.warning("Sign in button not found")
-                else:
-                    logger.warning("Password input not found")
-            except Exception as e:
-                logger.warning(f"Error with password input: {str(e)}")
+            # Wacht even om de login te laten verwerken
+            await self.page.wait_for_timeout(5000)
             
             # Controleer of we zijn ingelogd
-            await self.page.goto("https://www.tradingview.com/chart/", wait_until="networkidle")
-            
             if await self._is_logged_in():
                 logger.info("Successfully logged in to TradingView")
                 self.is_logged_in = True
-                
-                # Sla cookies op voor toekomstige sessies
-                await self._save_cookies()
-                
                 return True
             else:
                 logger.error("Failed to log in to TradingView")
                 return False
+            
         except Exception as e:
             logger.error(f"Error logging in to TradingView: {str(e)}")
             return False
@@ -248,6 +231,35 @@ class TradingViewService:
             return False
         except Exception as e:
             logger.error(f"Error loading cookies: {str(e)}")
+            return False
+            
+    async def _load_cookies_from_json(self) -> bool:
+        """Load cookies from JSON file"""
+        try:
+            cookies_file = os.path.join(os.getcwd(), "tradingview_cookies.json")
+            if os.path.exists(cookies_file):
+                logger.info(f"Loading cookies from {cookies_file}")
+                with open(cookies_file, "r") as f:
+                    cookies = json.load(f)
+                
+                # Voeg cookies toe aan de browser context
+                await self.browser.add_cookies(cookies)
+                logger.info("Loaded TradingView cookies from JSON file")
+                
+                # Controleer of we zijn ingelogd
+                await self.page.goto("https://www.tradingview.com/chart/", wait_until="networkidle")
+                if await self._is_logged_in():
+                    logger.info("Successfully logged in with cookies")
+                    self.is_logged_in = True
+                    return True
+                else:
+                    logger.warning("Cookies loaded but not logged in")
+                    return False
+            else:
+                logger.warning(f"No cookies file found at {cookies_file}")
+                return False
+        except Exception as e:
+            logger.error(f"Error loading cookies from file: {str(e)}")
             return False
             
     async def get_chart_screenshot(self, chart_url: str) -> Optional[bytes]:
