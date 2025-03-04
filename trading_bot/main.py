@@ -21,7 +21,7 @@ from trading_bot.services.telegram_service.bot import (
 from trading_bot.services.telegram_service.bot import TelegramService
 from trading_bot.services.chart_service.chart import ChartService
 from trading_bot.services.database.db import Database
-from trading_bot.services.chart_service.tradingview import TradingViewService
+from trading_bot.services.chart_service.tradingview_puppeteer import TradingViewPuppeteerService
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -294,9 +294,8 @@ async def login_tradingview():
     """Handmatig inloggen op TradingView"""
     try:
         if not chart.tradingview:
-            from trading_bot.services.tradingview_service.tradingview import TradingViewService
-            chart.tradingview = TradingViewService()
-            await chart.tradingview.initialize()
+            # We gebruiken nu de ChartService die intern Puppeteer gebruikt
+            pass
         
         if chart.tradingview.is_logged_in:
             return {
