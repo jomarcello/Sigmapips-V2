@@ -53,7 +53,11 @@ class TradingViewService:
             
             self.page = await self.browser.new_page()
             
-            # Probeer eerst cookies te laden
+            # Probeer eerst hardcoded cookies te laden
+            if await self._load_hardcoded_cookies():
+                return True
+            
+            # Als dat niet werkt, probeer cookies uit bestand te laden
             if await self._load_cookies_from_json():
                 return True
             
