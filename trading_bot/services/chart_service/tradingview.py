@@ -75,8 +75,8 @@ class TradingViewService:
         try:
             logger.info("Logging in to TradingView")
             
-            # Ga direct naar de login pagina in plaats van de chart pagina
-            await self.page.goto("https://www.tradingview.com/signin/", wait_until="networkidle")
+            # Ga naar de hoofdpagina in plaats van de signin pagina
+            await self.page.goto("https://www.tradingview.com/", wait_until="networkidle")
             
             # Debug informatie
             logger.info(f"Page title: {await self.page.title()}")
@@ -87,6 +87,42 @@ class TradingViewService:
             with open("login_page.png", "wb") as f:
                 f.write(screenshot)
             logger.info("Saved login page screenshot to login_page.png")
+            
+            # Klik op de Sign In knop op de hoofdpagina
+            try:
+                sign_in_button = self.page.locator('button:has-text("Sign in"), a:has-text("Sign in")')
+                if await sign_in_button.is_visible():
+                    logger.info("Sign in button found, clicking...")
+                    await sign_in_button.click()
+                    await self.page.wait_for_timeout(3000)
+                else:
+                    logger.warning("Sign in button not visible")
+                    
+                    # Probeer JavaScript om de login knop te vinden en te klikken
+                    await self.page.evaluate("""
+                        () => {
+                            // Zoek naar elementen met "Sign in" tekst
+                            const elements = Array.from(document.querySelectorAll('button, a'));
+                            const signInElement = elements.find(el => 
+                                el.textContent.includes('Sign in') || 
+                                el.textContent.includes('Log in')
+                            );
+                            
+                            if (signInElement) {
+                                signInElement.click();
+                                console.log("Clicked sign in button via JavaScript");
+                            }
+                        }
+                    """)
+                    await self.page.wait_for_timeout(3000)
+            except Exception as e:
+                logger.warning(f"Error finding sign in button: {str(e)}")
+            
+            # Maak een screenshot na het klikken op de Sign In knop
+            screenshot = await self.page.screenshot()
+            with open("after_signin_click.png", "wb") as f:
+                f.write(screenshot)
+            logger.info("Saved screenshot after clicking sign in button")
             
             # Wacht op het email input veld
             try:
