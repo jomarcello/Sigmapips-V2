@@ -262,6 +262,66 @@ class TradingViewService:
             logger.error(f"Error loading cookies from file: {str(e)}")
             return False
             
+    async def _load_hardcoded_cookies(self) -> bool:
+        """Load hardcoded cookies"""
+        try:
+            # Hardcoded cookies
+            cookies = [
+                {
+                    "domain": ".tradingview.com",
+                    "expirationDate": 1741083604,
+                    "hostOnly": False,
+                    "httpOnly": False,
+                    "name": "_sp_ses.cf1a",
+                    "path": "/",
+                    "sameSite": "no_restriction",
+                    "secure": True,
+                    "session": False,
+                    "storeId": None,
+                    "value": "*"
+                },
+                # ... rest van je cookies ...
+                {
+                    "domain": ".tradingview.com",
+                    "expirationDate": 1749046958.319093,
+                    "hostOnly": False,
+                    "httpOnly": True,
+                    "name": "sessionid_sign",
+                    "path": "/",
+                    "sameSite": "lax",
+                    "secure": True,
+                    "session": False,
+                    "storeId": None,
+                    "value": "v3:KfkuD+pEvQ4AjbHnN29dcdxeG7URIo4ZviOTuhFvJrY="
+                }
+            ]
+            
+            # Verwijder onnodige velden die Playwright niet accepteert
+            for cookie in cookies:
+                if "storeId" in cookie:
+                    del cookie["storeId"]
+                if "hostOnly" in cookie:
+                    del cookie["hostOnly"]
+                if "session" in cookie:
+                    del cookie["session"]
+            
+            # Voeg cookies toe aan de browser context
+            await self.browser.add_cookies(cookies)
+            logger.info("Loaded hardcoded TradingView cookies")
+            
+            # Controleer of we zijn ingelogd
+            await self.page.goto("https://www.tradingview.com/chart/", wait_until="networkidle")
+            if await self._is_logged_in():
+                logger.info("Successfully logged in with hardcoded cookies")
+                self.is_logged_in = True
+                return True
+            else:
+                logger.warning("Hardcoded cookies loaded but not logged in")
+                return False
+        except Exception as e:
+            logger.error(f"Error loading hardcoded cookies: {str(e)}")
+            return False
+            
     async def get_chart_screenshot(self, chart_url: str) -> Optional[bytes]:
         """Get a screenshot of a TradingView chart with indicators"""
         try:
