@@ -106,7 +106,14 @@ class ChartService:
             if instrument in self.chart_links:
                 chart_url = self.chart_links[instrument]
                 
-                # Probeer eerst de directe TradingView snapshot API
+                # Probeer eerst TradingView screenshot als we ingelogd zijn
+                if self.tradingview and self.tradingview.is_logged_in:
+                    logger.info(f"Getting TradingView screenshot for {instrument}")
+                    screenshot = await self.tradingview.get_chart_screenshot(chart_url)
+                    if screenshot:
+                        return screenshot
+                
+                # Als dat niet lukt, probeer de directe TradingView snapshot API
                 chart_id = chart_url.split("/")[-2]
                 snapshot_url = f"https://s3.tradingview.com/snapshots/{chart_id}.png"
                 
@@ -118,6 +125,17 @@ class ChartService:
                             return await response.read()
                         else:
                             logger.error(f"TradingView snapshot error: {response.status}")
+                
+                # Probeer de publieke snapshot URL
+                public_url = f"https://www.tradingview.com/x/{chart_id}/"
+                logger.info(f"Getting public snapshot from TradingView: {public_url}")
+                
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(public_url) as response:
+                        if response.status == 200:
+                            return await response.read()
+                        else:
+                            logger.error(f"TradingView public snapshot error: {response.status}")
                 
                 # Probeer een screenshot service
                 return await self.make_screenshot(chart_url)
