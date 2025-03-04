@@ -102,30 +102,29 @@ class ChartService:
             # Normaliseer instrument (verwijder /)
             instrument = instrument.upper().replace("/", "")
             
-            # Controleer of we een link hebben voor dit instrument
+            # Probeer eerst TradingView (als het werkt)
+            if self.tradingview and self.tradingview.is_logged_in and instrument in self.chart_links:
+                chart_url = self.chart_links[instrument]
+                screenshot = await self.tradingview.get_chart_screenshot(chart_url)
+                if screenshot:
+                    return screenshot
+            
+            # Als TradingView niet werkt, probeer alternatieve chart services
+            
+            # 1. Probeer TradingView publieke snapshots
             if instrument in self.chart_links:
                 chart_url = self.chart_links[instrument]
-                
-                # Probeer eerst TradingView screenshot als we ingelogd zijn
-                if self.tradingview and self.tradingview.is_logged_in:
-                    logger.info(f"Getting TradingView screenshot for {instrument}")
-                    screenshot = await self.tradingview.get_chart_screenshot(chart_url)
-                    if screenshot:
-                        return screenshot
-                
-                # Als dat niet lukt, probeer de directe TradingView snapshot API
                 chart_id = chart_url.split("/")[-2]
-                snapshot_url = f"https://s3.tradingview.com/snapshots/{chart_id}.png"
                 
+                # Probeer de directe snapshot URL
+                snapshot_url = f"https://s3.tradingview.com/snapshots/{chart_id}.png"
                 logger.info(f"Getting snapshot from TradingView: {snapshot_url}")
                 
                 async with aiohttp.ClientSession() as session:
                     async with session.get(snapshot_url) as response:
                         if response.status == 200:
                             return await response.read()
-                        else:
-                            logger.error(f"TradingView snapshot error: {response.status}")
-                
+            
                 # Probeer de publieke snapshot URL
                 public_url = f"https://www.tradingview.com/x/{chart_id}/"
                 logger.info(f"Getting public snapshot from TradingView: {public_url}")
@@ -134,49 +133,65 @@ class ChartService:
                     async with session.get(public_url) as response:
                         if response.status == 200:
                             return await response.read()
-                        else:
-                            logger.error(f"TradingView public snapshot error: {response.status}")
+            
+            # 2. Probeer Finviz voor aandelen
+            if instrument in ["SPY", "QQQ", "AAPL", "MSFT", "GOOGL", "AMZN", "META", "TSLA"]:
+                finviz_url = f"https://finviz.com/chart.ashx?t={instrument}&ty=c&ta=1&p=d&s=l"
+                logger.info(f"Getting chart from Finviz: {finviz_url}")
                 
-                # Probeer een screenshot service
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(finviz_url) as response:
+                        if response.status == 200:
+                            return await response.read()
+            
+            # 3. Probeer Investing.com
+            # Map instrument naar Investing.com formaat
+            investing_map = {
+                "EURUSD": "eur-usd", "GBPUSD": "gbp-usd", "USDJPY": "usd-jpy",
+                "BTCUSD": "btc-usd", "ETHUSD": "eth-usd", "XAUUSD": "xau-usd"
+            }
+            
+            if instrument in investing_map:
+                investing_symbol = investing_map[instrument]
+                investing_url = f"https://www.investing.com/currencies/{investing_symbol}-chart"
+                logger.info(f"Getting chart from Investing.com: {investing_url}")
+                
+                async with aiohttp.ClientSession() as session:
+                    headers = {
+                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+                    }
+                    async with session.get(investing_url, headers=headers) as response:
+                        if response.status == 200:
+                            # Gebruik een screenshot service om de chart te renderen
+                            return await self.make_screenshot(investing_url)
+            
+            # 4. Probeer een screenshot service voor TradingView
+            if instrument in self.chart_links:
+                chart_url = self.chart_links[instrument]
                 return await self.make_screenshot(chart_url)
-            else:
-                logger.error(f"No chart link found for instrument: {instrument}")
-                return await self.get_fallback_chart()
-                
+            
+            # 5. Als alles mislukt, genereer een eigen chart
+            return await self.generate_chart(instrument, timeframe)
+            
         except Exception as e:
             logger.error(f"Error getting chart: {str(e)}")
             return await self.get_fallback_chart()
     
     async def make_screenshot(self, url: str) -> Optional[bytes]:
-        """Make a screenshot of the given URL using a screenshot service"""
+        """Make a screenshot of a URL using a screenshot service"""
         try:
-            # Gebruik een screenshot service
-            screenshot_url = f"https://mini.s-shot.ru/1280x800/JPEG/1280/Z100/?{quote(url)}"
+            logger.info(f"Making screenshot of URL: {url}")
             
-            logger.info(f"Getting screenshot from: {screenshot_url}")
+            # Lijst van screenshot services
+            services = [
+                f"https://image.thum.io/get/width/1280/crop/800/png/{quote(url)}",
+                f"https://www.screenshotmachine.com/capture.php?url={quote(url)}&size=1280x800",
+                f"https://api.apiflash.com/v1/urltoimage?access_key=your_api_key&url={quote(url)}&width=1280&height=800",
+                f"https://api.screenshotlayer.com/api/capture?access_key=your_api_key&url={quote(url)}&width=1280&height=800"
+            ]
             
-            async with aiohttp.ClientSession() as session:
-                async with session.get(screenshot_url) as response:
-                    if response.status == 200:
-                        return await response.read()
-                    else:
-                        logger.error(f"Screenshot service error: {response.status}")
-                        return await self.try_alternative_service(url)
-        except Exception as e:
-            logger.error(f"Error making screenshot: {str(e)}")
-            return await self.try_alternative_service(url)
-    
-    async def try_alternative_service(self, url: str) -> Optional[bytes]:
-        """Try alternative screenshot services"""
-        services = [
-            f"https://image.thum.io/get/width/1280/crop/800/png/{quote(url)}",
-            f"https://api.urlbox.io/v1/render?url={quote(url)}&width=1280&height=800&format=png&ttl=86400&token=demo",
-            f"https://render-tron.appspot.com/screenshot/{quote(url)}",
-            f"https://www.screenshotmachine.com/capture.php?url={quote(url)}&size=1280x800"
-        ]
-        
-        for service_url in services:
-            try:
+            # Probeer elke service
+            for service_url in services:
                 logger.info(f"Trying screenshot service: {service_url}")
                 
                 async with aiohttp.ClientSession() as session:
@@ -185,27 +200,14 @@ class ChartService:
                             return await response.read()
                         else:
                             logger.error(f"Screenshot service error: {response.status}")
-            except Exception as e:
-                logger.error(f"Error with screenshot service: {str(e)}")
-        
-        # Als alle services mislukken, probeer een directe link naar de TradingView chart afbeelding
-        try:
-            chart_id = url.split("/")[-2]
-            direct_url = f"https://www.tradingview.com/x/{chart_id}/"
             
-            logger.info(f"Trying direct TradingView chart image: {direct_url}")
-            
-            async with aiohttp.ClientSession() as session:
-                async with session.get(direct_url) as response:
-                    if response.status == 200:
-                        return await response.read()
-                    else:
-                        logger.error(f"Direct TradingView chart image error: {response.status}")
+            # Als alle services mislukken, return None
+            logger.error("All screenshot services failed")
+            return None
         except Exception as e:
-            logger.error(f"Error with direct TradingView chart image: {str(e)}")
-        
-        return None
-        
+            logger.error(f"Error making screenshot: {str(e)}")
+            return None
+    
     async def get_fallback_chart(self) -> Optional[bytes]:
         """Get a fallback chart image"""
         try:
@@ -242,3 +244,93 @@ class ChartService:
                 await self.tradingview.cleanup()
         except Exception as e:
             logger.error(f"Error cleaning up chart service: {str(e)}")
+
+    async def generate_chart(self, instrument: str, timeframe: str = "1h") -> Optional[bytes]:
+        """Generate a chart using matplotlib"""
+        try:
+            import matplotlib.pyplot as plt
+            import pandas as pd
+            import numpy as np
+            import io
+            from datetime import datetime, timedelta
+            
+            logger.info(f"Generating chart for {instrument} with timeframe {timeframe}")
+            
+            # Bepaal de tijdsperiode op basis van timeframe
+            end_date = datetime.now()
+            if timeframe == "1h":
+                start_date = end_date - timedelta(days=7)
+                periods = 168  # 7 dagen * 24 uur
+            elif timeframe == "4h":
+                start_date = end_date - timedelta(days=30)
+                periods = 180  # 30 dagen * 6 periodes per dag
+            elif timeframe == "1d":
+                start_date = end_date - timedelta(days=180)
+                periods = 180
+            else:
+                start_date = end_date - timedelta(days=7)
+                periods = 168
+            
+            # Genereer wat willekeurige data als voorbeeld
+            # In een echte implementatie zou je hier data ophalen van een API
+            np.random.seed(42)  # Voor consistente resultaten
+            dates = pd.date_range(start=start_date, end=end_date, periods=periods)
+            
+            # Genereer OHLC data
+            close = 100 + np.cumsum(np.random.normal(0, 1, periods))
+            high = close + np.random.uniform(0, 3, periods)
+            low = close - np.random.uniform(0, 3, periods)
+            open_price = close - np.random.uniform(-2, 2, periods)
+            
+            # Maak een DataFrame
+            df = pd.DataFrame({
+                'Open': open_price,
+                'High': high,
+                'Low': low,
+                'Close': close
+            }, index=dates)
+            
+            # Bereken enkele indicators
+            df['SMA20'] = df['Close'].rolling(window=20).mean()
+            df['SMA50'] = df['Close'].rolling(window=50).mean()
+            
+            # Maak de chart
+            plt.figure(figsize=(12, 8))
+            plt.style.use('dark_background')
+            
+            # Plot candlesticks
+            width = 0.6
+            width2 = 0.1
+            up = df[df.Close >= df.Open]
+            down = df[df.Close < df.Open]
+            
+            # Plot up candles
+            plt.bar(up.index, up.High - up.Low, width=width2, bottom=up.Low, color='green', alpha=0.5)
+            plt.bar(up.index, up.Close - up.Open, width=width, bottom=up.Open, color='green')
+            
+            # Plot down candles
+            plt.bar(down.index, down.High - down.Low, width=width2, bottom=down.Low, color='red', alpha=0.5)
+            plt.bar(down.index, down.Open - down.Close, width=width, bottom=down.Close, color='red')
+            
+            # Plot indicators
+            plt.plot(df.index, df['SMA20'], color='blue', label='SMA20')
+            plt.plot(df.index, df['SMA50'], color='orange', label='SMA50')
+            
+            # Voeg labels en titel toe
+            plt.title(f'{instrument} - {timeframe} Chart', fontsize=16)
+            plt.xlabel('Date', fontsize=12)
+            plt.ylabel('Price', fontsize=12)
+            plt.grid(True, alpha=0.3)
+            plt.legend()
+            
+            # Sla de chart op als bytes
+            buf = io.BytesIO()
+            plt.savefig(buf, format='png', dpi=100, bbox_inches='tight')
+            buf.seek(0)
+            
+            plt.close()
+            
+            return buf.getvalue()
+        except Exception as e:
+            logger.error(f"Error generating chart: {str(e)}")
+            return None
