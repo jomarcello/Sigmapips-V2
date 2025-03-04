@@ -83,18 +83,18 @@ class ChartService:
         self.tradingview = None
         
     async def initialize(self):
-        """Initialize the chart service"""
+        """Initialize chart service"""
         try:
-            # Importeer TradingViewService
-            from trading_bot.services.tradingview_service.tradingview import TradingViewService
-            
-            # Initialiseer TradingViewService
+            # Importeer TradingViewService vanuit dezelfde map
+            from trading_bot.services.chart_service.tradingview import TradingViewService
             self.tradingview = TradingViewService()
             await self.tradingview.initialize()
-            logger.info("TradingView service initialized")
+            
+            logger.info("Chart service initialized")
+            return True
         except Exception as e:
-            logger.error(f"Error initializing TradingView service: {str(e)}")
-            self.tradingview = None
+            logger.error(f"Error initializing chart service: {str(e)}")
+            return False
         
     async def get_chart(self, instrument: str, timeframe: str = "1h") -> Optional[bytes]:
         """Get chart image for the given instrument"""
