@@ -72,9 +72,29 @@ class ChartService:
             "DE40": "https://www.tradingview.com/chart/OWzg0XNw/"
         }
         
+        # Statische chart URLs als fallback
+        self.static_chart_urls = [
+            "https://www.tradingview.com/x/heV5Zitn/",
+            "https://www.tradingview.com/x/xknpxpcr/",
+            "https://www.tradingview.com/x/VsfYHrwP/",
+            "https://www.tradingview.com/x/Nroi4EqI/"
+        ]
+        
+        self.tradingview = None
+        
     async def initialize(self):
-        """No initialization needed"""
-        pass
+        """Initialize the chart service"""
+        try:
+            # Importeer TradingViewService
+            from trading_bot.services.tradingview_service.tradingview import TradingViewService
+            
+            # Initialiseer TradingViewService
+            self.tradingview = TradingViewService()
+            await self.tradingview.initialize()
+            logger.info("TradingView service initialized")
+        except Exception as e:
+            logger.error(f"Error initializing TradingView service: {str(e)}")
+            self.tradingview = None
         
     async def get_chart(self, instrument: str, timeframe: str = "1h") -> Optional[bytes]:
         """Get chart image for the given instrument"""
@@ -86,7 +106,14 @@ class ChartService:
             if instrument in self.chart_links:
                 chart_url = self.chart_links[instrument]
                 
-                # Probeer eerst de directe TradingView snapshot API
+                # Probeer eerst TradingView screenshot als we ingelogd zijn
+                if self.tradingview and self.tradingview.is_logged_in:
+                    logger.info(f"Getting TradingView screenshot for {instrument}")
+                    screenshot = await self.tradingview.get_chart_screenshot(chart_url)
+                    if screenshot:
+                        return screenshot
+                
+                # Probeer de directe TradingView snapshot API
                 chart_id = chart_url.split("/")[-2]
                 snapshot_url = f"https://s3.tradingview.com/snapshots/{chart_id}.png"
                 
@@ -98,15 +125,16 @@ class ChartService:
                             return await response.read()
                         else:
                             logger.error(f"TradingView snapshot error: {response.status}")
-                            # Fallback naar screenshot service
-                            return await self.make_screenshot(chart_url)
+                            
+                # Probeer een screenshot service
+                return await self.make_screenshot(chart_url)
             else:
                 logger.error(f"No chart link found for instrument: {instrument}")
-                return None
+                return await self.get_fallback_chart()
                 
         except Exception as e:
             logger.error(f"Error getting chart: {str(e)}")
-            return None
+            return await self.get_fallback_chart()
     
     async def make_screenshot(self, url: str) -> Optional[bytes]:
         """Make a screenshot of the given URL using a screenshot service"""
@@ -128,12 +156,12 @@ class ChartService:
             return await self.try_alternative_service(url)
     
     async def try_alternative_service(self, url: str) -> Optional[bytes]:
-        """Try multiple alternative screenshot services"""
+        """Try alternative screenshot services"""
         services = [
             f"https://image.thum.io/get/width/1280/crop/800/png/{quote(url)}",
-            f"https://api.apiflash.com/v1/urltoimage?access_key=your_api_key&url={quote(url)}",
-            f"https://api.screenshotmachine.com/?key=your_api_key&url={quote(url)}",
-            f"https://shot.screenshotapi.net/screenshot?token=your_api_key&url={quote(url)}&output=image&file_type=png"
+            f"https://api.urlbox.io/v1/render?url={quote(url)}&width=1280&height=800&format=png&ttl=86400&token=demo",
+            f"https://render-tron.appspot.com/screenshot/{quote(url)}",
+            f"https://www.screenshotmachine.com/capture.php?url={quote(url)}&size=1280x800"
         ]
         
         for service_url in services:
@@ -149,4 +177,57 @@ class ChartService:
             except Exception as e:
                 logger.error(f"Error with screenshot service: {str(e)}")
         
+        # Als alle services mislukken, probeer een directe link naar de TradingView chart afbeelding
+        try:
+            chart_id = url.split("/")[-2]
+            direct_url = f"https://www.tradingview.com/x/{chart_id}/"
+            
+            logger.info(f"Trying direct TradingView chart image: {direct_url}")
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.get(direct_url) as response:
+                    if response.status == 200:
+                        return await response.read()
+                    else:
+                        logger.error(f"Direct TradingView chart image error: {response.status}")
+        except Exception as e:
+            logger.error(f"Error with direct TradingView chart image: {str(e)}")
+        
         return None
+        
+    async def get_fallback_chart(self) -> Optional[bytes]:
+        """Get a fallback chart image"""
+        try:
+            # Probeer alle statische chart URLs
+            for url in self.static_chart_urls:
+                logger.info(f"Trying static chart URL: {url}")
+                
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(url) as response:
+                        if response.status == 200:
+                            return await response.read()
+                        else:
+                            logger.error(f"Static chart error: {response.status}")
+            
+            # Als alle URLs mislukken, probeer een andere aanpak
+            fallback_url = "https://finviz.com/chart.ashx?t=AAPL&ty=c&ta=1&p=d&s=l"
+            logger.info(f"Trying fallback URL: {fallback_url}")
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.get(fallback_url) as response:
+                    if response.status == 200:
+                        return await response.read()
+                    else:
+                        logger.error(f"Fallback chart error: {response.status}")
+                        return None
+        except Exception as e:
+            logger.error(f"Error getting fallback chart: {str(e)}")
+            return None
+            
+    async def cleanup(self):
+        """Clean up resources"""
+        try:
+            if self.tradingview:
+                await self.tradingview.cleanup()
+        except Exception as e:
+            logger.error(f"Error cleaning up chart service: {str(e)}")
