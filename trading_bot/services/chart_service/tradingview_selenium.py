@@ -16,12 +16,14 @@ from selenium.webdriver.support import expected_conditions as EC
 from PIL import Image
 from webdriver_manager.chrome import ChromeDriverManager
 from webdriver_manager.core.utils import ChromeType
+from trading_bot.services.chart_service.tradingview import TradingViewService
 
 logger = logging.getLogger(__name__)
 
-class TradingViewSeleniumService:
+class TradingViewSeleniumService(TradingViewService):
     def __init__(self, session_id=None):
         """Initialize the TradingView Selenium service"""
+        super().__init__()
         self.session_id = session_id or os.getenv("TRADINGVIEW_SESSION_ID", "z90l85p2anlgdwfppsrdnnfantz48z1o")
         self.driver = None
         self.is_initialized = False
