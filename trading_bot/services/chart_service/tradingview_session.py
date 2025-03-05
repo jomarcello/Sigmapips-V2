@@ -237,39 +237,32 @@ class TradingViewSessionService(TradingViewService):
                     logger.warning(f"No chart URL found for {symbol}, using default URL")
                     chart_url = f"https://www.tradingview.com/chart/?symbol={symbol}"
             
-            logger.info(f"Navigating to chart URL with session ID: {chart_url}")
+            # Probeer een alternatieve aanpak: gebruik de publieke chart URL
+            # In plaats van de gedeelde chart URL
             
-            # Ga direct naar de chart URL met de session ID
-            await page.goto(chart_url, timeout=60000)
+            # Haal het symbool op uit de URL of gebruik het opgegeven symbool
+            if "symbol=" in chart_url:
+                tv_symbol = chart_url.split("symbol=")[1].split("&")[0]
+            else:
+                tv_symbol = normalized_symbol
+            
+            # Bouw een publieke chart URL
+            public_chart_url = f"https://www.tradingview.com/chart/?symbol={tv_symbol}"
+            if timeframe:
+                # Converteer timeframe naar TradingView formaat
+                tv_interval = self.interval_map.get(timeframe, "D")  # Default to daily if not found
+                public_chart_url += f"&interval={tv_interval}"
+            
+            logger.info(f"Using public chart URL: {public_chart_url}")
+            
+            # Ga naar de publieke chart URL
+            await page.goto(public_chart_url, timeout=60000)
             
             # Wacht tot de pagina is geladen
             await page.wait_for_load_state("networkidle", timeout=30000)
             
             # Wacht nog wat extra tijd
             await page.wait_for_timeout(10000)
-            
-            # Controleer of we op de juiste pagina zijn
-            current_url = page.url
-            logger.info(f"Current page URL: {current_url}")
-            
-            # Controleer of we een 404 pagina hebben
-            not_found = await page.evaluate("""() => {
-                return document.body.textContent.includes("This isn't the page you're looking for") ||
-                       document.body.textContent.includes("404") ||
-                       document.body.textContent.includes("Page not found");
-            }""")
-            
-            if not_found:
-                logger.warning("Detected 404 page, trying alternative approach")
-                
-                # Probeer de publieke snapshot URL als alternatief
-                chart_id = chart_url.split("/")[-2] if chart_url.endswith("/") else chart_url.split("/")[-1]
-                snapshot_url = f"https://www.tradingview.com/x/{chart_id}/"
-                
-                logger.info(f"Using public snapshot URL: {snapshot_url}")
-                await page.goto(snapshot_url, timeout=60000)
-                await page.wait_for_load_state("networkidle", timeout=30000)
-                await page.wait_for_timeout(5000)
             
             # Neem een screenshot
             logger.info("Taking screenshot")
