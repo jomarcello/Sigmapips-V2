@@ -14,8 +14,23 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from PIL import Image
-from webdriver_manager.chrome import ChromeDriverManager
-from webdriver_manager.core.utils import ChromeType
+from selenium.common.exceptions import TimeoutException, NoSuchElementException, WebDriverException
+
+# Probeer eerst de nieuwe import methode (voor nieuwere versies)
+try:
+    from webdriver_manager.chrome import ChromeDriverManager
+    # In nieuwere versies is ChromeType verplaatst of niet meer nodig
+    CHROME_TYPE_IMPORT = False
+except ImportError:
+    from webdriver_manager.chrome import ChromeDriverManager
+    try:
+        # Voor oudere versies
+        from webdriver_manager.core.utils import ChromeType
+        CHROME_TYPE_IMPORT = True
+    except ImportError:
+        # Als ChromeType niet beschikbaar is, gebruik dan een fallback
+        CHROME_TYPE_IMPORT = False
+
 from trading_bot.services.chart_service.tradingview import TradingViewService
 
 logger = logging.getLogger(__name__)
@@ -39,72 +54,51 @@ class TradingViewSeleniumService(TradingViewService):
             "ETHUSD": "https://www.tradingview.com/chart/?symbol=ETHUSD"
         }
         
-        logger.info(f"TradingView Selenium service initialized with session ID: {self.session_id[:5]}...")
+        # Controleer of we in een Docker container draaien
+        self.in_docker = os.path.exists("/.dockerenv")
+        
+        logger.info(f"TradingView Selenium service initialized (in Docker: {self.in_docker})")
     
     async def initialize(self):
-        """Initialize the Selenium WebDriver"""
+        """Initialize the Selenium driver"""
         try:
             logger.info("Initializing TradingView Selenium service")
             
-            # Configureer Chrome opties
+            # Maak Chrome opties
             chrome_options = Options()
             chrome_options.add_argument("--no-sandbox")
             chrome_options.add_argument("--disable-dev-shm-usage")
             chrome_options.add_argument("--disable-gpu")
-            chrome_options.add_argument("--headless")
             chrome_options.add_argument("--window-size=1920,1080")
-            chrome_options.add_argument("--disable-extensions")
-            chrome_options.add_argument("--disable-infobars")
-            chrome_options.add_argument("--disable-notifications")
-            chrome_options.add_argument("--force-dark-mode")
             
-            # Probeer met automatische versiedetectie
-            try:
-                logger.info("Trying to initialize Chrome with automatic version detection")
-                from webdriver_manager.chrome import ChromeDriverManager
+            if self.in_docker:
+                # In Docker, gebruik headless mode en specifieke paden
+                chrome_options.add_argument("--headless")
+                chrome_options.binary_location = "/usr/bin/chromium"
                 
-                # Gebruik de nieuwste versie die compatibel is met de geïnstalleerde Chrome
-                self.driver = webdriver.Chrome(
-                    service=Service(ChromeDriverManager().install()),
-                    options=chrome_options
-                )
-            except Exception as auto_error:
-                logger.warning(f"Failed with automatic version detection: {str(auto_error)}")
-                
-                # Probeer met een lokaal geïnstalleerde ChromeDriver
-                try:
-                    logger.info("Trying with local ChromeDriver")
-                    self.driver = webdriver.Chrome(options=chrome_options)
-                except Exception as local_error:
-                    logger.error(f"All ChromeDriver initialization attempts failed: {str(local_error)}")
-                    return False
-            
-            # Ga naar TradingView en voeg session cookie toe
-            self.driver.get(self.base_url)
-            
-            # Voeg session ID cookie toe
-            self.driver.add_cookie({
-                'name': 'sessionid',
-                'value': self.session_id,
-                'domain': '.tradingview.com'
-            })
-            
-            # Vernieuw de pagina om de cookie te activeren
-            self.driver.refresh()
-            
-            # Wacht even om de pagina te laden
-            await asyncio.sleep(5)
-            
-            # Controleer of we ingelogd zijn
-            if self._is_logged_in():
-                logger.info("Successfully logged in to TradingView using session ID")
-                self.is_initialized = True
-                self.is_logged_in = True
-                return True
+                # Gebruik een specifiek pad voor ChromeDriver in Docker
+                service = Service("/usr/bin/chromedriver")
+                self.driver = webdriver.Chrome(service=service, options=chrome_options)
             else:
-                logger.warning("Failed to log in with session ID")
-                return False
+                # Lokaal, gebruik ChromeDriverManager
+                if CHROME_TYPE_IMPORT:
+                    # Voor oudere versies van webdriver-manager
+                    service = Service(ChromeDriverManager(chrome_type=ChromeType.CHROMIUM).install())
+                else:
+                    # Voor nieuwere versies van webdriver-manager
+                    service = Service(ChromeDriverManager().install())
                 
+                self.driver = webdriver.Chrome(service=service, options=chrome_options)
+            
+            # Maximaliseer het venster
+            self.driver.maximize_window()
+            
+            # Log in op TradingView
+            await self.login()
+            
+            self.is_initialized = True
+            return True
+            
         except Exception as e:
             logger.error(f"Error initializing TradingView Selenium service: {str(e)}")
             return False
