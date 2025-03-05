@@ -91,7 +91,7 @@ class TradingViewPuppeteerService:
             return False
             
     async def _add_stealth_mode(self):
-        """Add stealth mode to avoid detection"""
+        """Add enhanced stealth mode to avoid detection"""
         try:
             # Verberg WebDriver
             await self.page.evaluateOnNewDocument("""
@@ -163,38 +163,63 @@ class TradingViewPuppeteerService:
                 }
             """)
             
-            logger.info("Added stealth mode to browser")
+            # Extra stealth maatregelen
+            await self.page.evaluateOnNewDocument("""
+                () => {
+                    // Verberg dat we een headless browser zijn
+                    Object.defineProperty(navigator, 'maxTouchPoints', { get: () => 1 });
+                    
+                    // Voeg hardware concurrency toe
+                    Object.defineProperty(navigator, 'hardwareConcurrency', { get: () => 8 });
+                    
+                    // Voeg device memory toe
+                    Object.defineProperty(navigator, 'deviceMemory', { get: () => 8 });
+                    
+                    // Voeg platform toe
+                    Object.defineProperty(navigator, 'platform', { get: () => 'Win32' });
+                    
+                    // Voeg connection info toe
+                    Object.defineProperty(navigator, 'connection', {
+                        get: () => ({
+                            effectiveType: '4g',
+                            rtt: 50,
+                            downlink: 10,
+                            saveData: false
+                        })
+                    });
+                }
+            """)
+            
+            logger.info("Added enhanced stealth mode to browser")
             return True
         except Exception as e:
             logger.error(f"Error adding stealth mode: {str(e)}")
             return False
             
     async def _load_cookies_from_json(self) -> bool:
-        """Load cookies from JSON file"""
+        """Load cookies from Redis or JSON file"""
         try:
+            # Probeer eerst uit Redis te laden
+            if hasattr(self, 'redis') and self.redis:
+                try:
+                    cookies_str = self.redis.get('tradingview_cookies')
+                    if cookies_str:
+                        cookies = json.loads(cookies_str)
+                        for cookie in cookies:
+                            await self.page.setCookie(cookie)
+                        logger.info("Loaded cookies from Redis")
+                        return True
+                except Exception as redis_error:
+                    logger.warning(f"Could not load cookies from Redis: {str(redis_error)}")
+            
+            # Fallback naar bestandsopslag
             if os.path.exists(self.cookies_file):
-                logger.info(f"Loading cookies from {self.cookies_file}")
                 with open(self.cookies_file, 'r') as f:
                     cookies = json.load(f)
-                
-                # Voeg cookies toe aan de browser
                 for cookie in cookies:
                     await self.page.setCookie(cookie)
-                
-                # Ga naar TradingView om te controleren of we zijn ingelogd
-                await self.page.goto("https://www.tradingview.com/chart/", {
-                    'waitUntil': 'networkidle0',
-                    'timeout': 60000
-                })
-                
-                # Controleer of we zijn ingelogd
-                if await self._is_logged_in():
-                    logger.info("Successfully logged in with cookies")
-                    self.is_logged_in = True
-                    return True
-                else:
-                    logger.warning("Cookies loaded but not logged in")
-                    return False
+                logger.info(f"Loaded cookies from {self.cookies_file}")
+                return True
             else:
                 logger.warning(f"Cookies file {self.cookies_file} not found")
                 return False
@@ -203,9 +228,20 @@ class TradingViewPuppeteerService:
             return False
             
     async def _save_cookies(self) -> bool:
-        """Save cookies to JSON file"""
+        """Save cookies to Redis or JSON file"""
         try:
             cookies = await self.page.cookies()
+            
+            # Probeer eerst in Redis op te slaan
+            if hasattr(self, 'redis') and self.redis:
+                try:
+                    self.redis.set('tradingview_cookies', json.dumps(cookies))
+                    logger.info("Saved cookies to Redis")
+                    return True
+                except Exception as redis_error:
+                    logger.warning(f"Could not save cookies to Redis: {str(redis_error)}")
+            
+            # Fallback naar bestandsopslag
             with open(self.cookies_file, 'w') as f:
                 json.dump(cookies, f)
             logger.info(f"Saved cookies to {self.cookies_file}")
