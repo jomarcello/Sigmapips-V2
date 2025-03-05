@@ -182,6 +182,7 @@ class ChartService:
                     )
                     
                     # Initialiseer de service
+                    logger.info("Initializing TradingView Selenium service...")
                     selenium_success = await self.tradingview_selenium.initialize()
                     
                     if selenium_success:
@@ -194,6 +195,8 @@ class ChartService:
                     logger.warning("No TradingView session ID found in environment variables")
             except Exception as e:
                 logger.error(f"Error initializing TradingView Selenium service: {str(e)}")
+                import traceback
+                logger.error(traceback.format_exc())
             
             # Probeer Node.js als Session service faalt
             try:
@@ -264,6 +267,8 @@ class ChartService:
             return False
         except Exception as e:
             logger.error(f"Error initializing chart service: {str(e)}")
+            import traceback
+            logger.error(traceback.format_exc())
             self.tradingview = None
             return False
         
