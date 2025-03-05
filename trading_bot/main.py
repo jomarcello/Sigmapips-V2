@@ -369,3 +369,45 @@ def main():
         pass
 
 # ... bestaande code ...
+
+@app.get("/batch-screenshots")
+async def batch_screenshots(symbols: str = None, timeframes: str = None):
+    """Maak screenshots van meerdere symbolen en timeframes"""
+    try:
+        # Converteer comma-gescheiden strings naar lijsten
+        symbol_list = symbols.split(",") if symbols else None
+        timeframe_list = timeframes.split(",") if timeframes else None
+        
+        if not chart.tradingview or not chart.tradingview.is_logged_in:
+            return {
+                "status": "error",
+                "message": "TradingView service niet geïnitialiseerd of niet ingelogd"
+            }
+        
+        # Roep de batch capture functie aan
+        results = await chart.tradingview.batch_capture_charts(
+            symbols=symbol_list,
+            timeframes=timeframe_list
+        )
+        
+        if not results:
+            return {
+                "status": "error",
+                "message": "Fout bij het maken van screenshots"
+            }
+        
+        # Converteer resultaten naar base64 voor de response
+        response_data = {}
+        for symbol, timeframe_data in results.items():
+            response_data[symbol] = {}
+            for timeframe, screenshot in timeframe_data.items():
+                response_data[symbol][timeframe] = base64.b64encode(screenshot).decode('utf-8')
+        
+        return {
+            "status": "success",
+            "data": response_data
+        }
+        
+    except Exception as e:
+        logger.error(f"Error in batch screenshots endpoint: {str(e)}")
+        return {"status": "error", "message": str(e)}
