@@ -9,9 +9,6 @@
   },
   "dependencies": {
     "@playwright/test": "^1.40.0",
-    "playwright-extra": "^4.3.6",
-    "puppeteer-extra-plugin-stealth": "^2.11.2",
-    "puppeteer-extra-plugin-recaptcha": "^2.3.3",
     "dotenv": "^16.3.1"
   }
 } 
