@@ -102,10 +102,14 @@ class TradingViewSeleniumService(TradingViewService):
                 self.driver.get("https://www.tradingview.com/")
                 
                 # Wacht even om de pagina te laden
-                time.sleep(3)
+                time.sleep(5)
                 
                 # Log alle huidige cookies
                 logger.info(f"Current cookies before setting: {self.driver.get_cookies()}")
+                
+                # Verwijder alle bestaande cookies
+                self.driver.delete_all_cookies()
+                logger.info("Deleted all existing cookies")
                 
                 # Voeg cookies toe
                 cookies_to_add = [
@@ -126,6 +130,12 @@ class TradingViewSeleniumService(TradingViewService):
                         "value": "1",
                         "domain": ".tradingview.com",
                         "path": "/"
+                    },
+                    {
+                        "name": "tv_ecuid",
+                        "value": self.session_id[:16],  # Gebruik een deel van de session ID
+                        "domain": ".tradingview.com",
+                        "path": "/"
                     }
                 ]
                 
@@ -141,7 +151,7 @@ class TradingViewSeleniumService(TradingViewService):
                 
                 # Ververs de pagina om de cookies te activeren
                 self.driver.refresh()
-                time.sleep(3)
+                time.sleep(5)
                 
                 # Controleer of we zijn ingelogd
                 try:
@@ -208,25 +218,19 @@ class TradingViewSeleniumService(TradingViewService):
     
     async def take_screenshot(self, symbol, timeframe=None):
         """Take a screenshot of a chart"""
-        if not self.is_initialized or not self.driver:
+        if not self.is_initialized:
             logger.warning("TradingView Selenium service not initialized")
             return None
         
         try:
             logger.info(f"Taking screenshot for {symbol}")
             
-            # Bepaal de chart URL
-            chart_url = None
+            # Normaliseer het symbool (verwijder / en converteer naar hoofdletters)
+            normalized_symbol = symbol.replace("/", "").upper()
             
-            # Als het symbool een volledige URL is, gebruik deze direct
-            if symbol.startswith("http"):
-                chart_url = symbol
-                logger.info(f"Using provided URL: {chart_url}")
-            else:
-                # Anders zoek de URL op in de chart_links dictionary
-                # Normaliseer het symbool (verwijder / en converteer naar hoofdletters)
-                normalized_symbol = symbol.replace("/", "").upper()
-                
+            # Bouw de chart URL
+            if self.is_logged_in:
+                # Als we zijn ingelogd, gebruik de chart links uit de dictionary
                 chart_url = self.chart_links.get(normalized_symbol)
                 if not chart_url:
                     logger.warning(f"No chart URL found for {symbol}, using default URL")
@@ -234,6 +238,12 @@ class TradingViewSeleniumService(TradingViewService):
                     if timeframe:
                         tv_interval = self.interval_map.get(timeframe, "D")
                         chart_url += f"&interval={tv_interval}"
+            else:
+                # Anders gebruik een publieke chart URL
+                chart_url = f"https://www.tradingview.com/chart/?symbol={normalized_symbol}"
+                if timeframe:
+                    tv_interval = self.interval_map.get(timeframe, "D")
+                    chart_url += f"&interval={tv_interval}"
             
             # Ga naar de chart URL
             logger.info(f"Navigating to chart URL: {chart_url}")
@@ -272,6 +282,9 @@ class TradingViewSeleniumService(TradingViewService):
                 # Neem een screenshot
                 logger.info("Taking screenshot")
                 screenshot_bytes = self.driver.get_screenshot_as_png()
+                
+                # Log de huidige URL voor debugging
+                logger.info(f"Current URL after screenshot: {self.driver.current_url}")
                 
                 return screenshot_bytes
             
