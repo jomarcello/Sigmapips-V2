@@ -536,3 +536,77 @@ async def reinitialize_tradingview():
             "status": "error",
             "message": f"Error reinitializing TradingView service: {str(e)}"
         }
+
+@app.get("/tradingview-status-detailed")
+async def tradingview_status_detailed():
+    """Gedetailleerde status van de TradingView service"""
+    try:
+        if not hasattr(chart, 'tradingview') or not chart.tradingview:
+            return {
+                "status": "error",
+                "message": "TradingView service not initialized"
+            }
+        
+        service_type = type(chart.tradingview).__name__
+        
+        # Controleer of het een Selenium service is
+        if service_type == "TradingViewSeleniumService":
+            # Neem een screenshot van de TradingView homepage om te controleren of we zijn ingelogd
+            try:
+                # Ga naar de TradingView homepage
+                chart.tradingview.driver.get("https://www.tradingview.com/")
+                
+                # Wacht even om de pagina te laden
+                import time
+                time.sleep(5)
+                
+                # Neem een screenshot
+                screenshot_path = "/tmp/tradingview_homepage.png"
+                chart.tradingview.driver.save_screenshot(screenshot_path)
+                
+                # Controleer of we zijn ingelogd door te zoeken naar elementen die alleen zichtbaar zijn als je bent ingelogd
+                page_source = chart.tradingview.driver.page_source
+                
+                # Zoek naar tekenen van ingelogd zijn
+                logged_in_indicators = [
+                    "Sign Out",
+                    "Account",
+                    "Profile",
+                    "My Profile",
+                    "user-menu-button"
+                ]
+                
+                is_logged_in = any(indicator in page_source for indicator in logged_in_indicators)
+                
+                # Controleer cookies
+                cookies = chart.tradingview.driver.get_cookies()
+                session_cookie = next((c for c in cookies if c['name'] == 'sessionid'), None)
+                
+                return {
+                    "status": "success",
+                    "service_type": service_type,
+                    "is_logged_in": is_logged_in,
+                    "session_cookie_present": session_cookie is not None,
+                    "session_cookie_value": session_cookie['value'][:5] + "..." if session_cookie else None,
+                    "cookies_count": len(cookies),
+                    "screenshot_path": screenshot_path,
+                    "page_title": chart.tradingview.driver.title
+                }
+            except Exception as e:
+                return {
+                    "status": "error",
+                    "service_type": service_type,
+                    "message": f"Error checking login status: {str(e)}"
+                }
+        
+        # Voor andere service types
+        return {
+            "status": "success",
+            "service_type": service_type,
+            "is_logged_in": getattr(chart.tradingview, 'is_logged_in', False)
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": f"Error checking TradingView service: {str(e)}"
+        }
