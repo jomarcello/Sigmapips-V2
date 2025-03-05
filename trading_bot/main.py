@@ -1,6 +1,6 @@
 import sys
 import logging
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Depends
 import os
 from typing import Dict, Any
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
@@ -10,6 +10,7 @@ import base64
 import aiohttp
 import json
 import redis
+from fastapi.responses import JSONResponse
 
 # Import hack voor ontbrekende module
 from trading_bot.services.chart_service.tradingview_selenium import TradingViewSeleniumService
@@ -28,6 +29,7 @@ from trading_bot.services.telegram_service.bot import (
 from trading_bot.services.telegram_service.bot import TelegramService
 from trading_bot.services.chart_service.chart import ChartService
 from trading_bot.services.database.db import Database
+from trading_bot.services.chart_service.session_refresher import SessionRefresher
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -75,6 +77,9 @@ class TradingBot:
 # Initialiseer de bot
 bot = TradingBot()
 
+# Initialiseer de session refresher
+session_refresher = SessionRefresher()
+
 @app.on_event("startup")
 async def startup_event():
     """Initialize async services on startup"""
@@ -113,6 +118,12 @@ async def startup_event():
         await telegram.set_webhook(full_url)
         logger.info(f"Webhook set to: {full_url}")
 
+    # Start een achtergrondtaak voor periodieke health checks
+    asyncio.create_task(periodic_health_check())
+
+    # Start de session refresher
+    asyncio.create_task(session_refresher.start())
+
 @app.on_event("shutdown")
 async def shutdown_event():
     """Clean up resources on shutdown"""
@@ -121,10 +132,14 @@ async def shutdown_event():
         logger.info("Chart service resources cleaned up")
     except Exception as e:
         logger.error(f"Error cleaning up chart service: {str(e)}")
+    
+    # Stop de session refresher
+    await session_refresher.stop()
 
 @app.get("/health")
 async def health_check():
-    return {"status": "healthy"}
+    """Health check endpoint voor Railway"""
+    return {"status": "ok"}
 
 @app.post("/webhook")
 async def webhook(request: Request):
@@ -402,32 +417,29 @@ async def batch_screenshots(symbols: str = None, timeframes: str = None):
         logger.info(f"Batch screenshots request with symbols={symbols}, timeframes={timeframes}")
         
         # Converteer comma-gescheiden strings naar lijsten
-        symbol_list = symbols.split(",") if symbols else None
-        timeframe_list = timeframes.split(",") if timeframes else None
+        symbol_list = symbols.split(",") if symbols else ["EURUSD", "GBPUSD", "BTCUSD", "ETHUSD"]
+        timeframe_list = timeframes.split(",") if timeframes else ["1h", "4h", "1d"]
         
-        # Controleer TradingView service
+        # Gebruik fallback methode als TradingView niet beschikbaar is
         if not hasattr(chart, 'tradingview') or not chart.tradingview:
-            logger.error("TradingView service not initialized")
-            return {
-                "status": "error",
-                "message": "TradingView service niet geïnitialiseerd"
-            }
-            
-        # Controleer login status
-        if not chart.tradingview.is_logged_in:
-            logger.warning("TradingView service not logged in, attempting login")
-            login_success = await chart.tradingview.login()
-            if not login_success:
-                return {
-                    "status": "error",
-                    "message": "Kon niet inloggen bij TradingView"
-                }
-        
-        # Roep de batch capture functie aan
-        results = await chart.tradingview.batch_capture_charts(
-            symbols=symbol_list,
-            timeframes=timeframe_list
-        )
+            logger.info("Using fallback method for batch screenshots")
+            results = {}
+            for symbol in symbol_list:
+                results[symbol] = {}
+                for timeframe in timeframe_list:
+                    try:
+                        screenshot = await chart.get_chart(symbol, timeframe)
+                        if screenshot:
+                            results[symbol][timeframe] = screenshot
+                    except Exception as e:
+                        logger.error(f"Error getting chart for {symbol} {timeframe}: {str(e)}")
+                        results[symbol][timeframe] = None
+        else:
+            # Gebruik TradingView service als die beschikbaar is
+            results = await chart.tradingview.batch_capture_charts(
+                symbols=symbol_list,
+                timeframes=timeframe_list
+            )
         
         if not results:
             logger.error("Batch capture returned no results")
@@ -454,3 +466,12 @@ async def batch_screenshots(symbols: str = None, timeframes: str = None):
     except Exception as e:
         logger.error(f"Error in batch screenshots endpoint: {str(e)}")
         return {"status": "error", "message": str(e)}
+
+async def periodic_health_check():
+    """Periodieke health check om te controleren of de applicatie nog draait"""
+    while True:
+        try:
+            logger.info("Periodic health check: Application is running")
+            await asyncio.sleep(60)  # Elke minuut
+        except Exception as e:
+            logger.error(f"Error in periodic health check: {str(e)}")
