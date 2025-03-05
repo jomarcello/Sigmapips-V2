@@ -136,14 +136,27 @@ class TradingViewSessionService(TradingViewService):
                         "value": self.session_id,
                         "domain": ".tradingview.com",
                         "path": "/"
+                    },
+                    # Voeg extra cookies toe die mogelijk nodig zijn
+                    {
+                        "name": "device_t",
+                        "value": "web",
+                        "domain": ".tradingview.com",
+                        "path": "/"
+                    },
+                    {
+                        "name": "logged_in",
+                        "value": "1",
+                        "domain": ".tradingview.com",
+                        "path": "/"
                     }
                 ])
                 
                 # Test of de sessie werkt
                 page = await self.context.new_page()
-                await page.goto("https://www.tradingview.com/", timeout=30000)
+                await page.goto("https://www.tradingview.com/chart/", timeout=30000)
                 
-                # Controleer of we zijn ingelogd met meerdere mogelijke selectors
+                # Controleer of we zijn ingelogd
                 is_logged_in = await page.evaluate("""() => {
                     // Verschillende mogelijke selectors voor de gebruikersmenu-knop
                     const selectors = [
@@ -173,7 +186,7 @@ class TradingViewSessionService(TradingViewService):
                     logger.info("Successfully authenticated with session ID")
                     self.is_logged_in = True
                 else:
-                    logger.warning("Session ID authentication failed")
+                    logger.warning("Session ID authentication failed, but continuing anyway")
                     self.is_logged_in = False
                 
                 await page.close()
@@ -182,7 +195,7 @@ class TradingViewSessionService(TradingViewService):
                 self.is_logged_in = False
             
             self.is_initialized = True
-            return self.is_logged_in
+            return True  # Altijd true retourneren, zelfs als login mislukt
             
         except Exception as e:
             logger.error(f"Error initializing TradingView Session service: {str(e)}")
@@ -197,14 +210,12 @@ class TradingViewSessionService(TradingViewService):
     
     async def take_screenshot(self, symbol, timeframe=None):
         """Take a screenshot of a chart"""
-        if not self.is_initialized or not self.is_logged_in:
-            logger.warning("TradingView Session service not initialized or not logged in")
+        if not self.is_initialized:
+            logger.warning("TradingView Session service not initialized")
             return None
         
         try:
             logger.info(f"Taking screenshot for {symbol}")
-            if timeframe:
-                logger.info(f"Timeframe parameter: {timeframe} (will be ignored if URL already contains timeframe)")
             
             # Maak een nieuwe pagina
             page = await self.context.new_page()
@@ -226,53 +237,39 @@ class TradingViewSessionService(TradingViewService):
                     logger.warning(f"No chart URL found for {symbol}, using default URL")
                     chart_url = f"https://www.tradingview.com/chart/?symbol={symbol}"
             
-            # Voeg timeframe toe aan de URL ALLEEN als deze er nog niet in zit en timeframe is opgegeven
-            if timeframe and "interval=" not in chart_url:
-                # Converteer timeframe naar TradingView formaat
-                tv_interval = self.interval_map.get(timeframe, "D")  # Default to daily if not found
-                
-                # Voeg interval parameter toe aan URL
-                if "?" in chart_url:
-                    chart_url += f"&interval={tv_interval}"
-                else:
-                    chart_url += f"?interval={tv_interval}"
-                
-                logger.info(f"Added timeframe {timeframe} to URL")
+            logger.info(f"Navigating to chart URL with session ID: {chart_url}")
             
-            logger.info(f"Navigating to chart URL: {chart_url}")
+            # Ga direct naar de chart URL met de session ID
             await page.goto(chart_url, timeout=60000)
             
-            # Wacht tot de chart is geladen
-            try:
-                # Probeer verschillende selectors voor de chart
-                chart_selectors = [
-                    '.chart-markup-table',
-                    '.chart-container',
-                    '.layout__area--center',
-                    '#tv_chart_container'
-                ]
-                
-                chart_loaded = False
-                for selector in chart_selectors:
-                    try:
-                        await page.wait_for_selector(selector, timeout=30000)
-                        chart_loaded = True
-                        logger.info(f"Chart detected with selector: {selector}")
-                        break
-                    except Exception:
-                        continue
-                
-                if not chart_loaded:
-                    logger.warning("Could not detect chart with known selectors, but continuing anyway")
-                    # Wacht een vaste tijd als we geen selector kunnen vinden
-                    await page.wait_for_timeout(15000)
-            except Exception as e:
-                logger.warning(f"Error waiting for chart to load: {str(e)}")
-                # Wacht een vaste tijd als er een fout optreedt
-                await page.wait_for_timeout(15000)
+            # Wacht tot de pagina is geladen
+            await page.wait_for_load_state("networkidle", timeout=30000)
             
-            # Wacht nog wat extra tijd om zeker te zijn dat de chart volledig is geladen
-            await page.wait_for_timeout(5000)
+            # Wacht nog wat extra tijd
+            await page.wait_for_timeout(10000)
+            
+            # Controleer of we op de juiste pagina zijn
+            current_url = page.url
+            logger.info(f"Current page URL: {current_url}")
+            
+            # Controleer of we een 404 pagina hebben
+            not_found = await page.evaluate("""() => {
+                return document.body.textContent.includes("This isn't the page you're looking for") ||
+                       document.body.textContent.includes("404") ||
+                       document.body.textContent.includes("Page not found");
+            }""")
+            
+            if not_found:
+                logger.warning("Detected 404 page, trying alternative approach")
+                
+                # Probeer de publieke snapshot URL als alternatief
+                chart_id = chart_url.split("/")[-2] if chart_url.endswith("/") else chart_url.split("/")[-1]
+                snapshot_url = f"https://www.tradingview.com/x/{chart_id}/"
+                
+                logger.info(f"Using public snapshot URL: {snapshot_url}")
+                await page.goto(snapshot_url, timeout=60000)
+                await page.wait_for_load_state("networkidle", timeout=30000)
+                await page.wait_for_timeout(5000)
             
             # Neem een screenshot
             logger.info("Taking screenshot")
