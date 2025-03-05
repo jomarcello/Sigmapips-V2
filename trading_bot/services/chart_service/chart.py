@@ -3,6 +3,17 @@ import logging
 import aiohttp
 from typing import Optional
 from urllib.parse import quote
+import asyncio
+import base64
+from io import BytesIO
+import matplotlib.pyplot as plt
+import pandas as pd
+import numpy as np
+import mplfinance as mpf
+from datetime import datetime, timedelta
+
+# Voeg deze import toe
+from trading_bot.services.chart_service.tradingview_selenium import TradingViewSeleniumService
 
 logger = logging.getLogger(__name__)
 
@@ -81,6 +92,7 @@ class ChartService:
         ]
         
         self.tradingview = None
+        self.tradingview_selenium = None
         
     async def initialize(self):
         """Initialize chart service"""
