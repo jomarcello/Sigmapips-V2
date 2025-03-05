@@ -101,7 +101,23 @@ class ChartService:
         try:
             logger.info("Initializing chart service")
             
-            # Probeer eerst Puppeteer
+            # Probeer eerst Node.js
+            try:
+                from trading_bot.services.chart_service.tradingview_node import TradingViewNodeService
+                self.tradingview_node = TradingViewNodeService()
+                node_success = await self.tradingview_node.initialize()
+                
+                if node_success:
+                    logger.info("Chart service initialized with Node.js successfully")
+                    self.tradingview = self.tradingview_node
+                    return True
+                else:
+                    logger.warning("Failed to initialize Node.js, trying Puppeteer")
+            except Exception as node_error:
+                logger.error(f"Error initializing Node.js: {str(node_error)}")
+                logger.warning("Failed to initialize Node.js, trying Puppeteer")
+            
+            # Probeer Puppeteer als Node.js faalt
             try:
                 from trading_bot.services.chart_service.tradingview_puppeteer import TradingViewPuppeteerService
                 self.tradingview_puppeteer = TradingViewPuppeteerService()
