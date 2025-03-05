@@ -101,15 +101,21 @@ class ChartService:
             self.tradingview_selenium = TradingViewSeleniumService(
                 session_id=os.getenv("TRADINGVIEW_SESSION_ID")
             )
-            await self.tradingview_selenium.initialize()
+            selenium_initialized = await self.tradingview_selenium.initialize()
             
-            # Stel de standaard service in op Selenium
-            self.tradingview = self.tradingview_selenium
+            if selenium_initialized:
+                # Stel de standaard service in op Selenium
+                self.tradingview = self.tradingview_selenium
+                logger.info("Chart service initialized with Selenium successfully")
+            else:
+                logger.warning("Selenium initialization failed, using fallback methods")
+                self.tradingview = None
             
             logger.info("Chart service initialized successfully")
             return True
         except Exception as e:
             logger.error(f"Error initializing chart service: {str(e)}")
+            self.tradingview = None
             return False
         
     async def get_chart(self, instrument: str, timeframe: str = "1h") -> Optional[bytes]:
@@ -177,8 +183,9 @@ class ChartService:
                 if screenshot:
                     return screenshot
             
-            # 4. Als alles mislukt, gebruik de fallback chart
-            return await self.get_fallback_chart()
+            # 4. Als alles mislukt, genereer een chart met matplotlib
+            logger.info(f"All external chart services failed, generating chart with matplotlib")
+            return await self.generate_chart(instrument, timeframe)
             
         except Exception as e:
             logger.error(f"Error getting chart: {str(e)}")
