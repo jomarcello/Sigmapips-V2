@@ -63,7 +63,8 @@ RUN python -m venv /app/venv
 ENV PATH="/app/venv/bin:$PATH"
 
 # Maak een aangepaste requirements.txt zonder npm regels
-RUN echo '# Core dependencies
+RUN cat > requirements.txt << 'EOL'
+# Core dependencies
 fastapi==0.109.0
 python-telegram-bot==20.3
 uvicorn==0.27.0
@@ -92,7 +93,8 @@ python-multipart==0.0.6
 
 # Pinecone
 pinecone-client
-requests' > requirements.txt
+requests
+EOL
 
 # Installeer dependencies in de virtuele omgeving
 RUN pip install --upgrade pip
@@ -114,23 +116,25 @@ RUN npm install -g puppeteer@19.7.0 --unsafe-perm=true
 ENV PUPPETEER_CACHE_DIR=/app/.cache/puppeteer
 
 # Maak het Puppeteer setup script inline aan
-RUN echo 'console.log("Installing Puppeteer..."); \
-const puppeteer = require("puppeteer"); \
-\
-(async () => { \
-  try { \
-    // Test of Puppeteer werkt \
-    const browser = await puppeteer.launch({ \
-      headless: true, \
-      args: ["--no-sandbox", "--disable-dev-shm-usage"] \
-    }); \
-    console.log("Puppeteer installed and working correctly"); \
-    await browser.close(); \
-  } catch (error) { \
-    console.error("Error testing Puppeteer:", error); \
-    process.exit(1); \
-  } \
-})();' > /app/setup_puppeteer.js
+RUN cat > /app/setup_puppeteer.js << 'EOL'
+console.log("Installing Puppeteer...");
+const puppeteer = require("puppeteer");
+
+(async () => {
+  try {
+    // Test of Puppeteer werkt
+    const browser = await puppeteer.launch({
+      headless: true,
+      args: ["--no-sandbox", "--disable-dev-shm-usage"]
+    });
+    console.log("Puppeteer installed and working correctly");
+    await browser.close();
+  } catch (error) {
+    console.error("Error testing Puppeteer:", error);
+    process.exit(1);
+  }
+})();
+EOL
 
 # Voer het script uit om te controleren of Puppeteer werkt
 RUN node /app/setup_puppeteer.js
