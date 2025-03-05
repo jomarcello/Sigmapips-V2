@@ -183,7 +183,6 @@ class TelegramService:
             await self.bot.set_my_commands(commands)
             
             # Maak een persistence handler voor de bot
-            # Gebruik PicklePersistence of DictPersistence
             import os
             persistence_dir = os.path.join(os.path.dirname(__file__), "persistence")
             os.makedirs(persistence_dir, exist_ok=True)
@@ -199,17 +198,58 @@ class TelegramService:
             # Voeg persistence toe aan de application
             self.application.persistence = persistence
             
+            # Definieer de ConversationHandler
+            conv_handler = ConversationHandler(
+                entry_points=[CommandHandler("start", self.start_command)],
+                states={
+                    MENU: [
+                        CallbackQueryHandler(self.menu_analyse_callback, pattern="^menu_analyse$"),
+                        CallbackQueryHandler(self.menu_signals_callback, pattern="^menu_signals$"),
+                    ],
+                    ANALYSIS: [
+                        CallbackQueryHandler(self.analysis_technical_callback, pattern="^analysis_technical$"),
+                        CallbackQueryHandler(self.analysis_sentiment_callback, pattern="^analysis_sentiment$"),
+                        CallbackQueryHandler(self.analysis_calendar_callback, pattern="^analysis_calendar$"),
+                        CallbackQueryHandler(self.back_to_menu_callback, pattern="^back_menu$"),
+                    ],
+                    MARKET: [
+                        CallbackQueryHandler(self.market_callback, pattern="^market_"),
+                        CallbackQueryHandler(self.back_to_analysis_callback, pattern="^back_analysis$"),
+                    ],
+                    INSTRUMENT: [
+                        CallbackQueryHandler(self.instrument_callback, pattern="^instrument_"),
+                        CallbackQueryHandler(self.back_to_market_callback, pattern="^back_market$"),
+                    ],
+                    STYLE: [
+                        CallbackQueryHandler(self.style_choice, pattern="^style_"),
+                        CallbackQueryHandler(self.back_to_instrument, pattern="^back$")
+                    ],
+                    RESULT: [
+                        CallbackQueryHandler(self.add_more, pattern="^add_more$"),
+                        CallbackQueryHandler(self.manage_preferences, pattern="^manage_prefs$"),
+                        CallbackQueryHandler(self.back_to_menu, pattern="^back_menu$"),
+                        CallbackQueryHandler(self.back_to_instruments, pattern="^back_to_instruments$")
+                    ]
+                },
+                fallbacks=[CommandHandler("help", self.help_command)],
+                name="my_conversation",
+                persistent=False,  # Zet dit op False om persistence uit te schakelen
+                per_message=False,
+            )
+            
             # Voeg handlers toe
-            # Voeg eerst de ConversationHandler toe
             self.application.add_handler(conv_handler)
             
             # Voeg andere handlers toe
-            self.application.add_handler(CommandHandler("start", self.start_command))
             self.application.add_handler(CommandHandler("help", self.help_command))
             
             # Start de application
             await self.application.initialize()
             await self.application.start()
+            
+            # Log webhook info
+            webhook_info = await self.bot.get_webhook_info()
+            logger.info(f"Current webhook info: {webhook_info}")
             
             logger.info("Telegram service initialized successfully")
             return True
@@ -3143,15 +3183,3 @@ Risk Management:
         )
         
         return ANALYSIS
-
-# In de ConversationHandler definitie
-conv_handler = ConversationHandler(
-    entry_points=[CommandHandler("start", start_command)],
-    states={
-        # ... bestaande states ...
-    },
-    fallbacks=[CommandHandler("help", help_command)],
-    name="my_conversation",
-    persistent=False,  # Zet dit op False om persistence uit te schakelen
-    per_message=False,
-)
