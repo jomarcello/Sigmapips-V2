@@ -119,7 +119,7 @@ if (!url || !outputPath) {
                 
                 // Methode 3: Gebruik JavaScript om de chart te maximaliseren
                 await page.evaluate(() => {
-                    // Verberg alle UI elementen
+                    // Verberg alleen specifieke UI elementen, niet alles
                     const elementsToHide = [
                         '.tv-header',                  // Header
                         '.chart-toolbar',              // Chart toolbar
@@ -137,7 +137,6 @@ if (!url || !outputPath) {
                         '.tv-insert-indicator-dialog', // Indicator dialog
                         '.tv-linetool-properties-toolbar', // Line tool properties
                         '.chart-controls-bar',         // Controls bar
-                        '.layout__area',               // Alle layout areas (inclusief zwarte balken)
                         '.tv-footer',                  // Footer
                         '.tv-side-panel',              // Side panel
                         '.tv-floating-panel',          // Floating panel
@@ -145,36 +144,23 @@ if (!url || !outputPath) {
                         '.tv-toasts',                  // Toasts/notifications
                         '.tv-spinner',                 // Loading spinner
                         '.tv-loading-screen',          // Loading screen
-                        '.tv-main-panel--top',         // Top panel
-                        '.tv-main-panel--bottom',      // Bottom panel
-                        '.tv-main-panel--right',       // Right panel
-                        '.tv-main-panel--left',        // Left panel
-                        '.chart-page',                 // Chart page container
-                        '.layout__area--top',          // Top area
-                        '.layout__area--bottom',       // Bottom area
                         '.control-bar',                // Control bar
                         '.control-bar__btn',           // Control bar buttons
                         '.drawing-toolbar',            // Drawing toolbar
                         '.chart-controls-bar-buttons'  // Chart controls buttons
                     ];
                     
-                    // Verberg alle elementen
+                    // Verberg alleen de specifieke UI elementen
                     elementsToHide.forEach(selector => {
                         const elements = document.querySelectorAll(selector);
                         elements.forEach(el => {
                             if (el) {
                                 el.style.display = 'none';
-                                el.style.visibility = 'hidden';
-                                el.style.opacity = '0';
                             }
                         });
                     });
                     
-                    // Verwijder alle marges en padding van alle elementen
-                    document.querySelectorAll('*').forEach(el => {
-                        el.style.margin = '0';
-                        el.style.padding = '0';
-                    });
+                    // NIET alle marges en padding verwijderen, alleen voor specifieke elementen
                     
                     // Maximaliseer de chart container
                     const chartContainer = document.querySelector('.chart-container');
@@ -185,69 +171,35 @@ if (!url || !outputPath) {
                         chartContainer.style.top = '0';
                         chartContainer.style.left = '0';
                         chartContainer.style.zIndex = '9999';
-                        chartContainer.style.margin = '0';
-                        chartContainer.style.padding = '0';
-                        chartContainer.style.border = 'none';
-                        chartContainer.style.backgroundColor = '#131722'; // TradingView achtergrondkleur
                     }
                     
-                    // Maximaliseer de chart zelf
-                    const chartElement = document.querySelector('.chart-markup-table');
-                    if (chartElement) {
-                        chartElement.style.width = '100vw';
-                        chartElement.style.height = '100vh';
-                        chartElement.style.margin = '0';
-                        chartElement.style.padding = '0';
-                        chartElement.style.border = 'none';
+                    // Zorg ervoor dat de main chart area zichtbaar blijft
+                    const chartArea = document.querySelector('.chart-markup-table');
+                    if (chartArea) {
+                        chartArea.style.display = 'block';
+                        chartArea.style.visibility = 'visible';
+                        chartArea.style.opacity = '1';
                     }
                     
-                    // Maximaliseer de canvas
+                    // Zorg ervoor dat de canvas zichtbaar blijft
                     const canvas = document.querySelector('canvas');
                     if (canvas) {
-                        canvas.style.width = '100vw';
-                        canvas.style.height = '100vh';
+                        canvas.style.display = 'block';
+                        canvas.style.visibility = 'visible';
+                        canvas.style.opacity = '1';
                     }
                     
-                    // Verwijder marges en padding van body en html
-                    document.body.style.margin = '0';
-                    document.body.style.padding = '0';
-                    document.body.style.overflow = 'hidden';
-                    document.body.style.backgroundColor = '#131722'; // TradingView achtergrondkleur
-                    
-                    document.documentElement.style.margin = '0';
-                    document.documentElement.style.padding = '0';
-                    document.documentElement.style.overflow = 'hidden';
-                    document.documentElement.style.backgroundColor = '#131722'; // TradingView achtergrondkleur
-                    
-                    // Verwijder alle zwarte balken
-                    document.querySelectorAll('.layout__area').forEach(el => {
-                        if (el) {
-                            el.style.display = 'none';
-                            el.style.visibility = 'hidden';
-                            el.style.opacity = '0';
-                        }
-                    });
-                    
-                    // Maximaliseer de main pane
+                    // Zorg ervoor dat de main pane zichtbaar blijft
                     const mainPane = document.querySelector('.chart-container .layout__area--center, .chart-container .layout__area--main');
                     if (mainPane) {
+                        mainPane.style.display = 'block';
+                        mainPane.style.visibility = 'visible';
+                        mainPane.style.opacity = '1';
                         mainPane.style.width = '100vw';
                         mainPane.style.height = '100vh';
-                        mainPane.style.position = 'fixed';
-                        mainPane.style.top = '0';
-                        mainPane.style.left = '0';
-                        mainPane.style.margin = '0';
-                        mainPane.style.padding = '0';
-                        mainPane.style.border = 'none';
                     }
                     
-                    // Verwijder alle andere elementen die niet nodig zijn
-                    document.querySelectorAll('div:not(.chart-container):not(.chart-markup-table):not(.layout__area--center):not(.layout__area--main)').forEach(el => {
-                        // Controleer of het element niet een essentieel onderdeel van de chart is
-                        if (!el.querySelector('canvas') && !el.closest('.chart-markup-table')) {
-                            el.style.display = 'none';
-                        }
-                    });
+                    console.log('Applied fullscreen optimizations while keeping chart visible');
                 });
                 
                 console.log('Applied fullscreen optimizations');
@@ -279,7 +231,6 @@ if (!url || !outputPath) {
                     '.tv-insert-indicator-dialog', // Indicator dialog
                     '.tv-linetool-properties-toolbar', // Line tool properties
                     '.chart-controls-bar',         // Controls bar
-                    '.layout__area'                // Alle layout areas (inclusief zwarte balken)
                 ];
                 
                 // Verberg alle elementen
@@ -300,7 +251,15 @@ if (!url || !outputPath) {
                     chartContainer.style.left = '0';
                 }
                 
-                console.log('Double-checked UI elements are hidden');
+                // Zorg ervoor dat de main chart area zichtbaar blijft
+                const chartArea = document.querySelector('.chart-markup-table');
+                if (chartArea) {
+                    chartArea.style.display = 'block';
+                    chartArea.style.visibility = 'visible';
+                    chartArea.style.opacity = '1';
+                }
+                
+                console.log('Double-checked UI elements are hidden and chart is visible');
             });
             
             // Wacht nog een keer voor de zekerheid
