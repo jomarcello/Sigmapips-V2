@@ -116,7 +116,8 @@ class TradingViewNodeService(TradingViewService):
             chart_url = self.chart_links.get(normalized_symbol)
             if not chart_url:
                 logger.warning(f"No chart URL found for {symbol}, using default URL")
-                chart_url = f"https://www.tradingview.com/chart/?symbol={normalized_symbol}"
+                # Gebruik een lichtere versie van de chart
+                chart_url = f"https://www.tradingview.com/chart/xknpxpcr/?symbol={normalized_symbol}"
                 if timeframe:
                     tv_interval = self.interval_map.get(timeframe, "D")
                     chart_url += f"&interval={tv_interval}"
