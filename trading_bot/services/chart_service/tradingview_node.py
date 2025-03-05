@@ -140,10 +140,16 @@ class TradingViewNodeService(TradingViewService):
                 logger.error(f"Screenshot script not found at {script_path}")
                 return None
             
+            # Voeg de session ID toe aan de command line arguments
+            command = ["node", script_path, chart_url, screenshot_path]
+            if self.session_id:
+                command.append(self.session_id)
+                logger.info(f"Using session ID: {self.session_id[:5]}...")
+            
             # Voer het script uit
             logger.info(f"Running Node.js script: {script_path} with URL: {chart_url} and output: {screenshot_path}")
             process = subprocess.Popen(
-                ["node", script_path, chart_url, screenshot_path],
+                command,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE
             )
