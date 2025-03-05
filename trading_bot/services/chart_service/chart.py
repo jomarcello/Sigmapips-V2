@@ -278,28 +278,7 @@ class ChartService:
         try:
             logger.info(f"Getting chart for {instrument} with timeframe {timeframe}")
             
-            # Probeer eerst de externe screenshot service
-            if instrument in self.chart_links:
-                chart_url = self.chart_links[instrument]
-                
-                # Probeer een externe screenshot service
-                logger.info(f"Using external screenshot service for URL: {chart_url}")
-                
-                # Gebruik een betrouwbare screenshot service
-                screenshot_url = f"https://image.thum.io/get/width/1280/crop/800/png/{quote(chart_url)}"
-                
-                async with aiohttp.ClientSession() as session:
-                    async with session.get(screenshot_url) as response:
-                        if response.status == 200:
-                            screenshot_data = await response.read()
-                            if screenshot_data and len(screenshot_data) > 1000:  # Controleer of het een geldige afbeelding is
-                                logger.info(f"Successfully got screenshot from external service")
-                                return screenshot_data
-                            else:
-                                logger.warning(f"External screenshot service returned invalid image")
-            
-            # Als de externe service faalt, probeer TradingView services
-            # Controleer of we een TradingView service hebben
+            # Controleer eerst of we een TradingView service hebben
             if hasattr(self, 'tradingview') and self.tradingview:
                 logger.info(f"Using TradingView service: {type(self.tradingview).__name__}")
                 
@@ -340,53 +319,9 @@ class ChartService:
                 except Exception as e:
                     logger.error(f"Error reinitializing TradingView service: {str(e)}")
             
-            # Als TradingView niet werkt, probeer alternatieve chart services
-            
-            # 1. Probeer TradingView publieke snapshots
-            if instrument in self.chart_links:
-                chart_url = self.chart_links[instrument]
-                
-                # Probeer een externe screenshot service
-                logger.info(f"Using external screenshot service for URL: {chart_url}")
-                
-                # Gebruik een betrouwbare screenshot service
-                screenshot_url = f"https://image.thum.io/get/width/1280/crop/800/png/{quote(chart_url)}"
-                
-                async with aiohttp.ClientSession() as session:
-                    async with session.get(screenshot_url) as response:
-                        if response.status == 200:
-                            return await response.read()
-            
-            # 2. Probeer Finviz voor aandelen
-            if instrument in ["SPY", "QQQ", "AAPL", "MSFT", "GOOGL", "AMZN", "META", "TSLA"]:
-                finviz_url = f"https://finviz.com/chart.ashx?t={instrument}&ty=c&ta=1&p=d&s=l"
-                logger.info(f"Getting chart from Finviz: {finviz_url}")
-                
-                async with aiohttp.ClientSession() as session:
-                    async with session.get(finviz_url) as response:
-                        if response.status == 200:
-                            return await response.read()
-            
-            # 3. Probeer Investing.com
-            # Map instrument naar Investing.com formaat
-            investing_map = {
-                "EURUSD": "eur-usd", "GBPUSD": "gbp-usd", "USDJPY": "usd-jpy",
-                "BTCUSD": "btc-usd", "ETHUSD": "eth-usd", "XAUUSD": "xau-usd"
-            }
-            
-            if instrument in investing_map:
-                investing_symbol = investing_map[instrument]
-                investing_url = f"https://www.investing.com/currencies/{investing_symbol}-chart"
-                logger.info(f"Getting chart from Investing.com: {investing_url}")
-                
-                # Gebruik een screenshot service om de chart te renderen
-                screenshot = await self.make_screenshot(investing_url)
-                if screenshot:
-                    return screenshot
-            
-            # 4. Als alles mislukt, genereer een chart met matplotlib
-            logger.info(f"All external chart services failed, generating chart with matplotlib")
-            return await self.generate_chart(instrument, timeframe)
+            # Als TradingView niet werkt, genereer een foutmelding
+            logger.error(f"Failed to get chart for {instrument}")
+            return None
             
         except Exception as e:
             logger.error(f"Error getting chart: {str(e)}")
@@ -399,27 +334,24 @@ class ChartService:
         try:
             logger.info(f"Making screenshot of URL: {url}")
             
-            # Lijst van screenshot services
-            services = [
-                f"https://image.thum.io/get/width/1280/crop/800/png/{quote(url)}",
-                f"https://api.screenshotmachine.com/capture.php?key=your_api_key&url={quote(url)}&dimension=1280x800",
-                f"https://api.apiflash.com/v1/urltoimage?access_key=your_api_key&url={quote(url)}&width=1280&height=800",
-                f"https://api.screenshotlayer.com/api/capture?access_key=your_api_key&url={quote(url)}&width=1280&height=800"
-            ]
-            
-            # Probeer elke service
-            for service_url in services:
-                logger.info(f"Trying screenshot service: {service_url}")
+            # Gebruik alleen de TradingView service
+            if hasattr(self, 'tradingview') and self.tradingview:
+                logger.info(f"Using TradingView service for screenshot: {type(self.tradingview).__name__}")
                 
-                async with aiohttp.ClientSession() as session:
-                    async with session.get(service_url) as response:
-                        if response.status == 200:
-                            return await response.read()
-                        else:
-                            logger.error(f"Screenshot service error: {response.status}")
+                # Gebruik de TradingView service om een screenshot te maken
+                try:
+                    # Maak een tijdelijke pagina
+                    screenshot = await self.tradingview.take_screenshot_of_url(url)
+                    if screenshot:
+                        logger.info(f"Successfully got screenshot of URL using TradingView service")
+                        return screenshot
+                    else:
+                        logger.warning(f"Failed to get screenshot of URL with TradingView service")
+                except Exception as e:
+                    logger.error(f"Error getting screenshot of URL with TradingView service: {str(e)}")
             
-            # Als alle services mislukken, return None
-            logger.error("All screenshot services failed")
+            # Als TradingView niet werkt, genereer een foutmelding
+            logger.error("No screenshot service available")
             return None
         except Exception as e:
             logger.error(f"Error making screenshot: {str(e)}")
