@@ -85,15 +85,16 @@ class ChartService:
     async def initialize(self):
         """Initialize chart service"""
         try:
-            # Importeer TradingViewService vanuit dezelfde map
-            # Gebruik alleen Puppeteer
-            from trading_bot.services.chart_service.tradingview_puppeteer import TradingViewPuppeteerService
-            self.tradingview = TradingViewPuppeteerService()
-            logger.info("Using Puppeteer for TradingView screenshots")
+            # Initialiseer TradingView Selenium service
+            self.tradingview_selenium = TradingViewSeleniumService(
+                session_id=os.getenv("TRADINGVIEW_SESSION_ID")
+            )
+            await self.tradingview_selenium.initialize()
             
-            await self.tradingview.initialize()
+            # Stel de standaard service in op Selenium
+            self.tradingview = self.tradingview_selenium
             
-            logger.info("Chart service initialized")
+            logger.info("Chart service initialized successfully")
             return True
         except Exception as e:
             logger.error(f"Error initializing chart service: {str(e)}")
