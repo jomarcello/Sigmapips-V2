@@ -10,7 +10,7 @@ RUN apt-get update && apt-get install -y \
     && if [ ! -e /usr/bin/python ]; then ln -s /usr/bin/python3 /usr/bin/python; fi \
     && if [ ! -e /usr/bin/pip ]; then ln -s /usr/bin/pip3 /usr/bin/pip; fi
 
-# Installeer system dependencies voor zowel Chromium als Selenium
+# Installeer system dependencies voor Selenium
 RUN apt-get update && apt-get install -y \
     wget \
     curl \
@@ -69,16 +69,14 @@ COPY requirements.txt .
 RUN pip install --upgrade pip
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Installeer Puppeteer globaal
-RUN npm install -g puppeteer@19.7.0 --unsafe-perm=true
-
-# Stel Puppeteer cache directory in
-ENV PUPPETEER_CACHE_DIR=/app/.cache/puppeteer
+# Verwijder Puppeteer installatie
+# RUN npm install -g puppeteer@19.7.0 --unsafe-perm=true
+# ENV PUPPETEER_CACHE_DIR=/app/.cache/puppeteer
 
 # Maak directories voor data opslag
-RUN mkdir -p /app/puppeteer_data
+# RUN mkdir -p /app/puppeteer_data
 RUN mkdir -p /app/selenium_data
-RUN chmod -R 777 /app/puppeteer_data /app/selenium_data
+RUN chmod -R 777 /app/selenium_data
 
 # Kopieer de rest van de code
 COPY . .
