@@ -278,6 +278,27 @@ class ChartService:
         try:
             logger.info(f"Getting chart for {instrument} with timeframe {timeframe}")
             
+            # Probeer eerst de externe screenshot service
+            if instrument in self.chart_links:
+                chart_url = self.chart_links[instrument]
+                
+                # Probeer een externe screenshot service
+                logger.info(f"Using external screenshot service for URL: {chart_url}")
+                
+                # Gebruik een betrouwbare screenshot service
+                screenshot_url = f"https://image.thum.io/get/width/1280/crop/800/png/{quote(chart_url)}"
+                
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(screenshot_url) as response:
+                        if response.status == 200:
+                            screenshot_data = await response.read()
+                            if screenshot_data and len(screenshot_data) > 1000:  # Controleer of het een geldige afbeelding is
+                                logger.info(f"Successfully got screenshot from external service")
+                                return screenshot_data
+                            else:
+                                logger.warning(f"External screenshot service returned invalid image")
+            
+            # Als de externe service faalt, probeer TradingView services
             # Controleer of we een TradingView service hebben
             if hasattr(self, 'tradingview') and self.tradingview:
                 logger.info(f"Using TradingView service: {type(self.tradingview).__name__}")
