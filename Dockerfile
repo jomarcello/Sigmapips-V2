@@ -76,8 +76,12 @@ COPY requirements.txt .
 RUN pip install --upgrade pip
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Installeer Playwright browsers
+# Installeer Playwright browsers voor Python
 RUN playwright install chromium
+
+# Installeer Playwright voor Node.js en de browsers
+RUN npm install -g playwright
+RUN npx playwright install chromium
 
 # Maak directories voor data opslag
 RUN mkdir -p /app/selenium_data
