@@ -14,6 +14,8 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from PIL import Image
+from webdriver_manager.chrome import ChromeDriverManager
+from webdriver_manager.core.utils import ChromeType
 
 logger = logging.getLogger(__name__)
 
@@ -46,18 +48,18 @@ class TradingViewSeleniumService:
             chrome_options.add_argument("--no-sandbox")
             chrome_options.add_argument("--disable-dev-shm-usage")
             chrome_options.add_argument("--disable-gpu")
-            chrome_options.add_argument("--headless")  # Headless mode voor server
+            chrome_options.add_argument("--headless")
             chrome_options.add_argument("--window-size=1920,1080")
             chrome_options.add_argument("--disable-extensions")
             chrome_options.add_argument("--disable-infobars")
             chrome_options.add_argument("--disable-notifications")
             chrome_options.add_argument("--force-dark-mode")
             
-            # Voeg user agent toe
-            chrome_options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
-            
-            # Initialiseer de WebDriver
-            self.driver = webdriver.Chrome(options=chrome_options)
+            # Gebruik WebDriverManager om ChromeDriver te beheren
+            self.driver = webdriver.Chrome(
+                service=Service(ChromeDriverManager(chrome_type=ChromeType.CHROMIUM).install()),
+                options=chrome_options
+            )
             
             # Ga naar TradingView en voeg session cookie toe
             self.driver.get(self.base_url)
