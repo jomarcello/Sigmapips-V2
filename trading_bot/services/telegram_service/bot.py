@@ -288,7 +288,8 @@ class TelegramService:
             # Set bot commands - alleen /start en /help
             commands = [
                 ("start", "Start the bot and see available options"),
-                ("help", "Show help message")
+                ("help", "Show help message"),
+                ("analysis", "Perform market analysis")
             ]
             await self.bot.set_my_commands(commands)
             
@@ -306,6 +307,11 @@ class TelegramService:
             ))
             self.application.add_handler(CallbackQueryHandler(
                 self.handle_technical_analysis_callback, pattern="^technical_analysis:"
+            ))
+            
+            # In de initialize methode
+            self.application.add_handler(CallbackQueryHandler(
+                self.handle_analysis_type_callback, pattern="^analysis_type:"
             ))
             
         except Exception as e:
@@ -2037,54 +2043,100 @@ Risk Management:
                 f"🔄 Bezig met het maken van technische analyse voor {instrument}..."
             )
             
-            # Haal de chart op met de fallback methode
-            try:
-                # Gebruik de fallback methode voor alle timeframes
+            # Probeer eerst de TradingView service als die beschikbaar is
+            if hasattr(self.chart, 'tradingview') and self.chart.tradingview and self.chart.tradingview.is_initialized:
+                logger.info(f"Using TradingView service for {instrument}")
+                
+                # Gebruik de TradingView service voor alle timeframes
                 timeframes = ["1h", "4h", "1d"]
                 results = {}
                 
                 for timeframe in timeframes:
                     try:
-                        chart_image = await self.chart.get_chart(instrument, timeframe)
-                        if chart_image:
-                            results[timeframe] = chart_image
+                        # Bepaal de chart URL
+                        chart_url = self.chart.chart_links.get(instrument, f"https://www.tradingview.com/chart/?symbol={instrument}")
+                        
+                        # Neem screenshot
+                        screenshot = await self.chart.tradingview.take_screenshot(chart_url, timeframe)
+                        if screenshot:
+                            results[timeframe] = screenshot
                     except Exception as chart_error:
-                        logger.error(f"Error generating chart for {instrument} {timeframe}: {str(chart_error)}")
+                        logger.error(f"Error generating TradingView chart for {instrument} {timeframe}: {str(chart_error)}")
                         results[timeframe] = None
                 
-                if not any(results.values()):
-                    await message.edit_text(f"❌ Kon geen charts genereren voor {instrument}")
-                    return
-                
-                # Stuur de charts één voor één
-                await message.edit_text(f"✅ Technische analyse voor {instrument} gereed!")
-                
-                for timeframe, chart_image in results.items():
-                    if chart_image is None:
-                        continue
-                        
-                    # Maak een caption
-                    caption = f"📊 {instrument} - {timeframe} Timeframe"
+                if any(results.values()):
+                    # Stuur de charts één voor één
+                    await message.edit_text(f"✅ Technische analyse voor {instrument} gereed!")
                     
-                    try:
-                        # Stuur de afbeelding
-                        await query.message.reply_photo(
-                            photo=chart_image,
-                            caption=caption
-                        )
+                    for timeframe, chart_image in results.items():
+                        if chart_image is None:
+                            continue
                         
-                        # Korte pauze om rate limiting te voorkomen
-                        await asyncio.sleep(1)
-                    except Exception as photo_error:
-                        logger.error(f"Error sending photo: {str(photo_error)}")
-                        await query.message.reply_text(
-                            f"❌ Kon chart voor {instrument} - {timeframe} niet versturen: {str(photo_error)}"
-                        )
+                        # Maak een caption
+                        caption = f"📊 {instrument} - {timeframe} Timeframe (TradingView)"
+                        
+                        try:
+                            # Stuur de afbeelding
+                            await query.message.reply_photo(
+                                photo=chart_image,
+                                caption=caption
+                            )
+                            
+                            # Korte pauze om rate limiting te voorkomen
+                            await asyncio.sleep(1)
+                        except Exception as photo_error:
+                            logger.error(f"Error sending photo: {str(photo_error)}")
+                            await query.message.reply_text(
+                                f"❌ Kon chart voor {instrument} - {timeframe} niet versturen: {str(photo_error)}"
+                            )
+                    
+                    return
+            
+            # Als TradingView niet werkt of geen resultaten geeft, gebruik de fallback methode
+            logger.info(f"Using fallback method for {instrument}")
+            
+            # Gebruik de fallback methode voor alle timeframes
+            timeframes = ["1h", "4h", "1d"]
+            results = {}
+            
+            for timeframe in timeframes:
+                try:
+                    chart_image = await self.chart.get_chart(instrument, timeframe)
+                    if chart_image:
+                        results[timeframe] = chart_image
+                except Exception as chart_error:
+                    logger.error(f"Error generating chart for {instrument} {timeframe}: {str(chart_error)}")
+                    results[timeframe] = None
+            
+            if not any(results.values()):
+                await message.edit_text(f"❌ Kon geen charts genereren voor {instrument}")
+                return
+            
+            # Stuur de charts één voor één
+            await message.edit_text(f"✅ Technische analyse voor {instrument} gereed!")
+            
+            for timeframe, chart_image in results.items():
+                if chart_image is None:
+                    continue
                 
-            except Exception as e:
-                logger.error(f"Error generating technical analysis: {str(e)}")
-                await message.edit_text(f"❌ Er is een fout opgetreden bij het maken van de technische analyse: {str(e)}")
+                # Maak een caption
+                caption = f"📊 {instrument} - {timeframe} Timeframe (Fallback)"
                 
+                try:
+                    # Stuur de afbeelding
+                    await query.message.reply_photo(
+                        photo=chart_image,
+                        caption=caption
+                    )
+                    
+                    # Korte pauze om rate limiting te voorkomen
+                    await asyncio.sleep(1)
+                except Exception as photo_error:
+                    logger.error(f"Error sending photo: {str(photo_error)}")
+                    await query.message.reply_text(
+                        f"❌ Kon chart voor {instrument} - {timeframe} niet versturen: {str(photo_error)}"
+                    )
+            
         except Exception as e:
             logger.error(f"Error in technical analysis callback: {str(e)}")
             await update.callback_query.message.reply_text(f"❌ Er is een fout opgetreden: {str(e)}")
