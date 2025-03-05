@@ -194,29 +194,29 @@ class TelegramService:
             conv_handler = ConversationHandler(
                 entry_points=[CommandHandler("start", self.start)],
                 states={
-                    CHOOSE_MENU: [
+                    MENU: [
                         CallbackQueryHandler(self.menu_analyse_callback, pattern="^menu_analyse$"),
                         CallbackQueryHandler(self.menu_signals_callback, pattern="^menu_signals$"),
                     ],
-                    CHOOSE_ANALYSIS: [
+                    ANALYSIS: [
                         CallbackQueryHandler(self.analysis_technical_callback, pattern="^analysis_technical$"),
                         CallbackQueryHandler(self.analysis_sentiment_callback, pattern="^analysis_sentiment$"),
                         CallbackQueryHandler(self.analysis_calendar_callback, pattern="^analysis_calendar$"),
                         CallbackQueryHandler(self.back_to_menu_callback, pattern="^back_menu$"),
                     ],
-                    CHOOSE_MARKET: [
+                    MARKET: [
                         CallbackQueryHandler(self.market_callback, pattern="^market_"),
                         CallbackQueryHandler(self.back_to_analysis_callback, pattern="^back_analysis$"),
                     ],
-                    CHOOSE_INSTRUMENT: [
+                    INSTRUMENT: [
                         CallbackQueryHandler(self.instrument_callback, pattern="^instrument_"),
                         CallbackQueryHandler(self.back_to_market_callback, pattern="^back_market$"),
                     ],
-                    CHOOSE_STYLE: [
+                    STYLE: [
                         CallbackQueryHandler(self.style_choice, pattern="^style_"),
                         CallbackQueryHandler(self.back_to_instrument, pattern="^back$")
                     ],
-                    SHOW_RESULT: [
+                    RESULT: [
                         CallbackQueryHandler(self.add_more, pattern="^add_more$"),
                         CallbackQueryHandler(self.manage_preferences, pattern="^manage_prefs$"),
                         CallbackQueryHandler(self.back_to_menu, pattern="^back_menu$"),
@@ -2619,18 +2619,218 @@ Risk Management:
         # Reset de conversatie
         return ConversationHandler.END
 
-# Voeg deze functie toe als een globale functie (buiten de TelegramService klasse)
-async def error_handler(update: Update, context: CallbackContext):
-    """Handle errors in the conversation"""
-    logger.error(f"Error handling update: {update}")
-    logger.error(f"Error context: {context.error}")
-    
-    # Stuur een bericht naar de gebruiker
-    if update and update.effective_chat:
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text="Sorry, er is een fout opgetreden. Probeer het opnieuw met /start."
+    async def instrument_callback(self, update: Update, context: CallbackContext) -> int:
+        """Handle instrument selection"""
+        query = update.callback_query
+        await query.answer()
+        
+        # Haal het gekozen instrument op
+        instrument = query.data.split("_")[1]
+        
+        # Sla het instrument op in user_data
+        context.user_data['instrument'] = instrument
+        
+        # Toon de timeframe opties
+        timeframe_keyboard = [
+            [InlineKeyboardButton("5 min", callback_data="timeframe_5m")],
+            [InlineKeyboardButton("15 min", callback_data="timeframe_15m")],
+            [InlineKeyboardButton("1 uur", callback_data="timeframe_1h")],
+            [InlineKeyboardButton("4 uur", callback_data="timeframe_4h")],
+            [InlineKeyboardButton("1 dag", callback_data="timeframe_1d")],
+            [InlineKeyboardButton("⬅️ Back", callback_data="back_instrument")]
+        ]
+        
+        await query.edit_message_text(
+            text=f"Select a timeframe for {instrument}:",
+            reply_markup=InlineKeyboardMarkup(timeframe_keyboard)
         )
-    
-    # Reset de conversatie
-    return ConversationHandler.END
+        
+        return TIMEFRAME
+
+    async def back_to_market_callback(self, update: Update, context: CallbackContext) -> int:
+        """Handle back to market selection"""
+        query = update.callback_query
+        await query.answer()
+        
+        # Haal de markt op uit user_data
+        market = context.user_data.get('market', 'forex')
+        
+        # Maak keyboard met markten
+        keyboard = []
+        for m in ["forex", "crypto", "indices", "commodities"]:
+            keyboard.append([InlineKeyboardButton(f"{m.capitalize()}", callback_data=f"market_{m}")])
+        
+        # Voeg terug knop toe
+        keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="back_analysis")])
+        
+        await query.edit_message_text(
+            text="Select a market:",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        
+        return MARKET
+
+    async def timeframe_callback(self, update: Update, context: CallbackContext) -> int:
+        """Handle timeframe selection"""
+        query = update.callback_query
+        await query.answer()
+        
+        # Haal de gekozen timeframe op
+        timeframe = query.data.split("_")[1]
+        
+        # Sla de timeframe op in user_data
+        context.user_data['timeframe'] = timeframe
+        
+        # Haal de andere gegevens op uit user_data
+        analysis_type = context.user_data.get('analysis_type', 'technical')
+        market = context.user_data.get('market', 'forex')
+        instrument = context.user_data.get('instrument', 'EURUSD')
+        
+        # Toon een "loading" bericht
+        await query.edit_message_text(f"Bezig met het genereren van de analyse voor {instrument} ({timeframe})...")
+        
+        try:
+            # Genereer de analyse
+            if analysis_type == 'technical':
+                # Technische analyse
+                # Hier zou je de chart service aanroepen om een chart te genereren
+                if hasattr(self, 'chart') and self.chart:
+                    # Bepaal de chart URL
+                    chart_url = self.chart.get_chart_url(instrument, timeframe)
+                    
+                    # Neem een screenshot
+                    screenshot = await self.chart.take_screenshot(chart_url)
+                    
+                    if screenshot:
+                        # Stuur de screenshot
+                        await query.message.reply_photo(
+                            photo=screenshot,
+                            caption=f"Technical analysis for {instrument} ({timeframe})"
+                        )
+                        
+                        # Stuur een bericht met opties
+                        keyboard = [
+                            [InlineKeyboardButton("➕ Add More", callback_data="add_more")],
+                            [InlineKeyboardButton("⬅️ Back to Menu", callback_data="back_menu")]
+                        ]
+                        
+                        await query.message.reply_text(
+                            "What would you like to do next?",
+                            reply_markup=InlineKeyboardMarkup(keyboard)
+                        )
+                        
+                        return RESULT
+                    else:
+                        # Geen screenshot beschikbaar
+                        await query.edit_message_text(
+                            f"Could not generate chart for {instrument} ({timeframe}). Please try again later.",
+                            reply_markup=InlineKeyboardMarkup([
+                                [InlineKeyboardButton("⬅️ Back", callback_data="back_instrument")]
+                            ])
+                        )
+                        
+                        return INSTRUMENT
+                else:
+                    # Geen chart service beschikbaar
+                    await query.edit_message_text(
+                        "Chart service is not available. Please try again later.",
+                        reply_markup=InlineKeyboardMarkup([
+                            [InlineKeyboardButton("⬅️ Back", callback_data="back_instrument")]
+                        ])
+                    )
+                    
+                    return INSTRUMENT
+            else:
+                # Andere analyse types
+                await query.edit_message_text(
+                    f"Analysis type '{analysis_type}' is not implemented yet.",
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("⬅️ Back", callback_data="back_instrument")]
+                    ])
+                )
+                
+                return INSTRUMENT
+        except Exception as e:
+            logger.error(f"Error generating analysis: {str(e)}")
+            
+            # Stuur een foutmelding
+            await query.edit_message_text(
+                f"Error generating analysis: {str(e)}",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("⬅️ Back", callback_data="back_instrument")]
+                ])
+            )
+            
+            return INSTRUMENT
+
+    async def back_to_instrument_callback(self, update: Update, context: CallbackContext) -> int:
+        """Handle back to instrument selection"""
+        query = update.callback_query
+        await query.answer()
+        
+        # Haal de markt op uit user_data
+        market = context.user_data.get('market', 'forex')
+        
+        # Haal de instrumenten op voor de gekozen markt
+        instruments = []
+        if market == "forex":
+            instruments = [
+                ["EURUSD", "GBPUSD", "USDJPY"],
+                ["AUDUSD", "USDCAD", "NZDUSD"],
+                ["EURGBP", "EURJPY", "GBPJPY"],
+                ["USDCHF", "EURAUD", "EURCHF"]
+            ]
+        elif market == "crypto":
+            instruments = [
+                ["BTCUSD", "ETHUSD", "XRPUSD"],
+                ["SOLUSD", "BNBUSD", "ADAUSD"],
+                ["LTCUSD", "DOGUSD", "DOTUSD"],
+                ["LNKUSD", "XLMUSD", "AVXUSD"]
+            ]
+        elif market == "indices":
+            instruments = [
+                ["US30", "US500", "US100"],
+                ["UK100", "DE40", "FR40"],
+                ["JP225", "AU200", "HK50"],
+                ["EU50"]
+            ]
+        elif market == "commodities":
+            instruments = [
+                ["XAUUSD", "WTIUSD"]
+            ]
+        
+        # Maak keyboard met instrumenten
+        keyboard = []
+        for row in instruments:
+            buttons = []
+            for instrument in row:
+                buttons.append(InlineKeyboardButton(instrument, callback_data=f"instrument_{instrument}"))
+            keyboard.append(buttons)
+        
+        # Voeg terug knop toe
+        keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="back_market")])
+        
+        await query.edit_message_text(
+            text=f"Select an instrument from {market.capitalize()}:",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        
+        return INSTRUMENT
+
+    async def add_more_callback(self, update: Update, context: CallbackContext) -> int:
+        """Handle add more selection"""
+        query = update.callback_query
+        await query.answer()
+        
+        # Ga terug naar het analyse menu
+        await query.edit_message_text(
+            text="Select your analysis type:",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("📈 Technical Analysis", callback_data="analysis_technical")],
+                [InlineKeyboardButton("🧠 Market Sentiment", callback_data="analysis_sentiment")],
+                [InlineKeyboardButton("📅 Economic Calendar", callback_data="analysis_calendar")],
+                [InlineKeyboardButton("⬅️ Back", callback_data="back_menu")]
+            ])
+        )
+        
+        return ANALYSIS
