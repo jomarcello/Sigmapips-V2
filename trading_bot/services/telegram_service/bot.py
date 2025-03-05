@@ -15,7 +15,8 @@ from telegram.ext import (
     CommandHandler,
     CallbackQueryHandler,
     ConversationHandler,
-    ContextTypes
+    ContextTypes,
+    CallbackContext
 )
 from telegram.constants import ParseMode
 
@@ -2298,7 +2299,7 @@ Risk Management:
             ]
             
             await query.edit_message_text(
-                "Choose a market:",
+                "Kies een markt:",
                 reply_markup=InlineKeyboardMarkup(market_keyboard)
             )
         elif action == "instrument":
@@ -2311,13 +2312,15 @@ Risk Management:
                     ["EURUSD", "GBPUSD", "USDJPY"],
                     ["AUDUSD", "USDCAD", "NZDUSD"],
                     ["EURGBP", "EURJPY", "GBPJPY"],
+                    ["USDCHF", "EURAUD", "EURCHF"],
                     ["Back"]
                 ]
             elif market == "crypto":
                 instruments = [
                     ["BTCUSD", "ETHUSD", "XRPUSD"],
-                    ["LTCUSD", "BCHUSD", "ADAUSD"],
-                    ["DOTUSD", "LINKUSD", "SOLUSD"],
+                    ["SOLUSD", "BNBUSD", "ADAUSD"],
+                    ["LTCUSD", "DOGUSD", "DOTUSD"],
+                    ["LNKUSD", "XLMUSD", "AVXUSD"],
                     ["Back"]
                 ]
             elif market == "indices":
@@ -2325,12 +2328,11 @@ Risk Management:
                     ["US30", "US500", "US100"],
                     ["UK100", "DE40", "FR40"],
                     ["JP225", "AU200", "HK50"],
-                    ["Back"]
+                    ["EU50", "Back"]
                 ]
             elif market == "commodities":
                 instruments = [
-                    ["XAUUSD", "XAGUSD", "WTIUSD"],
-                    ["BCOUSD", "Back"]
+                    ["XAUUSD", "WTIUSD", "Back"]
                 ]
             
             instrument_keyboard = []
@@ -2344,7 +2346,7 @@ Risk Management:
                     instrument_keyboard.append(buttons)
             
             await query.edit_message_text(
-                f"Choose an instrument from {market.capitalize()}:",
+                f"Kies een instrument uit {market.capitalize()}:",
                 reply_markup=InlineKeyboardMarkup(instrument_keyboard)
             )
         elif action == "chart":
@@ -2352,7 +2354,7 @@ Risk Management:
             instrument = parts[2]
             
             # Toon een "loading" bericht
-            await query.edit_message_text(f"Generating chart for {instrument}...")
+            await query.edit_message_text(f"Bezig met het genereren van de chart voor {instrument}...")
             
             # Haal de chart op
             try:
@@ -2365,7 +2367,29 @@ Risk Management:
                     screenshots = {}
                     
                     for timeframe in timeframes:
-                        screenshot = await chart_service.tradingview.take_screenshot(instrument, timeframe)
+                        # Bepaal de chart URL met de juiste timeframe
+                        chart_url = chart_service.chart_links.get(instrument)
+                        if not chart_url:
+                            chart_url = f"https://www.tradingview.com/chart/?symbol={instrument}"
+                        
+                        # Voeg timeframe toe aan de URL als deze er nog niet in zit
+                        if "interval=" not in chart_url:
+                            # Converteer timeframe naar TradingView formaat
+                            interval_map = {
+                                "1m": "1", "5m": "5", "15m": "15", "30m": "30",
+                                "1h": "60", "2h": "120", "4h": "240",
+                                "1d": "D", "1w": "W", "1M": "M"
+                            }
+                            tv_interval = interval_map.get(timeframe, "D")
+                            
+                            # Voeg interval parameter toe aan URL
+                            if "?" in chart_url:
+                                chart_url += f"&interval={tv_interval}"
+                            else:
+                                chart_url += f"?interval={tv_interval}"
+                        
+                        # Neem screenshot met de volledige URL
+                        screenshot = await chart_service.tradingview.take_screenshot(chart_url)
                         if screenshot:
                             screenshots[timeframe] = screenshot
                     
@@ -2381,25 +2405,25 @@ Risk Management:
                         # Stuur een bericht met een knop om terug te gaan
                         back_keyboard = [[InlineKeyboardButton("Back", callback_data="ta_market")]]
                         await query.message.reply_text(
-                            f"Charts for {instrument}",
+                            f"Charts voor {instrument}",
                             reply_markup=InlineKeyboardMarkup(back_keyboard)
                         )
                     else:
                         # Geen screenshots beschikbaar
                         await query.edit_message_text(
-                            f"Failed to generate chart for {instrument}. Please try again later.",
+                            f"Kon geen chart genereren voor {instrument}. Probeer het later opnieuw.",
                             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Back", callback_data="ta_market")]])
                         )
                 else:
                     # Geen chart service beschikbaar
                     await query.edit_message_text(
-                        f"Chart service is not available. Please try again later.",
+                        f"Chart service is niet beschikbaar. Probeer het later opnieuw.",
                         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Back", callback_data="ta_market")]])
                     )
             except Exception as e:
                 logger.error(f"Error generating chart: {str(e)}")
                 await query.edit_message_text(
-                    f"Error generating chart: {str(e)}",
+                    f"Fout bij het genereren van de chart: {str(e)}",
                     reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Back", callback_data="ta_market")]])
                 )
         else:
