@@ -42,27 +42,59 @@ db = Database()
 telegram = TelegramService(db)
 chart = ChartService()
 
-# Redis configuratie
-redis_host = os.getenv("REDIS_HOST", "redis")
-redis_port = int(os.getenv("REDIS_PORT", 6379))
-redis_password = os.getenv("REDIS_PASSWORD", None)
+# Redis configuratie met verbeterde private endpoint support
+redis_url = os.getenv("REDIS_URL")
+redis_private_host = os.getenv("REDIS_PRIVATE_HOST")
+redis_private_port = os.getenv("REDIS_PRIVATE_PORT")
+redis_password = os.getenv("REDIS_PASSWORD")
 
-# Verbeterde Redis-verbinding met retry-logica
+# Verbeterde Redis-verbinding met private endpoint support
 try:
-    redis_client = redis.Redis(
-        host=redis_host,
-        port=redis_port,
-        password=redis_password,
-        db=0,
-        decode_responses=True,
-        socket_connect_timeout=5,
-        socket_keepalive=True,
-        retry_on_timeout=True,
-        health_check_interval=30
-    )
+    # Probeer eerst het privé-eindpunt als dat beschikbaar is
+    if redis_private_host and redis_private_port:
+        logger.info(f"Attempting to connect to Redis using private endpoint: {redis_private_host}:{redis_private_port}")
+        redis_client = redis.Redis(
+            host=redis_private_host,
+            port=int(redis_private_port),
+            password=redis_password,
+            db=0,
+            decode_responses=True,
+            socket_connect_timeout=5,
+            socket_keepalive=True,
+            retry_on_timeout=True,
+            health_check_interval=30
+        )
+    # Fallback naar REDIS_URL als privé-eindpunt niet beschikbaar is
+    elif redis_url:
+        logger.info(f"Attempting to connect to Redis using URL: {redis_url}")
+        redis_client = redis.from_url(
+            redis_url,
+            decode_responses=True,
+            socket_connect_timeout=5,
+            socket_keepalive=True,
+            retry_on_timeout=True,
+            health_check_interval=30
+        )
+    # Fallback naar standaard host/port als geen van beide beschikbaar is
+    else:
+        redis_host = os.getenv("REDIS_HOST", "redis")
+        redis_port = int(os.getenv("REDIS_PORT", 6379))
+        logger.info(f"Attempting to connect to Redis using default host/port: {redis_host}:{redis_port}")
+        redis_client = redis.Redis(
+            host=redis_host,
+            port=redis_port,
+            password=redis_password,
+            db=0,
+            decode_responses=True,
+            socket_connect_timeout=5,
+            socket_keepalive=True,
+            retry_on_timeout=True,
+            health_check_interval=30
+        )
+    
     # Test de verbinding
     redis_client.ping()
-    logger.info(f"Redis connection established to {redis_host}:{redis_port}")
+    logger.info("Redis connection established successfully")
 except Exception as redis_error:
     logger.warning(f"Redis connection failed: {str(redis_error)}. Using local caching.")
     redis_client = None
@@ -83,6 +115,15 @@ session_refresher = SessionRefresher()
 @app.on_event("startup")
 async def startup_event():
     """Initialize async services on startup"""
+    # Sla de starttijd op
+    app.state.start_time = time.time()
+    app.state.is_ready = False
+    app.state.services_status = {
+        "telegram": False,
+        "chart": False,
+        "db": True  # Database is al geïnitialiseerd
+    }
+    
     # Setup Playwright browsers
     try:
         # Inline setup in plaats van import
@@ -101,11 +142,18 @@ async def startup_event():
     except Exception as e:
         logger.error(f"Error setting up Playwright: {str(e)}")
     
-    await telegram.initialize()
+    # Initialize telegram service
+    try:
+        await telegram.initialize()
+        app.state.services_status["telegram"] = True
+        logger.info("Telegram service initialized successfully")
+    except Exception as e:
+        logger.error(f"Error initializing telegram service: {str(e)}")
     
     # Initialize chart service
     try:
         await chart.initialize()
+        app.state.services_status["chart"] = True
         logger.info("Chart service initialized successfully")
     except Exception as e:
         logger.error(f"Error initializing chart service: {str(e)}")
@@ -123,6 +171,10 @@ async def startup_event():
 
     # Start de session refresher
     asyncio.create_task(session_refresher.start())
+    
+    # Markeer de applicatie als klaar
+    app.state.is_ready = True
+    logger.info("Application startup complete")
 
 @app.on_event("shutdown")
 async def shutdown_event():
@@ -138,8 +190,52 @@ async def shutdown_event():
 
 @app.get("/health")
 async def health_check():
-    """Health check endpoint voor Railway"""
-    return {"status": "ok"}
+    """Eenvoudige health check endpoint voor Railway"""
+    # Deze endpoint moet altijd snel reageren en een 200 OK status retourneren
+    return {
+        "status": "ok",
+        "timestamp": time.time(),
+        "app": "trading_bot",
+        "version": "1.0.0"
+    }
+
+@app.get("/readiness")
+async def readiness_check():
+    """Readiness check endpoint voor Railway"""
+    try:
+        # Controleer of de applicatie klaar is om verkeer te ontvangen
+        is_ready = getattr(app.state, "is_ready", False)
+        services_status = getattr(app.state, "services_status", {
+            "telegram": False,
+            "chart": False,
+            "db": False
+        })
+        
+        return {
+            "status": "ok" if is_ready else "not_ready",
+            "services": services_status,
+            "uptime": time.time() - getattr(app.state, "start_time", time.time()),
+            "timestamp": time.time()
+        }
+    except Exception as e:
+        logger.error(f"Error in readiness check: {str(e)}")
+        # Zelfs bij een fout, retourneer een 200 OK status
+        return {"status": "warning", "message": str(e)}
+
+@app.get("/liveness")
+async def liveness_check():
+    """Liveness check endpoint voor Railway"""
+    try:
+        # Controleer of de applicatie nog steeds draait
+        return {
+            "status": "ok",
+            "uptime": time.time() - getattr(app.state, "start_time", time.time()),
+            "timestamp": time.time()
+        }
+    except Exception as e:
+        logger.error(f"Error in liveness check: {str(e)}")
+        # Zelfs bij een fout, retourneer een 200 OK status
+        return {"status": "warning", "message": str(e)}
 
 @app.post("/webhook")
 async def webhook(request: Request):
@@ -223,255 +319,4 @@ async def send_test_signal():
 
 @app.post("/test-webhook")
 async def test_webhook():
-    """Test endpoint voor de webhook"""
-    logger.info("Test webhook endpoint aangeroepen")
-    return {"status": "success"}
-
-@app.get("/test-chart/{instrument}")
-async def test_chart(instrument: str):
-    """Test endpoint voor de chart service"""
-    try:
-        logger.info(f"Test chart endpoint aangeroepen voor instrument: {instrument}")
-        
-        # Haal de chart op
-        chart_image = await chart.get_chart(instrument)
-        
-        if not chart_image:
-            logger.error(f"Failed to get chart for {instrument}")
-            return {"status": "error", "message": f"Failed to get chart for {instrument}"}
-        
-        logger.info(f"Successfully got chart for {instrument}, size: {len(chart_image)} bytes")
-        
-        # Converteer de bytes naar base64 voor weergave in de browser
-        chart_base64 = base64.b64encode(chart_image).decode('utf-8')
-        
-        # Retourneer een HTML-pagina met de afbeelding
-        html_content = f"""
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <title>Chart Test</title>
-        </head>
-        <body>
-            <h1>Chart for {instrument}</h1>
-            <img src="data:image/png;base64,{chart_base64}" alt="Chart for {instrument}" />
-        </body>
-        </html>
-        """
-        
-        from fastapi.responses import HTMLResponse
-        return HTMLResponse(content=html_content)
-    except Exception as e:
-        logger.error(f"Error in test chart endpoint: {str(e)}")
-        return {"status": "error", "message": str(e)}
-
-@app.get("/test-tradingview/{instrument}")
-async def test_tradingview(instrument: str):
-    """Test endpoint voor de TradingView integratie"""
-    try:
-        logger.info(f"Test TradingView endpoint aangeroepen voor instrument: {instrument}")
-        
-        # Normaliseer instrument
-        instrument = instrument.upper().replace("/", "")
-        
-        # Controleer of we een link hebben voor dit instrument
-        if instrument in chart.chart_links:
-            chart_url = chart.chart_links[instrument]
-            
-            # Haal screenshot op
-            if chart.tradingview and chart.tradingview.is_logged_in:
-                screenshot = await chart.tradingview.get_chart_screenshot(chart_url)
-                
-                if screenshot:
-                    logger.info(f"Successfully got TradingView screenshot for {instrument}")
-                    
-                    # Converteer de bytes naar base64 voor weergave in de browser
-                    screenshot_base64 = base64.b64encode(screenshot).decode('utf-8')
-                    
-                    # Retourneer een HTML-pagina met de afbeelding
-                    html_content = f"""
-                    <!DOCTYPE html>
-                    <html>
-                    <head>
-                        <title>TradingView Test</title>
-                    </head>
-                    <body>
-                        <h1>TradingView Screenshot for {instrument}</h1>
-                        <img src="data:image/png;base64,{screenshot_base64}" alt="TradingView Screenshot for {instrument}" />
-                    </body>
-                    </html>
-                    """
-                    
-                    from fastapi.responses import HTMLResponse
-                    return HTMLResponse(content=html_content)
-                else:
-                    return {"status": "error", "message": f"Failed to get TradingView screenshot for {instrument}"}
-            else:
-                return {"status": "error", "message": "TradingView service not initialized or not logged in"}
-        else:
-            return {"status": "error", "message": f"No chart link found for instrument: {instrument}"}
-    except Exception as e:
-        logger.error(f"Error in test TradingView endpoint: {str(e)}")
-        return {"status": "error", "message": str(e)}
-
-@app.get("/health-tradingview")
-async def health_tradingview():
-    """Controleer de gezondheid van de TradingView service"""
-    try:
-        if chart.tradingview and chart.tradingview.is_logged_in:
-            return {
-                "status": "healthy",
-                "tradingview": "logged_in",
-                "message": "TradingView service is running and logged in"
-            }
-        elif chart.tradingview:
-            return {
-                "status": "warning",
-                "tradingview": "initialized_not_logged_in",
-                "message": "TradingView service is running but not logged in"
-            }
-        else:
-            return {
-                "status": "warning",
-                "tradingview": "not_initialized",
-                "message": "TradingView service is not initialized"
-            }
-    except Exception as e:
-        return {
-            "status": "error",
-            "tradingview": "error",
-            "message": f"Error checking TradingView service: {str(e)}"
-        }
-
-@app.get("/login-tradingview")
-async def login_tradingview():
-    """Handmatig inloggen op TradingView"""
-    try:
-        if not chart.tradingview:
-            # We gebruiken nu de ChartService die intern Puppeteer gebruikt
-            pass
-        
-        if chart.tradingview.is_logged_in:
-            return {
-                "status": "success",
-                "message": "Already logged in to TradingView"
-            }
-        
-        success = await chart.tradingview.login()
-        if success:
-            return {
-                "status": "success",
-                "message": "Successfully logged in to TradingView"
-            }
-        else:
-            return {
-                "status": "error",
-                "message": "Failed to log in to TradingView"
-            }
-    except Exception as e:
-        return {
-            "status": "error",
-            "message": f"Error logging in to TradingView: {str(e)}"
-        }
-
-def initialize_services():
-    """Initialize all services"""
-    return {
-        "db": db,
-        "telegram": telegram,
-        "chart": chart
-    }
-
-def main():
-    # ... bestaande code ...
-    
-    # Commentaar de TradingView code uit
-    # Initialiseer TradingView service
-    # tradingview_service = TradingViewService()
-    
-    # Haal inloggegevens uit omgevingsvariabelen
-    # tradingview_username = os.getenv("TRADINGVIEW_USERNAME")
-    # tradingview_password = os.getenv("TRADINGVIEW_PASSWORD")
-    
-    # Log in op TradingView
-    # if tradingview_username and tradingview_password:
-    #     tradingview_service.login_tradingview(tradingview_username, tradingview_password)
-    
-    # ... bestaande code ...
-    
-    # Zorg ervoor dat de driver wordt afgesloten bij het afsluiten van de applicatie
-    try:
-        # ... bestaande code ...
-        pass
-    finally:
-        # tradingview_service.close()
-        pass
-
-# ... bestaande code ...
-
-@app.get("/batch-screenshots")
-async def batch_screenshots(symbols: str = None, timeframes: str = None):
-    """Verbeterde API endpoint voor screenshots met betere error handling"""
-    try:
-        # Log de request
-        logger.info(f"Batch screenshots request with symbols={symbols}, timeframes={timeframes}")
-        
-        # Converteer comma-gescheiden strings naar lijsten
-        symbol_list = symbols.split(",") if symbols else ["EURUSD", "GBPUSD", "BTCUSD", "ETHUSD"]
-        timeframe_list = timeframes.split(",") if timeframes else ["1h", "4h", "1d"]
-        
-        # Gebruik fallback methode als TradingView niet beschikbaar is
-        if not hasattr(chart, 'tradingview') or not chart.tradingview:
-            logger.info("Using fallback method for batch screenshots")
-            results = {}
-            for symbol in symbol_list:
-                results[symbol] = {}
-                for timeframe in timeframe_list:
-                    try:
-                        screenshot = await chart.get_chart(symbol, timeframe)
-                        if screenshot:
-                            results[symbol][timeframe] = screenshot
-                    except Exception as e:
-                        logger.error(f"Error getting chart for {symbol} {timeframe}: {str(e)}")
-                        results[symbol][timeframe] = None
-        else:
-            # Gebruik TradingView service als die beschikbaar is
-            results = await chart.tradingview.batch_capture_charts(
-                symbols=symbol_list,
-                timeframes=timeframe_list
-            )
-        
-        if not results:
-            logger.error("Batch capture returned no results")
-            return {
-                "status": "error",
-                "message": "Geen screenshots gemaakt"
-            }
-        
-        # Converteer resultaten naar base64 voor de response
-        response_data = {}
-        for symbol, timeframe_data in results.items():
-            response_data[symbol] = {}
-            for timeframe, screenshot in timeframe_data.items():
-                if screenshot is not None:
-                    response_data[symbol][timeframe] = base64.b64encode(screenshot).decode('utf-8')
-        
-        logger.info(f"Successfully generated {sum(len(tf) for tf in response_data.values())} screenshots")
-        
-        return {
-            "status": "success",
-            "data": response_data
-        }
-        
-    except Exception as e:
-        logger.error(f"Error in batch screenshots endpoint: {str(e)}")
-        return {"status": "error", "message": str(e)}
-
-async def periodic_health_check():
-    """Periodieke health check om te controleren of de applicatie nog draait"""
-    while True:
-        try:
-            logger.info("Periodic health check: Application is running")
-            await asyncio.sleep(60)  # Elke minuut
-        except Exception as e:
-            logger.error(f"Error in periodic health check: {str(e)}")
+    """Test endpoint voor de
