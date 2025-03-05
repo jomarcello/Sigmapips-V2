@@ -2429,3 +2429,41 @@ Risk Management:
         else:
             # Onbekende actie
             await query.answer("Unknown action")
+
+    async def analysis_technical_callback(self, update: Update, context: CallbackContext) -> int:
+        """Handle technical analysis selection"""
+        query = update.callback_query
+        await query.answer()
+        
+        # Log voor debugging
+        logger.info("Technical analysis callback triggered")
+        
+        # Sla de analyse type op in user_data
+        context.user_data['analysis_type'] = 'technical'
+        
+        # Haal de markten op uit de database of gebruik standaard markten
+        markets = ["forex", "crypto", "indices", "commodities"]
+        
+        # Maak keyboard met markten
+        keyboard = []
+        for market in markets:
+            keyboard.append([InlineKeyboardButton(f"{market.capitalize()}", callback_data=f"market_{market}")])
+        
+        # Voeg terug knop toe
+        keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="back_analysis")])
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        # Update het bericht
+        await query.edit_message_text(
+            text="Select a market:",
+            reply_markup=reply_markup
+        )
+        
+        # Log voor debugging
+        logger.info("Moving to MARKET state")
+        
+        # Ga naar de MARKET state
+        return MARKET
+    async def log_user_state(self, update: Update, context: CallbackContext):
+        """Log de huidige state van de gebruiker"""
