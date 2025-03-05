@@ -78,17 +78,34 @@ RUN mkdir -p /app/playwright_data
 RUN chmod -R 777 /app/selenium_data
 RUN chmod -R 777 /app/playwright_data
 
-# Installeer Puppeteer globaal
-RUN npm install -g puppeteer@19.7.0 --unsafe-perm=true
-
-# Stel Puppeteer cache directory in
-ENV PUPPETEER_CACHE_DIR=/app/.cache/puppeteer
+# Installeer Puppeteer lokaal in plaats van globaal
+WORKDIR /app/puppeteer
+RUN npm init -y && \
+    npm install puppeteer@19.7.0 --save && \
+    npm install
 
 # Maak het Puppeteer setup script
-COPY setup_puppeteer.js /app/setup_puppeteer.js
+RUN echo 'console.log("Testing Puppeteer installation...");' > test_puppeteer.js && \
+    echo 'const puppeteer = require("puppeteer");' >> test_puppeteer.js && \
+    echo '(async () => {' >> test_puppeteer.js && \
+    echo '  try {' >> test_puppeteer.js && \
+    echo '    const browser = await puppeteer.launch({' >> test_puppeteer.js && \
+    echo '      headless: true,' >> test_puppeteer.js && \
+    echo '      args: ["--no-sandbox", "--disable-dev-shm-usage"]' >> test_puppeteer.js && \
+    echo '    });' >> test_puppeteer.js && \
+    echo '    console.log("Puppeteer is working correctly!");' >> test_puppeteer.js && \
+    echo '    await browser.close();' >> test_puppeteer.js && \
+    echo '  } catch (error) {' >> test_puppeteer.js && \
+    echo '    console.error("Error testing Puppeteer:", error);' >> test_puppeteer.js && \
+    echo '    process.exit(1);' >> test_puppeteer.js && \
+    echo '  }' >> test_puppeteer.js && \
+    echo '})();' >> test_puppeteer.js
 
-# Voer het script uit om te controleren of Puppeteer werkt
-RUN node /app/setup_puppeteer.js
+# Test Puppeteer installatie
+RUN node test_puppeteer.js
+
+# Ga terug naar de hoofddirectory
+WORKDIR /app
 
 # Kopieer de rest van de code
 COPY . .
