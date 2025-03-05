@@ -380,4 +380,46 @@ class TradingViewSeleniumService(TradingViewService):
                 self.driver.quit()
                 logger.info("TradingView Selenium service cleaned up")
         except Exception as e:
-            logger.error(f"Error cleaning up TradingView Selenium service: {str(e)}") 
+            logger.error(f"Error cleaning up TradingView Selenium service: {str(e)}")
+    
+    async def take_screenshot_of_url(self, url):
+        """Take a screenshot of a URL"""
+        try:
+            logger.info(f"Taking screenshot of URL: {url}")
+            
+            # Controleer of de driver is geïnitialiseerd
+            if not self.driver:
+                logger.error("Selenium driver not initialized")
+                return None
+            
+            # Ga naar de URL
+            try:
+                logger.info(f"Navigating to URL: {url}")
+                self.driver.get(url)
+                
+                # Wacht tot de pagina is geladen
+                logger.info("Waiting for page to load")
+                WebDriverWait(self.driver, 30).until(
+                    EC.presence_of_element_located((By.TAG_NAME, "body"))
+                )
+                
+                # Wacht nog wat langer om de pagina volledig te laden
+                logger.info("Waiting for page to render")
+                time.sleep(10)
+                
+                # Neem een screenshot
+                logger.info("Taking screenshot")
+                screenshot_bytes = self.driver.get_screenshot_as_png()
+                
+                # Log de huidige URL voor debugging
+                logger.info(f"Current URL after screenshot: {self.driver.current_url}")
+                
+                return screenshot_bytes
+            
+            except TimeoutException:
+                logger.error("Timeout waiting for page to load")
+                return None
+            
+        except Exception as e:
+            logger.error(f"Error taking screenshot of URL: {str(e)}")
+            return None 
