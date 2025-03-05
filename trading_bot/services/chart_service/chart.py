@@ -278,25 +278,20 @@ class ChartService:
             # 1. Probeer TradingView publieke snapshots
             if instrument in self.chart_links:
                 chart_url = self.chart_links[instrument]
-                chart_id = chart_url.split("/")[-2]
                 
-                # Probeer de directe snapshot URL
-                snapshot_url = f"https://s3.tradingview.com/snapshots/{chart_id}.png"
-                logger.info(f"Getting snapshot from TradingView: {snapshot_url}")
+                # Probeer een externe screenshot service
+                logger.info(f"Using external screenshot service for URL: {chart_url}")
+                
+                # Gebruik een betrouwbare screenshot service
+                screenshot_url = f"https://api.apiflash.com/v1/urltoimage?access_key=your_api_key&url={quote(chart_url)}&width=1280&height=800"
+                
+                # Als je geen API key hebt, probeer een gratis service
+                screenshot_url = f"https://image.thum.io/get/width/1280/crop/800/png/{quote(chart_url)}"
                 
                 async with aiohttp.ClientSession() as session:
-                    async with session.get(snapshot_url) as response:
+                    async with session.get(screenshot_url) as response:
                         if response.status == 200:
                             return await response.read()
-            
-                # Probeer de publieke snapshot URL
-                public_url = f"https://www.tradingview.com/x/{chart_id}/"
-                logger.info(f"Getting public snapshot from TradingView: {public_url}")
-                
-                # Gebruik een screenshot service om de publieke chart te renderen
-                screenshot = await self.make_screenshot(public_url)
-                if screenshot:
-                    return screenshot
             
             # 2. Probeer Finviz voor aandelen
             if instrument in ["SPY", "QQQ", "AAPL", "MSFT", "GOOGL", "AMZN", "META", "TSLA"]:
