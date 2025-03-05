@@ -16,7 +16,9 @@ from telegram.ext import (
     CallbackQueryHandler,
     ConversationHandler,
     ContextTypes,
-    CallbackContext
+    CallbackContext,
+    MessageHandler,
+    filters
 )
 from telegram.constants import ParseMode
 
@@ -276,6 +278,9 @@ class TelegramService:
                 logger.warning("No REDIS_URL provided. Using local caching.")
                 self.redis = None
             
+            # Voeg dit toe aan je __init__ functie of waar je de application initialiseert
+            self.application.add_error_handler(error_handler)
+            
         except Exception as e:
             logger.error(f"Error initializing Telegram service: {str(e)}")
             raise
@@ -302,18 +307,49 @@ class TelegramService:
             webhook_info = await self.bot.get_webhook_info()
             logger.info(f"Current webhook info: {webhook_info}")
             
-            # Registreer de callback handlers
-            self.application.add_handler(CallbackQueryHandler(
-                self.handle_market_callback, pattern="^market:"
-            ))
-            self.application.add_handler(CallbackQueryHandler(
-                self.handle_technical_analysis_callback, pattern="^technical_analysis:"
-            ))
+            # Registreer de ConversationHandler
+            conv_handler = ConversationHandler(
+                entry_points=[CommandHandler("start", self.start)],
+                states={
+                    CHOOSE_MENU: [
+                        CallbackQueryHandler(self.menu_analyse_callback, pattern="^menu_analyse$"),
+                        CallbackQueryHandler(self.menu_signals_callback, pattern="^menu_signals$"),
+                    ],
+                    CHOOSE_ANALYSIS: [
+                        CallbackQueryHandler(self.analysis_technical_callback, pattern="^analysis_technical$"),
+                        CallbackQueryHandler(self.analysis_sentiment_callback, pattern="^analysis_sentiment$"),
+                        CallbackQueryHandler(self.analysis_calendar_callback, pattern="^analysis_calendar$"),
+                        CallbackQueryHandler(self.back_to_menu_callback, pattern="^back_menu$"),
+                    ],
+                    CHOOSE_MARKET: [
+                        CallbackQueryHandler(self.market_callback, pattern="^market_"),
+                        CallbackQueryHandler(self.back_to_analysis_callback, pattern="^back_analysis$"),
+                    ],
+                    CHOOSE_INSTRUMENT: [
+                        CallbackQueryHandler(self.instrument_callback, pattern="^instrument_"),
+                        CallbackQueryHandler(self.back_to_market_callback, pattern="^back_market$"),
+                    ],
+                    CHOOSE_STYLE: [
+                        CallbackQueryHandler(self.style_choice, pattern="^style_"),
+                        CallbackQueryHandler(self.back_to_instrument, pattern="^back$")
+                    ],
+                    SHOW_RESULT: [
+                        CallbackQueryHandler(self.add_more, pattern="^add_more$"),
+                        CallbackQueryHandler(self.manage_preferences, pattern="^manage_prefs$"),
+                        CallbackQueryHandler(self.back_to_menu, pattern="^back_menu$"),
+                        CallbackQueryHandler(self.back_to_instruments, pattern="^back_to_instruments$")
+                    ]
+                },
+                fallbacks=[CommandHandler("cancel", self.cancel)],
+                name="conversation",
+                persistent=True,
+            )
             
-            # In de initialize methode
-            self.application.add_handler(CallbackQueryHandler(
-                self.handle_analysis_type_callback, pattern="^analysis_type:"
-            ))
+            # Voeg de ConversationHandler toe
+            self.application.add_handler(conv_handler)
+            
+            # Voeg de error handler toe
+            self.application.add_error_handler(error_handler)
             
         except Exception as e:
             logger.error(f"Error initializing Telegram service: {str(e)}")
@@ -448,30 +484,233 @@ Risk Management:
             
         return message
 
-    async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-        """Start the conversation."""
+    async def start(self, update: Update, context: CallbackContext) -> int:
+        """Start command handler"""
+        logger.info(f"Starting conversation with user {update.effective_user.id}")
+        
+        # Stuur het welkomstbericht met de hoofdmenu knoppen
+        await update.message.reply_text(
+            WELCOME_MESSAGE,
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔍 Analyse Market", callback_data="menu_analyse")],
+                [InlineKeyboardButton("📊 Trading Signals", callback_data="menu_signals")]
+            ]),
+            parse_mode=ParseMode.HTML
+        )
+        
+        return MENU
+
+    async def menu_analyse_callback(self, update: Update, context: CallbackContext) -> int:
+        """Handle analyse menu selection"""
+        query = update.callback_query
+        await query.answer()
+        
+        # Toon de analyse opties
+        await query.edit_message_text(
+            text="Select your analysis type:",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("📈 Technical Analysis", callback_data="analysis_technical")],
+                [InlineKeyboardButton("🧠 Market Sentiment", callback_data="analysis_sentiment")],
+                [InlineKeyboardButton("📅 Economic Calendar", callback_data="analysis_calendar")],
+                [InlineKeyboardButton("⬅️ Back", callback_data="back_menu")]
+            ])
+        )
+        
+        return ANALYSIS
+
+    async def menu_signals_callback(self, update: Update, context: CallbackContext) -> int:
+        """Handle signals menu selection"""
+        query = update.callback_query
+        await query.answer()
+        
+        # Toon de signalen opties
+        await query.edit_message_text(
+            text="Trading signals are coming soon!",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("⬅️ Back", callback_data="back_menu")]
+            ])
+        )
+        
+        return MENU
+
+    async def analysis_technical_callback(self, update: Update, context: CallbackContext) -> int:
+        """Handle technical analysis selection"""
+        query = update.callback_query
+        await query.answer()
+        
+        # Log voor debugging
+        logger.info("Technical analysis callback triggered")
+        
         try:
-            user = update.effective_user
-            logger.info(f"Starting conversation with user {user.id}")
+            # Sla de analyse type op in user_data
+            context.user_data['analysis_type'] = 'technical'
             
-            # Reset user data
-            if context:
-                context.user_data.clear()
+            # Haal de markten op uit de database of gebruik standaard markten
+            markets = ["forex", "crypto", "indices", "commodities"]
             
-            # Stuur welkomstbericht met START_KEYBOARD
-            await update.message.reply_text(
-                text=WELCOME_MESSAGE,
-                parse_mode=ParseMode.HTML,
-                reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
+            # Maak keyboard met markten
+            keyboard = []
+            for market in markets:
+                keyboard.append([InlineKeyboardButton(f"{market.capitalize()}", callback_data=f"market_{market}")])
+            
+            # Voeg terug knop toe
+            keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="back_analysis")])
+            
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            # Update het bericht
+            await query.edit_message_text(
+                text="Select a market:",
+                reply_markup=reply_markup
             )
-            return CHOOSE_MENU
             
+            # Log voor debugging
+            logger.info("Moving to MARKET state")
+            
+            # Ga naar de MARKET state
+            return MARKET
         except Exception as e:
-            logger.error(f"Error in start command: {str(e)}")
-            await update.message.reply_text(
-                "Sorry, something went wrong. Please try again with /start"
+            logger.error(f"Error in analysis_technical_callback: {str(e)}")
+            
+            # Stuur een foutmelding
+            await query.edit_message_text(
+                text=f"Sorry, er is een fout opgetreden: {str(e)}",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("⬅️ Back", callback_data="back_menu")]
+                ])
             )
-            return ConversationHandler.END
+            
+            return MENU
+
+    async def analysis_sentiment_callback(self, update: Update, context: CallbackContext) -> int:
+        """Handle sentiment analysis selection"""
+        query = update.callback_query
+        await query.answer()
+        
+        # Toon een bericht dat deze functie nog niet beschikbaar is
+        await query.edit_message_text(
+            text="Market sentiment analysis is coming soon!",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("⬅️ Back", callback_data="back_analysis")]
+            ])
+        )
+        
+        return ANALYSIS
+
+    async def analysis_calendar_callback(self, update: Update, context: CallbackContext) -> int:
+        """Handle economic calendar selection"""
+        query = update.callback_query
+        await query.answer()
+        
+        # Toon een bericht dat deze functie nog niet beschikbaar is
+        await query.edit_message_text(
+            text="Economic calendar is coming soon!",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("⬅️ Back", callback_data="back_analysis")]
+            ])
+        )
+        
+        return ANALYSIS
+
+    async def back_to_menu_callback(self, update: Update, context: CallbackContext) -> int:
+        """Handle back to menu selection"""
+        query = update.callback_query
+        await query.answer()
+        
+        # Ga terug naar het hoofdmenu
+        await query.edit_message_text(
+            WELCOME_MESSAGE,
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔍 Analyse Market", callback_data="menu_analyse")],
+                [InlineKeyboardButton("📊 Trading Signals", callback_data="menu_signals")]
+            ]),
+            parse_mode=ParseMode.HTML
+        )
+        
+        return MENU
+
+    async def back_to_analysis_callback(self, update: Update, context: CallbackContext) -> int:
+        """Handle back to analysis selection"""
+        query = update.callback_query
+        await query.answer()
+        
+        # Ga terug naar het analyse menu
+        await query.edit_message_text(
+            text="Select your analysis type:",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("📈 Technical Analysis", callback_data="analysis_technical")],
+                [InlineKeyboardButton("🧠 Market Sentiment", callback_data="analysis_sentiment")],
+                [InlineKeyboardButton("📅 Economic Calendar", callback_data="analysis_calendar")],
+                [InlineKeyboardButton("⬅️ Back", callback_data="back_menu")]
+            ])
+        )
+        
+        return ANALYSIS
+
+    async def market_callback(self, update: Update, context: CallbackContext) -> int:
+        """Handle market selection"""
+        query = update.callback_query
+        await query.answer()
+        
+        # Haal de gekozen markt op
+        market = query.data.split("_")[1]
+        
+        # Sla de markt op in user_data
+        context.user_data['market'] = market
+        
+        # Haal de instrumenten op voor de gekozen markt
+        instruments = []
+        if market == "forex":
+            instruments = [
+                ["EURUSD", "GBPUSD", "USDJPY"],
+                ["AUDUSD", "USDCAD", "NZDUSD"],
+                ["EURGBP", "EURJPY", "GBPJPY"],
+                ["USDCHF", "EURAUD", "EURCHF"]
+            ]
+        elif market == "crypto":
+            instruments = [
+                ["BTCUSD", "ETHUSD", "XRPUSD"],
+                ["SOLUSD", "BNBUSD", "ADAUSD"],
+                ["LTCUSD", "DOGUSD", "DOTUSD"],
+                ["LNKUSD", "XLMUSD", "AVXUSD"]
+            ]
+        elif market == "indices":
+            instruments = [
+                ["US30", "US500", "US100"],
+                ["UK100", "DE40", "FR40"],
+                ["JP225", "AU200", "HK50"],
+                ["EU50"]
+            ]
+        elif market == "commodities":
+            instruments = [
+                ["XAUUSD", "WTIUSD"]
+            ]
+        
+        # Maak keyboard met instrumenten
+        keyboard = []
+        for row in instruments:
+            buttons = []
+            for instrument in row:
+                buttons.append(InlineKeyboardButton(instrument, callback_data=f"instrument_{instrument}"))
+            keyboard.append(buttons)
+        
+        # Voeg terug knop toe
+        keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="back_analysis")])
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        # Update het bericht
+        await query.edit_message_text(
+            text=f"Select an instrument from {market.capitalize()}:",
+            reply_markup=reply_markup
+        )
+        
+        return INSTRUMENT
+
+    async def cancel(self, update: Update, context: CallbackContext) -> int:
+        """Cancel and end the conversation"""
+        await update.message.reply_text("Conversation cancelled.")
+        return ConversationHandler.END
 
     async def menu_choice(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """Handle main menu selection"""
@@ -2430,40 +2669,46 @@ Risk Management:
             # Onbekende actie
             await query.answer("Unknown action")
 
-    async def analysis_technical_callback(self, update: Update, context: CallbackContext) -> int:
-        """Handle technical analysis selection"""
-        query = update.callback_query
-        await query.answer()
-        
-        # Log voor debugging
-        logger.info("Technical analysis callback triggered")
-        
-        # Sla de analyse type op in user_data
-        context.user_data['analysis_type'] = 'technical'
-        
-        # Haal de markten op uit de database of gebruik standaard markten
-        markets = ["forex", "crypto", "indices", "commodities"]
-        
-        # Maak keyboard met markten
-        keyboard = []
-        for market in markets:
-            keyboard.append([InlineKeyboardButton(f"{market.capitalize()}", callback_data=f"market_{market}")])
-        
-        # Voeg terug knop toe
-        keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="back_analysis")])
-        
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        # Update het bericht
-        await query.edit_message_text(
-            text="Select a market:",
-            reply_markup=reply_markup
-        )
-        
-        # Log voor debugging
-        logger.info("Moving to MARKET state")
-        
-        # Ga naar de MARKET state
-        return MARKET
     async def log_user_state(self, update: Update, context: CallbackContext):
         """Log de huidige state van de gebruiker"""
+        user_id = update.effective_user.id
+        
+        # Probeer de huidige conversatie state te krijgen
+        current_state = None
+        if hasattr(context, 'conversation_states') and context.conversation_states:
+            conversation_states = context.conversation_states.get('conversation', {})
+            current_state = conversation_states.get((user_id, user_id), None)
+        
+        # Log de state en user_data
+        logger.info(f"User {user_id} - Current state: {current_state}")
+        logger.info(f"User {user_id} - User data: {context.user_data}")
+
+    async def check_redis_connection(self, update: Update, context: CallbackContext):
+        """Controleer de Redis verbinding"""
+        try:
+            if hasattr(context.application, 'persistence') and hasattr(context.application.persistence, 'redis'):
+                redis_client = context.application.persistence.redis
+                if redis_client:
+                    redis_ping = redis_client.ping()
+                    logger.info(f"Redis ping: {redis_ping}")
+                else:
+                    logger.warning("Redis client is None")
+            else:
+                logger.warning("No Redis persistence found")
+        except Exception as e:
+            logger.error(f"Error checking Redis connection: {str(e)}")
+
+    async def error_handler(self, update: Update, context: CallbackContext):
+        """Handle errors in the conversation"""
+        logger.error(f"Error handling update: {update}")
+        logger.error(f"Error context: {context.error}")
+        
+        # Stuur een bericht naar de gebruiker
+        if update and update.effective_chat:
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text="Sorry, er is een fout opgetreden. Probeer het opnieuw met /start."
+            )
+        
+        # Reset de conversatie
+        return ConversationHandler.END
