@@ -135,7 +135,8 @@ if (!url || !outputPath) {
                         '.tv-dialog',                  // Any open dialogs
                         '.tv-insert-study-dialog',     // Study dialog
                         '.tv-insert-indicator-dialog', // Indicator dialog
-                        '.tv-linetool-properties-toolbar' // Line tool properties
+                        '.tv-linetool-properties-toolbar', // Line tool properties
+                        '.chart-controls-bar'          // Controls bar
                     ];
                     
                     // Verberg alle elementen
@@ -144,6 +145,12 @@ if (!url || !outputPath) {
                         elements.forEach(el => {
                             if (el) el.style.display = 'none';
                         });
+                    });
+                    
+                    // Verwijder alle marges en padding van alle elementen
+                    document.querySelectorAll('*').forEach(el => {
+                        el.style.margin = '0';
+                        el.style.padding = '0';
                     });
                     
                     // Maximaliseer de chart container
@@ -155,6 +162,10 @@ if (!url || !outputPath) {
                         chartContainer.style.top = '0';
                         chartContainer.style.left = '0';
                         chartContainer.style.zIndex = '9999';
+                        chartContainer.style.margin = '0';
+                        chartContainer.style.padding = '0';
+                        chartContainer.style.border = 'none';
+                        chartContainer.style.backgroundColor = '#131722'; // TradingView achtergrondkleur
                     }
                     
                     // Maximaliseer de chart zelf
@@ -162,12 +173,46 @@ if (!url || !outputPath) {
                     if (chartElement) {
                         chartElement.style.width = '100vw';
                         chartElement.style.height = '100vh';
+                        chartElement.style.margin = '0';
+                        chartElement.style.padding = '0';
+                        chartElement.style.border = 'none';
                     }
                     
-                    // Verwijder marges en padding
+                    // Maximaliseer de canvas
+                    const canvas = document.querySelector('canvas');
+                    if (canvas) {
+                        canvas.style.width = '100vw';
+                        canvas.style.height = '100vh';
+                    }
+                    
+                    // Verwijder marges en padding van body en html
                     document.body.style.margin = '0';
                     document.body.style.padding = '0';
                     document.body.style.overflow = 'hidden';
+                    document.body.style.backgroundColor = '#131722'; // TradingView achtergrondkleur
+                    
+                    document.documentElement.style.margin = '0';
+                    document.documentElement.style.padding = '0';
+                    document.documentElement.style.overflow = 'hidden';
+                    document.documentElement.style.backgroundColor = '#131722'; // TradingView achtergrondkleur
+                    
+                    // Verwijder alle zwarte balken
+                    document.querySelectorAll('.layout__area').forEach(el => {
+                        if (el) el.style.display = 'none';
+                    });
+                    
+                    // Maximaliseer de main pane
+                    const mainPane = document.querySelector('.chart-container .layout__area--center, .chart-container .layout__area--main');
+                    if (mainPane) {
+                        mainPane.style.width = '100vw';
+                        mainPane.style.height = '100vh';
+                        mainPane.style.position = 'fixed';
+                        mainPane.style.top = '0';
+                        mainPane.style.left = '0';
+                        mainPane.style.margin = '0';
+                        mainPane.style.padding = '0';
+                        mainPane.style.border = 'none';
+                    }
                 });
                 
                 console.log('Applied fullscreen optimizations');
@@ -186,7 +231,13 @@ if (!url || !outputPath) {
         console.log('Taking screenshot...');
         await page.screenshot({
             path: outputPath,
-            fullPage: false
+            fullPage: false,
+            clip: {
+                x: 0,
+                y: 0,
+                width: 1920,
+                height: 1080
+            }
         });
         
         // Sluit de browser
