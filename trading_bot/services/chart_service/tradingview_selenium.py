@@ -27,6 +27,7 @@ class TradingViewSeleniumService(TradingViewService):
         self.session_id = session_id or os.getenv("TRADINGVIEW_SESSION_ID", "z90l85p2anlgdwfppsrdnnfantz48z1o")
         self.driver = None
         self.is_initialized = False
+        self.is_logged_in = False  # Voeg deze eigenschap toe voor compatibiliteit
         self.base_url = "https://www.tradingview.com"
         self.chart_url = "https://www.tradingview.com/chart"
         
@@ -57,11 +58,34 @@ class TradingViewSeleniumService(TradingViewService):
             chrome_options.add_argument("--disable-notifications")
             chrome_options.add_argument("--force-dark-mode")
             
-            # Gebruik WebDriverManager om ChromeDriver te beheren
-            self.driver = webdriver.Chrome(
-                service=Service(ChromeDriverManager(chrome_type=ChromeType.CHROMIUM).install()),
-                options=chrome_options
-            )
+            # Probeer eerst met een specifieke ChromeDriver versie
+            try:
+                logger.info("Trying to initialize Chrome with specific driver version")
+                # Gebruik een specifieke versie die compatibel is met de meeste Chrome versies
+                self.driver = webdriver.Chrome(
+                    service=Service(ChromeDriverManager(version="114.0.5735.90").install()),
+                    options=chrome_options
+                )
+            except Exception as driver_error:
+                logger.warning(f"Failed to initialize with specific version: {str(driver_error)}")
+                
+                try:
+                    # Probeer met een lokaal geïnstalleerde ChromeDriver
+                    logger.info("Trying with local ChromeDriver")
+                    self.driver = webdriver.Chrome(options=chrome_options)
+                except Exception as local_error:
+                    logger.warning(f"Failed with local ChromeDriver: {str(local_error)}")
+                    
+                    # Laatste poging: gebruik een generieke versie
+                    logger.info("Trying with generic ChromeDriver")
+                    try:
+                        self.driver = webdriver.Chrome(
+                            service=Service(ChromeDriverManager().install()),
+                            options=chrome_options
+                        )
+                    except Exception as generic_error:
+                        logger.error(f"All ChromeDriver initialization attempts failed: {str(generic_error)}")
+                        return False
             
             # Ga naar TradingView en voeg session cookie toe
             self.driver.get(self.base_url)
@@ -83,6 +107,7 @@ class TradingViewSeleniumService(TradingViewService):
             if self._is_logged_in():
                 logger.info("Successfully logged in to TradingView using session ID")
                 self.is_initialized = True
+                self.is_logged_in = True
                 return True
             else:
                 logger.warning("Failed to log in with session ID")
@@ -102,24 +127,71 @@ class TradingViewSeleniumService(TradingViewService):
             logger.error(f"Error checking login status: {str(e)}")
             return False
     
-    async def take_screenshot(self, symbol, timeframe=None, adjustment=100):
+    async def login(self):
+        """Login to TradingView using session ID"""
+        try:
+            if not self.driver:
+                logger.warning("Driver not initialized, cannot login")
+                return False
+                
+            # Ga naar TradingView en voeg session cookie toe
+            self.driver.get(self.base_url)
+            
+            # Voeg session ID cookie toe
+            self.driver.add_cookie({
+                'name': 'sessionid',
+                'value': self.session_id,
+                'domain': '.tradingview.com'
+            })
+            
+            # Vernieuw de pagina om de cookie te activeren
+            self.driver.refresh()
+            
+            # Wacht even om de pagina te laden
+            await asyncio.sleep(5)
+            
+            # Controleer of we ingelogd zijn
+            if self._is_logged_in():
+                logger.info("Successfully logged in to TradingView using session ID")
+                self.is_logged_in = True
+                return True
+            else:
+                logger.warning("Failed to log in with session ID")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Error logging in to TradingView: {str(e)}")
+            return False
+    
+    async def get_chart_screenshot(self, chart_url):
+        """Get a screenshot of a chart"""
+        return await self.take_screenshot(chart_url)
+    
+    async def take_screenshot(self, chart_url, timeframe=None, adjustment=100):
         """Take a screenshot of a chart"""
         if not self.is_initialized:
             logger.warning("TradingView Selenium service not initialized")
             return None
         
         try:
-            # Bepaal de chart URL
-            chart_url = self.chart_links.get(symbol, f"{self.chart_url}/?symbol={symbol}")
-            logger.info(f"Taking screenshot of {symbol} at {timeframe}, URL: {chart_url}")
+            # Als chart_url een symbool is in plaats van een URL, converteer het
+            if not chart_url.startswith("http"):
+                symbol = chart_url
+                chart_url = self.chart_links.get(symbol, f"{self.chart_url}/?symbol={symbol}")
+            
+            logger.info(f"Taking screenshot of chart at URL: {chart_url}")
             
             # Navigeer naar de chart
             self.driver.get(chart_url)
             
             # Wacht tot de chart is geladen
-            WebDriverWait(self.driver, 20).until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, ".chart-container"))
-            )
+            try:
+                WebDriverWait(self.driver, 20).until(
+                    EC.presence_of_element_located((By.CSS_SELECTOR, ".chart-container"))
+                )
+            except Exception as wait_error:
+                logger.warning(f"Timeout waiting for chart container: {str(wait_error)}")
+                # Ga door, misschien is de chart toch geladen
             
             # Wacht nog wat extra tijd voor volledige rendering
             time.sleep(10)
@@ -129,10 +201,13 @@ class TradingViewSeleniumService(TradingViewService):
                 self._set_timeframe(timeframe)
             
             # Pas de positie aan (scroll naar rechts)
-            actions = ActionChains(self.driver)
-            actions.send_keys(Keys.ESCAPE).perform()  # Sluit eventuele dialogen
-            actions.send_keys(Keys.RIGHT * adjustment).perform()
-            time.sleep(3)
+            try:
+                actions = ActionChains(self.driver)
+                actions.send_keys(Keys.ESCAPE).perform()  # Sluit eventuele dialogen
+                actions.send_keys(Keys.RIGHT * adjustment).perform()
+                time.sleep(3)
+            except Exception as action_error:
+                logger.warning(f"Error performing keyboard actions: {str(action_error)}")
             
             # Verberg UI elementen voor een schone screenshot
             self._hide_ui_elements()
@@ -148,7 +223,7 @@ class TradingViewSeleniumService(TradingViewService):
             img.save(img_byte_arr, format='PNG')
             img_byte_arr.seek(0)
             
-            logger.info(f"Successfully took screenshot of {symbol} at {timeframe}")
+            logger.info(f"Successfully took screenshot of chart")
             return img_byte_arr.getvalue()
             
         except Exception as e:
@@ -230,7 +305,11 @@ class TradingViewSeleniumService(TradingViewService):
                 
                 for timeframe in timeframes:
                     try:
-                        screenshot = await self.take_screenshot(symbol, timeframe)
+                        # Bepaal de chart URL
+                        chart_url = self.chart_links.get(symbol, f"{self.chart_url}/?symbol={symbol}")
+                        
+                        # Neem screenshot
+                        screenshot = await self.take_screenshot(chart_url, timeframe)
                         results[symbol][timeframe] = screenshot
                     except Exception as e:
                         logger.error(f"Error capturing {symbol} at {timeframe}: {str(e)}")
