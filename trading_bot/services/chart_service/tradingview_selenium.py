@@ -90,82 +90,99 @@ class TradingViewSeleniumService(TradingViewService):
             in_docker = os.path.exists("/.dockerenv")
             logger.info(f"Running in Docker: {in_docker}")
             
-            if in_docker:
-                # In Docker, gebruik de geïnstalleerde Chrome
-                chrome_options.binary_location = "/usr/bin/google-chrome"
+            try:
+                if in_docker:
+                    # In Docker, gebruik de geïnstalleerde Chrome
+                    chrome_options.binary_location = "/usr/bin/google-chrome"
+                    
+                    # Gebruik de geïnstalleerde ChromeDriver
+                    logger.info("Using installed ChromeDriver in Docker")
+                    self.driver = webdriver.Chrome(options=chrome_options)
+                else:
+                    # Lokaal, gebruik webdriver-manager
+                    from webdriver_manager.chrome import ChromeDriverManager
+                    from selenium.webdriver.chrome.service import Service
+                    
+                    logger.info("Using ChromeDriverManager locally")
+                    service = Service(ChromeDriverManager().install())
+                    self.driver = webdriver.Chrome(service=service, options=chrome_options)
                 
-                # Gebruik de geïnstalleerde ChromeDriver
-                self.driver = webdriver.Chrome(options=chrome_options)
-            else:
-                # Lokaal, gebruik webdriver-manager
-                from webdriver_manager.chrome import ChromeDriverManager
-                from selenium.webdriver.chrome.service import Service
-                
-                service = Service(ChromeDriverManager().install())
-                self.driver = webdriver.Chrome(service=service, options=chrome_options)
+                logger.info("Chrome driver initialized successfully")
+            except Exception as driver_error:
+                logger.error(f"Error initializing Chrome driver: {str(driver_error)}")
+                import traceback
+                logger.error(traceback.format_exc())
+                raise
             
             # Als er een session ID is, gebruik deze
             if self.session_id:
                 logger.info(f"Using session ID for authentication: {self.session_id[:5]}...")
                 
                 # Ga eerst naar TradingView om cookies te kunnen instellen
-                self.driver.get("https://www.tradingview.com/")
-                
-                # Wacht even om de pagina te laden
-                time.sleep(5)
-                
-                # Log alle huidige cookies
-                logger.info(f"Current cookies before setting: {self.driver.get_cookies()}")
-                
-                # Verwijder alle bestaande cookies
-                self.driver.delete_all_cookies()
-                logger.info("Deleted all existing cookies")
-                
-                # Voeg cookies toe
-                cookies_to_add = [
-                    {
-                        "name": "sessionid",
-                        "value": self.session_id,
-                        "domain": ".tradingview.com",
-                        "path": "/"
-                    },
-                    {
-                        "name": "device_t",
-                        "value": "web",
-                        "domain": ".tradingview.com",
-                        "path": "/"
-                    },
-                    {
-                        "name": "logged_in",
-                        "value": "1",
-                        "domain": ".tradingview.com",
-                        "path": "/"
-                    },
-                    {
-                        "name": "tv_ecuid",
-                        "value": self.session_id[:16],  # Gebruik een deel van de session ID
-                        "domain": ".tradingview.com",
-                        "path": "/"
-                    }
-                ]
-                
-                for cookie in cookies_to_add:
-                    try:
-                        self.driver.add_cookie(cookie)
-                        logger.info(f"Added cookie: {cookie['name']}")
-                    except Exception as cookie_error:
-                        logger.error(f"Error adding cookie {cookie['name']}: {str(cookie_error)}")
-                
-                # Log alle cookies na het instellen
-                logger.info(f"Current cookies after setting: {self.driver.get_cookies()}")
-                
-                # Ververs de pagina om de cookies te activeren
-                self.driver.refresh()
-                time.sleep(5)
+                try:
+                    logger.info("Navigating to TradingView...")
+                    self.driver.get("https://www.tradingview.com/")
+                    
+                    # Wacht even om de pagina te laden
+                    time.sleep(5)
+                    
+                    # Log alle huidige cookies
+                    logger.info(f"Current cookies before setting: {self.driver.get_cookies()}")
+                    
+                    # Verwijder alle bestaande cookies
+                    self.driver.delete_all_cookies()
+                    logger.info("Deleted all existing cookies")
+                    
+                    # Voeg cookies toe
+                    cookies_to_add = [
+                        {
+                            "name": "sessionid",
+                            "value": self.session_id,
+                            "domain": ".tradingview.com",
+                            "path": "/"
+                        },
+                        {
+                            "name": "device_t",
+                            "value": "web",
+                            "domain": ".tradingview.com",
+                            "path": "/"
+                        },
+                        {
+                            "name": "logged_in",
+                            "value": "1",
+                            "domain": ".tradingview.com",
+                            "path": "/"
+                        },
+                        {
+                            "name": "tv_ecuid",
+                            "value": self.session_id[:16],  # Gebruik een deel van de session ID
+                            "domain": ".tradingview.com",
+                            "path": "/"
+                        }
+                    ]
+                    
+                    for cookie in cookies_to_add:
+                        try:
+                            self.driver.add_cookie(cookie)
+                            logger.info(f"Added cookie: {cookie['name']}")
+                        except Exception as cookie_error:
+                            logger.error(f"Error adding cookie {cookie['name']}: {str(cookie_error)}")
+                    
+                    # Log alle cookies na het instellen
+                    logger.info(f"Current cookies after setting: {self.driver.get_cookies()}")
+                    
+                    # Ververs de pagina om de cookies te activeren
+                    self.driver.refresh()
+                    time.sleep(5)
+                except Exception as page_error:
+                    logger.error(f"Error setting cookies: {str(page_error)}")
+                    import traceback
+                    logger.error(traceback.format_exc())
                 
                 # Controleer of we zijn ingelogd
                 try:
                     # Ga naar de chart pagina
+                    logger.info("Navigating to chart page...")
                     self.driver.get("https://www.tradingview.com/chart/")
                     
                     # Wacht maximaal 15 seconden
@@ -203,6 +220,8 @@ class TradingViewSeleniumService(TradingViewService):
                         self.is_logged_in = False
                 except Exception as page_error:
                     logger.error(f"Error testing session: {str(page_error)}")
+                    import traceback
+                    logger.error(traceback.format_exc())
                     self.is_logged_in = False
             else:
                 logger.warning("No session ID provided")
@@ -213,6 +232,8 @@ class TradingViewSeleniumService(TradingViewService):
         
         except Exception as e:
             logger.error(f"Error initializing TradingView Selenium service: {str(e)}")
+            import traceback
+            logger.error(traceback.format_exc())
             self.is_initialized = False
             self.is_logged_in = False
             
