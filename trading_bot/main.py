@@ -108,8 +108,15 @@ async def startup_event():
     global chart
     chart = ChartService()
     
-    # Start de initialisatie van de chart service in de achtergrond
-    asyncio.create_task(initialize_chart_service_background())
+    # Wacht op de initialisatie van de chart service
+    try:
+        success = await chart.initialize()
+        if success:
+            logger.info(f"Chart service initialized with: {type(chart.tradingview).__name__ if chart.tradingview else 'None'}")
+        else:
+            logger.warning("Chart service initialization failed, will use fallback methods")
+    except Exception as e:
+        logger.error(f"Error initializing chart service: {str(e)}")
     
     webhook_url = os.getenv("RAILWAY_PUBLIC_DOMAIN")
     if webhook_url:
@@ -471,32 +478,21 @@ async def periodic_health_check():
 
 @app.get("/tradingview-status")
 async def tradingview_status():
-    """Check TradingView service status"""
+    """Controleer de status van de TradingView service"""
     try:
-        import os
-        session_id = os.getenv("TRADINGVIEW_SESSION_ID")
-        
-        if not session_id:
-            return {
-                "status": "error",
-                "message": "No TradingView session ID found in environment variables"
-            }
-        
         if not hasattr(chart, 'tradingview') or not chart.tradingview:
             return {
                 "status": "error",
-                "message": "TradingView service not initialized",
-                "session_id_present": bool(session_id),
-                "session_id_prefix": session_id[:5] if session_id else None
+                "message": "TradingView service not initialized"
             }
+        
+        service_type = type(chart.tradingview).__name__
         
         return {
             "status": "success",
-            "message": "TradingView service initialized",
-            "service_type": type(chart.tradingview).__name__,
-            "is_logged_in": chart.tradingview.is_logged_in if hasattr(chart.tradingview, 'is_logged_in') else False,
-            "session_id_present": bool(session_id),
-            "session_id_prefix": session_id[:5] if session_id else None
+            "service_type": service_type,
+            "is_logged_in": getattr(chart.tradingview, 'is_logged_in', False),
+            "is_initialized": getattr(chart.tradingview, 'is_initialized', False)
         }
     except Exception as e:
         return {
@@ -506,25 +502,21 @@ async def tradingview_status():
 
 @app.get("/reinitialize-tradingview")
 async def reinitialize_tradingview():
-    """Reinitialize TradingView service"""
+    """Herinitialiseer de TradingView service"""
     try:
         # Maak een nieuwe ChartService
-        from trading_bot.services.chart_service.chart import ChartService
-        new_chart = ChartService()
+        global chart
+        chart = ChartService()
         
         # Initialiseer de service
-        success = await new_chart.initialize()
+        success = await chart.initialize()
         
-        if success and new_chart.tradingview:
-            # Update de globale chart service
-            global chart
-            chart = new_chart
-            
+        if success and chart.tradingview:
             return {
                 "status": "success",
                 "message": "TradingView service reinitialized",
                 "service_type": type(chart.tradingview).__name__,
-                "is_logged_in": chart.tradingview.is_logged_in if hasattr(chart.tradingview, 'is_logged_in') else False
+                "is_logged_in": getattr(chart.tradingview, 'is_logged_in', False)
             }
         else:
             return {
@@ -609,4 +601,39 @@ async def tradingview_status_detailed():
         return {
             "status": "error",
             "message": f"Error checking TradingView service: {str(e)}"
+        }
+
+@app.get("/test-chart-screenshot")
+async def test_chart_screenshot():
+    """Test het maken van een screenshot van een chart"""
+    try:
+        if not hasattr(chart, 'tradingview') or not chart.tradingview:
+            return {
+                "status": "error",
+                "message": "TradingView service not initialized"
+            }
+        
+        # Probeer een screenshot te maken van EURUSD
+        screenshot = await chart.get_chart("EURUSD")
+        
+        if screenshot:
+            # Sla de screenshot op
+            import base64
+            screenshot_base64 = base64.b64encode(screenshot).decode('utf-8')
+            
+            return {
+                "status": "success",
+                "message": "Screenshot successfully created",
+                "screenshot_size": len(screenshot),
+                "screenshot_base64": screenshot_base64
+            }
+        else:
+            return {
+                "status": "error",
+                "message": "Failed to create screenshot"
+            }
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": f"Error creating screenshot: {str(e)}"
         }
