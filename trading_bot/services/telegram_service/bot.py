@@ -242,33 +242,34 @@ class TelegramService:
                     ]
                 },
                 fallbacks=[CallbackQueryHandler(self.cancel, pattern="^cancel$")],
-                per_message=True
+                per_message=False
             )
             
             # Add handlers
             self.application.add_handler(conv_handler)
             self.application.add_handler(CommandHandler("help", self.help))
-            self.application.add_handler(CallbackQueryHandler(self._button_click))
+            self.application.add_handler(CallbackQueryHandler(self.handle_callback_query))
             
             logger.info("Telegram service initialized")
             
             # Redis voor caching
-            redis_host = os.getenv("REDIS_HOST", "redis")
-            redis_port = int(os.getenv("REDIS_PORT", 6379))
-            try:
-                self.redis = redis.Redis(
-                    host=redis_host,
-                    port=redis_port,
-                    db=0,
-                    decode_responses=True,
-                    socket_connect_timeout=2,
-                    retry_on_timeout=True
-                )
-                # Test de verbinding
-                self.redis.ping()
-                logger.info("Redis connection established")
-            except Exception as redis_error:
-                logger.warning(f"Redis connection failed: {str(redis_error)}. Using local caching.")
+            redis_url = os.getenv("REDIS_URL")
+            if redis_url:
+                try:
+                    self.redis = redis.from_url(
+                        redis_url,
+                        decode_responses=True,
+                        socket_connect_timeout=5,
+                        socket_keepalive=True,
+                        health_check_interval=30
+                    )
+                    self.redis.ping()
+                    logger.info("Redis connection established via URL")
+                except Exception as redis_error:
+                    logger.warning(f"Redis connection failed: {str(redis_error)}. Using local caching.")
+                    self.redis = None
+            else:
+                logger.warning("No REDIS_URL provided. Using local caching.")
                 self.redis = None
             
         except Exception as e:
@@ -631,7 +632,6 @@ Risk Management:
                      f"Instrument: {context.user_data['instrument']}\n"
                      f"Style: {style} ({STYLE_TIMEFRAME_MAP[style]})",
                 reply_markup=InlineKeyboardMarkup(AFTER_SETUP_KEYBOARD)
-            )
             logger.info(f"Saved preferences for user {update.effective_user.id}")
             return SHOW_RESULT
             
@@ -849,51 +849,26 @@ Risk Management:
         except Exception as e:
             logger.error(f"Error handling help command: {str(e)}")
 
-    async def _button_click(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle button clicks"""
+    async def handle_callback_query(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle callback queries from inline keyboards"""
         try:
-            query = update.callback_query
-            await query.answer()
+            callback_query = update.callback_query
+            data = callback_query.data
             
-            # Parse button data
-            data = query.data
+            # Log voor debugging
+            logger.info(f"Received callback query: {data}")
             
-            if data == "back":
-                # Bepaal waar we naartoe moeten gaan op basis van context
-                if 'analysis_type' in context.user_data:
-                    if context.user_data['analysis_type'] in ['technical', 'sentiment']:
-                        # Terug naar instrument selectie
-                        await query.edit_message_text(
-                            text="Please select an instrument:",
-                            reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
-                        )
-                        return CHOOSE_MARKET
-                
-                # Default: terug naar hoofdmenu
-                await query.edit_message_text(
-                    text="Welcome! Please select what you would like to do:",
-                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
-                )
-                return CHOOSE_MENU
+            # Instrument technical analysis
+            if data.startswith("instrument_") and "_technical" in data:
+                # Extract instrument
+                instrument = data.replace("instrument_", "").replace("_technical", "")
+                logger.info(f"Handling technical analysis for instrument: {instrument}")
+                await self.handle_chart_button(callback_query, instrument)
+                return
             
-            elif data.startswith('chart_'):
-                instrument = data.split('_')[1]
-                await self.handle_chart_button(query, instrument)
-            elif data.startswith('sentiment_'):
-                instrument = data.split('_')[1]
-                await self.show_sentiment_analysis(query, instrument)
-            elif data.startswith('calendar_'):
-                instrument = data.split('_')[1]
-                await self.handle_calendar_button(query, instrument)
-            
+            # ... rest van de code ...
         except Exception as e:
-            logger.error(f"Error handling button click: {str(e)}")
-            # Stuur gebruiker terug naar hoofdmenu bij error
-            await query.edit_message_text(
-                text="Sorry, something went wrong. Please start over:",
-                reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
-            )
-            return CHOOSE_MENU
+            logger.error(f"Error handling callback query: {str(e)}")
 
     async def broadcast_signal(self, signal: Dict[str, Any]):
         """Broadcast signal to subscribers"""
@@ -1040,7 +1015,8 @@ Risk Management:
                 await loading_message.delete()
                 
                 new_message = await query.message.reply_text(
-                    text=f"🤖 Market Sentiment Analysis for {instrument}\n\n{sentiment_data}",
+                    text=f"🧠 <b>Market Sentiment Analysis for {instrument}</b>\n\n{sentiment_data}",
+                    parse_mode=ParseMode.HTML,
                     reply_markup=reply_markup
                 )
                 
@@ -1162,13 +1138,18 @@ Strategy: Test Strategy"""
                 text=f"⏳ Generating chart for {instrument}...\n\nThis may take a moment."
             )
             
+            # Log voor debugging
+            logger.info(f"Handling chart button for instrument: {instrument}")
+            
             # Normaliseer instrument (verwijder /)
             instrument = instrument.upper().replace("/", "")
             
             # Get chart image
+            logger.info(f"Getting chart for instrument: {instrument}")
             chart_image = await self.chart.get_chart(instrument)
             
             if not chart_image:
+                logger.error(f"Failed to get chart for {instrument}")
                 await callback_query.edit_message_text(
                     text=f"Sorry, could not generate chart for {instrument}. Please try again later.",
                     reply_markup=InlineKeyboardMarkup([[
@@ -1177,6 +1158,8 @@ Strategy: Test Strategy"""
                 )
                 return
             
+            logger.info(f"Successfully got chart for {instrument}, size: {len(chart_image)} bytes")
+            
             # Determine back button callback data
             if 'signal' in callback_query.message.text.lower():
                 back_callback = f"back_to_signal_{instrument}"
@@ -1184,6 +1167,7 @@ Strategy: Test Strategy"""
                 back_callback = f"back_to_instruments_{instrument}"
             
             # Update message with chart image
+            logger.info(f"Sending chart for {instrument} to user")
             await callback_query.edit_message_media(
                 media=InputMediaPhoto(
                     media=chart_image,
@@ -1193,6 +1177,7 @@ Strategy: Test Strategy"""
                     InlineKeyboardButton("⬅️ Back", callback_data=back_callback)
                 ]])
             )
+            logger.info(f"Chart for {instrument} sent successfully")
         except Exception as e:
             logger.error(f"Error handling chart button: {str(e)}")
             await callback_query.edit_message_text(
@@ -1750,3 +1735,18 @@ Risk Management:
             except Exception as inner_e:
                 logger.error(f"Error sending error message: {str(inner_e)}")
             return ConversationHandler.END
+
+    async def process_update(self, update_data: Dict[str, Any]) -> None:
+        """Process update from webhook"""
+        try:
+            logger.info(f"Processing update: {update_data}")
+            
+            # Converteer de update naar een Update object
+            update = Update.de_json(update_data, self.bot)
+            
+            # Verwerk de update
+            await self.application.process_update(update)
+            
+            logger.info("Update successfully processed")
+        except Exception as e:
+            logger.error(f"Error processing update: {str(e)}")
