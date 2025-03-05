@@ -99,34 +99,59 @@ class ChartService:
     async def initialize(self):
         """Initialize chart service"""
         try:
-            # Probeer eerst Playwright
-            self.tradingview_playwright = TradingViewPlaywrightService(
-                session_id=os.getenv("TRADINGVIEW_SESSION_ID")
-            )
-            playwright_initialized = await self.tradingview_playwright.initialize()
+            logger.info("Initializing chart service")
             
-            if playwright_initialized:
-                # Stel de standaard service in op Playwright
-                self.tradingview = self.tradingview_playwright
-                logger.info("Chart service initialized with Playwright successfully")
-                return True
+            # Probeer eerst Puppeteer
+            try:
+                from trading_bot.services.chart_service.tradingview_puppeteer import TradingViewPuppeteerService
+                self.tradingview_puppeteer = TradingViewPuppeteerService()
+                puppeteer_success = await self.tradingview_puppeteer.initialize()
+                
+                if puppeteer_success:
+                    logger.info("Chart service initialized with Puppeteer successfully")
+                    self.tradingview = self.tradingview_puppeteer
+                    return True
+                else:
+                    logger.warning("Failed to initialize Puppeteer, trying Playwright")
+            except Exception as puppeteer_error:
+                logger.error(f"Error initializing Puppeteer: {str(puppeteer_error)}")
+                logger.warning("Failed to initialize Puppeteer, trying Playwright")
             
-            # Als Playwright faalt, probeer Selenium als fallback
-            logger.warning("Playwright initialization failed, trying Selenium as fallback")
-            self.tradingview_selenium = TradingViewSeleniumService(
-                session_id=os.getenv("TRADINGVIEW_SESSION_ID")
-            )
-            selenium_initialized = await self.tradingview_selenium.initialize()
+            # Probeer Playwright als Puppeteer faalt
+            try:
+                from trading_bot.services.chart_service.tradingview_playwright import TradingViewPlaywrightService
+                self.tradingview_playwright = TradingViewPlaywrightService()
+                playwright_success = await self.tradingview_playwright.initialize()
+                
+                if playwright_success:
+                    logger.info("Chart service initialized with Playwright successfully")
+                    self.tradingview = self.tradingview_playwright
+                    return True
+                else:
+                    logger.warning("Failed to initialize Playwright, trying Selenium")
+            except Exception as playwright_error:
+                logger.error(f"Error initializing Playwright: {str(playwright_error)}")
+                logger.warning("Failed to initialize Playwright, trying Selenium")
             
-            if selenium_initialized:
-                # Stel de standaard service in op Selenium
-                self.tradingview = self.tradingview_selenium
-                logger.info("Chart service initialized with Selenium successfully")
-            else:
-                logger.warning("All TradingView services failed, using fallback methods")
-                self.tradingview = None
+            # Probeer Selenium als Playwright faalt
+            try:
+                from trading_bot.services.chart_service.tradingview_selenium import TradingViewSeleniumService
+                self.tradingview_selenium = TradingViewSeleniumService()
+                selenium_success = await self.tradingview_selenium.initialize()
+                
+                if selenium_success:
+                    logger.info("Chart service initialized with Selenium successfully")
+                    self.tradingview = self.tradingview_selenium
+                    return True
+                else:
+                    logger.warning("Failed to initialize Selenium, using fallback methods")
+            except Exception as selenium_error:
+                logger.error(f"Error initializing Selenium: {str(selenium_error)}")
+                logger.warning("Failed to initialize Selenium, using fallback methods")
             
-            logger.info("Chart service initialized successfully")
+            # Als alle methoden falen, gebruik fallback
+            logger.info("Using fallback methods for chart service")
+            self.tradingview = None
             return True
         except Exception as e:
             logger.error(f"Error initializing chart service: {str(e)}")
