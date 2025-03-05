@@ -23,7 +23,8 @@ if (!url || !outputPath) {
         // Open een nieuwe pagina
         const context = await browser.newContext({
             locale: 'en-US', // Stel de locale in op Engels
-            timezoneId: 'Europe/Amsterdam' // Stel de tijdzone in op Amsterdam
+            timezoneId: 'Europe/Amsterdam', // Stel de tijdzone in op Amsterdam
+            viewport: { width: 1920, height: 1080 } // Stel een grotere viewport in
         });
         
         // Voeg cookies toe als er een session ID is
@@ -90,35 +91,77 @@ if (!url || !outputPath) {
                 // Verberg de zijbalk en maak fullscreen
                 console.log('Making chart fullscreen...');
                 
-                // Probeer eerst de TradingView shortcut voor fullscreen
-                await page.keyboard.press('F');
-                await page.waitForTimeout(1000);
-                
-                // Verberg UI elementen via JavaScript
-                await page.evaluate(() => {
-                    // Verberg de header
-                    const header = document.querySelector('.tv-header');
-                    if (header) header.style.display = 'none';
+                // Probeer verschillende methoden voor fullscreen
+                try {
+                    // Methode 1: Gebruik de TradingView shortcut 'F'
+                    await page.keyboard.press('F');
+                    await page.waitForTimeout(1000);
                     
-                    // Verberg andere UI elementen
-                    const elements = document.querySelectorAll('.chart-toolbar, .tv-side-toolbar, .tv-floating-toolbar, .layout__area--left, .layout__area--right');
-                    elements.forEach(el => {
-                        if (el) el.style.display = 'none';
+                    // Methode 2: Klik op de fullscreen knop als deze bestaat
+                    const fullscreenButton = await page.$('.js-chart-actions-fullscreen');
+                    if (fullscreenButton) {
+                        await fullscreenButton.click();
+                        console.log('Clicked fullscreen button');
+                        await page.waitForTimeout(1000);
+                    }
+                    
+                    // Methode 3: Gebruik JavaScript om de chart te maximaliseren
+                    await page.evaluate(() => {
+                        // Verberg alle UI elementen
+                        const elementsToHide = [
+                            '.tv-header',                  // Header
+                            '.chart-toolbar',              // Chart toolbar
+                            '.tv-side-toolbar',            // Side toolbar
+                            '.tv-floating-toolbar',        // Floating toolbar
+                            '.layout__area--left',         // Left sidebar
+                            '.layout__area--right',        // Right sidebar
+                            '.tv-watermark',               // TradingView watermark
+                            '.tv-chart-toolbar',           // Chart toolbar
+                            '.tv-main-panel--top-toolbar', // Top toolbar
+                            '.tv-main-panel--bottom-toolbar', // Bottom toolbar
+                            '.tv-chart-studies',           // Studies panel
+                            '.tv-dialog',                  // Any open dialogs
+                            '.tv-insert-study-dialog',     // Study dialog
+                            '.tv-insert-indicator-dialog', // Indicator dialog
+                            '.tv-linetool-properties-toolbar' // Line tool properties
+                        ];
+                        
+                        // Verberg alle elementen
+                        elementsToHide.forEach(selector => {
+                            const elements = document.querySelectorAll(selector);
+                            elements.forEach(el => {
+                                if (el) el.style.display = 'none';
+                            });
+                        });
+                        
+                        // Maximaliseer de chart container
+                        const chartContainer = document.querySelector('.chart-container');
+                        if (chartContainer) {
+                            chartContainer.style.width = '100vw';
+                            chartContainer.style.height = '100vh';
+                            chartContainer.style.position = 'fixed';
+                            chartContainer.style.top = '0';
+                            chartContainer.style.left = '0';
+                            chartContainer.style.zIndex = '9999';
+                        }
+                        
+                        // Maximaliseer de chart zelf
+                        const chartElement = document.querySelector('.chart-markup-table');
+                        if (chartElement) {
+                            chartElement.style.width = '100vw';
+                            chartElement.style.height = '100vh';
+                        }
+                        
+                        // Verwijder marges en padding
+                        document.body.style.margin = '0';
+                        document.body.style.padding = '0';
+                        document.body.style.overflow = 'hidden';
                     });
                     
-                    // Verberg de "Open in TradingView" link
-                    const tvLink = document.querySelector('.tv-watermark');
-                    if (tvLink) tvLink.style.display = 'none';
-                    
-                    // Maximaliseer de chart
-                    const chartContainer = document.querySelector('.chart-container');
-                    if (chartContainer) {
-                        chartContainer.style.width = '100vw';
-                        chartContainer.style.height = '100vh';
-                    }
-                });
-                
-                console.log('Hid UI elements and maximized chart');
+                    console.log('Applied fullscreen optimizations');
+                } catch (error) {
+                    console.error('Error applying fullscreen:', error);
+                }
                 
                 // Wacht nog even om de UI aanpassingen te verwerken
                 await page.waitForTimeout(2000);
