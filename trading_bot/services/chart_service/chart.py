@@ -164,33 +164,33 @@ class ChartService:
                 "DE40": "https://www.tradingview.com/chart/OWzg0XNw/"
             }
             
-            # Probeer eerst de TradingView Session service
+            # Probeer eerst de TradingView Selenium service met session ID
             try:
-                from trading_bot.services.chart_service.tradingview_session import TradingViewSessionService
+                from trading_bot.services.chart_service.tradingview_selenium import TradingViewSeleniumService
                 
                 # Haal de session ID op uit de omgevingsvariabelen
                 session_id = os.getenv("TRADINGVIEW_SESSION_ID")
                 
                 if session_id:
                     logger.info(f"Found TradingView session ID: {session_id[:5]}...")
-                    self.tradingview_session = TradingViewSessionService(
+                    self.tradingview_selenium = TradingViewSeleniumService(
                         chart_links=self.chart_links,
                         session_id=session_id
                     )
                     
                     # Initialiseer de service
-                    session_success = await self.tradingview_session.initialize()
+                    selenium_success = await self.tradingview_selenium.initialize()
                     
-                    if session_success:
-                        logger.info("TradingView Session service initialized successfully")
-                        self.tradingview = self.tradingview_session
+                    if selenium_success:
+                        logger.info("TradingView Selenium service initialized successfully")
+                        self.tradingview = self.tradingview_selenium
                         return True
                     else:
-                        logger.warning("TradingView Session service initialization failed")
+                        logger.warning("TradingView Selenium service initialization failed")
                 else:
                     logger.warning("No TradingView session ID found in environment variables")
             except Exception as e:
-                logger.error(f"Error initializing TradingView Session service: {str(e)}")
+                logger.error(f"Error initializing TradingView Selenium service: {str(e)}")
             
             # Probeer Node.js als Session service faalt
             try:
