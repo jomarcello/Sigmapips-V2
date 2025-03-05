@@ -1915,3 +1915,85 @@ Risk Management:
         except Exception as e:
             logger.error(f"Error in selenium charts command: {str(e)}")
             await update.message.reply_text(f"❌ Er is een fout opgetreden: {str(e)}")
+
+    async def selenium_charts_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle the /selenium_charts command"""
+        try:
+            logger.info("Selenium charts command received")
+            
+            # Stuur een bericht dat we bezig zijn
+            message = await update.message.reply_text("🔄 Bezig met het maken van screenshots...")
+            
+            # Parse de argumenten (symbolen en timeframes)
+            symbols = ["EURUSD", "GBPUSD", "BTCUSD", "ETHUSD"]  # Standaard symbolen
+            timeframes = ["1h", "4h", "1d"]  # Standaard timeframes
+            
+            if context.args:
+                # Controleer of er argumenten zijn meegegeven
+                text = " ".join(context.args)
+                parts = text.split("|")
+                
+                if len(parts) >= 1:
+                    symbols_arg = parts[0].strip()
+                    if symbols_arg and symbols_arg != "default":
+                        symbols = symbols_arg.split(",")
+                
+                if len(parts) >= 2:
+                    timeframes_arg = parts[1].strip()
+                    if timeframes_arg and timeframes_arg != "default":
+                        timeframes = timeframes_arg.split(",")
+            
+            # Log de parameters
+            logger.info(f"Selenium charts command with symbols={symbols}, timeframes={timeframes}")
+            
+            # Update het bericht
+            await message.edit_text(
+                f"🔄 Bezig met het maken van screenshots voor "
+                f"{', '.join(symbols) if symbols else 'standaard symbolen'} op "
+                f"{', '.join(timeframes) if timeframes else 'standaard timeframes'}..."
+            )
+            
+            # Controleer of de service is geïnitialiseerd
+            if not self.chart.tradingview or not self.chart.tradingview.is_initialized:
+                await message.edit_text("❌ Chart service is niet geïnitialiseerd. Probeer het later opnieuw.")
+                return
+            
+            # Roep de batch capture functie aan
+            results = await self.chart.tradingview.batch_capture_charts(
+                symbols=symbols,
+                timeframes=timeframes
+            )
+            
+            if not results:
+                await message.edit_text("❌ Er is een fout opgetreden bij het maken van screenshots.")
+                return
+            
+            # Stuur de screenshots één voor één
+            await message.edit_text(f"✅ Screenshots gemaakt voor {len(results)} symbolen!")
+            
+            for symbol, timeframe_data in results.items():
+                for timeframe, screenshot in timeframe_data.items():
+                    if screenshot is None:
+                        continue
+                        
+                    # Maak een caption
+                    caption = f"📊 {symbol} - {timeframe} Timeframe (Playwright)"
+                    
+                    try:
+                        # Stuur de afbeelding
+                        await update.message.reply_photo(
+                            photo=screenshot,
+                            caption=caption
+                        )
+                        
+                        # Korte pauze om rate limiting te voorkomen
+                        await asyncio.sleep(1)
+                    except Exception as photo_error:
+                        logger.error(f"Error sending photo: {str(photo_error)}")
+                        await update.message.reply_text(
+                            f"❌ Kon screenshot voor {symbol} - {timeframe} niet versturen: {str(photo_error)}"
+                        )
+            
+        except Exception as e:
+            logger.error(f"Error in selenium charts command: {str(e)}")
+            await update.message.reply_text(f"❌ Er is een fout opgetreden: {str(e)}")
