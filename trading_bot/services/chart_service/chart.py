@@ -167,6 +167,7 @@ class ChartService:
             # Probeer eerst de TradingView Session service
             try:
                 from trading_bot.services.chart_service.tradingview_session import TradingViewSessionService
+                logger.info("Initializing TradingView Session service")
                 self.tradingview_session = TradingViewSessionService(chart_links=self.chart_links)
                 session_success = await self.tradingview_session.initialize()
                 
@@ -175,9 +176,9 @@ class ChartService:
                     self.tradingview = self.tradingview_session
                     return True
                 else:
-                    logger.warning("TradingView Session service initialization failed, trying Selenium")
+                    logger.warning("TradingView Session service initialization failed")
             except Exception as e:
-                logger.warning(f"Error initializing TradingView Session service: {str(e)}")
+                logger.error(f"Error initializing TradingView Session service: {str(e)}")
             
             # Probeer Node.js als Session service faalt
             try:
@@ -246,24 +247,31 @@ class ChartService:
             # Als alle methoden falen, gebruik fallback
             logger.info("Using fallback methods for chart service")
             self.tradingview = None
-            return True
+            return False
         except Exception as e:
             logger.error(f"Error initializing chart service: {str(e)}")
             self.tradingview = None
             return False
         
-    async def get_chart(self, instrument: str, timeframe: str = "1h") -> Optional[bytes]:
-        """Get chart image for the given instrument"""
+    async def get_chart(self, instrument: str, timeframe: str = None) -> Optional[bytes]:
+        """Get a chart for the given instrument and timeframe"""
         try:
-            # Normaliseer instrument (verwijder /)
-            instrument = instrument.upper().replace("/", "")
+            logger.info(f"Getting chart for {instrument} with timeframe {timeframe}")
             
-            # Probeer eerst TradingView (als het werkt)
-            if self.tradingview and instrument in self.chart_links:
-                chart_url = self.chart_links[instrument]
-                screenshot = await self.tradingview.get_chart_screenshot(chart_url)
+            # Controleer of we een TradingView service hebben
+            if self.tradingview:
+                logger.info(f"Using TradingView service: {type(self.tradingview).__name__}")
+                
+                # Gebruik de TradingView service om een screenshot te maken
+                screenshot = await self.tradingview.take_screenshot(instrument, timeframe)
+                
                 if screenshot:
+                    logger.info(f"Got screenshot for {instrument}")
                     return screenshot
+                else:
+                    logger.warning(f"Failed to get screenshot for {instrument} using TradingView service")
+            else:
+                logger.warning("No TradingView service available")
             
             # Als TradingView niet werkt, probeer alternatieve chart services
             
@@ -323,7 +331,7 @@ class ChartService:
             
         except Exception as e:
             logger.error(f"Error getting chart: {str(e)}")
-            return await self.get_fallback_chart()
+            return None
     
     async def make_screenshot(self, url: str) -> Optional[bytes]:
         """Make a screenshot of a URL using a screenshot service"""
