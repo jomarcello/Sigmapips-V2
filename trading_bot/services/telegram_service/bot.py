@@ -1931,6 +1931,26 @@ Risk Management:
         try:
             logger.info(f"Processing update: {update_data}")
             
+            # Controleer direct op /start commando
+            if 'message' in update_data and 'text' in update_data['message'] and update_data['message']['text'] == '/start':
+                logger.info("Detected /start command, handling directly")
+                
+                # Haal chat_id op
+                chat_id = update_data['message']['chat']['id']
+                
+                # Stuur welkomstbericht direct via de bot
+                await self.bot.send_message(
+                    chat_id=chat_id,
+                    text=WELCOME_MESSAGE,
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("🔍 Analyse Market", callback_data="menu_analyse")],
+                        [InlineKeyboardButton("📊 Trading Signals", callback_data="menu_signals")]
+                    ]),
+                    parse_mode=ParseMode.HTML
+                )
+                logger.info(f"Direct welcome message sent to chat {chat_id}")
+                return
+            
             # Converteer de update naar een Update object
             update = Update.de_json(update_data, self.bot)
             
