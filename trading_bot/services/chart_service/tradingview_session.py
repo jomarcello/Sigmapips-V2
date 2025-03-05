@@ -241,125 +241,52 @@ class TradingViewSessionService(TradingViewService):
             # Maak een nieuwe pagina
             page = await self.context.new_page()
             
-            # Bepaal de chart URL
-            chart_url = None
-            
-            # Als het symbool een volledige URL is, gebruik deze direct
-            if symbol.startswith("http"):
-                chart_url = symbol
-                logger.info(f"Using provided URL: {chart_url}")
-            else:
-                # Anders zoek de URL op in de chart_links dictionary
-                # Normaliseer het symbool (verwijder / en converteer naar hoofdletters)
-                normalized_symbol = symbol.replace("/", "").upper()
+            try:
+                # Bepaal de chart URL
+                chart_url = None
                 
-                chart_url = self.chart_links.get(normalized_symbol)
-                if not chart_url:
-                    logger.warning(f"No chart URL found for {symbol}, using default URL")
-                    chart_url = f"https://www.tradingview.com/chart/?symbol={symbol}"
-            
-            # Gebruik de directe chart URL met de session ID
-            logger.info(f"Navigating to chart URL with session ID: {chart_url}")
-            
-            # Ga direct naar de chart URL met de session ID
-            await page.goto(chart_url, timeout=60000)
-            
-            # Wacht tot de pagina is geladen
-            await page.wait_for_load_state("networkidle", timeout=30000)
-            
-            # Wacht nog wat extra tijd voor de chart om te laden
-            await page.wait_for_timeout(15000)
-            
-            # Controleer of we op de juiste pagina zijn
-            current_url = page.url
-            logger.info(f"Current page URL: {current_url}")
-            
-            # Controleer of we een 404 pagina hebben
-            not_found = await page.evaluate("""() => {
-                return document.body.textContent.includes("This isn't the page you're looking for") ||
-                       document.body.textContent.includes("404") ||
-                       document.body.textContent.includes("Page not found");
-            }""")
-            
-            if not_found:
-                logger.warning("Detected 404 page, trying to login first")
-                
-                # Probeer eerst in te loggen op TradingView
-                login_page = await self.context.new_page()
-                await login_page.goto("https://www.tradingview.com/chart/", timeout=60000)
-                await login_page.wait_for_load_state("networkidle", timeout=30000)
-                
-                # Controleer of we zijn ingelogd
-                is_logged_in = await login_page.evaluate("""() => {
-                    // Verschillende mogelijke selectors voor de gebruikersmenu-knop
-                    const selectors = [
-                        '.tv-header__user-menu-button',
-                        '.js-username',
-                        '.tv-header__user-menu',
-                        '.tv-header__user',
-                        '[data-name="user-menu"]'
-                    ];
-                    
-                    // Controleer of een van de selectors bestaat
-                    for (const selector of selectors) {
-                        if (document.querySelector(selector)) {
-                            return true;
-                        }
-                    }
-                    
-                    // Controleer of er een uitlog-link is
-                    if (document.querySelector('a[href="/logout/"]')) {
-                        return true;
-                    }
-                    
-                    return false;
-                }""")
-                
-                await login_page.close()
-                
-                if is_logged_in:
-                    logger.info("Successfully logged in, trying chart URL again")
-                    
-                    # Probeer de chart URL opnieuw
-                    await page.goto(chart_url, timeout=60000)
-                    await page.wait_for_load_state("networkidle", timeout=30000)
-                    await page.wait_for_timeout(15000)
-                    
-                    # Controleer opnieuw of we een 404 pagina hebben
-                    not_found = await page.evaluate("""() => {
-                        return document.body.textContent.includes("This isn't the page you're looking for") ||
-                               document.body.textContent.includes("404") ||
-                               document.body.textContent.includes("Page not found");
-                    }""")
-                    
-                    if not_found:
-                        logger.warning("Still getting 404, trying public chart as fallback")
-                        
-                        # Probeer een publieke chart als fallback
-                        if "symbol=" in chart_url:
-                            tv_symbol = chart_url.split("symbol=")[1].split("&")[0]
-                        else:
-                            tv_symbol = normalized_symbol
-                        
-                        public_chart_url = f"https://www.tradingview.com/chart/?symbol={tv_symbol}"
-                        if timeframe:
-                            tv_interval = self.interval_map.get(timeframe, "D")
-                            public_chart_url += f"&interval={tv_interval}"
-                        
-                        logger.info(f"Using public chart URL as fallback: {public_chart_url}")
-                        await page.goto(public_chart_url, timeout=60000)
-                        await page.wait_for_load_state("networkidle", timeout=30000)
-                        await page.wait_for_timeout(10000)
+                # Als het symbool een volledige URL is, gebruik deze direct
+                if symbol.startswith("http"):
+                    chart_url = symbol
+                    logger.info(f"Using provided URL: {chart_url}")
                 else:
-                    logger.warning("Not logged in, trying public chart as fallback")
+                    # Anders zoek de URL op in de chart_links dictionary
+                    # Normaliseer het symbool (verwijder / en converteer naar hoofdletters)
+                    normalized_symbol = symbol.replace("/", "").upper()
                     
-                    # Probeer een publieke chart als fallback
-                    if "symbol=" in chart_url:
-                        tv_symbol = chart_url.split("symbol=")[1].split("&")[0]
-                    else:
-                        tv_symbol = normalized_symbol
+                    chart_url = self.chart_links.get(normalized_symbol)
+                    if not chart_url:
+                        logger.warning(f"No chart URL found for {symbol}, using default URL")
+                        chart_url = f"https://www.tradingview.com/chart/?symbol={symbol}"
+                
+                # Gebruik de directe chart URL met de session ID
+                logger.info(f"Navigating to chart URL with session ID: {chart_url}")
+                
+                # Ga direct naar de chart URL met de session ID
+                await page.goto(chart_url, timeout=60000)
+                
+                # Wacht tot de pagina is geladen
+                await page.wait_for_load_state("networkidle", timeout=30000)
+                
+                # Wacht nog wat extra tijd voor de chart om te laden
+                await page.wait_for_timeout(15000)
+                
+                # Neem een screenshot
+                logger.info("Taking screenshot")
+                screenshot_bytes = await page.screenshot()
+                
+                return screenshot_bytes
+            
+            except Exception as e:
+                logger.error(f"Error taking screenshot: {str(e)}")
+                
+                # Probeer een publieke chart als fallback
+                try:
+                    # Normaliseer het symbool
+                    normalized_symbol = symbol.replace("/", "").upper()
                     
-                    public_chart_url = f"https://www.tradingview.com/chart/?symbol={tv_symbol}"
+                    # Bouw een publieke chart URL
+                    public_chart_url = f"https://www.tradingview.com/chart/?symbol={normalized_symbol}"
                     if timeframe:
                         tv_interval = self.interval_map.get(timeframe, "D")
                         public_chart_url += f"&interval={tv_interval}"
@@ -368,15 +295,22 @@ class TradingViewSessionService(TradingViewService):
                     await page.goto(public_chart_url, timeout=60000)
                     await page.wait_for_load_state("networkidle", timeout=30000)
                     await page.wait_for_timeout(10000)
+                    
+                    # Neem een screenshot
+                    logger.info("Taking screenshot of public chart")
+                    screenshot_bytes = await page.screenshot()
+                    
+                    return screenshot_bytes
+                except Exception as fallback_error:
+                    logger.error(f"Error taking screenshot of public chart: {str(fallback_error)}")
+                    return None
             
-            # Neem een screenshot
-            logger.info("Taking screenshot")
-            screenshot_bytes = await page.screenshot()
-            
-            # Sluit de pagina
-            await page.close()
-            
-            return screenshot_bytes
+            finally:
+                # Sluit de pagina
+                try:
+                    await page.close()
+                except:
+                    pass
         
         except Exception as e:
             logger.error(f"Error taking screenshot: {str(e)}")
