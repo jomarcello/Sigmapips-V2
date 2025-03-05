@@ -189,10 +189,14 @@ class TelegramService:
             
             persistence_path = os.path.join(persistence_dir, "bot_persistence")
             
-            # Maak een persistence handler
+            # Maak een persistence handler met de juiste parameters
             persistence = PicklePersistence(
                 filepath=persistence_path,
-                store_data={"user_data", "chat_data", "bot_data", "callback_data", "conversations"}
+                store_user_data=True,
+                store_chat_data=True,
+                store_bot_data=True,
+                store_callback_data=True,
+                single_file=True
             )
             
             # Voeg persistence toe aan de application
