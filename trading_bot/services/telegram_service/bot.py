@@ -2148,50 +2148,51 @@ Risk Management:
                     try:
                         # Probeer de chart te genereren
                         if hasattr(self, 'chart') and self.chart:
-                            # Genereer charts voor verschillende timeframes
-                            timeframes = ["1h", "4h", "1d"]
+                            # Gebruik de directe TradingView link zonder timeframes
+                            chart_url = self.chart.chart_links.get(instrument)
                             
-                            # Stuur een bericht dat we bezig zijn
-                            await self.bot.edit_message_text(
-                                chat_id=chat_id,
-                                message_id=message_id,
-                                text=f"⏳ Bezig met het genereren van charts voor {instrument}..."
-                            )
-                            
-                            # Stuur een nieuw bericht met een back knop
-                            back_message = await self.bot.send_message(
-                                chat_id=chat_id,
-                                text=f"📊 Charts voor {instrument}:",
-                                reply_markup=InlineKeyboardMarkup([
-                                    [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
-                                ])
-                            )
-                            
-                            # Genereer en stuur charts voor elke timeframe
-                            for timeframe in timeframes:
-                                try:
-                                    # Gebruik de chart service om een chart te genereren
-                                    chart_image = await self.chart.get_chart(instrument, timeframe)
+                            if chart_url:
+                                logger.info(f"Using TradingView link for {instrument}: {chart_url}")
+                                
+                                # Genereer de chart met de directe link
+                                chart_image = await self.chart.get_chart(instrument)
+                                
+                                if chart_image:
+                                    # Stuur de chart
+                                    await self.bot.send_photo(
+                                        chat_id=chat_id,
+                                        photo=chart_image,
+                                        caption=f"📊 {instrument} Chart"
+                                    )
                                     
-                                    if chart_image:
-                                        # Stuur de chart
-                                        await self.bot.send_photo(
-                                            chat_id=chat_id,
-                                            photo=chart_image,
-                                            caption=f"{instrument} - {timeframe} Timeframe"
-                                        )
-                                    else:
-                                        # Geen chart beschikbaar
-                                        await self.bot.send_message(
-                                            chat_id=chat_id,
-                                            text=f"❌ Kon geen chart genereren voor {instrument} ({timeframe})"
-                                        )
-                                except Exception as chart_error:
-                                    logger.error(f"Error generating chart for {instrument} {timeframe}: {str(chart_error)}")
+                                    # Stuur een nieuw bericht met een back knop
                                     await self.bot.send_message(
                                         chat_id=chat_id,
-                                        text=f"❌ Fout bij het genereren van chart voor {instrument} ({timeframe}): {str(chart_error)}"
+                                        text="Wat wil je nu doen?",
+                                        reply_markup=InlineKeyboardMarkup([
+                                            [InlineKeyboardButton("⬅️ Terug", callback_data="back_market")]
+                                        ])
                                     )
+                                else:
+                                    # Geen chart beschikbaar
+                                    await self.bot.edit_message_text(
+                                        chat_id=chat_id,
+                                        message_id=message_id,
+                                        text=f"❌ Kon geen chart genereren voor {instrument}",
+                                        reply_markup=InlineKeyboardMarkup([
+                                            [InlineKeyboardButton("⬅️ Terug", callback_data="back_market")]
+                                        ])
+                                    )
+                            else:
+                                # Geen directe link beschikbaar
+                                await self.bot.edit_message_text(
+                                    chat_id=chat_id,
+                                    message_id=message_id,
+                                    text=f"❌ Geen TradingView link beschikbaar voor {instrument}",
+                                    reply_markup=InlineKeyboardMarkup([
+                                        [InlineKeyboardButton("⬅️ Terug", callback_data="back_market")]
+                                    ])
+                                )
                         else:
                             # Geen chart service beschikbaar
                             await self.bot.edit_message_text(
@@ -2199,7 +2200,7 @@ Risk Management:
                                 message_id=message_id,
                                 text="❌ Chart service is niet beschikbaar. Probeer het later opnieuw.",
                                 reply_markup=InlineKeyboardMarkup([
-                                    [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
+                                    [InlineKeyboardButton("⬅️ Terug", callback_data="back_market")]
                                 ])
                             )
                     except Exception as e:
@@ -2209,7 +2210,7 @@ Risk Management:
                             message_id=message_id,
                             text=f"❌ Er is een fout opgetreden: {str(e)}",
                             reply_markup=InlineKeyboardMarkup([
-                                [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
+                                [InlineKeyboardButton("⬅️ Terug", callback_data="back_market")]
                             ])
                         )
                     return
