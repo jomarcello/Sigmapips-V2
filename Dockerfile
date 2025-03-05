@@ -69,14 +69,20 @@ COPY requirements.txt .
 RUN pip install --upgrade pip
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Verwijder Puppeteer installatie
-# RUN npm install -g puppeteer@19.7.0 --unsafe-perm=true
-# ENV PUPPETEER_CACHE_DIR=/app/.cache/puppeteer
+# Installeer Playwright browsers
+RUN playwright install chromium
 
 # Maak directories voor data opslag
-# RUN mkdir -p /app/puppeteer_data
 RUN mkdir -p /app/selenium_data
+RUN mkdir -p /app/playwright_data
 RUN chmod -R 777 /app/selenium_data
+RUN chmod -R 777 /app/playwright_data
+
+# Installeer Puppeteer globaal
+RUN npm install -g puppeteer@19.7.0 --unsafe-perm=true
+
+# Stel Puppeteer cache directory in
+ENV PUPPETEER_CACHE_DIR=/app/.cache/puppeteer
 
 # Kopieer de rest van de code
 COPY . .
@@ -85,8 +91,10 @@ COPY . .
 ENV PYTHONPATH=/app
 ENV PORT=8080
 
-# Stel TradingView session ID in
-ENV TRADINGVIEW_SESSION_ID=z90l85p2anlgdwfppsrdnnfantz48z1o
+# Stel TradingView en 2Captcha credentials in
+ENV TRADINGVIEW_USERNAME=JovanniMT
+ENV TRADINGVIEW_PASSWORD=JmT!102710!!
+ENV TWOCAPTCHA_API_KEY=442b77082098300c2d00291e4a99372f
 
 # Stel debug mode in
 ENV TRADINGVIEW_DEBUG=true
