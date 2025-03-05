@@ -1,5 +1,6 @@
-from fastapi import FastAPI, HTTPException, Request
+import sys
 import logging
+from fastapi import FastAPI, HTTPException, Request
 import os
 from typing import Dict, Any
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
@@ -9,6 +10,12 @@ import base64
 import aiohttp
 import json
 import redis
+
+# Import hack voor ontbrekende module
+from trading_bot.services.chart_service.tradingview_selenium import TradingViewSeleniumService
+sys.modules['trading_bot.services.chart_service.tradingview_puppeteer'] = type('', (), {
+    'TradingViewPuppeteerService': TradingViewSeleniumService
+})()
 
 # Import de constanten
 from trading_bot.services.telegram_service.bot import (
@@ -21,7 +28,6 @@ from trading_bot.services.telegram_service.bot import (
 from trading_bot.services.telegram_service.bot import TelegramService
 from trading_bot.services.chart_service.chart import ChartService
 from trading_bot.services.database.db import Database
-from trading_bot.services.chart_service.tradingview_puppeteer import TradingViewPuppeteerService
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -372,17 +378,32 @@ def main():
 
 @app.get("/batch-screenshots")
 async def batch_screenshots(symbols: str = None, timeframes: str = None):
-    """Maak screenshots van meerdere symbolen en timeframes"""
+    """Verbeterde API endpoint voor screenshots met betere error handling"""
     try:
+        # Log de request
+        logger.info(f"Batch screenshots request with symbols={symbols}, timeframes={timeframes}")
+        
         # Converteer comma-gescheiden strings naar lijsten
         symbol_list = symbols.split(",") if symbols else None
         timeframe_list = timeframes.split(",") if timeframes else None
         
-        if not chart.tradingview or not chart.tradingview.is_logged_in:
+        # Controleer TradingView service
+        if not hasattr(chart, 'tradingview'):
+            logger.error("TradingView service not initialized")
             return {
                 "status": "error",
-                "message": "TradingView service niet geïnitialiseerd of niet ingelogd"
+                "message": "TradingView service niet geïnitialiseerd"
             }
+            
+        # Controleer login status
+        if not chart.tradingview.is_logged_in:
+            logger.warning("TradingView service not logged in, attempting login")
+            login_success = await chart.tradingview.login()
+            if not login_success:
+                return {
+                    "status": "error",
+                    "message": "Kon niet inloggen bij TradingView"
+                }
         
         # Roep de batch capture functie aan
         results = await chart.tradingview.batch_capture_charts(
@@ -391,9 +412,10 @@ async def batch_screenshots(symbols: str = None, timeframes: str = None):
         )
         
         if not results:
+            logger.error("Batch capture returned no results")
             return {
                 "status": "error",
-                "message": "Fout bij het maken van screenshots"
+                "message": "Geen screenshots gemaakt"
             }
         
         # Converteer resultaten naar base64 voor de response
@@ -401,7 +423,10 @@ async def batch_screenshots(symbols: str = None, timeframes: str = None):
         for symbol, timeframe_data in results.items():
             response_data[symbol] = {}
             for timeframe, screenshot in timeframe_data.items():
-                response_data[symbol][timeframe] = base64.b64encode(screenshot).decode('utf-8')
+                if screenshot is not None:
+                    response_data[symbol][timeframe] = base64.b64encode(screenshot).decode('utf-8')
+        
+        logger.info(f"Successfully generated {sum(len(tf) for tf in response_data.values())} screenshots")
         
         return {
             "status": "success",
