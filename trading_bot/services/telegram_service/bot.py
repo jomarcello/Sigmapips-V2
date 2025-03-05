@@ -630,8 +630,9 @@ Risk Management:
                 text=f"✅ Successfully saved your preferences!\n\n"
                      f"Market: {context.user_data['market']}\n"
                      f"Instrument: {context.user_data['instrument']}\n"
-                     f"Style: {style} ({STYLE_TIMEFRAME_MAP[style]})",
+                     f"Timeframe: {context.user_data['timeframe']}",
                 reply_markup=InlineKeyboardMarkup(AFTER_SETUP_KEYBOARD)
+            )
             logger.info(f"Saved preferences for user {update.effective_user.id}")
             return SHOW_RESULT
             
