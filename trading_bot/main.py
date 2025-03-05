@@ -33,16 +33,31 @@ port = int(os.getenv("PORT", 8080))
 db = Database()
 telegram = TelegramService(db)
 chart = ChartService()
-redis_host = os.getenv("REDIS_HOST", "redis")  # Gebruik 'redis' als default hostname
+
+# Redis configuratie
+redis_host = os.getenv("REDIS_HOST", "redis")
 redis_port = int(os.getenv("REDIS_PORT", 6379))
-redis = redis.Redis(
-    host=redis_host,
-    port=redis_port,
-    db=0,
-    decode_responses=True,  # Automatisch bytes naar strings decoderen
-    socket_connect_timeout=2,  # Timeout voor connectie
-    retry_on_timeout=True  # Retry bij timeout
-)
+redis_password = os.getenv("REDIS_PASSWORD", None)
+
+# Verbeterde Redis-verbinding met retry-logica
+try:
+    redis_client = redis.Redis(
+        host=redis_host,
+        port=redis_port,
+        password=redis_password,
+        db=0,
+        decode_responses=True,
+        socket_connect_timeout=5,
+        socket_keepalive=True,
+        retry_on_timeout=True,
+        health_check_interval=30
+    )
+    # Test de verbinding
+    redis_client.ping()
+    logger.info(f"Redis connection established to {redis_host}:{redis_port}")
+except Exception as redis_error:
+    logger.warning(f"Redis connection failed: {str(redis_error)}. Using local caching.")
+    redis_client = None
 
 # Remove TradingBot class or update it
 class TradingBot:
