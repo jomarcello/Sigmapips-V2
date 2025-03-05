@@ -80,8 +80,19 @@ async def startup_event():
     """Initialize async services on startup"""
     # Setup Playwright browsers
     try:
-        from trading_bot.setup_playwright import setup_playwright
-        await setup_playwright()
+        # Inline setup in plaats van import
+        import subprocess
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        logger.info("Setting up Playwright browsers")
+        result = subprocess.run(["playwright", "install", "chromium"], 
+                               capture_output=True, text=True)
+        
+        if result.returncode == 0:
+            logger.info("Playwright browsers installed successfully")
+        else:
+            logger.error(f"Error installing Playwright browsers: {result.stderr}")
     except Exception as e:
         logger.error(f"Error setting up Playwright: {str(e)}")
     
