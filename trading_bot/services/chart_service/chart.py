@@ -97,25 +97,87 @@ class ChartService:
         self.tradingview_playwright = None
 
     async def initialize(self):
-        """Initialize chart service"""
+        """Initialize the chart service"""
         try:
             logger.info("Initializing chart service")
             
-            # Probeer eerst Session service
+            # Definieer de chart links
+            self.chart_links = {
+                # Commodities
+                "XAUUSD": "https://www.tradingview.com/chart/bylCuCgc/",
+                "WTIUSD": "https://www.tradingview.com/chart/jxU29rbq/",
+                
+                # Currencies
+                "EURUSD": "https://www.tradingview.com/chart/xknpxpcr/",
+                "EURGBP": "https://www.tradingview.com/chart/xt6LdUUi/",
+                "EURCHF": "https://www.tradingview.com/chart/4Jr8hVba/",
+                "EURJPY": "https://www.tradingview.com/chart/ume7H7lm/",
+                "EURCAD": "https://www.tradingview.com/chart/gbtrKFPk/",
+                "EURAUD": "https://www.tradingview.com/chart/WweOZl7z/",
+                "EURNZD": "https://www.tradingview.com/chart/bcrCHPsz/",
+                "GBPUSD": "https://www.tradingview.com/chart/jKph5b1W/",
+                "GBPCHF": "https://www.tradingview.com/chart/1qMsl4FS/",
+                "GBPJPY": "https://www.tradingview.com/chart/Zcmh5M2k/",
+                "GBPCAD": "https://www.tradingview.com/chart/CvwpPBpF/",
+                "GBPAUD": "https://www.tradingview.com/chart/neo3Fc3j/",
+                "GBPNZD": "https://www.tradingview.com/chart/egeCqr65/",
+                "CHFJPY": "https://www.tradingview.com/chart/g7qBPaqM/",
+                "USDJPY": "https://www.tradingview.com/chart/mcWuRDQv/",
+                "USDCHF": "https://www.tradingview.com/chart/e7xDgRyM/",
+                "USDCAD": "https://www.tradingview.com/chart/jjTOeBNM/",
+                "CADJPY": "https://www.tradingview.com/chart/KNsPbDME/",
+                "CADCHF": "https://www.tradingview.com/chart/XnHRKk5I/",
+                "AUDUSD": "https://www.tradingview.com/chart/h7CHetVW/",
+                "AUDCHF": "https://www.tradingview.com/chart/oooBW6HP/",
+                "AUDJPY": "https://www.tradingview.com/chart/sYiGgj7B/",
+                "AUDNZD": "https://www.tradingview.com/chart/AByyHLB4/",
+                "AUDCAD": "https://www.tradingview.com/chart/L4992qKp/",
+                "NZDUSD": "https://www.tradingview.com/chart/yab05IFU/",
+                "NZDCHF": "https://www.tradingview.com/chart/7epTugqA/",
+                "NZDJPY": "https://www.tradingview.com/chart/fdtQ7rx7/",
+                "NZDCAD": "https://www.tradingview.com/chart/mRVtXs19/",
+                
+                # Cryptocurrencies
+                "BTCUSD": "https://www.tradingview.com/chart/Nroi4EqI/",
+                "ETHUSD": "https://www.tradingview.com/chart/rVh10RLj/",
+                "XRPUSD": "https://www.tradingview.com/chart/tQu9Ca4E/",
+                "SOLUSD": "https://www.tradingview.com/chart/oTTmSjzQ/",
+                "BNBUSD": "https://www.tradingview.com/chart/wNBWNh23/",
+                "ADAUSD": "https://www.tradingview.com/chart/WcBNFrdb/",
+                "LTCUSD": "https://www.tradingview.com/chart/AoDblBMt/",
+                "DOGUSD": "https://www.tradingview.com/chart/F6SPb52v/",
+                "DOTUSD": "https://www.tradingview.com/chart/nT9dwAx2/",
+                "LNKUSD": "https://www.tradingview.com/chart/FzOrtgYw/",
+                "XLMUSD": "https://www.tradingview.com/chart/SnvxOhDh/",
+                "AVXUSD": "https://www.tradingview.com/chart/LfTlCrdQ/",
+                
+                # Indices
+                "AU200": "https://www.tradingview.com/chart/U5CKagMM/",
+                "EU50": "https://www.tradingview.com/chart/tt5QejVd/",
+                "FR40": "https://www.tradingview.com/chart/RoPe3S1Q/",
+                "HK50": "https://www.tradingview.com/chart/Rllftdyl/",
+                "JP225": "https://www.tradingview.com/chart/i562Fk6X/",
+                "UK100": "https://www.tradingview.com/chart/0I4gguQa/",
+                "US100": "https://www.tradingview.com/chart/5d36Cany/",
+                "US500": "https://www.tradingview.com/chart/VsfYHrwP/",
+                "US30": "https://www.tradingview.com/chart/heV5Zitn/",
+                "DE40": "https://www.tradingview.com/chart/OWzg0XNw/"
+            }
+            
+            # Probeer eerst de TradingView Session service
             try:
                 from trading_bot.services.chart_service.tradingview_session import TradingViewSessionService
                 self.tradingview_session = TradingViewSessionService(chart_links=self.chart_links)
                 session_success = await self.tradingview_session.initialize()
                 
                 if session_success:
-                    logger.info("Chart service initialized with Session service successfully")
+                    logger.info("TradingView Session service initialized successfully")
                     self.tradingview = self.tradingview_session
                     return True
                 else:
-                    logger.warning("Failed to initialize Session service, trying Node.js")
-            except Exception as session_error:
-                logger.error(f"Error initializing Session service: {str(session_error)}")
-                logger.warning("Failed to initialize Session service, trying Node.js")
+                    logger.warning("TradingView Session service initialization failed, trying Selenium")
+            except Exception as e:
+                logger.warning(f"Error initializing TradingView Session service: {str(e)}")
             
             # Probeer Node.js als Session service faalt
             try:
