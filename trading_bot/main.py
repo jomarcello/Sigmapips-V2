@@ -406,7 +406,7 @@ async def batch_screenshots(symbols: str = None, timeframes: str = None):
         timeframe_list = timeframes.split(",") if timeframes else None
         
         # Controleer TradingView service
-        if not hasattr(chart, 'tradingview'):
+        if not hasattr(chart, 'tradingview') or not chart.tradingview:
             logger.error("TradingView service not initialized")
             return {
                 "status": "error",
