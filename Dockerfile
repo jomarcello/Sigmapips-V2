@@ -84,6 +84,12 @@ RUN npm install -g puppeteer@19.7.0 --unsafe-perm=true
 # Stel Puppeteer cache directory in
 ENV PUPPETEER_CACHE_DIR=/app/.cache/puppeteer
 
+# Kopieer het Puppeteer setup script
+COPY setup_puppeteer.js /app/setup_puppeteer.js
+
+# Voer het script uit om te controleren of Puppeteer werkt
+RUN node /app/setup_puppeteer.js
+
 # Kopieer de rest van de code
 COPY . .
 
