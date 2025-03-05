@@ -11,8 +11,10 @@ RUN apt-get update && apt-get install -y \
     && if [ ! -e /usr/bin/pip ]; then ln -s /usr/bin/pip3 /usr/bin/pip; fi
 
 # Installeer system dependencies voor zowel Chromium, Playwright als Selenium
+# Voeg curl toe aan de lijst met dependencies
 RUN apt-get update && apt-get install -y \
     wget \
+    curl \
     gnupg \
     chromium \
     chromium-driver \
@@ -101,11 +103,6 @@ COPY . .
 # Stel environment variables in
 ENV PYTHONPATH=/app
 ENV PORT=8080
-
-# Stel TradingView en 2Captcha credentials in
-ENV TRADINGVIEW_USERNAME=JovanniMT
-ENV TRADINGVIEW_PASSWORD=JmT!102710!!
-ENV TWOCAPTCHA_API_KEY=442b77082098300c2d00291e4a99372f
 
 # Stel TradingView session ID in
 ENV TRADINGVIEW_SESSION_ID=z90l85p2anlgdwfppsrdnnfantz48z1o
