@@ -9,7 +9,7 @@ from typing import Dict, Any, List
 import base64
 import time
 
-from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery, InputMediaPhoto
+from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery, InputMediaPhoto, BotCommand
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -18,7 +18,8 @@ from telegram.ext import (
     ContextTypes,
     CallbackContext,
     MessageHandler,
-    filters
+    filters,
+    PicklePersistence
 )
 from telegram.constants import ParseMode
 
@@ -176,70 +177,45 @@ class TelegramService:
             
             # Set bot commands - alleen /start en /help
             commands = [
-                ("start", "Start the bot and see available options"),
-                ("help", "Show help message"),
-                ("analysis", "Perform market analysis")
+                BotCommand("start", "Start de bot en toon het hoofdmenu"),
+                BotCommand("help", "Toon help informatie")
             ]
             await self.bot.set_my_commands(commands)
             
-            # Initialize the application
+            # Maak een persistence handler voor de bot
+            # Gebruik PicklePersistence of DictPersistence
+            import os
+            persistence_dir = os.path.join(os.path.dirname(__file__), "persistence")
+            os.makedirs(persistence_dir, exist_ok=True)
+            
+            persistence_path = os.path.join(persistence_dir, "bot_persistence")
+            
+            # Maak een persistence handler
+            persistence = PicklePersistence(
+                filepath=persistence_path,
+                store_data={"user_data", "chat_data", "bot_data", "callback_data", "conversations"}
+            )
+            
+            # Voeg persistence toe aan de application
+            self.application.persistence = persistence
+            
+            # Voeg handlers toe
+            # Voeg eerst de ConversationHandler toe
+            self.application.add_handler(conv_handler)
+            
+            # Voeg andere handlers toe
+            self.application.add_handler(CommandHandler("start", self.start_command))
+            self.application.add_handler(CommandHandler("help", self.help_command))
+            
+            # Start de application
             await self.application.initialize()
             await self.application.start()
             
-            # Log webhook info
-            webhook_info = await self.bot.get_webhook_info()
-            logger.info(f"Current webhook info: {webhook_info}")
-            
-            # Registreer de ConversationHandler
-            conv_handler = ConversationHandler(
-                entry_points=[CommandHandler("start", self.start)],
-                states={
-                    MENU: [
-                        CallbackQueryHandler(self.menu_analyse_callback, pattern="^menu_analyse$"),
-                        CallbackQueryHandler(self.menu_signals_callback, pattern="^menu_signals$"),
-                    ],
-                    ANALYSIS: [
-                        CallbackQueryHandler(self.analysis_technical_callback, pattern="^analysis_technical$"),
-                        CallbackQueryHandler(self.analysis_sentiment_callback, pattern="^analysis_sentiment$"),
-                        CallbackQueryHandler(self.analysis_calendar_callback, pattern="^analysis_calendar$"),
-                        CallbackQueryHandler(self.back_to_menu_callback, pattern="^back_menu$"),
-                    ],
-                    MARKET: [
-                        CallbackQueryHandler(self.market_callback, pattern="^market_"),
-                        CallbackQueryHandler(self.back_to_analysis_callback, pattern="^back_analysis$"),
-                    ],
-                    INSTRUMENT: [
-                        CallbackQueryHandler(self.instrument_callback, pattern="^instrument_"),
-                        CallbackQueryHandler(self.back_to_market_callback, pattern="^back_market$"),
-                    ],
-                    STYLE: [
-                        CallbackQueryHandler(self.style_choice, pattern="^style_"),
-                        CallbackQueryHandler(self.back_to_instrument, pattern="^back$")
-                    ],
-                    RESULT: [
-                        CallbackQueryHandler(self.add_more, pattern="^add_more$"),
-                        CallbackQueryHandler(self.manage_preferences, pattern="^manage_prefs$"),
-                        CallbackQueryHandler(self.back_to_menu, pattern="^back_menu$"),
-                        CallbackQueryHandler(self.back_to_instruments, pattern="^back_to_instruments$")
-                    ]
-                },
-                fallbacks=[CommandHandler("cancel", self.cancel)],
-                name="conversation",
-                persistent=True,
-            )
-            
-            # Voeg de ConversationHandler toe
-            self.application.add_handler(conv_handler)
-            
-            # Voeg een aparte CommandHandler toe voor /start buiten de ConversationHandler
-            self.application.add_handler(CommandHandler("start", self.start_command))
-            
-            # Voeg de error handler toe
-            self.application.add_error_handler(error_handler)
-            
+            logger.info("Telegram service initialized successfully")
+            return True
         except Exception as e:
             logger.error(f"Error initializing Telegram service: {str(e)}")
-            raise
+            return False
 
     # Nieuwe methode voor /start commando
     async def start_command(self, update: Update, context: CallbackContext) -> None:
@@ -2154,32 +2130,35 @@ Risk Management:
                             if chart_url:
                                 logger.info(f"Using TradingView link for {instrument}: {chart_url}")
                                 
-                                # Genereer de chart met de directe link
+                                # Probeer een screenshot te maken
                                 chart_image = await self.chart.get_chart(instrument)
                                 
                                 if chart_image:
-                                    # Stuur de chart
+                                    # Stuur de screenshot
                                     await self.bot.send_photo(
                                         chat_id=chat_id,
                                         photo=chart_image,
-                                        caption=f"📊 {instrument} Chart"
-                                    )
-                                    
-                                    # Stuur een nieuw bericht met een back knop
-                                    await self.bot.send_message(
-                                        chat_id=chat_id,
-                                        text="Wat wil je nu doen?",
+                                        caption=f"📊 {instrument} Chart",
                                         reply_markup=InlineKeyboardMarkup([
+                                            [InlineKeyboardButton("🔗 Open in TradingView", url=chart_url)],
                                             [InlineKeyboardButton("⬅️ Terug", callback_data="back_market")]
                                         ])
                                     )
-                                else:
-                                    # Geen chart beschikbaar
+                                    
+                                    # Update het oorspronkelijke bericht
                                     await self.bot.edit_message_text(
                                         chat_id=chat_id,
                                         message_id=message_id,
-                                        text=f"❌ Kon geen chart genereren voor {instrument}",
+                                        text=f"✅ Chart voor {instrument} is gegenereerd."
+                                    )
+                                else:
+                                    # Geen screenshot beschikbaar, stuur alleen de link
+                                    await self.bot.edit_message_text(
+                                        chat_id=chat_id,
+                                        message_id=message_id,
+                                        text=f"📊 Chart voor {instrument}:\n\nKon geen screenshot maken, maar je kunt de chart bekijken op TradingView:",
                                         reply_markup=InlineKeyboardMarkup([
+                                            [InlineKeyboardButton("🔗 Open in TradingView", url=chart_url)],
                                             [InlineKeyboardButton("⬅️ Terug", callback_data="back_market")]
                                         ])
                                     )
@@ -3164,3 +3143,15 @@ Risk Management:
         )
         
         return ANALYSIS
+
+# In de ConversationHandler definitie
+conv_handler = ConversationHandler(
+    entry_points=[CommandHandler("start", start_command)],
+    states={
+        # ... bestaande states ...
+    },
+    fallbacks=[CommandHandler("help", help_command)],
+    name="my_conversation",
+    persistent=False,  # Zet dit op False om persistence uit te schakelen
+    per_message=False,
+)
