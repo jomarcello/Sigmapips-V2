@@ -21,12 +21,84 @@ class TradingViewSessionService(TradingViewService):
         self.context = None
         self.playwright = None
         
+        # Standaard chart links
+        self.default_chart_links = {
+            # Commodities
+            "XAUUSD": "https://www.tradingview.com/chart/bylCuCgc/",
+            "WTIUSD": "https://www.tradingview.com/chart/jxU29rbq/",
+            
+            # Currencies
+            "EURUSD": "https://www.tradingview.com/chart/xknpxpcr/",
+            "EURGBP": "https://www.tradingview.com/chart/xt6LdUUi/",
+            "EURCHF": "https://www.tradingview.com/chart/4Jr8hVba/",
+            "EURJPY": "https://www.tradingview.com/chart/ume7H7lm/",
+            "EURCAD": "https://www.tradingview.com/chart/gbtrKFPk/",
+            "EURAUD": "https://www.tradingview.com/chart/WweOZl7z/",
+            "EURNZD": "https://www.tradingview.com/chart/bcrCHPsz/",
+            "GBPUSD": "https://www.tradingview.com/chart/jKph5b1W/",
+            "GBPCHF": "https://www.tradingview.com/chart/1qMsl4FS/",
+            "GBPJPY": "https://www.tradingview.com/chart/Zcmh5M2k/",
+            "GBPCAD": "https://www.tradingview.com/chart/CvwpPBpF/",
+            "GBPAUD": "https://www.tradingview.com/chart/neo3Fc3j/",
+            "GBPNZD": "https://www.tradingview.com/chart/egeCqr65/",
+            "CHFJPY": "https://www.tradingview.com/chart/g7qBPaqM/",
+            "USDJPY": "https://www.tradingview.com/chart/mcWuRDQv/",
+            "USDCHF": "https://www.tradingview.com/chart/e7xDgRyM/",
+            "USDCAD": "https://www.tradingview.com/chart/jjTOeBNM/",
+            "CADJPY": "https://www.tradingview.com/chart/KNsPbDME/",
+            "CADCHF": "https://www.tradingview.com/chart/XnHRKk5I/",
+            "AUDUSD": "https://www.tradingview.com/chart/h7CHetVW/",
+            "AUDCHF": "https://www.tradingview.com/chart/oooBW6HP/",
+            "AUDJPY": "https://www.tradingview.com/chart/sYiGgj7B/",
+            "AUDNZD": "https://www.tradingview.com/chart/AByyHLB4/",
+            "AUDCAD": "https://www.tradingview.com/chart/L4992qKp/",
+            "NZDUSD": "https://www.tradingview.com/chart/yab05IFU/",
+            "NZDCHF": "https://www.tradingview.com/chart/7epTugqA/",
+            "NZDJPY": "https://www.tradingview.com/chart/fdtQ7rx7/",
+            "NZDCAD": "https://www.tradingview.com/chart/mRVtXs19/",
+            
+            # Cryptocurrencies
+            "BTCUSD": "https://www.tradingview.com/chart/Nroi4EqI/",
+            "ETHUSD": "https://www.tradingview.com/chart/rVh10RLj/",
+            "XRPUSD": "https://www.tradingview.com/chart/tQu9Ca4E/",
+            "SOLUSD": "https://www.tradingview.com/chart/oTTmSjzQ/",
+            "BNBUSD": "https://www.tradingview.com/chart/wNBWNh23/",
+            "ADAUSD": "https://www.tradingview.com/chart/WcBNFrdb/",
+            "LTCUSD": "https://www.tradingview.com/chart/AoDblBMt/",
+            "DOGUSD": "https://www.tradingview.com/chart/F6SPb52v/",
+            "DOTUSD": "https://www.tradingview.com/chart/nT9dwAx2/",
+            "LNKUSD": "https://www.tradingview.com/chart/FzOrtgYw/",
+            "XLMUSD": "https://www.tradingview.com/chart/SnvxOhDh/",
+            "AVXUSD": "https://www.tradingview.com/chart/LfTlCrdQ/",
+            
+            # Indices
+            "AU200": "https://www.tradingview.com/chart/U5CKagMM/",
+            "EU50": "https://www.tradingview.com/chart/tt5QejVd/",
+            "FR40": "https://www.tradingview.com/chart/RoPe3S1Q/",
+            "HK50": "https://www.tradingview.com/chart/Rllftdyl/",
+            "JP225": "https://www.tradingview.com/chart/i562Fk6X/",
+            "UK100": "https://www.tradingview.com/chart/0I4gguQa/",
+            "US100": "https://www.tradingview.com/chart/5d36Cany/",
+            "US500": "https://www.tradingview.com/chart/VsfYHrwP/",
+            "US30": "https://www.tradingview.com/chart/heV5Zitn/",
+            "DE40": "https://www.tradingview.com/chart/OWzg0XNw/"
+        }
+        
         # Gebruik de meegegeven chart links of de standaard links
-        self.chart_links = chart_links or {
-            "EURUSD": "https://www.tradingview.com/chart/?symbol=EURUSD",
-            "GBPUSD": "https://www.tradingview.com/chart/?symbol=GBPUSD",
-            "BTCUSD": "https://www.tradingview.com/chart/?symbol=BTCUSD",
-            "ETHUSD": "https://www.tradingview.com/chart/?symbol=ETHUSD"
+        self.chart_links = chart_links or self.default_chart_links
+        
+        # Converteer timeframe naar TradingView formaat
+        self.interval_map = {
+            "1m": "1",
+            "5m": "5",
+            "15m": "15",
+            "30m": "30",
+            "1h": "60",
+            "2h": "120",
+            "4h": "240",
+            "1d": "D",
+            "1w": "W",
+            "1M": "M"
         }
         
         logger.info(f"TradingView Session service initialized with {len(self.chart_links)} chart links")
@@ -41,7 +113,7 @@ class TradingViewSessionService(TradingViewService):
             
             # Launch browser
             self.browser = await self.playwright.chromium.launch(
-                headless=True,
+                headless=True,  # Altijd headless in productie
                 args=[
                     '--no-sandbox',
                     '--disable-dev-shm-usage',
@@ -71,184 +143,146 @@ class TradingViewSessionService(TradingViewService):
                 page = await self.context.new_page()
                 await page.goto("https://www.tradingview.com/", timeout=30000)
                 
-                # Controleer of we zijn ingelogd
+                # Controleer of we zijn ingelogd met meerdere mogelijke selectors
                 is_logged_in = await page.evaluate("""() => {
-                    return document.querySelector('.tv-header__user-menu-button') !== null;
+                    // Verschillende mogelijke selectors voor de gebruikersmenu-knop
+                    const selectors = [
+                        '.tv-header__user-menu-button',
+                        '.js-username',
+                        '.tv-header__user-menu',
+                        '.tv-header__user',
+                        '[data-name="user-menu"]'
+                    ];
+                    
+                    // Controleer of een van de selectors bestaat
+                    for (const selector of selectors) {
+                        if (document.querySelector(selector)) {
+                            return true;
+                        }
+                    }
+                    
+                    // Controleer of er een uitlog-link is
+                    if (document.querySelector('a[href="/logout/"]')) {
+                        return true;
+                    }
+                    
+                    return false;
                 }""")
                 
                 if is_logged_in:
                     logger.info("Successfully authenticated with session ID")
                     self.is_logged_in = True
                 else:
-                    logger.warning("Session ID authentication failed, falling back to login")
-                    await self.login(page)
+                    logger.warning("Session ID authentication failed")
+                    self.is_logged_in = False
                 
                 await page.close()
             else:
-                # Als er geen session ID is, log in met gebruikersnaam en wachtwoord
-                logger.info("No session ID provided, using username/password")
-                page = await self.context.new_page()
-                await self.login(page)
-                await page.close()
+                logger.warning("No session ID provided")
+                self.is_logged_in = False
             
             self.is_initialized = True
-            return True
+            return self.is_logged_in
             
         except Exception as e:
             logger.error(f"Error initializing TradingView Session service: {str(e)}")
-            await self.cleanup()
+            self.is_initialized = False
+            self.is_logged_in = False
             return False
     
-    async def login(self, page):
-        """Login to TradingView"""
-        try:
-            logger.info("Logging in to TradingView")
-            
-            # Navigeer naar de login pagina
-            await page.goto("https://www.tradingview.com/#signin", timeout=30000)
-            
-            # Klik op de email login optie
-            await page.click('span.js-show-email')
-            
-            # Vul inloggegevens in
-            await page.fill('[name="username"]', self.username)
-            await page.fill('[name="password"]', self.password)
-            
-            # Klik op de login knop
-            await page.click('[type="submit"]')
-            
-            # Wacht tot we zijn ingelogd
-            try:
-                await page.wait_for_navigation(timeout=30000)
-                logger.info("Successfully logged in")
-                self.is_logged_in = True
-                
-                # Haal de nieuwe session ID op
-                cookies = await self.context.cookies()
-                for cookie in cookies:
-                    if cookie["name"] == "sessionid":
-                        self.session_id = cookie["value"]
-                        logger.info(f"New session ID: {self.session_id[:10]}...")
-                        break
-                
-                return True
-            except Exception as e:
-                logger.error(f"Error during login: {str(e)}")
-                
-                # Controleer op CAPTCHA
-                if await page.query_selector('iframe[src*="recaptcha"]'):
-                    logger.warning("CAPTCHA detected, manual intervention required")
-                    # Wacht op handmatige interventie
-                    await page.wait_for_timeout(30000)
-                    
-                    # Controleer of we nu zijn ingelogd
-                    is_logged_in = await page.evaluate("""() => {
-                        return document.querySelector('.tv-header__user-menu-button') !== null;
-                    }""")
-                    
-                    if is_logged_in:
-                        logger.info("Successfully logged in after CAPTCHA")
-                        self.is_logged_in = True
-                        
-                        # Haal de nieuwe session ID op
-                        cookies = await self.context.cookies()
-                        for cookie in cookies:
-                            if cookie["name"] == "sessionid":
-                                self.session_id = cookie["value"]
-                                logger.info(f"New session ID: {self.session_id[:10]}...")
-                                break
-                        
-                        return True
-                
-                return False
-                
-        except Exception as e:
-            logger.error(f"Error during login: {str(e)}")
-            return False
+    async def login(self, page=None):
+        """Login to TradingView (not used with session ID)"""
+        logger.warning("Login with username/password is not implemented for session ID service")
+        return False
     
-    async def take_screenshot(self, symbol, timeframe):
+    async def take_screenshot(self, symbol, timeframe=None):
         """Take a screenshot of a chart"""
         if not self.is_initialized or not self.is_logged_in:
             logger.warning("TradingView Session service not initialized or not logged in")
             return None
         
         try:
-            logger.info(f"Taking screenshot for {symbol} on {timeframe} timeframe")
+            logger.info(f"Taking screenshot for {symbol}")
+            if timeframe:
+                logger.info(f"Timeframe parameter: {timeframe} (will be ignored if URL already contains timeframe)")
             
             # Maak een nieuwe pagina
             page = await self.context.new_page()
             
-            # Navigeer naar de chart pagina
-            chart_url = self.chart_links.get(symbol)
-            if not chart_url:
-                logger.warning(f"No chart URL found for {symbol}, using default URL")
-                chart_url = f"https://www.tradingview.com/chart/?symbol={symbol}"
+            # Bepaal de chart URL
+            chart_url = None
+            
+            # Als het symbool een volledige URL is, gebruik deze direct
+            if symbol.startswith("http"):
+                chart_url = symbol
+                logger.info(f"Using provided URL: {chart_url}")
+            else:
+                # Anders zoek de URL op in de chart_links dictionary
+                # Normaliseer het symbool (verwijder / en converteer naar hoofdletters)
+                normalized_symbol = symbol.replace("/", "").upper()
+                
+                chart_url = self.chart_links.get(normalized_symbol)
+                if not chart_url:
+                    logger.warning(f"No chart URL found for {symbol}, using default URL")
+                    chart_url = f"https://www.tradingview.com/chart/?symbol={symbol}"
+            
+            # Voeg timeframe toe aan de URL ALLEEN als deze er nog niet in zit en timeframe is opgegeven
+            if timeframe and "interval=" not in chart_url:
+                # Converteer timeframe naar TradingView formaat
+                tv_interval = self.interval_map.get(timeframe, "D")  # Default to daily if not found
+                
+                # Voeg interval parameter toe aan URL
+                if "?" in chart_url:
+                    chart_url += f"&interval={tv_interval}"
+                else:
+                    chart_url += f"?interval={tv_interval}"
+                
+                logger.info(f"Added timeframe {timeframe} to URL")
             
             logger.info(f"Navigating to chart URL: {chart_url}")
-            await page.goto(chart_url, timeout=30000)
+            await page.goto(chart_url, timeout=60000)
             
             # Wacht tot de chart is geladen
-            await page.wait_for_selector('.chart-markup-table', timeout=30000)
-            
-            # Verander de timeframe indien nodig
-            if timeframe != '1d':  # Standaard is 1d
-                logger.info(f"Changing timeframe to {timeframe}")
+            try:
+                # Probeer verschillende selectors voor de chart
+                chart_selectors = [
+                    '.chart-markup-table',
+                    '.chart-container',
+                    '.layout__area--center',
+                    '#tv_chart_container'
+                ]
                 
-                # Klik op de timeframe selector
-                await page.click('.chart-toolbar-timeframes button')
-                
-                # Wacht op het dropdown menu
-                await page.wait_for_selector('.menu-T1RzLuj3 .item-RhC5uhZw', timeout=10000)
-                
-                # Zoek en klik op de juiste timeframe
-                timeframe_items = await page.query_selector_all('.menu-T1RzLuj3 .item-RhC5uhZw')
-                timeframe_found = False
-                
-                for item in timeframe_items:
-                    text = await item.text_content()
-                    if timeframe.upper() in text:
-                        await item.click()
-                        timeframe_found = True
+                chart_loaded = False
+                for selector in chart_selectors:
+                    try:
+                        await page.wait_for_selector(selector, timeout=30000)
+                        chart_loaded = True
+                        logger.info(f"Chart detected with selector: {selector}")
                         break
+                    except Exception:
+                        continue
                 
-                if not timeframe_found:
-                    logger.warning(f"Timeframe {timeframe} not found, using default")
-                
-                # Wacht tot de chart is bijgewerkt
-                await page.wait_for_timeout(3000)
+                if not chart_loaded:
+                    logger.warning("Could not detect chart with known selectors, but continuing anyway")
+                    # Wacht een vaste tijd als we geen selector kunnen vinden
+                    await page.wait_for_timeout(15000)
+            except Exception as e:
+                logger.warning(f"Error waiting for chart to load: {str(e)}")
+                # Wacht een vaste tijd als er een fout optreedt
+                await page.wait_for_timeout(15000)
             
-            # Verberg UI elementen voor een schonere screenshot
-            await page.evaluate("""() => {
-                // Verberg header, footer, sidebar, etc.
-                const elementsToHide = [
-                    '.header-KN-Kpxs-',
-                    '.drawingToolbar-2_so5tMw',
-                    '.chart-controls-bar',
-                    '.bottom-widgetbar-content.backtesting',
-                    '.control-bar',
-                    '.tv-side-toolbar'
-                ];
-                
-                elementsToHide.forEach(selector => {
-                    const elements = document.querySelectorAll(selector);
-                    elements.forEach(el => {
-                        if (el) el.style.display = 'none';
-                    });
-                });
-            }""")
+            # Wacht nog wat extra tijd om zeker te zijn dat de chart volledig is geladen
+            await page.wait_for_timeout(5000)
             
-            # Wacht even om zeker te zijn dat alles is bijgewerkt
-            await page.wait_for_timeout(1000)
-            
-            # Neem de screenshot
-            screenshot = await page.screenshot()
+            # Neem een screenshot
+            logger.info("Taking screenshot")
+            screenshot_bytes = await page.screenshot()
             
             # Sluit de pagina
             await page.close()
             
-            logger.info(f"Successfully took screenshot of {symbol} {timeframe}")
-            return screenshot
-            
+            return screenshot_bytes
+        
         except Exception as e:
             logger.error(f"Error taking screenshot: {str(e)}")
             return None
