@@ -21,7 +21,10 @@ if (!url || !outputPath) {
         });
         
         // Open een nieuwe pagina
-        const context = await browser.newContext();
+        const context = await browser.newContext({
+            locale: 'en-US', // Stel de locale in op Engels
+            timezoneId: 'Europe/Amsterdam' // Stel de tijdzone in op Amsterdam
+        });
         
         // Voeg cookies toe als er een session ID is
         if (sessionId) {
@@ -37,12 +40,23 @@ if (!url || !outputPath) {
                     httpOnly: true,
                     secure: true,
                     sameSite: 'Lax'
+                },
+                {
+                    name: 'language',
+                    value: 'en',
+                    domain: '.tradingview.com',
+                    path: '/'
                 }
             ]);
         }
         
         // Open een nieuwe pagina voor de screenshot
         const page = await context.newPage();
+        
+        // Stel headers in voor Engelse taal
+        await page.setExtraHTTPHeaders({
+            'Accept-Language': 'en-US,en;q=0.9'
+        });
         
         // Stel een langere timeout in
         page.setDefaultTimeout(120000);
@@ -72,7 +86,44 @@ if (!url || !outputPath) {
             if (isLoggedIn) {
                 console.log('Waiting for custom indicators to load...');
                 await page.waitForTimeout(5000);
+                
+                // Verberg de zijbalk en maak fullscreen
+                console.log('Making chart fullscreen...');
+                
+                // Probeer eerst de TradingView shortcut voor fullscreen
+                await page.keyboard.press('F');
+                await page.waitForTimeout(1000);
+                
+                // Verberg UI elementen via JavaScript
+                await page.evaluate(() => {
+                    // Verberg de header
+                    const header = document.querySelector('.tv-header');
+                    if (header) header.style.display = 'none';
+                    
+                    // Verberg andere UI elementen
+                    const elements = document.querySelectorAll('.chart-toolbar, .tv-side-toolbar, .tv-floating-toolbar, .layout__area--left, .layout__area--right');
+                    elements.forEach(el => {
+                        if (el) el.style.display = 'none';
+                    });
+                    
+                    // Verberg de "Open in TradingView" link
+                    const tvLink = document.querySelector('.tv-watermark');
+                    if (tvLink) tvLink.style.display = 'none';
+                    
+                    // Maximaliseer de chart
+                    const chartContainer = document.querySelector('.chart-container');
+                    if (chartContainer) {
+                        chartContainer.style.width = '100vw';
+                        chartContainer.style.height = '100vh';
+                    }
+                });
+                
+                console.log('Hid UI elements and maximized chart');
+                
+                // Wacht nog even om de UI aanpassingen te verwerken
+                await page.waitForTimeout(2000);
             }
+            
         } catch (error) {
             console.error('Error loading page, trying to take screenshot anyway:', error);
         }
