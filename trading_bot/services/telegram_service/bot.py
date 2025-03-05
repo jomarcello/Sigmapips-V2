@@ -456,20 +456,31 @@ Risk Management:
     async def menu_analyse_callback(self, update: Update, context: CallbackContext) -> int:
         """Handle analyse menu selection"""
         query = update.callback_query
-        await query.answer()
-        
-        # Toon de analyse opties
-        await query.edit_message_text(
-            text="Select your analysis type:",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("📈 Technical Analysis", callback_data="analysis_technical")],
-                [InlineKeyboardButton("🧠 Market Sentiment", callback_data="analysis_sentiment")],
-                [InlineKeyboardButton("📅 Economic Calendar", callback_data="analysis_calendar")],
-                [InlineKeyboardButton("⬅️ Back", callback_data="back_menu")]
-            ])
-        )
-        
-        return ANALYSIS
+        try:
+            await query.answer()
+            
+            # Toon de analyse opties met inline keyboard
+            await query.edit_message_text(
+                text="Select your analysis type:",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("📈 Technical Analysis", callback_data="analysis_technical")],
+                    [InlineKeyboardButton("🧠 Market Sentiment", callback_data="analysis_sentiment")],
+                    [InlineKeyboardButton("📅 Economic Calendar", callback_data="analysis_calendar")],
+                    [InlineKeyboardButton("⬅️ Back", callback_data="back_menu")]
+                ])
+            )
+            
+            return ANALYSIS
+        except Exception as e:
+            logger.error(f"Error in menu choice: {str(e)}")
+            # Stuur een foutmelding
+            await query.edit_message_text(
+                text=f"Sorry, er is een fout opgetreden: {str(e)}",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("⬅️ Back", callback_data="back_menu")]
+                ])
+            )
+            return MENU
 
     async def menu_signals_callback(self, update: Update, context: CallbackContext) -> int:
         """Handle signals menu selection"""
@@ -1060,26 +1071,35 @@ Risk Management:
         except Exception as e:
             logger.error(f"Error handling help command: {str(e)}")
 
-    async def handle_callback_query(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Handle callback queries from inline keyboards"""
+    async def handle_callback_query(self, update: Update, context: CallbackContext) -> None:
+        """Handle callback queries"""
+        query = update.callback_query
+        data = query.data
+        
         try:
-            callback_query = update.callback_query
-            data = callback_query.data
-            
-            # Log voor debugging
-            logger.info(f"Received callback query: {data}")
-            
-            # Instrument technical analysis
-            if data.startswith("instrument_") and "_technical" in data:
-                # Extract instrument
-                instrument = data.replace("instrument_", "").replace("_technical", "")
-                logger.info(f"Handling technical analysis for instrument: {instrument}")
-                await self.handle_chart_button(callback_query, instrument)
-                return
-            
-            # ... rest van de code ...
+            # Verwerk de callback query
+            if data == "menu_analyse":
+                await self.menu_analyse_callback(update, context)
+            elif data == "menu_signals":
+                await self.menu_signals_callback(update, context)
+            elif data.startswith("analysis_"):
+                if data == "analysis_technical":
+                    await self.analysis_technical_callback(update, context)
+                elif data == "analysis_sentiment":
+                    await self.analysis_sentiment_callback(update, context)
+                elif data == "analysis_calendar":
+                    await self.analysis_calendar_callback(update, context)
+            elif data == "back_menu":
+                await self.back_to_menu_callback(update, context)
+            elif data == "back_analysis":
+                await self.back_to_analysis_callback(update, context)
+            elif data.startswith("market_"):
+                await self.market_callback(update, context)
+            else:
+                await query.answer("Unknown action")
         except Exception as e:
             logger.error(f"Error handling callback query: {str(e)}")
+            await query.answer(f"Error: {str(e)}")
 
     async def broadcast_signal(self, signal: Dict[str, Any]):
         """Broadcast signal to subscribers"""
