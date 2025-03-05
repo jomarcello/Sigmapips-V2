@@ -58,34 +58,26 @@ class TradingViewSeleniumService(TradingViewService):
             chrome_options.add_argument("--disable-notifications")
             chrome_options.add_argument("--force-dark-mode")
             
-            # Probeer eerst met een specifieke ChromeDriver versie
+            # Probeer met automatische versiedetectie
             try:
-                logger.info("Trying to initialize Chrome with specific driver version")
-                # Gebruik een specifieke versie die compatibel is met de meeste Chrome versies
+                logger.info("Trying to initialize Chrome with automatic version detection")
+                from webdriver_manager.chrome import ChromeDriverManager
+                
+                # Gebruik de nieuwste versie die compatibel is met de geïnstalleerde Chrome
                 self.driver = webdriver.Chrome(
-                    service=Service(ChromeDriverManager(version="114.0.5735.90").install()),
+                    service=Service(ChromeDriverManager().install()),
                     options=chrome_options
                 )
-            except Exception as driver_error:
-                logger.warning(f"Failed to initialize with specific version: {str(driver_error)}")
+            except Exception as auto_error:
+                logger.warning(f"Failed with automatic version detection: {str(auto_error)}")
                 
+                # Probeer met een lokaal geïnstalleerde ChromeDriver
                 try:
-                    # Probeer met een lokaal geïnstalleerde ChromeDriver
                     logger.info("Trying with local ChromeDriver")
                     self.driver = webdriver.Chrome(options=chrome_options)
                 except Exception as local_error:
-                    logger.warning(f"Failed with local ChromeDriver: {str(local_error)}")
-                    
-                    # Laatste poging: gebruik een generieke versie
-                    logger.info("Trying with generic ChromeDriver")
-                    try:
-                        self.driver = webdriver.Chrome(
-                            service=Service(ChromeDriverManager().install()),
-                            options=chrome_options
-                        )
-                    except Exception as generic_error:
-                        logger.error(f"All ChromeDriver initialization attempts failed: {str(generic_error)}")
-                        return False
+                    logger.error(f"All ChromeDriver initialization attempts failed: {str(local_error)}")
+                    return False
             
             # Ga naar TradingView en voeg session cookie toe
             self.driver.get(self.base_url)
