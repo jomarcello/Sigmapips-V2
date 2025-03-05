@@ -78,6 +78,13 @@ bot = TradingBot()
 @app.on_event("startup")
 async def startup_event():
     """Initialize async services on startup"""
+    # Setup Playwright browsers
+    try:
+        from trading_bot.setup_playwright import setup_playwright
+        await setup_playwright()
+    except Exception as e:
+        logger.error(f"Error setting up Playwright: {str(e)}")
+    
     await telegram.initialize()
     
     # Initialize chart service
