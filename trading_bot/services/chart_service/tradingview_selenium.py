@@ -31,6 +31,7 @@ except ImportError:
         # Als ChromeType niet beschikbaar is, gebruik dan een fallback
         CHROME_TYPE_IMPORT = False
 
+# Importeer de base class
 from trading_bot.services.chart_service.base import TradingViewService
 
 logger = logging.getLogger(__name__)
