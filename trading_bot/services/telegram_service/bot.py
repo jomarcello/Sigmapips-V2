@@ -2273,3 +2273,135 @@ Risk Management:
         except Exception as e:
             logger.error(f"Error in analysis type callback: {str(e)}")
             await update.callback_query.message.reply_text(f"❌ Er is een fout opgetreden: {str(e)}")
+
+    async def handle_technical_analysis(self, update: Update, context: CallbackContext):
+        """Handle technical analysis command"""
+        query = update.callback_query
+        data = query.data
+        
+        # Parse de callback data
+        parts = data.split('_')
+        if len(parts) < 3:
+            await query.answer("Invalid command")
+            return
+        
+        action = parts[1]
+        
+        if action == "market":
+            # Toon de beschikbare markten
+            market_keyboard = [
+                [InlineKeyboardButton("Forex", callback_data="ta_instrument_forex")],
+                [InlineKeyboardButton("Crypto", callback_data="ta_instrument_crypto")],
+                [InlineKeyboardButton("Indices", callback_data="ta_instrument_indices")],
+                [InlineKeyboardButton("Commodities", callback_data="ta_instrument_commodities")],
+                [InlineKeyboardButton("Back", callback_data="ta_main")]
+            ]
+            
+            await query.edit_message_text(
+                "Choose a market:",
+                reply_markup=InlineKeyboardMarkup(market_keyboard)
+            )
+        elif action == "instrument":
+            # Toon de beschikbare instrumenten voor de gekozen markt
+            market = parts[2]
+            
+            instruments = []
+            if market == "forex":
+                instruments = [
+                    ["EURUSD", "GBPUSD", "USDJPY"],
+                    ["AUDUSD", "USDCAD", "NZDUSD"],
+                    ["EURGBP", "EURJPY", "GBPJPY"],
+                    ["Back"]
+                ]
+            elif market == "crypto":
+                instruments = [
+                    ["BTCUSD", "ETHUSD", "XRPUSD"],
+                    ["LTCUSD", "BCHUSD", "ADAUSD"],
+                    ["DOTUSD", "LINKUSD", "SOLUSD"],
+                    ["Back"]
+                ]
+            elif market == "indices":
+                instruments = [
+                    ["US30", "US500", "US100"],
+                    ["UK100", "DE40", "FR40"],
+                    ["JP225", "AU200", "HK50"],
+                    ["Back"]
+                ]
+            elif market == "commodities":
+                instruments = [
+                    ["XAUUSD", "XAGUSD", "WTIUSD"],
+                    ["BCOUSD", "Back"]
+                ]
+            
+            instrument_keyboard = []
+            for row in instruments:
+                if row == ["Back"]:
+                    instrument_keyboard.append([InlineKeyboardButton("Back", callback_data="ta_market")])
+                else:
+                    buttons = []
+                    for instrument in row:
+                        buttons.append(InlineKeyboardButton(instrument, callback_data=f"ta_chart_{instrument}"))
+                    instrument_keyboard.append(buttons)
+            
+            await query.edit_message_text(
+                f"Choose an instrument from {market.capitalize()}:",
+                reply_markup=InlineKeyboardMarkup(instrument_keyboard)
+            )
+        elif action == "chart":
+            # Toon de chart voor het gekozen instrument
+            instrument = parts[2]
+            
+            # Toon een "loading" bericht
+            await query.edit_message_text(f"Generating chart for {instrument}...")
+            
+            # Haal de chart op
+            try:
+                # Haal de chart op met de chart service
+                chart_service = self.bot.chart
+                
+                if chart_service and chart_service.tradingview:
+                    # Neem screenshots voor verschillende timeframes
+                    timeframes = ["1h", "4h", "1d"]
+                    screenshots = {}
+                    
+                    for timeframe in timeframes:
+                        screenshot = await chart_service.tradingview.take_screenshot(instrument, timeframe)
+                        if screenshot:
+                            screenshots[timeframe] = screenshot
+                    
+                    if screenshots:
+                        # Stuur de screenshots
+                        for timeframe, screenshot in screenshots.items():
+                            # Stuur de screenshot
+                            await query.message.reply_photo(
+                                photo=screenshot,
+                                caption=f"{instrument} - {timeframe} timeframe"
+                            )
+                        
+                        # Stuur een bericht met een knop om terug te gaan
+                        back_keyboard = [[InlineKeyboardButton("Back", callback_data="ta_market")]]
+                        await query.message.reply_text(
+                            f"Charts for {instrument}",
+                            reply_markup=InlineKeyboardMarkup(back_keyboard)
+                        )
+                    else:
+                        # Geen screenshots beschikbaar
+                        await query.edit_message_text(
+                            f"Failed to generate chart for {instrument}. Please try again later.",
+                            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Back", callback_data="ta_market")]])
+                        )
+                else:
+                    # Geen chart service beschikbaar
+                    await query.edit_message_text(
+                        f"Chart service is not available. Please try again later.",
+                        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Back", callback_data="ta_market")]])
+                    )
+            except Exception as e:
+                logger.error(f"Error generating chart: {str(e)}")
+                await query.edit_message_text(
+                    f"Error generating chart: {str(e)}",
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Back", callback_data="ta_market")]])
+                )
+        else:
+            # Onbekende actie
+            await query.answer("Unknown action")
