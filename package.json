@@ -1,0 +1,17 @@
+{
+  "name": "tradingview-automation",
+  "version": "1.0.0",
+  "description": "TradingView automation with Playwright",
+  "main": "index.js",
+  "scripts": {
+    "test": "playwright test",
+    "screenshot": "node tradingview_screenshot.js"
+  },
+  "dependencies": {
+    "@playwright/test": "^1.40.0",
+    "playwright-extra": "^4.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2",
+    "puppeteer-extra-plugin-recaptcha": "^2.3.3",
+    "dotenv": "^16.3.1"
+  }
+} 
