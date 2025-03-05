@@ -101,7 +101,23 @@ class ChartService:
         try:
             logger.info("Initializing chart service")
             
-            # Probeer eerst Node.js
+            # Probeer eerst Session service
+            try:
+                from trading_bot.services.chart_service.tradingview_session import TradingViewSessionService
+                self.tradingview_session = TradingViewSessionService(chart_links=self.chart_links)
+                session_success = await self.tradingview_session.initialize()
+                
+                if session_success:
+                    logger.info("Chart service initialized with Session service successfully")
+                    self.tradingview = self.tradingview_session
+                    return True
+                else:
+                    logger.warning("Failed to initialize Session service, trying Node.js")
+            except Exception as session_error:
+                logger.error(f"Error initializing Session service: {str(session_error)}")
+                logger.warning("Failed to initialize Session service, trying Node.js")
+            
+            # Probeer Node.js als Session service faalt
             try:
                 from trading_bot.services.chart_service.tradingview_node import TradingViewNodeService
                 self.tradingview_node = TradingViewNodeService()
