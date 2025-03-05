@@ -300,8 +300,16 @@ class TelegramService:
             webhook_info = await self.bot.get_webhook_info()
             logger.info(f"Current webhook info: {webhook_info}")
             
+            # Registreer de callback handlers
+            self.application.add_handler(CallbackQueryHandler(
+                self.handle_market_callback, pattern="^market:"
+            ))
+            self.application.add_handler(CallbackQueryHandler(
+                self.handle_technical_analysis_callback, pattern="^technical_analysis:"
+            ))
+            
         except Exception as e:
-            logger.error(f"Failed to connect to Telegram API: {str(e)}")
+            logger.error(f"Error initializing Telegram service: {str(e)}")
             raise
             
     async def format_signal_with_ai(self, signal: Dict[str, Any]) -> str:
@@ -1922,7 +1930,7 @@ Risk Management:
             logger.info("Selenium charts command received")
             
             # Stuur een bericht dat we bezig zijn
-            message = await update.message.reply_text("🔄 Bezig met het maken van screenshots...")
+            message = await update.message.reply_text("🔄 Bezig met het maken van charts...")
             
             # Parse de argumenten (symbolen en timeframes)
             symbols = ["EURUSD", "GBPUSD", "BTCUSD", "ETHUSD"]  # Standaard symbolen
@@ -1944,45 +1952,50 @@ Risk Management:
                         timeframes = timeframes_arg.split(",")
             
             # Log de parameters
-            logger.info(f"Selenium charts command with symbols={symbols}, timeframes={timeframes}")
+            logger.info(f"Charts command with symbols={symbols}, timeframes={timeframes}")
             
             # Update het bericht
             await message.edit_text(
-                f"🔄 Bezig met het maken van screenshots voor "
+                f"🔄 Bezig met het maken van charts voor "
                 f"{', '.join(symbols) if symbols else 'standaard symbolen'} op "
                 f"{', '.join(timeframes) if timeframes else 'standaard timeframes'}..."
             )
             
-            # Controleer of de service is geïnitialiseerd
-            if not self.chart.tradingview or not self.chart.tradingview.is_initialized:
-                await message.edit_text("❌ Chart service is niet geïnitialiseerd. Probeer het later opnieuw.")
+            # Gebruik de fallback methode
+            results = {}
+            for symbol in symbols:
+                results[symbol] = {}
+                for timeframe in timeframes:
+                    try:
+                        # Gebruik de fallback methode
+                        chart_image = await self.chart.get_chart(symbol, timeframe)
+                        if chart_image:
+                            results[symbol][timeframe] = chart_image
+                        else:
+                            results[symbol][timeframe] = None
+                    except Exception as chart_error:
+                        logger.error(f"Error generating chart for {symbol} {timeframe}: {str(chart_error)}")
+                        results[symbol][timeframe] = None
+            
+            if not any(any(timeframe_data.values()) for timeframe_data in results.values()):
+                await message.edit_text("❌ Er is een fout opgetreden bij het maken van charts.")
                 return
             
-            # Roep de batch capture functie aan
-            results = await self.chart.tradingview.batch_capture_charts(
-                symbols=symbols,
-                timeframes=timeframes
-            )
-            
-            if not results:
-                await message.edit_text("❌ Er is een fout opgetreden bij het maken van screenshots.")
-                return
-            
-            # Stuur de screenshots één voor één
-            await message.edit_text(f"✅ Screenshots gemaakt voor {len(results)} symbolen!")
+            # Stuur de charts één voor één
+            await message.edit_text(f"✅ Charts gemaakt voor {len(results)} symbolen!")
             
             for symbol, timeframe_data in results.items():
-                for timeframe, screenshot in timeframe_data.items():
-                    if screenshot is None:
+                for timeframe, chart_image in timeframe_data.items():
+                    if chart_image is None:
                         continue
                         
                     # Maak een caption
-                    caption = f"📊 {symbol} - {timeframe} Timeframe (Playwright)"
+                    caption = f"📊 {symbol} - {timeframe} Timeframe (Fallback)"
                     
                     try:
                         # Stuur de afbeelding
                         await update.message.reply_photo(
-                            photo=screenshot,
+                            photo=chart_image,
                             caption=caption
                         )
                         
@@ -1991,9 +2004,220 @@ Risk Management:
                     except Exception as photo_error:
                         logger.error(f"Error sending photo: {str(photo_error)}")
                         await update.message.reply_text(
-                            f"❌ Kon screenshot voor {symbol} - {timeframe} niet versturen: {str(photo_error)}"
+                            f"❌ Kon chart voor {symbol} - {timeframe} niet versturen: {str(photo_error)}"
                         )
             
         except Exception as e:
-            logger.error(f"Error in selenium charts command: {str(e)}")
+            logger.error(f"Error in charts command: {str(e)}")
             await update.message.reply_text(f"❌ Er is een fout opgetreden: {str(e)}")
+
+    async def handle_technical_analysis_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle technical analysis callback"""
+        try:
+            query = update.callback_query
+            await query.answer()
+            
+            # Haal de callback data op
+            data = query.data
+            parts = data.split(":")
+            
+            if len(parts) < 3:
+                await query.message.reply_text("❌ Ongeldige callback data")
+                return
+            
+            # Haal het instrument en de markt op
+            market = parts[1]
+            instrument = parts[2]
+            
+            # Log de aanvraag
+            logger.info(f"Technical analysis requested for {market}:{instrument}")
+            
+            # Stuur een bericht dat we bezig zijn
+            message = await query.message.reply_text(
+                f"🔄 Bezig met het maken van technische analyse voor {instrument}..."
+            )
+            
+            # Haal de chart op met de fallback methode
+            try:
+                # Gebruik de fallback methode voor alle timeframes
+                timeframes = ["1h", "4h", "1d"]
+                results = {}
+                
+                for timeframe in timeframes:
+                    try:
+                        chart_image = await self.chart.get_chart(instrument, timeframe)
+                        if chart_image:
+                            results[timeframe] = chart_image
+                    except Exception as chart_error:
+                        logger.error(f"Error generating chart for {instrument} {timeframe}: {str(chart_error)}")
+                        results[timeframe] = None
+                
+                if not any(results.values()):
+                    await message.edit_text(f"❌ Kon geen charts genereren voor {instrument}")
+                    return
+                
+                # Stuur de charts één voor één
+                await message.edit_text(f"✅ Technische analyse voor {instrument} gereed!")
+                
+                for timeframe, chart_image in results.items():
+                    if chart_image is None:
+                        continue
+                        
+                    # Maak een caption
+                    caption = f"📊 {instrument} - {timeframe} Timeframe"
+                    
+                    try:
+                        # Stuur de afbeelding
+                        await query.message.reply_photo(
+                            photo=chart_image,
+                            caption=caption
+                        )
+                        
+                        # Korte pauze om rate limiting te voorkomen
+                        await asyncio.sleep(1)
+                    except Exception as photo_error:
+                        logger.error(f"Error sending photo: {str(photo_error)}")
+                        await query.message.reply_text(
+                            f"❌ Kon chart voor {instrument} - {timeframe} niet versturen: {str(photo_error)}"
+                        )
+                
+            except Exception as e:
+                logger.error(f"Error generating technical analysis: {str(e)}")
+                await message.edit_text(f"❌ Er is een fout opgetreden bij het maken van de technische analyse: {str(e)}")
+                
+        except Exception as e:
+            logger.error(f"Error in technical analysis callback: {str(e)}")
+            await update.callback_query.message.reply_text(f"❌ Er is een fout opgetreden: {str(e)}")
+
+    async def handle_market_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle market selection callback"""
+        try:
+            query = update.callback_query
+            await query.answer()
+            
+            # Haal de callback data op
+            data = query.data
+            parts = data.split(":")
+            
+            if len(parts) < 2:
+                await query.message.reply_text("❌ Ongeldige callback data")
+                return
+            
+            # Haal de markt op
+            market = parts[1]
+            
+            # Maak een keyboard op basis van de geselecteerde markt
+            if market == "forex":
+                keyboard = [
+                    [
+                        InlineKeyboardButton("EUR/USD", callback_data=f"technical_analysis:forex:EURUSD"),
+                        InlineKeyboardButton("GBP/USD", callback_data=f"technical_analysis:forex:GBPUSD"),
+                        InlineKeyboardButton("USD/JPY", callback_data=f"technical_analysis:forex:USDJPY")
+                    ],
+                    [
+                        InlineKeyboardButton("AUD/USD", callback_data=f"technical_analysis:forex:AUDUSD"),
+                        InlineKeyboardButton("USD/CAD", callback_data=f"technical_analysis:forex:USDCAD"),
+                        InlineKeyboardButton("EUR/GBP", callback_data=f"technical_analysis:forex:EURGBP")
+                    ],
+                    [
+                        InlineKeyboardButton("Terug", callback_data="analysis_menu")
+                    ]
+                ]
+                
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                await query.message.edit_text("Selecteer een Forex paar voor technische analyse:", reply_markup=reply_markup)
+                
+            elif market == "crypto":
+                keyboard = [
+                    [
+                        InlineKeyboardButton("BTC/USD", callback_data=f"technical_analysis:crypto:BTCUSD"),
+                        InlineKeyboardButton("ETH/USD", callback_data=f"technical_analysis:crypto:ETHUSD"),
+                        InlineKeyboardButton("XRP/USD", callback_data=f"technical_analysis:crypto:XRPUSD")
+                    ],
+                    [
+                        InlineKeyboardButton("SOL/USD", callback_data=f"technical_analysis:crypto:SOLUSD"),
+                        InlineKeyboardButton("BNB/USD", callback_data=f"technical_analysis:crypto:BNBUSD"),
+                        InlineKeyboardButton("ADA/USD", callback_data=f"technical_analysis:crypto:ADAUSD")
+                    ],
+                    [
+                        InlineKeyboardButton("Terug", callback_data="analysis_menu")
+                    ]
+                ]
+                
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                await query.message.edit_text("Selecteer een Crypto paar voor technische analyse:", reply_markup=reply_markup)
+                
+            # Voeg andere markten toe zoals indices, commodities, etc.
+            
+            else:
+                await query.message.edit_text(f"❌ Onbekende markt: {market}")
+                
+        except Exception as e:
+            logger.error(f"Error in market callback: {str(e)}")
+            await update.callback_query.message.reply_text(f"❌ Er is een fout opgetreden: {str(e)}")
+
+    async def cmd_analysis(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle the /analysis command"""
+        try:
+            keyboard = [
+                [
+                    InlineKeyboardButton("Technical Analysis", callback_data="analysis_type:technical")
+                ],
+                [
+                    InlineKeyboardButton("Fundamental Analysis", callback_data="analysis_type:fundamental")
+                ],
+                [
+                    InlineKeyboardButton("Sentiment Analysis", callback_data="analysis_type:sentiment")
+                ]
+            ]
+            
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await update.message.reply_text("Selecteer het type analyse:", reply_markup=reply_markup)
+            
+        except Exception as e:
+            logger.error(f"Error in analysis command: {str(e)}")
+            await update.message.reply_text(f"❌ Er is een fout opgetreden: {str(e)}")
+
+    async def handle_analysis_type_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle analysis type selection callback"""
+        try:
+            query = update.callback_query
+            await query.answer()
+            
+            # Haal de callback data op
+            data = query.data
+            parts = data.split(":")
+            
+            if len(parts) < 2:
+                await query.message.reply_text("❌ Ongeldige callback data")
+                return
+            
+            # Haal het type analyse op
+            analysis_type = parts[1]
+            
+            if analysis_type == "technical":
+                keyboard = [
+                    [
+                        InlineKeyboardButton("Forex", callback_data="market:forex"),
+                        InlineKeyboardButton("Crypto", callback_data="market:crypto")
+                    ],
+                    [
+                        InlineKeyboardButton("Indices", callback_data="market:indices"),
+                        InlineKeyboardButton("Commodities", callback_data="market:commodities")
+                    ],
+                    [
+                        InlineKeyboardButton("Terug", callback_data="main_menu")
+                    ]
+                ]
+                
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                await query.message.edit_text("Selecteer een markt voor technische analyse:", reply_markup=reply_markup)
+                
+            # Voeg andere analyse types toe zoals fundamental, sentiment, etc.
+            
+            else:
+                await query.message.edit_text(f"❌ Onbekend analyse type: {analysis_type}")
+                
+        except Exception as e:
+            logger.error(f"Error in analysis type callback: {str(e)}")
+            await update.callback_query.message.reply_text(f"❌ Er is een fout opgetreden: {str(e)}")
