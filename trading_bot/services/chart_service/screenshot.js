@@ -74,11 +74,22 @@ if (!url || !outputPath) {
             console.log('Waiting for page to render...');
             await page.waitForTimeout(15000);
             
-            // Controleer of we zijn ingelogd
+            // Controleer of we zijn ingelogd (alleen voor logging)
             const isLoggedIn = await page.evaluate(() => {
-                return document.body.innerText.includes('Log out') || 
-                       document.body.innerText.includes('Account') ||
-                       document.querySelector('.tv-header__user-menu-button') !== null;
+                // Verschillende manieren om te controleren of we zijn ingelogd
+                const hasLogoutButton = document.body.innerText.includes('Log out');
+                const hasAccountButton = document.body.innerText.includes('Account');
+                const hasUserMenuButton = document.querySelector('.tv-header__user-menu-button') !== null;
+                const hasUserAvatar = document.querySelector('.tv-header__user-avatar') !== null;
+                
+                console.log('Login checks:', {
+                    hasLogoutButton,
+                    hasAccountButton,
+                    hasUserMenuButton,
+                    hasUserAvatar
+                });
+                
+                return hasLogoutButton || hasAccountButton || hasUserMenuButton || hasUserAvatar;
             });
             
             console.log(`Logged in status: ${isLoggedIn}`);
@@ -87,85 +98,85 @@ if (!url || !outputPath) {
             if (isLoggedIn) {
                 console.log('Waiting for custom indicators to load...');
                 await page.waitForTimeout(5000);
+            }
+            
+            // Verberg de zijbalk en maak fullscreen (altijd, ongeacht login status)
+            console.log('Making chart fullscreen...');
+            
+            // Probeer verschillende methoden voor fullscreen
+            try {
+                // Methode 1: Gebruik de TradingView shortcut 'F'
+                await page.keyboard.press('F');
+                await page.waitForTimeout(1000);
                 
-                // Verberg de zijbalk en maak fullscreen
-                console.log('Making chart fullscreen...');
-                
-                // Probeer verschillende methoden voor fullscreen
-                try {
-                    // Methode 1: Gebruik de TradingView shortcut 'F'
-                    await page.keyboard.press('F');
+                // Methode 2: Klik op de fullscreen knop als deze bestaat
+                const fullscreenButton = await page.$('.js-chart-actions-fullscreen');
+                if (fullscreenButton) {
+                    await fullscreenButton.click();
+                    console.log('Clicked fullscreen button');
                     await page.waitForTimeout(1000);
-                    
-                    // Methode 2: Klik op de fullscreen knop als deze bestaat
-                    const fullscreenButton = await page.$('.js-chart-actions-fullscreen');
-                    if (fullscreenButton) {
-                        await fullscreenButton.click();
-                        console.log('Clicked fullscreen button');
-                        await page.waitForTimeout(1000);
-                    }
-                    
-                    // Methode 3: Gebruik JavaScript om de chart te maximaliseren
-                    await page.evaluate(() => {
-                        // Verberg alle UI elementen
-                        const elementsToHide = [
-                            '.tv-header',                  // Header
-                            '.chart-toolbar',              // Chart toolbar
-                            '.tv-side-toolbar',            // Side toolbar
-                            '.tv-floating-toolbar',        // Floating toolbar
-                            '.layout__area--left',         // Left sidebar
-                            '.layout__area--right',        // Right sidebar
-                            '.tv-watermark',               // TradingView watermark
-                            '.tv-chart-toolbar',           // Chart toolbar
-                            '.tv-main-panel--top-toolbar', // Top toolbar
-                            '.tv-main-panel--bottom-toolbar', // Bottom toolbar
-                            '.tv-chart-studies',           // Studies panel
-                            '.tv-dialog',                  // Any open dialogs
-                            '.tv-insert-study-dialog',     // Study dialog
-                            '.tv-insert-indicator-dialog', // Indicator dialog
-                            '.tv-linetool-properties-toolbar' // Line tool properties
-                        ];
-                        
-                        // Verberg alle elementen
-                        elementsToHide.forEach(selector => {
-                            const elements = document.querySelectorAll(selector);
-                            elements.forEach(el => {
-                                if (el) el.style.display = 'none';
-                            });
-                        });
-                        
-                        // Maximaliseer de chart container
-                        const chartContainer = document.querySelector('.chart-container');
-                        if (chartContainer) {
-                            chartContainer.style.width = '100vw';
-                            chartContainer.style.height = '100vh';
-                            chartContainer.style.position = 'fixed';
-                            chartContainer.style.top = '0';
-                            chartContainer.style.left = '0';
-                            chartContainer.style.zIndex = '9999';
-                        }
-                        
-                        // Maximaliseer de chart zelf
-                        const chartElement = document.querySelector('.chart-markup-table');
-                        if (chartElement) {
-                            chartElement.style.width = '100vw';
-                            chartElement.style.height = '100vh';
-                        }
-                        
-                        // Verwijder marges en padding
-                        document.body.style.margin = '0';
-                        document.body.style.padding = '0';
-                        document.body.style.overflow = 'hidden';
-                    });
-                    
-                    console.log('Applied fullscreen optimizations');
-                } catch (error) {
-                    console.error('Error applying fullscreen:', error);
                 }
                 
-                // Wacht nog even om de UI aanpassingen te verwerken
-                await page.waitForTimeout(2000);
+                // Methode 3: Gebruik JavaScript om de chart te maximaliseren
+                await page.evaluate(() => {
+                    // Verberg alle UI elementen
+                    const elementsToHide = [
+                        '.tv-header',                  // Header
+                        '.chart-toolbar',              // Chart toolbar
+                        '.tv-side-toolbar',            // Side toolbar
+                        '.tv-floating-toolbar',        // Floating toolbar
+                        '.layout__area--left',         // Left sidebar
+                        '.layout__area--right',        // Right sidebar
+                        '.tv-watermark',               // TradingView watermark
+                        '.tv-chart-toolbar',           // Chart toolbar
+                        '.tv-main-panel--top-toolbar', // Top toolbar
+                        '.tv-main-panel--bottom-toolbar', // Bottom toolbar
+                        '.tv-chart-studies',           // Studies panel
+                        '.tv-dialog',                  // Any open dialogs
+                        '.tv-insert-study-dialog',     // Study dialog
+                        '.tv-insert-indicator-dialog', // Indicator dialog
+                        '.tv-linetool-properties-toolbar' // Line tool properties
+                    ];
+                    
+                    // Verberg alle elementen
+                    elementsToHide.forEach(selector => {
+                        const elements = document.querySelectorAll(selector);
+                        elements.forEach(el => {
+                            if (el) el.style.display = 'none';
+                        });
+                    });
+                    
+                    // Maximaliseer de chart container
+                    const chartContainer = document.querySelector('.chart-container');
+                    if (chartContainer) {
+                        chartContainer.style.width = '100vw';
+                        chartContainer.style.height = '100vh';
+                        chartContainer.style.position = 'fixed';
+                        chartContainer.style.top = '0';
+                        chartContainer.style.left = '0';
+                        chartContainer.style.zIndex = '9999';
+                    }
+                    
+                    // Maximaliseer de chart zelf
+                    const chartElement = document.querySelector('.chart-markup-table');
+                    if (chartElement) {
+                        chartElement.style.width = '100vw';
+                        chartElement.style.height = '100vh';
+                    }
+                    
+                    // Verwijder marges en padding
+                    document.body.style.margin = '0';
+                    document.body.style.padding = '0';
+                    document.body.style.overflow = 'hidden';
+                });
+                
+                console.log('Applied fullscreen optimizations');
+            } catch (error) {
+                console.error('Error applying fullscreen:', error);
             }
+            
+            // Wacht nog even om de UI aanpassingen te verwerken
+            await page.waitForTimeout(2000);
             
         } catch (error) {
             console.error('Error loading page, trying to take screenshot anyway:', error);
