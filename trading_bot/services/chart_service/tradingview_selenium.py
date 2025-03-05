@@ -101,30 +101,51 @@ class TradingViewSeleniumService(TradingViewService):
                 # Ga eerst naar TradingView om cookies te kunnen instellen
                 self.driver.get("https://www.tradingview.com/")
                 
+                # Wacht even om de pagina te laden
+                time.sleep(3)
+                
+                # Log alle huidige cookies
+                logger.info(f"Current cookies before setting: {self.driver.get_cookies()}")
+                
                 # Voeg cookies toe
-                self.driver.add_cookie({
-                    "name": "sessionid",
-                    "value": self.session_id,
-                    "domain": ".tradingview.com",
-                    "path": "/"
-                })
+                cookies_to_add = [
+                    {
+                        "name": "sessionid",
+                        "value": self.session_id,
+                        "domain": ".tradingview.com",
+                        "path": "/"
+                    },
+                    {
+                        "name": "device_t",
+                        "value": "web",
+                        "domain": ".tradingview.com",
+                        "path": "/"
+                    },
+                    {
+                        "name": "logged_in",
+                        "value": "1",
+                        "domain": ".tradingview.com",
+                        "path": "/"
+                    }
+                ]
                 
-                self.driver.add_cookie({
-                    "name": "device_t",
-                    "value": "web",
-                    "domain": ".tradingview.com",
-                    "path": "/"
-                })
+                for cookie in cookies_to_add:
+                    try:
+                        self.driver.add_cookie(cookie)
+                        logger.info(f"Added cookie: {cookie['name']}")
+                    except Exception as cookie_error:
+                        logger.error(f"Error adding cookie {cookie['name']}: {str(cookie_error)}")
                 
-                self.driver.add_cookie({
-                    "name": "logged_in",
-                    "value": "1",
-                    "domain": ".tradingview.com",
-                    "path": "/"
-                })
+                # Log alle cookies na het instellen
+                logger.info(f"Cookies after setting: {self.driver.get_cookies()}")
                 
-                # Ga naar de chart pagina om te testen of we zijn ingelogd
+                # Ververs de pagina om de cookies te activeren
+                self.driver.refresh()
+                time.sleep(3)
+                
+                # Controleer of we zijn ingelogd
                 try:
+                    # Ga naar de chart pagina
                     self.driver.get("https://www.tradingview.com/chart/")
                     
                     # Wacht maximaal 15 seconden
@@ -132,32 +153,27 @@ class TradingViewSeleniumService(TradingViewService):
                         EC.presence_of_element_located((By.TAG_NAME, "body"))
                     )
                     
-                    # Controleer of we zijn ingelogd
-                    selectors = [
-                        '.tv-header__user-menu-button',
-                        '.js-username',
-                        '.tv-header__user-menu',
-                        '.tv-header__user',
-                        '[data-name="user-menu"]'
+                    # Wacht nog wat extra tijd voor de pagina om te laden
+                    time.sleep(5)
+                    
+                    # Neem een screenshot voor debugging
+                    debug_screenshot_path = "/tmp/tradingview_login_check.png"
+                    self.driver.save_screenshot(debug_screenshot_path)
+                    logger.info(f"Saved login check screenshot to {debug_screenshot_path}")
+                    
+                    # Controleer of we zijn ingelogd door te zoeken naar elementen die alleen zichtbaar zijn als je bent ingelogd
+                    page_source = self.driver.page_source
+                    
+                    # Zoek naar tekenen van ingelogd zijn
+                    logged_in_indicators = [
+                        "Sign Out",
+                        "Account",
+                        "Profile",
+                        "My Profile",
+                        "user-menu-button"
                     ]
                     
-                    is_logged_in = False
-                    for selector in selectors:
-                        try:
-                            element = self.driver.find_element(By.CSS_SELECTOR, selector)
-                            if element:
-                                is_logged_in = True
-                                break
-                        except:
-                            pass
-                    
-                    # Controleer ook op uitlog-link
-                    try:
-                        logout_link = self.driver.find_element(By.CSS_SELECTOR, 'a[href="/logout/"]')
-                        if logout_link:
-                            is_logged_in = True
-                    except:
-                        pass
+                    is_logged_in = any(indicator in page_source for indicator in logged_in_indicators)
                     
                     if is_logged_in:
                         logger.info("Successfully authenticated with session ID")
@@ -165,12 +181,8 @@ class TradingViewSeleniumService(TradingViewService):
                     else:
                         logger.warning("Session ID authentication failed, but continuing anyway")
                         self.is_logged_in = False
-                
-                except TimeoutException:
-                    logger.error("Timeout waiting for TradingView page to load")
-                    self.is_logged_in = False
-                except Exception as e:
-                    logger.error(f"Error testing session: {str(e)}")
+                except Exception as page_error:
+                    logger.error(f"Error testing session: {str(page_error)}")
                     self.is_logged_in = False
             else:
                 logger.warning("No session ID provided")
