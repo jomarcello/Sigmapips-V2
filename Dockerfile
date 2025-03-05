@@ -11,7 +11,6 @@ RUN apt-get update && apt-get install -y \
     && if [ ! -e /usr/bin/pip ]; then ln -s /usr/bin/pip3 /usr/bin/pip; fi
 
 # Installeer system dependencies voor zowel Chromium, Playwright als Selenium
-# Voeg curl toe aan de lijst met dependencies
 RUN apt-get update && apt-get install -y \
     wget \
     curl \
@@ -58,14 +57,12 @@ RUN wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | apt-key
     && apt-get install -y google-chrome-stable \
     && rm -rf /var/lib/apt/lists/*
 
-# Installeer de juiste ChromeDriver versie die overeenkomt met Chrome
-RUN CHROME_VERSION=$(google-chrome --version | awk '{print $3}' | cut -d. -f1) \
-    && CHROMEDRIVER_VERSION=$(curl -s "https://chromedriver.storage.googleapis.com/LATEST_RELEASE_$CHROME_VERSION") \
-    && wget -q "https://chromedriver.storage.googleapis.com/$CHROMEDRIVER_VERSION/chromedriver_linux64.zip" \
-    && unzip chromedriver_linux64.zip \
-    && mv chromedriver /usr/local/bin/chromedriver \
+# Installeer een specifieke versie van ChromeDriver die compatibel is met Chrome 114+
+RUN wget -q "https://edgedl.me.gvt1.com/edgedl/chrome/chrome-for-testing/114.0.5735.90/linux64/chromedriver-linux64.zip" \
+    && unzip chromedriver-linux64.zip \
+    && mv chromedriver-linux64/chromedriver /usr/local/bin/chromedriver \
     && chmod +x /usr/local/bin/chromedriver \
-    && rm chromedriver_linux64.zip
+    && rm -rf chromedriver-linux64.zip chromedriver-linux64
 
 # Set up Chrome environment variables
 ENV CHROME_BIN=/usr/bin/google-chrome
