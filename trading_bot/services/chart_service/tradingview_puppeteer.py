@@ -585,4 +585,113 @@ class TradingViewPuppeteerService:
                 await self.browser.close()
             logger.info("TradingView Puppeteer service resources cleaned up")
         except Exception as e:
-            logger.error(f"Error cleaning up TradingView Puppeteer service: {str(e)}") 
+            logger.error(f"Error cleaning up TradingView Puppeteer service: {str(e)}")
+            
+    async def batch_capture_charts(self, symbols=None, timeframes=None):
+        """
+        Neem automatisch screenshots van meerdere symbolen en timeframes
+        
+        Args:
+            symbols (list): Lijst van symbolen om te verwerken (bijv. ["EURUSD", "BTCUSD"])
+            timeframes (list): Lijst van timeframes (bijv. ["1h", "4h", "1d"])
+        
+        Returns:
+            dict: Dictionary met screenshots per symbool en timeframe
+        """
+        if not self.is_logged_in:
+            logger.warning("Niet ingelogd bij TradingView. Login eerst.")
+            return None
+        
+        if not symbols:
+            # Gebruik standaard symbolen als geen zijn opgegeven
+            symbols = ["EURUSD", "GBPUSD", "BTCUSD", "ETHUSD"]
+        
+        if not timeframes:
+            # Gebruik standaard timeframes als geen zijn opgegeven
+            timeframes = ["1h", "4h", "1d"]
+        
+        results = {}
+        
+        try:
+            for symbol in symbols:
+                results[symbol] = {}
+                
+                # Zoek de chart URL voor dit symbool
+                chart_url = None
+                for key, url in self.chart_links.items():
+                    if key.upper() == symbol.upper():
+                        chart_url = url
+                        break
+                    
+                if not chart_url:
+                    logger.warning(f"Geen chart URL gevonden voor {symbol}, gebruik standaard chart")
+                    chart_url = "https://www.tradingview.com/chart/"
+                
+                # Navigeer naar de chart
+                await self.page.goto(chart_url, {'waitUntil': 'networkidle0', 'timeout': 60000})
+                await asyncio.sleep(5)  # Wacht tot chart volledig geladen is
+                
+                # Controleer of we op de juiste pagina zijn
+                if "chart" not in self.page.url:
+                    logger.warning(f"Niet op chart pagina voor {symbol}")
+                    continue
+                
+                # Verwerk elke timeframe
+                for timeframe in timeframes:
+                    try:
+                        # Stel timeframe in via JavaScript
+                        await self.page.evaluate(f"""
+                            () => {{
+                                // Zoek de timeframe knop en klik erop
+                                const tfButton = document.querySelector('.chart-toolbar-timeframes button');
+                                if (tfButton) tfButton.click();
+                                
+                                // Wacht even en klik dan op de juiste timeframe
+                                setTimeout(() => {{
+                                    const tfOptions = Array.from(document.querySelectorAll('.menu-1Jmy26cD .item-2IihgTnv'));
+                                    const targetTf = tfOptions.find(el => el.textContent.includes('{timeframe}'));
+                                    if (targetTf) targetTf.click();
+                                }}, 500);
+                            }}
+                        """)
+                        
+                        # Wacht tot de chart is bijgewerkt
+                        await asyncio.sleep(3)
+                        
+                        # Verberg UI elementen voor een schone screenshot
+                        await self.page.evaluate("""
+                            () => {
+                                // Verberg UI elementen
+                                const elementsToHide = [
+                                    '.chart-toolbar',
+                                    '.tv-side-toolbar',
+                                    '.header-chart-panel',
+                                    '.drawing-toolbar',
+                                    '.chart-controls-bar'
+                                ];
+                                
+                                elementsToHide.forEach(selector => {
+                                    const elements = document.querySelectorAll(selector);
+                                    elements.forEach(el => {
+                                        if (el) el.style.display = 'none';
+                                    });
+                                });
+                            }
+                        """)
+                        
+                        # Neem screenshot
+                        screenshot = await self.page.screenshot({'fullPage': False})
+                        
+                        # Sla op in resultaten
+                        results[symbol][timeframe] = screenshot
+                        
+                        logger.info(f"Screenshot genomen voor {symbol} op {timeframe} timeframe")
+                        
+                    except Exception as e:
+                        logger.error(f"Fout bij het maken van screenshot voor {symbol} op {timeframe}: {str(e)}")
+            
+            return results
+            
+        except Exception as e:
+            logger.error(f"Fout bij batch capture: {str(e)}")
+            return None 
