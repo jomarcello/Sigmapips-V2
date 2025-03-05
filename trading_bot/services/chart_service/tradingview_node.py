@@ -223,4 +223,69 @@ class TradingViewNodeService(TradingViewService):
     async def cleanup(self):
         """Clean up resources"""
         # Geen resources om op te ruimen
-        logger.info("TradingView Node.js service cleaned up") 
+        logger.info("TradingView Node.js service cleaned up")
+    
+    async def take_screenshot_of_url(self, url):
+        """Take a screenshot of a URL"""
+        try:
+            logger.info(f"Taking screenshot of URL: {url}")
+            
+            # Maak een tijdelijk bestand voor de screenshot
+            import tempfile
+            with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as temp_file:
+                screenshot_path = temp_file.name
+            
+            # Voer het Node.js script uit om een screenshot te maken
+            import subprocess
+            
+            # Controleer of het script bestaat
+            script_path = os.path.join(os.path.dirname(__file__), "screenshot.js")
+            if not os.path.exists(script_path):
+                logger.error(f"Screenshot script not found at {script_path}")
+                return None
+            
+            # Voeg de session ID toe aan de command line arguments
+            command = ["node", script_path, url, screenshot_path]
+            if self.session_id:
+                command.append(self.session_id)
+                logger.info(f"Using session ID: {self.session_id[:5]}...")
+            
+            # Voer het script uit
+            logger.info(f"Running Node.js script: {script_path} with URL: {url} and output: {screenshot_path}")
+            process = subprocess.Popen(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE
+            )
+            stdout, stderr = process.communicate()
+            
+            # Log de output
+            if stdout:
+                logger.info(f"Node.js script output: {stdout.decode('utf-8')}")
+            if stderr:
+                logger.error(f"Node.js script error: {stderr.decode('utf-8')}")
+            
+            # Controleer of het script succesvol was
+            if process.returncode != 0:
+                logger.error(f"Node.js script failed with return code {process.returncode}")
+                return None
+            
+            # Controleer of het bestand bestaat
+            if not os.path.exists(screenshot_path):
+                logger.error(f"Screenshot file not found at {screenshot_path}")
+                return None
+            
+            # Lees het bestand
+            with open(screenshot_path, "rb") as f:
+                screenshot_bytes = f.read()
+            
+            # Verwijder het tijdelijke bestand
+            os.unlink(screenshot_path)
+            
+            return screenshot_bytes
+            
+        except Exception as e:
+            logger.error(f"Error taking screenshot of URL: {str(e)}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return None 
