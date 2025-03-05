@@ -1951,6 +1951,69 @@ Risk Management:
                 logger.info(f"Direct welcome message sent to chat {chat_id}")
                 return
             
+            # Controleer direct op callback query's
+            if 'callback_query' in update_data:
+                logger.info("Detected callback query, handling directly")
+                callback_data = update_data['callback_query']['data']
+                chat_id = update_data['callback_query']['message']['chat']['id']
+                message_id = update_data['callback_query']['message']['message_id']
+                
+                # Bevestig de callback query
+                await self.bot.answer_callback_query(update_data['callback_query']['id'])
+                
+                # Verwerk de verschillende callback data types
+                if callback_data == "menu_analyse":
+                    logger.info("Handling menu_analyse callback")
+                    # Definieer de keyboard direct in de methode
+                    analysis_keyboard = [
+                        [InlineKeyboardButton("📈 Technical Analysis", callback_data="analysis_technical")],
+                        [InlineKeyboardButton("🧠 Market Sentiment", callback_data="analysis_sentiment")],
+                        [InlineKeyboardButton("📅 Economic Calendar", callback_data="analysis_calendar")],
+                        [InlineKeyboardButton("⬅️ Back", callback_data="back_menu")]
+                    ]
+                    
+                    # Toon de analyse opties met inline keyboard
+                    await self.bot.edit_message_text(
+                        chat_id=chat_id,
+                        message_id=message_id,
+                        text="Selecteer je analyse type:",
+                        reply_markup=InlineKeyboardMarkup(analysis_keyboard)
+                    )
+                    logger.info("Sent analysis options")
+                    return
+                
+                elif callback_data == "menu_signals":
+                    logger.info("Handling menu_signals callback")
+                    # Toon de signalen opties
+                    await self.bot.edit_message_text(
+                        chat_id=chat_id,
+                        message_id=message_id,
+                        text="Trading signalen komen binnenkort!",
+                        reply_markup=InlineKeyboardMarkup([
+                            [InlineKeyboardButton("⬅️ Back", callback_data="back_menu")]
+                        ])
+                    )
+                    logger.info("Sent signals message")
+                    return
+                
+                elif callback_data == "back_menu":
+                    logger.info("Handling back_menu callback")
+                    # Ga terug naar het hoofdmenu
+                    await self.bot.edit_message_text(
+                        chat_id=chat_id,
+                        message_id=message_id,
+                        text=WELCOME_MESSAGE,
+                        reply_markup=InlineKeyboardMarkup([
+                            [InlineKeyboardButton("🔍 Analyse Market", callback_data="menu_analyse")],
+                            [InlineKeyboardButton("📊 Trading Signals", callback_data="menu_signals")]
+                        ]),
+                        parse_mode=ParseMode.HTML
+                    )
+                    logger.info("Sent welcome message (back to menu)")
+                    return
+                
+                # Voeg hier meer callback handlers toe voor andere callback data types
+            
             # Converteer de update naar een Update object
             update = Update.de_json(update_data, self.bot)
             
