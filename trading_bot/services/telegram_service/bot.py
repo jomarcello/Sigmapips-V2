@@ -164,76 +164,6 @@ class TelegramService:
             self.sentiment = MarketSentimentService()
             self.calendar = EconomicCalendarService()
             
-            # Setup conversation handler
-            conv_handler = ConversationHandler(
-                entry_points=[CommandHandler("start", self.start)],
-                states={
-                    CHOOSE_MENU: [
-                        CallbackQueryHandler(self.menu_choice, pattern="^menu_")
-                    ],
-                    CHOOSE_ANALYSIS: [
-                        CallbackQueryHandler(self.analysis_choice, pattern="^analysis_"),
-                        CallbackQueryHandler(self.back_to_menu, pattern="^back_menu$")
-                    ],
-                    CHOOSE_SIGNALS: [
-                        CallbackQueryHandler(self.signals_choice, pattern="^signals_"),
-                        CallbackQueryHandler(self.back_to_menu, pattern="^back_menu$")
-                    ],
-                    CHOOSE_MARKET: [
-                        CallbackQueryHandler(self.market_choice, pattern="^market_"),
-                        CallbackQueryHandler(self.back_to_analysis, pattern="^back$")
-                    ],
-                    CHOOSE_INSTRUMENT: [
-                        CallbackQueryHandler(self.instrument_choice, pattern="^instrument_"),
-                        CallbackQueryHandler(self.back_to_market, pattern="^back$")
-                    ],
-                    CHOOSE_STYLE: [
-                        CallbackQueryHandler(self.style_choice, pattern="^style_"),
-                        CallbackQueryHandler(self.back_to_instrument, pattern="^back$")
-                    ],
-                    SHOW_RESULT: [
-                        CallbackQueryHandler(self.add_more, pattern="^add_more$"),
-                        CallbackQueryHandler(self.manage_preferences, pattern="^manage_prefs$"),
-                        CallbackQueryHandler(self.back_to_menu, pattern="^back_menu$"),
-                        CallbackQueryHandler(self.back_to_instruments, pattern="^back_to_instruments$")
-                    ]
-                },
-                fallbacks=[CallbackQueryHandler(self.cancel, pattern="^cancel$")],
-                per_message=False
-            )
-            
-            # Add handlers
-            self.application.add_handler(conv_handler)
-            self.application.add_handler(CommandHandler("help", self.help))
-            self.application.add_handler(CallbackQueryHandler(self.handle_callback_query))
-            self.application.add_handler(CommandHandler("charts", self.cmd_batch_charts))
-            self.application.add_handler(CommandHandler("selenium", self.cmd_selenium_charts))
-            
-            logger.info("Telegram service initialized")
-            
-            # Redis voor caching
-            redis_url = os.getenv("REDIS_URL")
-            if redis_url:
-                try:
-                    self.redis = redis.from_url(
-                        redis_url,
-                        decode_responses=True,
-                        socket_connect_timeout=5,
-                        socket_keepalive=True,
-                        health_check_interval=30
-                    )
-                    self.redis.ping()
-                    logger.info("Redis connection established via URL")
-                except Exception as redis_error:
-                    logger.warning(f"Redis connection failed: {str(redis_error)}. Using local caching.")
-                    self.redis = None
-            else:
-                logger.warning("No REDIS_URL provided. Using local caching.")
-                self.redis = None
-            
-            # Voeg dit toe aan je __init__ functie of waar je de application initialiseert
-            self.application.add_error_handler(error_handler)
-            
         except Exception as e:
             logger.error(f"Error initializing Telegram service: {str(e)}")
             raise
@@ -459,15 +389,18 @@ Risk Management:
         try:
             await query.answer()
             
+            # Definieer de keyboard direct in de methode
+            analysis_keyboard = [
+                [InlineKeyboardButton("📈 Technical Analysis", callback_data="analysis_technical")],
+                [InlineKeyboardButton("🧠 Market Sentiment", callback_data="analysis_sentiment")],
+                [InlineKeyboardButton("📅 Economic Calendar", callback_data="analysis_calendar")],
+                [InlineKeyboardButton("⬅️ Back", callback_data="back_menu")]
+            ]
+            
             # Toon de analyse opties met inline keyboard
             await query.edit_message_text(
                 text="Select your analysis type:",
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("📈 Technical Analysis", callback_data="analysis_technical")],
-                    [InlineKeyboardButton("🧠 Market Sentiment", callback_data="analysis_sentiment")],
-                    [InlineKeyboardButton("📅 Economic Calendar", callback_data="analysis_calendar")],
-                    [InlineKeyboardButton("⬅️ Back", callback_data="back_menu")]
-                ])
+                reply_markup=InlineKeyboardMarkup(analysis_keyboard)
             )
             
             return ANALYSIS
