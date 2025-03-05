@@ -2012,7 +2012,227 @@ Risk Management:
                     logger.info("Sent welcome message (back to menu)")
                     return
                 
-                # Voeg hier meer callback handlers toe voor andere callback data types
+                # Technical Analysis callback
+                elif callback_data == "analysis_technical":
+                    logger.info("Handling analysis_technical callback")
+                    # Toon de markt selectie
+                    market_keyboard = [
+                        [InlineKeyboardButton("Forex", callback_data="market_forex")],
+                        [InlineKeyboardButton("Crypto", callback_data="market_crypto")],
+                        [InlineKeyboardButton("Indices", callback_data="market_indices")],
+                        [InlineKeyboardButton("Commodities", callback_data="market_commodities")],
+                        [InlineKeyboardButton("⬅️ Back", callback_data="back_analysis")]
+                    ]
+                    
+                    await self.bot.edit_message_text(
+                        chat_id=chat_id,
+                        message_id=message_id,
+                        text="Selecteer een markt:",
+                        reply_markup=InlineKeyboardMarkup(market_keyboard)
+                    )
+                    logger.info("Sent market selection")
+                    return
+                
+                # Market Sentiment callback
+                elif callback_data == "analysis_sentiment":
+                    logger.info("Handling analysis_sentiment callback")
+                    await self.bot.edit_message_text(
+                        chat_id=chat_id,
+                        message_id=message_id,
+                        text="Market sentiment analyse komt binnenkort!",
+                        reply_markup=InlineKeyboardMarkup([
+                            [InlineKeyboardButton("⬅️ Back", callback_data="back_analysis")]
+                        ])
+                    )
+                    logger.info("Sent sentiment message")
+                    return
+                
+                # Economic Calendar callback
+                elif callback_data == "analysis_calendar":
+                    logger.info("Handling analysis_calendar callback")
+                    await self.bot.edit_message_text(
+                        chat_id=chat_id,
+                        message_id=message_id,
+                        text="Economische kalender komt binnenkort!",
+                        reply_markup=InlineKeyboardMarkup([
+                            [InlineKeyboardButton("⬅️ Back", callback_data="back_analysis")]
+                        ])
+                    )
+                    logger.info("Sent calendar message")
+                    return
+                
+                # Back to analysis menu
+                elif callback_data == "back_analysis":
+                    logger.info("Handling back_analysis callback")
+                    analysis_keyboard = [
+                        [InlineKeyboardButton("📈 Technical Analysis", callback_data="analysis_technical")],
+                        [InlineKeyboardButton("🧠 Market Sentiment", callback_data="analysis_sentiment")],
+                        [InlineKeyboardButton("📅 Economic Calendar", callback_data="analysis_calendar")],
+                        [InlineKeyboardButton("⬅️ Back", callback_data="back_menu")]
+                    ]
+                    
+                    await self.bot.edit_message_text(
+                        chat_id=chat_id,
+                        message_id=message_id,
+                        text="Selecteer je analyse type:",
+                        reply_markup=InlineKeyboardMarkup(analysis_keyboard)
+                    )
+                    logger.info("Sent analysis options (back)")
+                    return
+                
+                # Market selection callbacks
+                elif callback_data.startswith("market_"):
+                    logger.info(f"Handling market selection: {callback_data}")
+                    market = callback_data.split("_")[1]
+                    
+                    # Bepaal de instrumenten op basis van de gekozen markt
+                    instruments = []
+                    if market == "forex":
+                        instruments = [
+                            ["EURUSD", "GBPUSD", "USDJPY"],
+                            ["AUDUSD", "USDCAD", "NZDUSD"],
+                            ["EURGBP", "EURJPY", "GBPJPY"],
+                            ["USDCHF", "EURAUD", "EURCHF"]
+                        ]
+                    elif market == "crypto":
+                        instruments = [
+                            ["BTCUSD", "ETHUSD", "XRPUSD"],
+                            ["SOLUSD", "BNBUSD", "ADAUSD"],
+                            ["LTCUSD", "DOGUSD", "DOTUSD"],
+                            ["LNKUSD", "XLMUSD", "AVXUSD"]
+                        ]
+                    elif market == "indices":
+                        instruments = [
+                            ["US30", "US500", "US100"],
+                            ["UK100", "DE40", "FR40"],
+                            ["JP225", "AU200", "HK50"],
+                            ["EU50"]
+                        ]
+                    elif market == "commodities":
+                        instruments = [
+                            ["XAUUSD", "WTIUSD"]
+                        ]
+                    
+                    # Maak keyboard met instrumenten
+                    keyboard = []
+                    for row in instruments:
+                        buttons = []
+                        for instrument in row:
+                            buttons.append(InlineKeyboardButton(instrument, callback_data=f"instrument_{instrument}"))
+                        keyboard.append(buttons)
+                    
+                    # Voeg terug knop toe
+                    keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="back_analysis")])
+                    
+                    await self.bot.edit_message_text(
+                        chat_id=chat_id,
+                        message_id=message_id,
+                        text=f"Selecteer een instrument uit {market.capitalize()}:",
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+                    logger.info(f"Sent instrument selection for {market}")
+                    return
+                
+                # Instrument selection callbacks
+                elif callback_data.startswith("instrument_"):
+                    logger.info(f"Handling instrument selection: {callback_data}")
+                    instrument = callback_data.split("_")[1]
+                    
+                    # Toon een "loading" bericht
+                    await self.bot.edit_message_text(
+                        chat_id=chat_id,
+                        message_id=message_id,
+                        text=f"⏳ Bezig met het genereren van de chart voor {instrument}..."
+                    )
+                    
+                    try:
+                        # Probeer de chart te genereren
+                        if hasattr(self, 'chart') and self.chart:
+                            # Genereer charts voor verschillende timeframes
+                            timeframes = ["1h", "4h", "1d"]
+                            
+                            # Stuur een bericht dat we bezig zijn
+                            await self.bot.edit_message_text(
+                                chat_id=chat_id,
+                                message_id=message_id,
+                                text=f"⏳ Bezig met het genereren van charts voor {instrument}..."
+                            )
+                            
+                            # Stuur een nieuw bericht met een back knop
+                            back_message = await self.bot.send_message(
+                                chat_id=chat_id,
+                                text=f"📊 Charts voor {instrument}:",
+                                reply_markup=InlineKeyboardMarkup([
+                                    [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
+                                ])
+                            )
+                            
+                            # Genereer en stuur charts voor elke timeframe
+                            for timeframe in timeframes:
+                                try:
+                                    # Gebruik de chart service om een chart te genereren
+                                    chart_image = await self.chart.get_chart(instrument, timeframe)
+                                    
+                                    if chart_image:
+                                        # Stuur de chart
+                                        await self.bot.send_photo(
+                                            chat_id=chat_id,
+                                            photo=chart_image,
+                                            caption=f"{instrument} - {timeframe} Timeframe"
+                                        )
+                                    else:
+                                        # Geen chart beschikbaar
+                                        await self.bot.send_message(
+                                            chat_id=chat_id,
+                                            text=f"❌ Kon geen chart genereren voor {instrument} ({timeframe})"
+                                        )
+                                except Exception as chart_error:
+                                    logger.error(f"Error generating chart for {instrument} {timeframe}: {str(chart_error)}")
+                                    await self.bot.send_message(
+                                        chat_id=chat_id,
+                                        text=f"❌ Fout bij het genereren van chart voor {instrument} ({timeframe}): {str(chart_error)}"
+                                    )
+                        else:
+                            # Geen chart service beschikbaar
+                            await self.bot.edit_message_text(
+                                chat_id=chat_id,
+                                message_id=message_id,
+                                text="❌ Chart service is niet beschikbaar. Probeer het later opnieuw.",
+                                reply_markup=InlineKeyboardMarkup([
+                                    [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
+                                ])
+                            )
+                    except Exception as e:
+                        logger.error(f"Error handling instrument selection: {str(e)}")
+                        await self.bot.edit_message_text(
+                            chat_id=chat_id,
+                            message_id=message_id,
+                            text=f"❌ Er is een fout opgetreden: {str(e)}",
+                            reply_markup=InlineKeyboardMarkup([
+                                [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
+                            ])
+                        )
+                    return
+                
+                # Back to market selection
+                elif callback_data == "back_market":
+                    logger.info("Handling back_market callback")
+                    market_keyboard = [
+                        [InlineKeyboardButton("Forex", callback_data="market_forex")],
+                        [InlineKeyboardButton("Crypto", callback_data="market_crypto")],
+                        [InlineKeyboardButton("Indices", callback_data="market_indices")],
+                        [InlineKeyboardButton("Commodities", callback_data="market_commodities")],
+                        [InlineKeyboardButton("⬅️ Back", callback_data="back_analysis")]
+                    ]
+                    
+                    await self.bot.edit_message_text(
+                        chat_id=chat_id,
+                        message_id=message_id,
+                        text="Selecteer een markt:",
+                        reply_markup=InlineKeyboardMarkup(market_keyboard)
+                    )
+                    logger.info("Sent market selection (back)")
+                    return
             
             # Converteer de update naar een Update object
             update = Update.de_json(update_data, self.bot)
