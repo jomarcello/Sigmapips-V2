@@ -14,6 +14,7 @@ from datetime import datetime, timedelta
 
 # Voeg deze import toe
 from trading_bot.services.chart_service.tradingview_selenium import TradingViewSeleniumService
+from trading_bot.services.chart_service.tradingview_playwright import TradingViewPlaywrightService
 
 logger = logging.getLogger(__name__)
 
@@ -93,11 +94,25 @@ class ChartService:
         
         self.tradingview = None
         self.tradingview_selenium = None
-        
+        self.tradingview_playwright = None
+
     async def initialize(self):
         """Initialize chart service"""
         try:
-            # Initialiseer TradingView Selenium service
+            # Probeer eerst Playwright
+            self.tradingview_playwright = TradingViewPlaywrightService(
+                session_id=os.getenv("TRADINGVIEW_SESSION_ID")
+            )
+            playwright_initialized = await self.tradingview_playwright.initialize()
+            
+            if playwright_initialized:
+                # Stel de standaard service in op Playwright
+                self.tradingview = self.tradingview_playwright
+                logger.info("Chart service initialized with Playwright successfully")
+                return True
+            
+            # Als Playwright faalt, probeer Selenium als fallback
+            logger.warning("Playwright initialization failed, trying Selenium as fallback")
             self.tradingview_selenium = TradingViewSeleniumService(
                 session_id=os.getenv("TRADINGVIEW_SESSION_ID")
             )
@@ -108,7 +123,7 @@ class ChartService:
                 self.tradingview = self.tradingview_selenium
                 logger.info("Chart service initialized with Selenium successfully")
             else:
-                logger.warning("Selenium initialization failed, using fallback methods")
+                logger.warning("All TradingView services failed, using fallback methods")
                 self.tradingview = None
             
             logger.info("Chart service initialized successfully")
@@ -254,8 +269,13 @@ class ChartService:
     async def cleanup(self):
         """Clean up resources"""
         try:
-            if self.tradingview:
-                await self.tradingview.cleanup()
+            if hasattr(self, 'tradingview_playwright') and self.tradingview_playwright:
+                await self.tradingview_playwright.cleanup()
+            
+            if hasattr(self, 'tradingview_selenium') and self.tradingview_selenium:
+                await self.tradingview_selenium.cleanup()
+            
+            logger.info("Chart service resources cleaned up")
         except Exception as e:
             logger.error(f"Error cleaning up chart service: {str(e)}")
 
