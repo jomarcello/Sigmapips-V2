@@ -104,12 +104,13 @@ async def startup_event():
     # Initialize telegram service
     await telegram.initialize()
     
-    # Initialize chart service using our new function
+    # Initialize chart service
     global chart
     chart = ChartService()
     
     # Wacht op de initialisatie van de chart service
     try:
+        logger.info("Initializing chart service...")
         success = await chart.initialize()
         if success:
             logger.info(f"Chart service initialized with: {type(chart.tradingview).__name__ if chart.tradingview else 'None'}")
@@ -117,6 +118,8 @@ async def startup_event():
             logger.warning("Chart service initialization failed, will use fallback methods")
     except Exception as e:
         logger.error(f"Error initializing chart service: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
     
     webhook_url = os.getenv("RAILWAY_PUBLIC_DOMAIN")
     if webhook_url:
@@ -506,12 +509,20 @@ async def reinitialize_tradingview():
     try:
         # Maak een nieuwe ChartService
         global chart
+        
+        # Log de huidige status
+        logger.info(f"Current chart service: {type(chart).__name__}")
+        logger.info(f"Current TradingView service: {type(chart.tradingview).__name__ if chart.tradingview else 'None'}")
+        
+        # Maak een nieuwe ChartService
         chart = ChartService()
         
         # Initialiseer de service
+        logger.info("Initializing new chart service...")
         success = await chart.initialize()
         
         if success and chart.tradingview:
+            logger.info(f"TradingView service reinitialized: {type(chart.tradingview).__name__}")
             return {
                 "status": "success",
                 "message": "TradingView service reinitialized",
@@ -519,11 +530,15 @@ async def reinitialize_tradingview():
                 "is_logged_in": getattr(chart.tradingview, 'is_logged_in', False)
             }
         else:
+            logger.error("Failed to reinitialize TradingView service")
             return {
                 "status": "error",
                 "message": "Failed to reinitialize TradingView service"
             }
     except Exception as e:
+        logger.error(f"Error reinitializing TradingView service: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
         return {
             "status": "error",
             "message": f"Error reinitializing TradingView service: {str(e)}"
@@ -636,4 +651,25 @@ async def test_chart_screenshot():
         return {
             "status": "error",
             "message": f"Error creating screenshot: {str(e)}"
+        }
+
+@app.get("/check-env")
+async def check_env():
+    """Controleer de omgevingsvariabelen"""
+    try:
+        import os
+        
+        # Haal de session ID op uit de omgevingsvariabelen
+        session_id = os.getenv("TRADINGVIEW_SESSION_ID")
+        
+        return {
+            "status": "success",
+            "session_id_present": bool(session_id),
+            "session_id_prefix": session_id[:5] + "..." if session_id else None,
+            "env_vars": {k: v[:5] + "..." if k.lower().endswith("id") or k.lower().endswith("key") or k.lower().endswith("secret") or k.lower().endswith("token") else v for k, v in os.environ.items() if not k.startswith("PATH") and not k.startswith("PYTHON")}
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": f"Error checking environment variables: {str(e)}"
         }
