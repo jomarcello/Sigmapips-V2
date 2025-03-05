@@ -116,8 +116,8 @@ class TradingViewNodeService(TradingViewService):
             chart_url = self.chart_links.get(normalized_symbol)
             if not chart_url:
                 logger.warning(f"No chart URL found for {symbol}, using default URL")
-                # Gebruik een lichtere versie van de chart
-                chart_url = f"https://www.tradingview.com/chart/xknpxpcr/?symbol={normalized_symbol}"
+                # Gebruik een specifieke chart layout die beter werkt met fullscreen
+                chart_url = f"https://www.tradingview.com/chart/xknpxpcr/?symbol={normalized_symbol}&fullscreen=true&hide_side_toolbar=true&hide_top_toolbar=true&scale=1.2"
                 if timeframe:
                     tv_interval = self.interval_map.get(timeframe, "D")
                     chart_url += f"&interval={tv_interval}"
