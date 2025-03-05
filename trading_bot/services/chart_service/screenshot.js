@@ -214,41 +214,6 @@ if (!url || !outputPath) {
                         mainPane.style.padding = '0';
                         mainPane.style.border = 'none';
                     }
-                    
-                    // Zoom in op de chart
-                    try {
-                        // Methode 1: Gebruik de TradingView zoom functie
-                        const zoomInButton = document.querySelector('.control-bar__btn--zoom-in');
-                        if (zoomInButton) {
-                            // Klik meerdere keren op de zoom-in knop
-                            for (let i = 0; i < 3; i++) {
-                                zoomInButton.click();
-                            }
-                            console.log('Zoomed in using zoom button');
-                        }
-                        
-                        // Methode 2: Pas de schaal van de chart aan
-                        const chartScaleElement = document.querySelector('.chart-markup-table');
-                        if (chartScaleElement) {
-                            chartScaleElement.style.transform = 'scale(1.2)';
-                            chartScaleElement.style.transformOrigin = 'center center';
-                            console.log('Applied scale transform to chart');
-                        }
-                        
-                        // Methode 3: Pas de viewport aan
-                        const panes = document.querySelectorAll('.chart-markup-table pane');
-                        if (panes.length > 0) {
-                            panes.forEach(pane => {
-                                if (pane) {
-                                    pane.style.transform = 'scale(1.2)';
-                                    pane.style.transformOrigin = 'center center';
-                                }
-                            });
-                            console.log('Applied scale transform to panes');
-                        }
-                    } catch (error) {
-                        console.error('Error applying zoom:', error);
-                    }
                 });
                 
                 console.log('Applied fullscreen optimizations');
@@ -258,7 +223,7 @@ if (!url || !outputPath) {
             
             // Wacht langer om de UI aanpassingen te verwerken
             console.log('Waiting longer for UI changes to take effect...');
-            await page.waitForTimeout(5000); // Verhoog naar 5 seconden
+            await page.waitForTimeout(10000); // Verhoog naar 10 seconden
             
             // Controleer of alle UI elementen echt weg zijn
             await page.evaluate(() => {
@@ -305,22 +270,7 @@ if (!url || !outputPath) {
             });
             
             // Wacht nog een keer voor de zekerheid
-            await page.waitForTimeout(2000);
-            
-            // Probeer ook in te zoomen met toetsenbord
-            try {
-                // Druk op de '+' toets om in te zoomen
-                for (let i = 0; i < 3; i++) {
-                    await page.keyboard.press('+');
-                    await page.waitForTimeout(300);
-                }
-                console.log('Pressed + key to zoom in');
-            } catch (error) {
-                console.error('Error pressing + key:', error);
-            }
-            
-            // Wacht nog even om de zoom aanpassingen te verwerken
-            await page.waitForTimeout(1000);
+            await page.waitForTimeout(3000);
             
         } catch (error) {
             console.error('Error loading page, trying to take screenshot anyway:', error);
