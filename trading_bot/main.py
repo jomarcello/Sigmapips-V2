@@ -42,59 +42,27 @@ db = Database()
 telegram = TelegramService(db)
 chart = ChartService()
 
-# Redis configuratie met verbeterde private endpoint support
-redis_url = os.getenv("REDIS_URL")
-redis_private_host = os.getenv("REDIS_PRIVATE_HOST")
-redis_private_port = os.getenv("REDIS_PRIVATE_PORT")
-redis_password = os.getenv("REDIS_PASSWORD")
+# Redis configuratie
+redis_host = os.getenv("REDIS_HOST", "redis")
+redis_port = int(os.getenv("REDIS_PORT", 6379))
+redis_password = os.getenv("REDIS_PASSWORD", None)
 
-# Verbeterde Redis-verbinding met private endpoint support
+# Verbeterde Redis-verbinding met retry-logica
 try:
-    # Probeer eerst het privé-eindpunt als dat beschikbaar is
-    if redis_private_host and redis_private_port:
-        logger.info(f"Attempting to connect to Redis using private endpoint: {redis_private_host}:{redis_private_port}")
-        redis_client = redis.Redis(
-            host=redis_private_host,
-            port=int(redis_private_port),
-            password=redis_password,
-            db=0,
-            decode_responses=True,
-            socket_connect_timeout=5,
-            socket_keepalive=True,
-            retry_on_timeout=True,
-            health_check_interval=30
-        )
-    # Fallback naar REDIS_URL als privé-eindpunt niet beschikbaar is
-    elif redis_url:
-        logger.info(f"Attempting to connect to Redis using URL: {redis_url}")
-        redis_client = redis.from_url(
-            redis_url,
-            decode_responses=True,
-            socket_connect_timeout=5,
-            socket_keepalive=True,
-            retry_on_timeout=True,
-            health_check_interval=30
-        )
-    # Fallback naar standaard host/port als geen van beide beschikbaar is
-    else:
-        redis_host = os.getenv("REDIS_HOST", "redis")
-        redis_port = int(os.getenv("REDIS_PORT", 6379))
-        logger.info(f"Attempting to connect to Redis using default host/port: {redis_host}:{redis_port}")
-        redis_client = redis.Redis(
-            host=redis_host,
-            port=redis_port,
-            password=redis_password,
-            db=0,
-            decode_responses=True,
-            socket_connect_timeout=5,
-            socket_keepalive=True,
-            retry_on_timeout=True,
-            health_check_interval=30
-        )
-    
+    redis_client = redis.Redis(
+        host=redis_host,
+        port=redis_port,
+        password=redis_password,
+        db=0,
+        decode_responses=True,
+        socket_connect_timeout=5,
+        socket_keepalive=True,
+        retry_on_timeout=True,
+        health_check_interval=30
+    )
     # Test de verbinding
     redis_client.ping()
-    logger.info("Redis connection established successfully")
+    logger.info(f"Redis connection established to {redis_host}:{redis_port}")
 except Exception as redis_error:
     logger.warning(f"Redis connection failed: {str(redis_error)}. Using local caching.")
     redis_client = None
@@ -115,15 +83,6 @@ session_refresher = SessionRefresher()
 @app.on_event("startup")
 async def startup_event():
     """Initialize async services on startup"""
-    # Sla de starttijd op
-    app.state.start_time = time.time()
-    app.state.is_ready = False
-    app.state.services_status = {
-        "telegram": False,
-        "chart": False,
-        "db": True  # Database is al geïnitialiseerd
-    }
-    
     # Setup Playwright browsers
     try:
         # Inline setup in plaats van import
@@ -142,18 +101,11 @@ async def startup_event():
     except Exception as e:
         logger.error(f"Error setting up Playwright: {str(e)}")
     
-    # Initialize telegram service
-    try:
-        await telegram.initialize()
-        app.state.services_status["telegram"] = True
-        logger.info("Telegram service initialized successfully")
-    except Exception as e:
-        logger.error(f"Error initializing telegram service: {str(e)}")
+    await telegram.initialize()
     
     # Initialize chart service
     try:
         await chart.initialize()
-        app.state.services_status["chart"] = True
         logger.info("Chart service initialized successfully")
     except Exception as e:
         logger.error(f"Error initializing chart service: {str(e)}")
@@ -171,10 +123,6 @@ async def startup_event():
 
     # Start de session refresher
     asyncio.create_task(session_refresher.start())
-    
-    # Markeer de applicatie als klaar
-    app.state.is_ready = True
-    logger.info("Application startup complete")
 
 @app.on_event("shutdown")
 async def shutdown_event():
@@ -190,52 +138,8 @@ async def shutdown_event():
 
 @app.get("/health")
 async def health_check():
-    """Eenvoudige health check endpoint voor Railway"""
-    # Deze endpoint moet altijd snel reageren en een 200 OK status retourneren
-    return {
-        "status": "ok",
-        "timestamp": time.time(),
-        "app": "trading_bot",
-        "version": "1.0.0"
-    }
-
-@app.get("/readiness")
-async def readiness_check():
-    """Readiness check endpoint voor Railway"""
-    try:
-        # Controleer of de applicatie klaar is om verkeer te ontvangen
-        is_ready = getattr(app.state, "is_ready", False)
-        services_status = getattr(app.state, "services_status", {
-            "telegram": False,
-            "chart": False,
-            "db": False
-        })
-        
-        return {
-            "status": "ok" if is_ready else "not_ready",
-            "services": services_status,
-            "uptime": time.time() - getattr(app.state, "start_time", time.time()),
-            "timestamp": time.time()
-        }
-    except Exception as e:
-        logger.error(f"Error in readiness check: {str(e)}")
-        # Zelfs bij een fout, retourneer een 200 OK status
-        return {"status": "warning", "message": str(e)}
-
-@app.get("/liveness")
-async def liveness_check():
-    """Liveness check endpoint voor Railway"""
-    try:
-        # Controleer of de applicatie nog steeds draait
-        return {
-            "status": "ok",
-            "uptime": time.time() - getattr(app.state, "start_time", time.time()),
-            "timestamp": time.time()
-        }
-    except Exception as e:
-        logger.error(f"Error in liveness check: {str(e)}")
-        # Zelfs bij een fout, retourneer een 200 OK status
-        return {"status": "warning", "message": str(e)}
+    """Health check endpoint voor Railway"""
+    return {"status": "ok"}
 
 @app.post("/webhook")
 async def webhook(request: Request):
@@ -477,6 +381,39 @@ def initialize_services():
         "telegram": telegram,
         "chart": chart
     }
+
+def main():
+    # Voeg dit toe aan het begin van de main functie
+    logger.info("Initializing services...")
+    chart_service = ChartService()
+    await chart_service.initialize()
+    logger.info(f"Chart service initialized with: {type(chart_service.tradingview).__name__ if chart_service.tradingview else 'None'}")
+    
+    # ... bestaande code ...
+    
+    # Commentaar de TradingView code uit
+    # Initialiseer TradingView service
+    # tradingview_service = TradingViewService()
+    
+    # Haal inloggegevens uit omgevingsvariabelen
+    # tradingview_username = os.getenv("TRADINGVIEW_USERNAME")
+    # tradingview_password = os.getenv("TRADINGVIEW_PASSWORD")
+    
+    # Log in op TradingView
+    # if tradingview_username and tradingview_password:
+    #     tradingview_service.login_tradingview(tradingview_username, tradingview_password)
+    
+    # ... bestaande code ...
+    
+    # Zorg ervoor dat de driver wordt afgesloten bij het afsluiten van de applicatie
+    try:
+        # ... bestaande code ...
+        pass
+    finally:
+        # tradingview_service.close()
+        pass
+
+# ... bestaande code ...
 
 @app.get("/batch-screenshots")
 async def batch_screenshots(symbols: str = None, timeframes: str = None):
