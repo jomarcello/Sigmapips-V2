@@ -40,19 +40,31 @@ class TradingViewPlaywrightService(TradingViewService):
         try:
             logger.info("Initializing TradingView Playwright service")
             
-            # Start Playwright
-            self.playwright = await async_playwright().start()
+            # Log system info
+            import platform
+            logger.info(f"System: {platform.system()} {platform.release()}")
+            logger.info(f"Python: {platform.python_version()}")
             
-            # Launch browser
+            # Start Playwright with detailed logging
+            logger.info("Starting Playwright")
+            self.playwright = await async_playwright().start()
+            logger.info("Playwright started successfully")
+            
+            # Launch browser with detailed logging
+            logger.info("Launching browser with args")
+            browser_args = [
+                "--no-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-gpu",
+                "--window-size=1920,1080"
+            ]
+            logger.info(f"Browser args: {browser_args}")
+            
             self.browser = await self.playwright.chromium.launch(
                 headless=True,
-                args=[
-                    "--no-sandbox",
-                    "--disable-dev-shm-usage",
-                    "--disable-gpu",
-                    "--window-size=1920,1080"
-                ]
+                args=browser_args
             )
+            logger.info("Browser launched successfully")
             
             # Create a new context
             self.context = await self.browser.new_context(
