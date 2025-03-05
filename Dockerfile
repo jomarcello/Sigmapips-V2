@@ -62,8 +62,37 @@ WORKDIR /app
 RUN python -m venv /app/venv
 ENV PATH="/app/venv/bin:$PATH"
 
-# Kopieer requirements eerst (voor betere caching)
-COPY requirements.txt .
+# Maak een aangepaste requirements.txt zonder npm regels
+RUN echo '# Core dependencies
+fastapi==0.109.0
+python-telegram-bot==20.3
+uvicorn==0.27.0
+python-dotenv==1.0.0
+aiohttp==3.9.3
+twocaptcha==0.0.1
+aiofiles==23.2.1
+
+# Database
+supabase==1.2.0
+redis==5.0.1
+
+# Chart generation
+selenium==4.10.0
+pillow==9.5.0
+webdriver-manager==3.8.6
+matplotlib==3.7.1
+pandas==2.0.1
+numpy==1.24.3
+mplfinance==0.12.9b0
+yfinance==0.2.35
+playwright==1.40.0
+
+# Utils
+python-multipart==0.0.6
+
+# Pinecone
+pinecone-client
+requests' > requirements.txt
 
 # Installeer dependencies in de virtuele omgeving
 RUN pip install --upgrade pip
