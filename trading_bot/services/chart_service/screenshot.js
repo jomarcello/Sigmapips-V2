@@ -136,7 +136,8 @@ if (!url || !outputPath) {
                         '.tv-insert-study-dialog',     // Study dialog
                         '.tv-insert-indicator-dialog', // Indicator dialog
                         '.tv-linetool-properties-toolbar', // Line tool properties
-                        '.chart-controls-bar'          // Controls bar
+                        '.chart-controls-bar',         // Controls bar
+                        '.layout__area'                // Alle layout areas (inclusief zwarte balken)
                     ];
                     
                     // Verberg alle elementen
@@ -255,7 +256,55 @@ if (!url || !outputPath) {
                 console.error('Error applying fullscreen:', error);
             }
             
-            // Wacht nog even om de UI aanpassingen te verwerken
+            // Wacht langer om de UI aanpassingen te verwerken
+            console.log('Waiting longer for UI changes to take effect...');
+            await page.waitForTimeout(5000); // Verhoog naar 5 seconden
+            
+            // Controleer of alle UI elementen echt weg zijn
+            await page.evaluate(() => {
+                // Nog een keer alle UI elementen verbergen voor de zekerheid
+                const elementsToHide = [
+                    '.tv-header',                  // Header
+                    '.chart-toolbar',              // Chart toolbar
+                    '.tv-side-toolbar',            // Side toolbar
+                    '.tv-floating-toolbar',        // Floating toolbar
+                    '.layout__area--left',         // Left sidebar
+                    '.layout__area--right',        // Right sidebar
+                    '.tv-watermark',               // TradingView watermark
+                    '.tv-chart-toolbar',           // Chart toolbar
+                    '.tv-main-panel--top-toolbar', // Top toolbar
+                    '.tv-main-panel--bottom-toolbar', // Bottom toolbar
+                    '.tv-chart-studies',           // Studies panel
+                    '.tv-dialog',                  // Any open dialogs
+                    '.tv-insert-study-dialog',     // Study dialog
+                    '.tv-insert-indicator-dialog', // Indicator dialog
+                    '.tv-linetool-properties-toolbar', // Line tool properties
+                    '.chart-controls-bar',         // Controls bar
+                    '.layout__area'                // Alle layout areas (inclusief zwarte balken)
+                ];
+                
+                // Verberg alle elementen
+                elementsToHide.forEach(selector => {
+                    const elements = document.querySelectorAll(selector);
+                    elements.forEach(el => {
+                        if (el) el.style.display = 'none';
+                    });
+                });
+                
+                // Zorg ervoor dat de chart container de volledige viewport vult
+                const chartContainer = document.querySelector('.chart-container');
+                if (chartContainer) {
+                    chartContainer.style.width = '100vw';
+                    chartContainer.style.height = '100vh';
+                    chartContainer.style.position = 'fixed';
+                    chartContainer.style.top = '0';
+                    chartContainer.style.left = '0';
+                }
+                
+                console.log('Double-checked UI elements are hidden');
+            });
+            
+            // Wacht nog een keer voor de zekerheid
             await page.waitForTimeout(2000);
             
             // Probeer ook in te zoomen met toetsenbord
