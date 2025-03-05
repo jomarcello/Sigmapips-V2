@@ -101,14 +101,12 @@ async def startup_event():
     except Exception as e:
         logger.error(f"Error setting up Playwright: {str(e)}")
     
+    # Initialize telegram service
     await telegram.initialize()
     
-    # Initialize chart service
-    try:
-        await chart.initialize()
-        logger.info("Chart service initialized successfully")
-    except Exception as e:
-        logger.error(f"Error initializing chart service: {str(e)}")
+    # Initialize chart service using our new function
+    global chart
+    chart = await initialize_chart_service()
     
     webhook_url = os.getenv("RAILWAY_PUBLIC_DOMAIN")
     if webhook_url:
@@ -383,37 +381,19 @@ def initialize_services():
     }
 
 def main():
-    # Voeg dit toe aan het begin van de main functie
-    logger.info("Initializing services...")
+    """Main function"""
+    # Verwijder de await code die we eerder hebben toegevoegd
+    logger.info("Main function called")
+    # Andere code...
+
+# Voeg een nieuwe async functie toe voor de startup
+async def initialize_chart_service():
+    """Initialize chart service and log the result"""
+    logger.info("Initializing chart service...")
     chart_service = ChartService()
     await chart_service.initialize()
     logger.info(f"Chart service initialized with: {type(chart_service.tradingview).__name__ if chart_service.tradingview else 'None'}")
-    
-    # ... bestaande code ...
-    
-    # Commentaar de TradingView code uit
-    # Initialiseer TradingView service
-    # tradingview_service = TradingViewService()
-    
-    # Haal inloggegevens uit omgevingsvariabelen
-    # tradingview_username = os.getenv("TRADINGVIEW_USERNAME")
-    # tradingview_password = os.getenv("TRADINGVIEW_PASSWORD")
-    
-    # Log in op TradingView
-    # if tradingview_username and tradingview_password:
-    #     tradingview_service.login_tradingview(tradingview_username, tradingview_password)
-    
-    # ... bestaande code ...
-    
-    # Zorg ervoor dat de driver wordt afgesloten bij het afsluiten van de applicatie
-    try:
-        # ... bestaande code ...
-        pass
-    finally:
-        # tradingview_service.close()
-        pass
-
-# ... bestaande code ...
+    return chart_service
 
 @app.get("/batch-screenshots")
 async def batch_screenshots(symbols: str = None, timeframes: str = None):
