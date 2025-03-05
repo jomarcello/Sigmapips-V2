@@ -85,11 +85,10 @@ RUN mkdir -p /app/playwright_data
 RUN chmod -R 777 /app/selenium_data
 RUN chmod -R 777 /app/playwright_data
 
-# Installeer Puppeteer lokaal in plaats van globaal
-WORKDIR /app/puppeteer
-RUN npm init -y && \
-    npm install puppeteer@19.7.0 --save && \
-    npm install
+# Installeer Puppeteer
+RUN mkdir -p /app/puppeteer && cd /app/puppeteer && \
+    npm init -y && \
+    npm install puppeteer@19.7.0 --save
 
 # Maak het Puppeteer setup script
 RUN echo 'console.log("Testing Puppeteer installation...");' > test_puppeteer.js && \
