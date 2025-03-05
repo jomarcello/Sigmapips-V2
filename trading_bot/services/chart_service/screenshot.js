@@ -137,14 +137,36 @@ if (!url || !outputPath) {
                         '.tv-insert-indicator-dialog', // Indicator dialog
                         '.tv-linetool-properties-toolbar', // Line tool properties
                         '.chart-controls-bar',         // Controls bar
-                        '.layout__area'                // Alle layout areas (inclusief zwarte balken)
+                        '.layout__area',               // Alle layout areas (inclusief zwarte balken)
+                        '.tv-footer',                  // Footer
+                        '.tv-side-panel',              // Side panel
+                        '.tv-floating-panel',          // Floating panel
+                        '.tv-dialog-wrapper',          // Dialog wrapper
+                        '.tv-toasts',                  // Toasts/notifications
+                        '.tv-spinner',                 // Loading spinner
+                        '.tv-loading-screen',          // Loading screen
+                        '.tv-main-panel--top',         // Top panel
+                        '.tv-main-panel--bottom',      // Bottom panel
+                        '.tv-main-panel--right',       // Right panel
+                        '.tv-main-panel--left',        // Left panel
+                        '.chart-page',                 // Chart page container
+                        '.layout__area--top',          // Top area
+                        '.layout__area--bottom',       // Bottom area
+                        '.control-bar',                // Control bar
+                        '.control-bar__btn',           // Control bar buttons
+                        '.drawing-toolbar',            // Drawing toolbar
+                        '.chart-controls-bar-buttons'  // Chart controls buttons
                     ];
                     
                     // Verberg alle elementen
                     elementsToHide.forEach(selector => {
                         const elements = document.querySelectorAll(selector);
                         elements.forEach(el => {
-                            if (el) el.style.display = 'none';
+                            if (el) {
+                                el.style.display = 'none';
+                                el.style.visibility = 'hidden';
+                                el.style.opacity = '0';
+                            }
                         });
                     });
                     
@@ -199,7 +221,11 @@ if (!url || !outputPath) {
                     
                     // Verwijder alle zwarte balken
                     document.querySelectorAll('.layout__area').forEach(el => {
-                        if (el) el.style.display = 'none';
+                        if (el) {
+                            el.style.display = 'none';
+                            el.style.visibility = 'hidden';
+                            el.style.opacity = '0';
+                        }
                     });
                     
                     // Maximaliseer de main pane
@@ -214,6 +240,14 @@ if (!url || !outputPath) {
                         mainPane.style.padding = '0';
                         mainPane.style.border = 'none';
                     }
+                    
+                    // Verwijder alle andere elementen die niet nodig zijn
+                    document.querySelectorAll('div:not(.chart-container):not(.chart-markup-table):not(.layout__area--center):not(.layout__area--main)').forEach(el => {
+                        // Controleer of het element niet een essentieel onderdeel van de chart is
+                        if (!el.querySelector('canvas') && !el.closest('.chart-markup-table')) {
+                            el.style.display = 'none';
+                        }
+                    });
                 });
                 
                 console.log('Applied fullscreen optimizations');
