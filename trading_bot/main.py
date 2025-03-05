@@ -106,7 +106,10 @@ async def startup_event():
     
     # Initialize chart service using our new function
     global chart
-    chart = await initialize_chart_service()
+    chart = ChartService()
+    
+    # Start de initialisatie van de chart service in de achtergrond
+    asyncio.create_task(initialize_chart_service_background())
     
     webhook_url = os.getenv("RAILWAY_PUBLIC_DOMAIN")
     if webhook_url:
@@ -387,13 +390,17 @@ def main():
     # Andere code...
 
 # Voeg een nieuwe async functie toe voor de startup
-async def initialize_chart_service():
-    """Initialize chart service and log the result"""
-    logger.info("Initializing chart service...")
-    chart_service = ChartService()
-    await chart_service.initialize()
-    logger.info(f"Chart service initialized with: {type(chart_service.tradingview).__name__ if chart_service.tradingview else 'None'}")
-    return chart_service
+async def initialize_chart_service_background():
+    """Initialize chart service in the background"""
+    try:
+        global chart
+        success = await chart.initialize()
+        if success:
+            logger.info(f"Chart service initialized with: {type(chart.tradingview).__name__ if chart.tradingview else 'None'}")
+        else:
+            logger.warning("Chart service initialization failed")
+    except Exception as e:
+        logger.error(f"Error initializing chart service in background: {str(e)}")
 
 @app.get("/batch-screenshots")
 async def batch_screenshots(symbols: str = None, timeframes: str = None):
