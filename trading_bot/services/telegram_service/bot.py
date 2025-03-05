@@ -249,6 +249,7 @@ class TelegramService:
             self.application.add_handler(conv_handler)
             self.application.add_handler(CommandHandler("help", self.help))
             self.application.add_handler(CallbackQueryHandler(self.handle_callback_query))
+            self.application.add_handler(CommandHandler("charts", self.cmd_batch_charts))
             
             logger.info("Telegram service initialized")
             
@@ -1751,3 +1752,46 @@ Risk Management:
             logger.info("Update successfully processed")
         except Exception as e:
             logger.error(f"Error processing update: {str(e)}")
+
+    async def cmd_batch_charts(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Command handler voor het maken van meerdere chart screenshots"""
+        try:
+            # Stuur een bericht dat we bezig zijn
+            message = await update.message.reply_text(
+                "🔄 Bezig met het maken van chart screenshots. Dit kan even duren..."
+            )
+            
+            # Haal de standaard symbolen op uit de database of gebruik een vaste lijst
+            symbols = ["EURUSD", "GBPUSD", "BTCUSD", "ETHUSD"]
+            timeframes = ["1h", "4h", "1d"]
+            
+            # Roep de batch capture functie aan
+            results = await self.chart.tradingview.batch_capture_charts(
+                symbols=symbols,
+                timeframes=timeframes
+            )
+            
+            if not results:
+                await message.edit_text("❌ Er is een fout opgetreden bij het maken van screenshots.")
+                return
+            
+            # Stuur de screenshots één voor één
+            await message.edit_text(f"✅ Screenshots gemaakt voor {len(symbols)} symbolen!")
+            
+            for symbol, timeframe_data in results.items():
+                for timeframe, screenshot in timeframe_data.items():
+                    # Maak een caption
+                    caption = f"📊 {symbol} - {timeframe} Timeframe"
+                    
+                    # Stuur de afbeelding
+                    await update.message.reply_photo(
+                        photo=screenshot,
+                        caption=caption
+                    )
+                    
+                    # Korte pauze om rate limiting te voorkomen
+                    await asyncio.sleep(1)
+            
+        except Exception as e:
+            logger.error(f"Error in batch charts command: {str(e)}")
+            await update.message.reply_text(f"❌ Er is een fout opgetreden: {str(e)}")
