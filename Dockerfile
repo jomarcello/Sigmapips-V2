@@ -84,8 +84,24 @@ RUN npm install -g puppeteer@19.7.0 --unsafe-perm=true
 # Stel Puppeteer cache directory in
 ENV PUPPETEER_CACHE_DIR=/app/.cache/puppeteer
 
-# Kopieer het Puppeteer setup script
-COPY setup_puppeteer.js /app/setup_puppeteer.js
+# Maak het Puppeteer setup script inline aan
+RUN echo 'console.log("Installing Puppeteer..."); \
+const puppeteer = require("puppeteer"); \
+\
+(async () => { \
+  try { \
+    // Test of Puppeteer werkt \
+    const browser = await puppeteer.launch({ \
+      headless: true, \
+      args: ["--no-sandbox", "--disable-dev-shm-usage"] \
+    }); \
+    console.log("Puppeteer installed and working correctly"); \
+    await browser.close(); \
+  } catch (error) { \
+    console.error("Error testing Puppeteer:", error); \
+    process.exit(1); \
+  } \
+})();' > /app/setup_puppeteer.js
 
 # Voer het script uit om te controleren of Puppeteer werkt
 RUN node /app/setup_puppeteer.js
