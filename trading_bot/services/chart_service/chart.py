@@ -171,8 +171,8 @@ class ChartService:
             try:
                 from trading_bot.services.chart_service.tradingview_selenium import TradingViewSeleniumService
                 
-                # Haal de session ID op uit de omgevingsvariabelen
-                session_id = os.getenv("TRADINGVIEW_SESSION_ID")
+                # Haal de session ID op uit de omgevingsvariabelen of gebruik een hardcoded waarde
+                session_id = os.getenv("TRADINGVIEW_SESSION_ID", "z90l85p2anlgdwfppsrdnnfantz48z1o")
                 
                 if session_id:
                     logger.info(f"Found TradingView session ID: {session_id[:5]}...")
@@ -279,17 +279,44 @@ class ChartService:
             
             # Controleer of we een TradingView service hebben
             if hasattr(self, 'tradingview') and self.tradingview:
+                logger.info(f"Using TradingView service: {type(self.tradingview).__name__}")
+                
                 # Gebruik de TradingView service
                 try:
                     screenshot = await self.tradingview.take_screenshot(instrument, timeframe)
                     if screenshot:
+                        logger.info(f"Successfully got screenshot for {instrument} using TradingView service")
                         return screenshot
                     else:
                         logger.warning(f"Failed to get screenshot for {instrument} with TradingView service")
                 except Exception as e:
                     logger.error(f"Error getting screenshot with TradingView service: {str(e)}")
+                    import traceback
+                    logger.error(traceback.format_exc())
             else:
                 logger.warning("No TradingView service available")
+                
+                # Probeer de service te herinitialiseren
+                try:
+                    logger.info("Trying to reinitialize TradingView service")
+                    success = await self.initialize()
+                    if success and self.tradingview:
+                        logger.info(f"Successfully reinitialized TradingView service: {type(self.tradingview).__name__}")
+                        
+                        # Probeer opnieuw een screenshot te maken
+                        try:
+                            screenshot = await self.tradingview.take_screenshot(instrument, timeframe)
+                            if screenshot:
+                                logger.info(f"Successfully got screenshot for {instrument} after reinitializing")
+                                return screenshot
+                            else:
+                                logger.warning(f"Failed to get screenshot for {instrument} after reinitializing")
+                        except Exception as e:
+                            logger.error(f"Error getting screenshot after reinitializing: {str(e)}")
+                    else:
+                        logger.warning("Failed to reinitialize TradingView service")
+                except Exception as e:
+                    logger.error(f"Error reinitializing TradingView service: {str(e)}")
             
             # Als TradingView niet werkt, probeer alternatieve chart services
             
@@ -344,6 +371,8 @@ class ChartService:
             
         except Exception as e:
             logger.error(f"Error getting chart: {str(e)}")
+            import traceback
+            logger.error(traceback.format_exc())
             return None
     
     async def make_screenshot(self, url: str) -> Optional[bytes]:
