@@ -85,31 +85,6 @@ RUN mkdir -p /app/playwright_data
 RUN chmod -R 777 /app/selenium_data
 RUN chmod -R 777 /app/playwright_data
 
-# Installeer Puppeteer
-RUN mkdir -p /app/puppeteer && cd /app/puppeteer && \
-    npm init -y && \
-    npm install puppeteer@19.7.0 --save
-
-# Maak het Puppeteer setup script
-RUN echo 'console.log("Testing Puppeteer installation...");' > test_puppeteer.js && \
-    echo 'const puppeteer = require("puppeteer");' >> test_puppeteer.js && \
-    echo '(async () => {' >> test_puppeteer.js && \
-    echo '  try {' >> test_puppeteer.js && \
-    echo '    const browser = await puppeteer.launch({' >> test_puppeteer.js && \
-    echo '      headless: true,' >> test_puppeteer.js && \
-    echo '      args: ["--no-sandbox", "--disable-dev-shm-usage"]' >> test_puppeteer.js && \
-    echo '    });' >> test_puppeteer.js && \
-    echo '    console.log("Puppeteer is working correctly!");' >> test_puppeteer.js && \
-    echo '    await browser.close();' >> test_puppeteer.js && \
-    echo '  } catch (error) {' >> test_puppeteer.js && \
-    echo '    console.error("Error testing Puppeteer:", error);' >> test_puppeteer.js && \
-    echo '    process.exit(1);' >> test_puppeteer.js && \
-    echo '  }' >> test_puppeteer.js && \
-    echo '})();' >> test_puppeteer.js
-
-# Test Puppeteer installatie
-RUN node test_puppeteer.js
-
 # Ga terug naar de hoofddirectory
 WORKDIR /app
 
