@@ -62,39 +62,8 @@ WORKDIR /app
 RUN python -m venv /app/venv
 ENV PATH="/app/venv/bin:$PATH"
 
-# Maak een aangepaste requirements.txt zonder npm regels
-RUN cat > requirements.txt << 'EOL'
-# Core dependencies
-fastapi==0.109.0
-python-telegram-bot==20.3
-uvicorn==0.27.0
-python-dotenv==1.0.0
-aiohttp==3.9.3
-twocaptcha==0.0.1
-aiofiles==23.2.1
-
-# Database
-supabase==1.2.0
-redis==5.0.1
-
-# Chart generation
-selenium==4.10.0
-pillow==9.5.0
-webdriver-manager==3.8.6
-matplotlib==3.7.1
-pandas==2.0.1
-numpy==1.24.3
-mplfinance==0.12.9b0
-yfinance==0.2.35
-playwright==1.40.0
-
-# Utils
-python-multipart==0.0.6
-
-# Pinecone
-pinecone-client
-requests
-EOL
+# Maak een requirements.txt bestand
+COPY requirements.txt .
 
 # Installeer dependencies in de virtuele omgeving
 RUN pip install --upgrade pip
@@ -115,26 +84,8 @@ RUN npm install -g puppeteer@19.7.0 --unsafe-perm=true
 # Stel Puppeteer cache directory in
 ENV PUPPETEER_CACHE_DIR=/app/.cache/puppeteer
 
-# Maak het Puppeteer setup script inline aan
-RUN cat > /app/setup_puppeteer.js << 'EOL'
-console.log("Installing Puppeteer...");
-const puppeteer = require("puppeteer");
-
-(async () => {
-  try {
-    // Test of Puppeteer werkt
-    const browser = await puppeteer.launch({
-      headless: true,
-      args: ["--no-sandbox", "--disable-dev-shm-usage"]
-    });
-    console.log("Puppeteer installed and working correctly");
-    await browser.close();
-  } catch (error) {
-    console.error("Error testing Puppeteer:", error);
-    process.exit(1);
-  }
-})();
-EOL
+# Maak het Puppeteer setup script
+COPY setup_puppeteer.js /app/setup_puppeteer.js
 
 # Voer het script uit om te controleren of Puppeteer werkt
 RUN node /app/setup_puppeteer.js
