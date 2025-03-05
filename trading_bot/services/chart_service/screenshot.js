@@ -1,4 +1,4 @@
-const puppeteer = require('puppeteer');
+const { chromium } = require('@playwright/test');
 
 // Haal de argumenten op
 const url = process.argv[2];
@@ -14,23 +14,18 @@ if (!url || !outputPath) {
         console.log(`Taking screenshot of ${url} and saving to ${outputPath}`);
         
         // Start een browser
-        const browser = await puppeteer.launch({
+        const browser = await chromium.launch({
             headless: true,
             args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
         });
         
         // Open een nieuwe pagina
-        const page = await browser.newPage();
-        
-        // Stel de viewport in
-        await page.setViewport({
-            width: 1280,
-            height: 800
-        });
+        const context = await browser.newContext();
+        const page = await context.newPage();
         
         // Ga naar de URL
         await page.goto(url, {
-            waitUntil: 'networkidle2',
+            waitUntil: 'networkidle',
             timeout: 60000
         });
         
