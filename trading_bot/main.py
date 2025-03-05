@@ -319,4 +319,228 @@ async def send_test_signal():
 
 @app.post("/test-webhook")
 async def test_webhook():
-    """Test endpoint voor de
+    """Test endpoint voor de webhook"""
+    logger.info("Test webhook endpoint aangeroepen")
+    return {"status": "success"}
+
+@app.get("/test-chart/{instrument}")
+async def test_chart(instrument: str):
+    """Test endpoint voor de chart service"""
+    try:
+        logger.info(f"Test chart endpoint aangeroepen voor instrument: {instrument}")
+        
+        # Haal de chart op
+        chart_image = await chart.get_chart(instrument)
+        
+        if not chart_image:
+            logger.error(f"Failed to get chart for {instrument}")
+            return {"status": "error", "message": f"Failed to get chart for {instrument}"}
+        
+        logger.info(f"Successfully got chart for {instrument}, size: {len(chart_image)} bytes")
+        
+        # Converteer de bytes naar base64 voor weergave in de browser
+        chart_base64 = base64.b64encode(chart_image).decode('utf-8')
+        
+        # Retourneer een HTML-pagina met de afbeelding
+        html_content = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Chart Test</title>
+        </head>
+        <body>
+            <h1>Chart for {instrument}</h1>
+            <img src="data:image/png;base64,{chart_base64}" alt="Chart for {instrument}" />
+        </body>
+        </html>
+        """
+        
+        from fastapi.responses import HTMLResponse
+        return HTMLResponse(content=html_content)
+    except Exception as e:
+        logger.error(f"Error in test chart endpoint: {str(e)}")
+        return {"status": "error", "message": str(e)}
+
+@app.get("/test-tradingview/{instrument}")
+async def test_tradingview(instrument: str):
+    """Test endpoint voor de TradingView integratie"""
+    try:
+        logger.info(f"Test TradingView endpoint aangeroepen voor instrument: {instrument}")
+        
+        # Normaliseer instrument
+        instrument = instrument.upper().replace("/", "")
+        
+        # Controleer of we een link hebben voor dit instrument
+        if instrument in chart.chart_links:
+            chart_url = chart.chart_links[instrument]
+            
+            # Haal screenshot op
+            if chart.tradingview and chart.tradingview.is_logged_in:
+                screenshot = await chart.tradingview.get_chart_screenshot(chart_url)
+                
+                if screenshot:
+                    logger.info(f"Successfully got TradingView screenshot for {instrument}")
+                    
+                    # Converteer de bytes naar base64 voor weergave in de browser
+                    screenshot_base64 = base64.b64encode(screenshot).decode('utf-8')
+                    
+                    # Retourneer een HTML-pagina met de afbeelding
+                    html_content = f"""
+                    <!DOCTYPE html>
+                    <html>
+                    <head>
+                        <title>TradingView Test</title>
+                    </head>
+                    <body>
+                        <h1>TradingView Screenshot for {instrument}</h1>
+                        <img src="data:image/png;base64,{screenshot_base64}" alt="TradingView Screenshot for {instrument}" />
+                    </body>
+                    </html>
+                    """
+                    
+                    from fastapi.responses import HTMLResponse
+                    return HTMLResponse(content=html_content)
+                else:
+                    return {"status": "error", "message": f"Failed to get TradingView screenshot for {instrument}"}
+            else:
+                return {"status": "error", "message": "TradingView service not initialized or not logged in"}
+        else:
+            return {"status": "error", "message": f"No chart link found for instrument: {instrument}"}
+    except Exception as e:
+        logger.error(f"Error in test TradingView endpoint: {str(e)}")
+        return {"status": "error", "message": str(e)}
+
+@app.get("/health-tradingview")
+async def health_tradingview():
+    """Controleer de gezondheid van de TradingView service"""
+    try:
+        if chart.tradingview and chart.tradingview.is_logged_in:
+            return {
+                "status": "healthy",
+                "tradingview": "logged_in",
+                "message": "TradingView service is running and logged in"
+            }
+        elif chart.tradingview:
+            return {
+                "status": "warning",
+                "tradingview": "initialized_not_logged_in",
+                "message": "TradingView service is running but not logged in"
+            }
+        else:
+            return {
+                "status": "warning",
+                "tradingview": "not_initialized",
+                "message": "TradingView service is not initialized"
+            }
+    except Exception as e:
+        return {
+            "status": "error",
+            "tradingview": "error",
+            "message": f"Error checking TradingView service: {str(e)}"
+        }
+
+@app.get("/login-tradingview")
+async def login_tradingview():
+    """Handmatig inloggen op TradingView"""
+    try:
+        if not chart.tradingview:
+            # We gebruiken nu de ChartService die intern Puppeteer gebruikt
+            pass
+        
+        if chart.tradingview.is_logged_in:
+            return {
+                "status": "success",
+                "message": "Already logged in to TradingView"
+            }
+        
+        success = await chart.tradingview.login()
+        if success:
+            return {
+                "status": "success",
+                "message": "Successfully logged in to TradingView"
+            }
+        else:
+            return {
+                "status": "error",
+                "message": "Failed to log in to TradingView"
+            }
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": f"Error logging in to TradingView: {str(e)}"
+        }
+
+def initialize_services():
+    """Initialize all services"""
+    return {
+        "db": db,
+        "telegram": telegram,
+        "chart": chart
+    }
+
+@app.get("/batch-screenshots")
+async def batch_screenshots(symbols: str = None, timeframes: str = None):
+    """Verbeterde API endpoint voor screenshots met betere error handling"""
+    try:
+        # Log de request
+        logger.info(f"Batch screenshots request with symbols={symbols}, timeframes={timeframes}")
+        
+        # Converteer comma-gescheiden strings naar lijsten
+        symbol_list = symbols.split(",") if symbols else ["EURUSD", "GBPUSD", "BTCUSD", "ETHUSD"]
+        timeframe_list = timeframes.split(",") if timeframes else ["1h", "4h", "1d"]
+        
+        # Gebruik fallback methode als TradingView niet beschikbaar is
+        if not hasattr(chart, 'tradingview') or not chart.tradingview:
+            logger.info("Using fallback method for batch screenshots")
+            results = {}
+            for symbol in symbol_list:
+                results[symbol] = {}
+                for timeframe in timeframe_list:
+                    try:
+                        screenshot = await chart.get_chart(symbol, timeframe)
+                        if screenshot:
+                            results[symbol][timeframe] = screenshot
+                    except Exception as e:
+                        logger.error(f"Error getting chart for {symbol} {timeframe}: {str(e)}")
+                        results[symbol][timeframe] = None
+        else:
+            # Gebruik TradingView service als die beschikbaar is
+            results = await chart.tradingview.batch_capture_charts(
+                symbols=symbol_list,
+                timeframes=timeframe_list
+            )
+        
+        if not results:
+            logger.error("Batch capture returned no results")
+            return {
+                "status": "error",
+                "message": "Geen screenshots gemaakt"
+            }
+        
+        # Converteer resultaten naar base64 voor de response
+        response_data = {}
+        for symbol, timeframe_data in results.items():
+            response_data[symbol] = {}
+            for timeframe, screenshot in timeframe_data.items():
+                if screenshot is not None:
+                    response_data[symbol][timeframe] = base64.b64encode(screenshot).decode('utf-8')
+        
+        logger.info(f"Successfully generated {sum(len(tf) for tf in response_data.values())} screenshots")
+        
+        return {
+            "status": "success",
+            "data": response_data
+        }
+        
+    except Exception as e:
+        logger.error(f"Error in batch screenshots endpoint: {str(e)}")
+        return {"status": "error", "message": str(e)}
+
+async def periodic_health_check():
+    """Periodieke health check om te controleren of de applicatie nog draait"""
+    while True:
+        try:
+            logger.info("Periodic health check: Application is running")
+            await asyncio.sleep(60)  # Elke minuut
+        except Exception as e:
+            logger.error(f"Error in periodic health check: {str(e)}")
