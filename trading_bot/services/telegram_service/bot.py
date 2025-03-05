@@ -250,6 +250,7 @@ class TelegramService:
             self.application.add_handler(CommandHandler("help", self.help))
             self.application.add_handler(CallbackQueryHandler(self.handle_callback_query))
             self.application.add_handler(CommandHandler("charts", self.cmd_batch_charts))
+            self.application.add_handler(CommandHandler("selenium", self.cmd_selenium_charts))
             
             logger.info("Telegram service initialized")
             
@@ -1754,16 +1755,42 @@ Risk Management:
             logger.error(f"Error processing update: {str(e)}")
 
     async def cmd_batch_charts(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Command handler voor het maken van meerdere chart screenshots"""
+        """Verbeterde command handler voor het maken van meerdere chart screenshots"""
         try:
             # Stuur een bericht dat we bezig zijn
             message = await update.message.reply_text(
                 "🔄 Bezig met het maken van chart screenshots. Dit kan even duren..."
             )
             
-            # Haal de standaard symbolen op uit de database of gebruik een vaste lijst
-            symbols = ["EURUSD", "GBPUSD", "BTCUSD", "ETHUSD"]
-            timeframes = ["1h", "4h", "1d"]
+            # Haal symbolen en timeframes uit het bericht als die zijn opgegeven
+            message_text = update.message.text.strip()
+            parts = message_text.split()
+            
+            symbols = None
+            timeframes = None
+            
+            # Controleer of er parameters zijn opgegeven
+            if len(parts) > 1:
+                # Format: /charts EURUSD,GBPUSD 1h,4h
+                if len(parts) >= 2:
+                    symbols_arg = parts[1].strip()
+                    if symbols_arg and symbols_arg != "default":
+                        symbols = symbols_arg.split(",")
+                
+                if len(parts) >= 3:
+                    timeframes_arg = parts[2].strip()
+                    if timeframes_arg and timeframes_arg != "default":
+                        timeframes = timeframes_arg.split(",")
+            
+            # Log de parameters
+            logger.info(f"Batch charts command with symbols={symbols}, timeframes={timeframes}")
+            
+            # Update het bericht
+            await message.edit_text(
+                f"🔄 Bezig met het maken van screenshots voor "
+                f"{', '.join(symbols) if symbols else 'standaard symbolen'} op "
+                f"{', '.join(timeframes) if timeframes else 'standaard timeframes'}..."
+            )
             
             # Roep de batch capture functie aan
             results = await self.chart.tradingview.batch_capture_charts(
@@ -1776,22 +1803,114 @@ Risk Management:
                 return
             
             # Stuur de screenshots één voor één
-            await message.edit_text(f"✅ Screenshots gemaakt voor {len(symbols)} symbolen!")
+            await message.edit_text(f"✅ Screenshots gemaakt voor {len(results)} symbolen!")
             
             for symbol, timeframe_data in results.items():
                 for timeframe, screenshot in timeframe_data.items():
+                    if screenshot is None:
+                        continue
+                        
                     # Maak een caption
                     caption = f"📊 {symbol} - {timeframe} Timeframe"
                     
-                    # Stuur de afbeelding
-                    await update.message.reply_photo(
-                        photo=screenshot,
-                        caption=caption
-                    )
-                    
-                    # Korte pauze om rate limiting te voorkomen
-                    await asyncio.sleep(1)
+                    try:
+                        # Stuur de afbeelding
+                        await update.message.reply_photo(
+                            photo=screenshot,
+                            caption=caption
+                        )
+                        
+                        # Korte pauze om rate limiting te voorkomen
+                        await asyncio.sleep(1)
+                    except Exception as photo_error:
+                        logger.error(f"Error sending photo: {str(photo_error)}")
+                        await update.message.reply_text(
+                            f"❌ Kon screenshot voor {symbol} - {timeframe} niet versturen: {str(photo_error)}"
+                        )
             
         except Exception as e:
             logger.error(f"Error in batch charts command: {str(e)}")
+            await update.message.reply_text(f"❌ Er is een fout opgetreden: {str(e)}")
+
+    async def cmd_selenium_charts(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Command handler voor het maken van chart screenshots met Selenium"""
+        try:
+            # Stuur een bericht dat we bezig zijn
+            message = await update.message.reply_text(
+                "🔄 Bezig met het maken van chart screenshots via Selenium. Dit kan even duren..."
+            )
+            
+            # Haal symbolen en timeframes uit het bericht als die zijn opgegeven
+            message_text = update.message.text.strip()
+            parts = message_text.split()
+            
+            symbols = None
+            timeframes = None
+            
+            # Controleer of er parameters zijn opgegeven
+            if len(parts) > 1:
+                # Format: /selenium EURUSD,GBPUSD 1h,4h
+                if len(parts) >= 2:
+                    symbols_arg = parts[1].strip()
+                    if symbols_arg and symbols_arg != "default":
+                        symbols = symbols_arg.split(",")
+                
+                if len(parts) >= 3:
+                    timeframes_arg = parts[2].strip()
+                    if timeframes_arg and timeframes_arg != "default":
+                        timeframes = timeframes_arg.split(",")
+            
+            # Log de parameters
+            logger.info(f"Selenium charts command with symbols={symbols}, timeframes={timeframes}")
+            
+            # Update het bericht
+            await message.edit_text(
+                f"🔄 Bezig met het maken van screenshots voor "
+                f"{', '.join(symbols) if symbols else 'standaard symbolen'} op "
+                f"{', '.join(timeframes) if timeframes else 'standaard timeframes'}..."
+            )
+            
+            # Controleer of de Selenium service is geïnitialiseerd
+            if not self.chart.tradingview_selenium or not self.chart.tradingview_selenium.is_initialized:
+                await message.edit_text("❌ Selenium service is niet geïnitialiseerd. Probeer het later opnieuw.")
+                return
+            
+            # Roep de batch capture functie aan
+            results = await self.chart.tradingview_selenium.batch_capture_charts(
+                symbols=symbols,
+                timeframes=timeframes
+            )
+            
+            if not results:
+                await message.edit_text("❌ Er is een fout opgetreden bij het maken van screenshots.")
+                return
+            
+            # Stuur de screenshots één voor één
+            await message.edit_text(f"✅ Screenshots gemaakt voor {len(results)} symbolen!")
+            
+            for symbol, timeframe_data in results.items():
+                for timeframe, screenshot in timeframe_data.items():
+                    if screenshot is None:
+                        continue
+                        
+                    # Maak een caption
+                    caption = f"📊 {symbol} - {timeframe} Timeframe (Selenium)"
+                    
+                    try:
+                        # Stuur de afbeelding
+                        await update.message.reply_photo(
+                            photo=screenshot,
+                            caption=caption
+                        )
+                        
+                        # Korte pauze om rate limiting te voorkomen
+                        await asyncio.sleep(1)
+                    except Exception as photo_error:
+                        logger.error(f"Error sending photo: {str(photo_error)}")
+                        await update.message.reply_text(
+                            f"❌ Kon screenshot voor {symbol} - {timeframe} niet versturen: {str(photo_error)}"
+                        )
+            
+        except Exception as e:
+            logger.error(f"Error in selenium charts command: {str(e)}")
             await update.message.reply_text(f"❌ Er is een fout opgetreden: {str(e)}")
