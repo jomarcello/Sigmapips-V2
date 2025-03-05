@@ -201,7 +201,8 @@ class ChartService:
             # Probeer Node.js als Session service faalt
             try:
                 from trading_bot.services.chart_service.tradingview_node import TradingViewNodeService
-                self.tradingview_node = TradingViewNodeService()
+                # Geef de session ID door aan de Node.js service
+                self.tradingview_node = TradingViewNodeService(session_id=session_id)
                 node_success = await self.tradingview_node.initialize()
                 
                 if node_success:
@@ -328,9 +329,6 @@ class ChartService:
                 logger.info(f"Using external screenshot service for URL: {chart_url}")
                 
                 # Gebruik een betrouwbare screenshot service
-                screenshot_url = f"https://api.apiflash.com/v1/urltoimage?access_key=your_api_key&url={quote(chart_url)}&width=1280&height=800"
-                
-                # Als je geen API key hebt, probeer een gratis service
                 screenshot_url = f"https://image.thum.io/get/width/1280/crop/800/png/{quote(chart_url)}"
                 
                 async with aiohttp.ClientSession() as session:
