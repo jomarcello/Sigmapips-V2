@@ -258,12 +258,10 @@ class TelegramService:
             return False
 
     # Nieuwe methode voor /start commando
-    async def start_command(self, update: Update, context: CallbackContext) -> None:
-        """Handle /start command outside of conversation"""
-        logger.info(f"Start command received from user {update.effective_user.id}")
-        
+    async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        """Start command handler"""
         try:
-            # Stuur het welkomstbericht met de hoofdmenu knoppen
+            # Stuur het welkomstbericht met de menu knoppen
             await update.message.reply_text(
                 WELCOME_MESSAGE,
                 reply_markup=InlineKeyboardMarkup([
@@ -273,12 +271,14 @@ class TelegramService:
                 parse_mode=ParseMode.HTML
             )
             logger.info(f"Welcome message sent to user {update.effective_user.id}")
+            return MENU
         except Exception as e:
             logger.error(f"Error in start_command: {str(e)}")
             # Probeer een eenvoudiger bericht te sturen bij een fout
             await update.message.reply_text(
                 "Welkom bij de SigmaPips Trading Bot! Er is een fout opgetreden bij het laden van het menu. Probeer het later opnieuw."
             )
+            return MENU
 
     async def format_signal_with_ai(self, signal: Dict[str, Any]) -> str:
         """Format trading signal using DeepSeek AI"""
@@ -3187,3 +3187,18 @@ Risk Management:
         )
         
         return ANALYSIS
+
+    async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        """Toon help informatie"""
+        try:
+            await update.message.reply_text(
+                HELP_MESSAGE,
+                parse_mode=ParseMode.HTML
+            )
+            return MENU
+        except Exception as e:
+            logger.error(f"Error in help_command: {str(e)}")
+            await update.message.reply_text(
+                "Er is een fout opgetreden bij het tonen van de help informatie. Probeer het later opnieuw."
+            )
+            return MENU
