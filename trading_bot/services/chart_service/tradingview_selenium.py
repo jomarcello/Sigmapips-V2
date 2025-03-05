@@ -99,12 +99,13 @@ class TradingViewSeleniumService(TradingViewService):
                     logger.info("Using installed ChromeDriver in Docker")
                     self.driver = webdriver.Chrome(options=chrome_options)
                 else:
-                    # Lokaal, gebruik webdriver-manager
-                    from webdriver_manager.chrome import ChromeDriverManager
+                    # Lokaal, gebruik een specifieke versie van ChromeDriver
                     from selenium.webdriver.chrome.service import Service
                     
-                    logger.info("Using ChromeDriverManager locally")
-                    service = Service(ChromeDriverManager().install())
+                    logger.info("Using specific ChromeDriver version locally")
+                    # Gebruik een specifieke versie die compatibel is met de meeste Chrome versies
+                    from webdriver_manager.chrome import ChromeDriverManager
+                    service = Service(ChromeDriverManager(version="114.0.5735.90").install())
                     self.driver = webdriver.Chrome(service=service, options=chrome_options)
                 
                 logger.info("Chrome driver initialized successfully")
