@@ -28,3 +28,6 @@ python-multipart==0.0.6
 # Pinecone
 pinecone-client
 requests
+
+# Voeg toe aan package.json of installeer handmatig
+npm install puppeteer@19.7.0
