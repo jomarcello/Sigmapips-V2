@@ -159,49 +159,58 @@ class TradingViewSessionService(TradingViewService):
                     }
                 ])
                 
-                # Test of de sessie werkt
-                page = await self.context.new_page()
-                await page.goto("https://www.tradingview.com/chart/", timeout=60000)
-                await page.wait_for_load_state("networkidle", timeout=30000)
-                
-                # Controleer of we zijn ingelogd
-                is_logged_in = await page.evaluate("""() => {
-                    // Verschillende mogelijke selectors voor de gebruikersmenu-knop
-                    const selectors = [
-                        '.tv-header__user-menu-button',
-                        '.js-username',
-                        '.tv-header__user-menu',
-                        '.tv-header__user',
-                        '[data-name="user-menu"]'
-                    ];
+                try:
+                    # Test of de sessie werkt met een langere timeout
+                    page = await self.context.new_page()
+                    await page.goto("https://www.tradingview.com/chart/", timeout=120000)  # 2 minuten timeout
+                    await page.wait_for_load_state("networkidle", timeout=60000)  # 1 minuut timeout
                     
-                    // Controleer of een van de selectors bestaat
-                    for (const selector of selectors) {
-                        if (document.querySelector(selector)) {
+                    # Controleer of we zijn ingelogd
+                    is_logged_in = await page.evaluate("""() => {
+                        // Verschillende mogelijke selectors voor de gebruikersmenu-knop
+                        const selectors = [
+                            '.tv-header__user-menu-button',
+                            '.js-username',
+                            '.tv-header__user-menu',
+                            '.tv-header__user',
+                            '[data-name="user-menu"]'
+                        ];
+                        
+                        // Controleer of een van de selectors bestaat
+                        for (const selector of selectors) {
+                            if (document.querySelector(selector)) {
+                                return true;
+                            }
+                        }
+                        
+                        // Controleer of er een uitlog-link is
+                        if (document.querySelector('a[href="/logout/"]')) {
                             return true;
                         }
-                    }
+                        
+                        return false;
+                    }""")
                     
-                    // Controleer of er een uitlog-link is
-                    if (document.querySelector('a[href="/logout/"]')) {
-                        return true;
-                    }
+                    # Neem een screenshot van de login pagina voor debugging
+                    debug_screenshot = await page.screenshot()
+                    logger.info(f"Login page screenshot size: {len(debug_screenshot)} bytes")
                     
-                    return false;
-                }""")
-                
-                # Neem een screenshot van de login pagina voor debugging
-                debug_screenshot = await page.screenshot()
-                logger.info(f"Login page screenshot size: {len(debug_screenshot)} bytes")
-                
-                if is_logged_in:
-                    logger.info("Successfully authenticated with session ID")
-                    self.is_logged_in = True
-                else:
-                    logger.warning("Session ID authentication failed, but continuing anyway")
+                    if is_logged_in:
+                        logger.info("Successfully authenticated with session ID")
+                        self.is_logged_in = True
+                    else:
+                        logger.warning("Session ID authentication failed, but continuing anyway")
+                        self.is_logged_in = False
+                    
+                    await page.close()
+                except Exception as page_error:
+                    logger.error(f"Error testing session: {str(page_error)}")
+                    # Sluit de pagina als deze nog open is
+                    try:
+                        await page.close()
+                    except:
+                        pass
                     self.is_logged_in = False
-                
-                await page.close()
             else:
                 logger.warning("No session ID provided")
                 self.is_logged_in = False
