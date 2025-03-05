@@ -104,43 +104,80 @@ class TradingViewNodeService(TradingViewService):
             logger.error(f"Error initializing TradingView Node.js service: {str(e)}")
             return False
     
-    async def take_screenshot(self, symbol, timeframe):
-        """Take a screenshot of a chart using Node.js script"""
-        if not self.is_initialized:
-            logger.warning("TradingView Node.js service not initialized")
-            return None
-        
+    async def take_screenshot(self, symbol, timeframe=None):
+        """Take a screenshot of a chart"""
         try:
             logger.info(f"Taking screenshot for {symbol} on {timeframe} timeframe")
             
-            # Voer het Node.js script uit
-            process = await asyncio.create_subprocess_exec(
-                'node', self.script_path, symbol, timeframe,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
+            # Normaliseer het symbool (verwijder / en converteer naar hoofdletters)
+            normalized_symbol = symbol.replace("/", "").upper()
             
-            stdout, stderr = await process.communicate()
+            # Bouw de chart URL
+            chart_url = self.chart_links.get(normalized_symbol)
+            if not chart_url:
+                logger.warning(f"No chart URL found for {symbol}, using default URL")
+                chart_url = f"https://www.tradingview.com/chart/?symbol={normalized_symbol}"
+                if timeframe:
+                    tv_interval = self.interval_map.get(timeframe, "D")
+                    chart_url += f"&interval={tv_interval}"
             
-            if process.returncode != 0:
-                logger.error(f"Screenshot failed: {stderr.decode()}")
+            # Controleer of de URL geldig is
+            if not chart_url:
+                logger.error(f"Invalid chart URL for {symbol}")
                 return None
             
-            # Lees het screenshot bestand
-            screenshot_path = os.path.join(os.getcwd(), 'screenshots', f"{symbol}_{timeframe}.png")
+            # Maak een tijdelijk bestand voor de screenshot
+            import tempfile
+            with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as temp_file:
+                screenshot_path = temp_file.name
             
+            # Voer het Node.js script uit om een screenshot te maken
+            import subprocess
+            
+            # Controleer of het script bestaat
+            script_path = os.path.join(os.path.dirname(__file__), "screenshot.js")
+            if not os.path.exists(script_path):
+                logger.error(f"Screenshot script not found at {script_path}")
+                return None
+            
+            # Voer het script uit
+            logger.info(f"Running Node.js script: {script_path} with URL: {chart_url} and output: {screenshot_path}")
+            process = subprocess.Popen(
+                ["node", script_path, chart_url, screenshot_path],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE
+            )
+            stdout, stderr = process.communicate()
+            
+            # Log de output
+            if stdout:
+                logger.info(f"Node.js script output: {stdout.decode('utf-8')}")
+            if stderr:
+                logger.error(f"Node.js script error: {stderr.decode('utf-8')}")
+            
+            # Controleer of het script succesvol was
+            if process.returncode != 0:
+                logger.error(f"Node.js script failed with return code {process.returncode}")
+                return None
+            
+            # Controleer of het bestand bestaat
             if not os.path.exists(screenshot_path):
                 logger.error(f"Screenshot file not found at {screenshot_path}")
                 return None
             
-            with open(screenshot_path, 'rb') as f:
-                screenshot = f.read()
+            # Lees het bestand
+            with open(screenshot_path, "rb") as f:
+                screenshot_bytes = f.read()
             
-            logger.info(f"Successfully took screenshot of {symbol} {timeframe}")
-            return screenshot
+            # Verwijder het tijdelijke bestand
+            os.unlink(screenshot_path)
+            
+            return screenshot_bytes
             
         except Exception as e:
             logger.error(f"Error taking screenshot: {str(e)}")
+            import traceback
+            logger.error(traceback.format_exc())
             return None
     
     async def batch_capture_charts(self, symbols=None, timeframes=None):
