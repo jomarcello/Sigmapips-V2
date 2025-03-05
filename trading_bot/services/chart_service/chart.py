@@ -164,6 +164,9 @@ class ChartService:
                 "DE40": "https://www.tradingview.com/chart/OWzg0XNw/"
             }
             
+            # Zet tradingview op None om te beginnen
+            self.tradingview = None
+            
             # Probeer eerst de TradingView Selenium service met session ID
             try:
                 from trading_bot.services.chart_service.tradingview_selenium import TradingViewSeleniumService
@@ -258,30 +261,28 @@ class ChartService:
             
             # Als alle methoden falen, gebruik fallback
             logger.info("Using fallback methods for chart service")
-            self.tradingview = None
             return False
         except Exception as e:
             logger.error(f"Error initializing chart service: {str(e)}")
             self.tradingview = None
             return False
         
-    async def get_chart(self, instrument: str, timeframe: str = None) -> Optional[bytes]:
+    async def get_chart(self, instrument, timeframe=None):
         """Get a chart for the given instrument and timeframe"""
         try:
             logger.info(f"Getting chart for {instrument} with timeframe {timeframe}")
             
             # Controleer of we een TradingView service hebben
-            if self.tradingview:
-                logger.info(f"Using TradingView service: {type(self.tradingview).__name__}")
-                
-                # Gebruik de TradingView service om een screenshot te maken
-                screenshot = await self.tradingview.take_screenshot(instrument, timeframe)
-                
-                if screenshot:
-                    logger.info(f"Got screenshot for {instrument}")
-                    return screenshot
-                else:
-                    logger.warning(f"Failed to get screenshot for {instrument} using TradingView service")
+            if hasattr(self, 'tradingview') and self.tradingview:
+                # Gebruik de TradingView service
+                try:
+                    screenshot = await self.tradingview.take_screenshot(instrument, timeframe)
+                    if screenshot:
+                        return screenshot
+                    else:
+                        logger.warning(f"Failed to get screenshot for {instrument} with TradingView service")
+                except Exception as e:
+                    logger.error(f"Error getting screenshot with TradingView service: {str(e)}")
             else:
                 logger.warning("No TradingView service available")
             
