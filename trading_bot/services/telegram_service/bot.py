@@ -2193,12 +2193,16 @@ Risk Management:
                                     )
                                 else:
                                     # Geen screenshot beschikbaar, stuur alleen de link
+                                    # Probeer een publieke URL te maken
+                                    public_url = f"https://www.tradingview.com/chart/?symbol={instrument.replace('/', '')}"
+                                    
                                     await self.bot.edit_message_text(
                                         chat_id=chat_id,
                                         message_id=message_id,
                                         text=f"📊 Chart voor {instrument}:\n\nKon geen screenshot maken, maar je kunt de chart bekijken op TradingView:",
                                         reply_markup=InlineKeyboardMarkup([
                                             [InlineKeyboardButton("🔗 Open in TradingView", url=chart_url)],
+                                            [InlineKeyboardButton("🔗 Open Publieke Chart", url=public_url)],
                                             [InlineKeyboardButton("⬅️ Terug", callback_data="back_market")]
                                         ])
                                     )
