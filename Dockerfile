@@ -52,14 +52,8 @@ RUN wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | apt-key
     && apt-get install -y google-chrome-stable \
     && rm -rf /var/lib/apt/lists/*
 
-# Installeer de nieuwste beschikbare ChromeDriver versie (voor Chrome 123)
-# Chrome 134 is te nieuw, dus we gebruiken de laatste beschikbare versie
-RUN echo "Installing latest available ChromeDriver version" \
-    && wget -q "https://chromedriver.storage.googleapis.com/123.0.6312.86/chromedriver_linux64.zip" \
-    && unzip chromedriver_linux64.zip \
-    && mv chromedriver /usr/bin/chromedriver \
-    && chmod +x /usr/bin/chromedriver \
-    && rm chromedriver_linux64.zip
+# Installeer webdriver-manager voor automatische ChromeDriver installatie
+RUN pip install webdriver-manager
 
 # Set up Chrome environment variables
 ENV CHROME_BIN=/usr/bin/google-chrome
