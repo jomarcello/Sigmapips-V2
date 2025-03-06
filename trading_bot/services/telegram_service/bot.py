@@ -273,6 +273,7 @@ class TelegramService:
                     CHOOSE_INSTRUMENT: [
                         CallbackQueryHandler(self.instrument_signals_callback, pattern="^instrument_[A-Z0-9]+_signals$"),
                         CallbackQueryHandler(self.instrument_callback, pattern="^instrument_[A-Z0-9]+$"),
+                        CallbackQueryHandler(self.back_to_signals, pattern="^back_signals$"),
                         CallbackQueryHandler(self.back_to_market_callback, pattern="^back_market$"),
                     ],
                     CHOOSE_STYLE: [
@@ -507,22 +508,34 @@ class TelegramService:
         await query.answer()
         
         # Haal de markt op uit de callback data
-        market = query.data.replace('market_', '').replace('_signals', '')
+        market = query.data.split('_')[1]  # market_forex_signals -> forex
         
         # Sla de markt op in user_data
         context.user_data['market'] = market
+        context.user_data['analysis_type'] = 'signals'
         
-        # Bepaal welke keyboard te tonen op basis van de markt
+        # Bepaal welke keyboard te tonen op basis van market
         keyboard_map = {
-            'forex': FOREX_KEYBOARD_SIGNALS,
-            'crypto': CRYPTO_KEYBOARD_SIGNALS,
-            'indices': INDICES_KEYBOARD_SIGNALS,
-            'commodities': COMMODITIES_KEYBOARD_SIGNALS
+            'forex': FOREX_KEYBOARD,
+            'crypto': CRYPTO_KEYBOARD,
+            'commodities': COMMODITIES_KEYBOARD,
+            'indices': INDICES_KEYBOARD
         }
         
-        keyboard = keyboard_map.get(market, FOREX_KEYBOARD_SIGNALS)
+        keyboard = keyboard_map.get(market, FOREX_KEYBOARD)
         
-        # Toon de instrumenten voor de gekozen markt
+        # Pas de callback data aan voor signals
+        for row in keyboard:
+            for button in row:
+                if "Back" not in button.text:
+                    button.callback_data = f"instrument_{button.text}_signals"
+        
+        # Voeg terug knop toe
+        for row in keyboard:
+            for button in row:
+                if "Back" in button.text:
+                    button.callback_data = "back_signals"
+        
         await query.edit_message_text(
             text=f"Selecteer een instrument uit {market.capitalize()}:",
             reply_markup=InlineKeyboardMarkup(keyboard)
@@ -642,14 +655,15 @@ class TelegramService:
         await query.answer()
         
         # Haal het instrument op uit de callback data
-        instrument = query.data.replace('instrument_', '').replace('_signals', '')
+        parts = query.data.split('_')
+        instrument = parts[1]  # instrument_EURUSD_signals -> EURUSD
         
         # Sla het instrument op in user_data
         context.user_data['instrument'] = instrument
         
-        # Toon de style selectie
+        # Toon de stijl selectie
         await query.edit_message_text(
-            text="Selecteer je trading stijl:",
+            text=f"Selecteer je trading stijl voor {instrument}:",
             reply_markup=InlineKeyboardMarkup(STYLE_KEYBOARD)
         )
         
@@ -660,18 +674,42 @@ class TelegramService:
         query = update.callback_query
         await query.answer()
         
-        # Haal de stijl op uit de callback data
-        style = query.data.split('_')[1]  # style_test -> test
+        if query.data == "back_instrument":
+            # Terug naar instrument keuze
+            market = context.user_data.get('market', 'forex')
+            keyboard_map = {
+                'forex': FOREX_KEYBOARD,
+                'crypto': CRYPTO_KEYBOARD,
+                'commodities': COMMODITIES_KEYBOARD,
+                'indices': INDICES_KEYBOARD
+            }
+            keyboard = keyboard_map.get(market, FOREX_KEYBOARD)
+            
+            # Pas de callback data aan voor signals
+            for row in keyboard:
+                for button in row:
+                    if "Back" not in button.text:
+                        button.callback_data = f"instrument_{button.text}_signals"
+            
+            # Voeg terug knop toe
+            for row in keyboard:
+                for button in row:
+                    if "Back" in button.text:
+                        button.callback_data = "back_signals"
+            
+            await query.edit_message_text(
+                text=f"Selecteer een instrument uit {market.capitalize()}:",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            return CHOOSE_INSTRUMENT
         
-        # Sla de stijl op in user_data
+        style = query.data.replace('style_', '')
         context.user_data['style'] = style
         context.user_data['timeframe'] = STYLE_TIMEFRAME_MAP[style]
         
-        # Sla de voorkeur op in de database
-        user_id = update.effective_user.id
-        
         try:
-            # Haal de markt en het instrument op uit user_data
+            # Save preferences
+            user_id = update.effective_user.id
             market = context.user_data.get('market', 'forex')
             instrument = context.user_data.get('instrument', 'EURUSD')
             
@@ -766,7 +804,6 @@ class TelegramService:
         query = update.callback_query
         await query.answer()
         
-        # Toon het signals menu
         await query.edit_message_text(
             text="Wat wil je doen met trading signalen?",
             reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD)
@@ -845,7 +882,7 @@ class TelegramService:
             )
             return MENU
 
-    async def initialize(self):
+    async def initialize(self, use_webhook=False):
         """Initialize the Telegram bot asynchronously."""
         try:
             # Get bot info
@@ -863,27 +900,30 @@ class TelegramService:
             await self.application.initialize()
             await self.application.start()
             
-            # Start polling
-            await self.application.updater.start_polling()
-            logger.info("Telegram bot initialized and started polling.")
+            if not use_webhook:
+                # Verwijder eerst eventuele bestaande webhook
+                await self.bot.delete_webhook()
+                
+                # Start polling
+                await self.application.updater.start_polling()
+                logger.info("Telegram bot initialized and started polling.")
+            else:
+                logger.info("Telegram bot initialized for webhook use.")
+            
         except Exception as e:
             logger.error(f"Error during Telegram bot initialization: {str(e)}")
             raise
 
-    async def set_webhook(self, webhook_url: str):
-        """Set the Telegram bot webhook URL."""
+    async def process_update(self, update_data):
+        """Process an update from the webhook."""
         try:
-            # Verwijder eerst eventuele bestaande webhook
-            await self.bot.delete_webhook()
+            # Converteer de update data naar een Update object
+            update = Update.de_json(update_data, self.bot)
             
-            # Stel de nieuwe webhook in
-            await self.bot.set_webhook(url=webhook_url)
+            # Verwerk de update via de application
+            await self.application.process_update(update)
             
-            # Haal webhook info op om te controleren
-            webhook_info = await self.bot.get_webhook_info()
-            
-            logger.info(f"Webhook succesvol ingesteld op: {webhook_url}")
-            logger.info(f"Webhook info: {webhook_info}")
+            return True
         except Exception as e:
-            logger.error(f"Fout bij het instellen van de webhook: {str(e)}")
-            raise
+            logger.error(f"Error processing update: {str(e)}")
+            return False
