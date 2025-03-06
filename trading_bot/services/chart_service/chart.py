@@ -111,15 +111,35 @@ class ChartService:
             
             logger.info(f"Using TradingView link: {tradingview_link}")
             
+            # Controleer of Selenium is geïnitialiseerd
+            if not hasattr(self, 'tradingview_selenium') or not self.tradingview_selenium:
+                logger.error("Selenium service is not available")
+                # Probeer Selenium te initialiseren
+                initialized = await self.initialize()
+                if not initialized:
+                    logger.error("Failed to initialize Selenium service")
+                    return await self._generate_random_chart(instrument, timeframe)
+            
+            # Controleer of Selenium is geïnitialiseerd
+            if not self.tradingview_selenium.is_initialized:
+                logger.error("Selenium service is not initialized")
+                # Probeer Selenium te initialiseren
+                initialized = await self.tradingview_selenium.initialize()
+                if not initialized:
+                    logger.error("Failed to initialize Selenium service")
+                    return await self._generate_random_chart(instrument, timeframe)
+            
             # Gebruik Selenium om een screenshot te maken van de TradingView link
-            if hasattr(self, 'tradingview_selenium') and self.tradingview_selenium:
-                try:
-                    # Maak een screenshot van de TradingView link
-                    chart_image = await self.tradingview_selenium.get_screenshot(tradingview_link)
-                    if chart_image:
-                        return chart_image
-                except Exception as e:
-                    logger.error(f"Error using Selenium for screenshot: {str(e)}")
+            try:
+                logger.info(f"Taking screenshot of {tradingview_link}")
+                chart_image = await self.tradingview_selenium.get_screenshot(tradingview_link)
+                if chart_image:
+                    logger.info("Screenshot taken successfully")
+                    return chart_image
+                else:
+                    logger.error("Screenshot is None")
+            except Exception as e:
+                logger.error(f"Error using Selenium for screenshot: {str(e)}")
             
             # Als Selenium niet werkt, probeer een andere methode
             logger.warning(f"Selenium screenshot failed, using fallback for {instrument}")
