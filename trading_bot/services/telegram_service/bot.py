@@ -367,18 +367,19 @@ class TelegramService:
         return CHOOSE_MARKET
 
     async def analysis_sentiment_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-        """Handle analysis_sentiment callback"""
+        """Handle sentiment analysis selection"""
         query = update.callback_query
         await query.answer()
         
-        # Show market selection for sentiment analysis
+        # Store analysis type in user_data
+        context.user_data['analysis_type'] = 'sentiment'
+        context.user_data['current_state'] = CHOOSE_MARKET
+        
+        # Show market selection
         await query.edit_message_text(
             text="Select a market for sentiment analysis:",
             reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
         )
-        
-        # Save analysis type in user_data
-        context.user_data['analysis_type'] = 'sentiment'
         
         return CHOOSE_MARKET
 
@@ -683,103 +684,105 @@ class TelegramService:
         # Get instrument from callback data
         instrument = query.data.replace('instrument_', '')
         
-        # Save instrument in user_data
+        # Store instrument in user_data
         context.user_data['instrument'] = instrument
+        context.user_data['current_state'] = SHOW_RESULT
         
         # Get analysis type from user_data
         analysis_type = context.user_data.get('analysis_type', 'technical')
         
-        if analysis_type == 'technical':
-            # Show loading message
-            await query.edit_message_text(
-                text=f"⏳ Generating technical analysis for {instrument}..."
-            )
-            
-            try:
-                # Generate charts for different timeframes
-                timeframes = ["1h", "4h", "1d"]
-                charts = {}
+        try:
+            if analysis_type == 'technical':
+                # Show loading message
+                await query.edit_message_text(
+                    text=f"⏳ Generating technical analysis for {instrument}..."
+                )
                 
-                for timeframe in timeframes:
-                    chart = await self.chart.get_chart(instrument, timeframe)
-                    if chart:
-                        charts[timeframe] = chart
-                
-                if charts:
-                    # Send charts one by one
-                    await query.edit_message_text(
-                        text=f"✅ Technical analysis for {instrument} ready!",
-                        reply_markup=InlineKeyboardMarkup([[
-                            InlineKeyboardButton("⬅️ Back", callback_data="back_market")
-                        ]])
-                    )
+                try:
+                    # Generate charts for different timeframes
+                    timeframes = ["1h", "4h", "1d"]
+                    charts = {}
                     
-                    for timeframe, chart in charts.items():
-                        caption = f"📊 {instrument} - {timeframe} Timeframe"
-                        await query.message.reply_photo(
-                            photo=chart,
-                            caption=caption
+                    for timeframe in timeframes:
+                        chart = await self.chart.get_chart(instrument, timeframe)
+                        if chart:
+                            charts[timeframe] = chart
+                    
+                    if charts:
+                        # Send charts one by one
+                        await query.edit_message_text(
+                            text=f"✅ Technical analysis for {instrument} ready!",
+                            reply_markup=InlineKeyboardMarkup([[
+                                InlineKeyboardButton("⬅️ Back", callback_data="back_market")
+                            ]])
                         )
-                    
-                    return CHOOSE_MARKET
-                else:
-                    # No charts available
+                        
+                        for timeframe, chart in charts.items():
+                            caption = f"📊 {instrument} - {timeframe} Timeframe"
+                            await query.message.reply_photo(
+                                photo=chart,
+                                caption=caption
+                            )
+                        
+                        return CHOOSE_MARKET
+                    else:
+                        # No charts available
+                        await query.edit_message_text(
+                            text=f"❌ Could not generate charts for {instrument}. Please try again later.",
+                            reply_markup=InlineKeyboardMarkup([[
+                                InlineKeyboardButton("⬅️ Back", callback_data="back_market")
+                            ]])
+                        )
+                        return CHOOSE_MARKET
+                        
+                except Exception as e:
+                    logger.error(f"Error generating technical analysis: {str(e)}")
                     await query.edit_message_text(
-                        text=f"❌ Could not generate charts for {instrument}. Please try again later.",
+                        text=f"❌ An error occurred while generating technical analysis for {instrument}. Please try again later.",
                         reply_markup=InlineKeyboardMarkup([[
                             InlineKeyboardButton("⬅️ Back", callback_data="back_market")
                         ]])
                     )
                     return CHOOSE_MARKET
-                    
-            except Exception as e:
-                logger.error(f"Error generating technical analysis: {str(e)}")
+                
+            elif analysis_type == 'sentiment':
+                # Show loading message
                 await query.edit_message_text(
-                    text=f"❌ An error occurred while generating technical analysis for {instrument}. Please try again later.",
+                    text=f"Getting market sentiment for {instrument}...",
+                    reply_markup=None
+                )
+                
+                # Get sentiment analysis
+                sentiment = await self.sentiment.get_market_sentiment(instrument)
+                
+                # Show sentiment analysis
+                await query.edit_message_text(
+                    text=sentiment,
                     reply_markup=InlineKeyboardMarkup([[
                         InlineKeyboardButton("⬅️ Back", callback_data="back_market")
-                    ]])
+                    ]]),
+                    parse_mode=ParseMode.HTML
                 )
-                return CHOOSE_MARKET
                 
-        elif analysis_type == 'sentiment':
-            # Show loading message
+                return SHOW_RESULT
+            
+            # Default: go to style selection for signals
             await query.edit_message_text(
-                text=f"⏳ Retrieving sentiment data for {instrument}..."
+                text="Select your trading style:",
+                reply_markup=InlineKeyboardMarkup(STYLE_KEYBOARD)
             )
             
-            try:
-                # Get sentiment data
-                sentiment_data = await self.sentiment.get_market_sentiment(instrument)
-                
-                # Show sentiment data
-                await query.edit_message_text(
-                    text=sentiment_data,
-                    parse_mode=ParseMode.HTML,
-                    reply_markup=InlineKeyboardMarkup([[
-                        InlineKeyboardButton("⬅️ Back", callback_data="back_market")
-                    ]])
-                )
-                
-                return CHOOSE_MARKET
-                
-            except Exception as e:
-                logger.error(f"Error getting sentiment data: {str(e)}")
-                await query.edit_message_text(
-                    text=f"❌ An error occurred while retrieving sentiment data for {instrument}. Please try again later.",
-                    reply_markup=InlineKeyboardMarkup([[
-                        InlineKeyboardButton("⬅️ Back", callback_data="back_market")
-                    ]])
-                )
-                return CHOOSE_MARKET
-        
-        # Default: go to style selection for signals
-        await query.edit_message_text(
-            text="Select your trading style:",
-            reply_markup=InlineKeyboardMarkup(STYLE_KEYBOARD)
-        )
-        
-        return CHOOSE_STYLE
+            return CHOOSE_STYLE
+            
+        except Exception as e:
+            logger.error(f"Error in instrument_callback: {str(e)}")
+            await query.edit_message_text(
+                text="An error occurred while retrieving the instrument data. Please try again later.",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("⬅️ Back", callback_data="back_market")
+                ]])
+            )
+            return CHOOSE_MARKET
 
     async def instrument_signals_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """Handle instrument selection for signals"""
@@ -963,37 +966,31 @@ class TelegramService:
         await query.answer()
         
         try:
-            # Get the analysis type from user_data
+            # Determine which keyboard to show based on the current state
+            current_state = context.user_data.get('current_state', MENU)
             analysis_type = context.user_data.get('analysis_type', 'technical')
             
-            if analysis_type == 'sentiment':
-                # Show market selection for sentiment analysis
-                await query.edit_message_text(
-                    text="Select a market for sentiment analysis:",
-                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
-                )
-                return CHOOSE_MARKET
-            elif analysis_type == 'technical':
-                # Show market selection for technical analysis
-                await query.edit_message_text(
-                    text="Select a market for technical analysis:",
-                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
-                )
-                return CHOOSE_MARKET
-            elif analysis_type == 'signals':
-                # Show market selection for signals
+            logger.info(f"Back to market: current_state={current_state}, analysis_type={analysis_type}")
+            
+            # Always show the market selection keyboard
+            if analysis_type == 'signals':
+                # For signals, use the signals market keyboard
                 await query.edit_message_text(
                     text="Select a market for your trading signals:",
                     reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD_SIGNALS)
                 )
-                return CHOOSE_MARKET
             else:
-                # Default to analysis menu
+                # For analysis (technical or sentiment), use the regular market keyboard
                 await query.edit_message_text(
-                    text="Select your analysis type:",
-                    reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
+                    text=f"Select a market for {analysis_type} analysis:",
+                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
                 )
-                return CHOOSE_ANALYSIS
+            
+            # Store the current state for future reference
+            context.user_data['current_state'] = CHOOSE_MARKET
+            
+            return CHOOSE_MARKET
+        
         except Exception as e:
             logger.error(f"Error in back_to_market_callback: {str(e)}")
             # If there's an error, try to recover by showing the main menu
@@ -1003,6 +1000,7 @@ class TelegramService:
                     reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
                     parse_mode=ParseMode.HTML
                 )
+                context.user_data['current_state'] = MENU
                 return MENU
             except Exception as inner_e:
                 logger.error(f"Failed to recover from error: {str(inner_e)}")
