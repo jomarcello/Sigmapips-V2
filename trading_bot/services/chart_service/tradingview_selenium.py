@@ -78,174 +78,22 @@ class TradingViewSeleniumService(TradingViewService):
         try:
             logger.info("Initializing TradingView Selenium service")
             
-            # Configureer Chrome opties voor Docker
-            chrome_options = Options()
+            # Gebruik webdriver_manager om automatisch de juiste ChromeDriver te downloaden
+            chrome_options = webdriver.ChromeOptions()
             chrome_options.add_argument("--headless")
             chrome_options.add_argument("--no-sandbox")
             chrome_options.add_argument("--disable-dev-shm-usage")
-            chrome_options.add_argument("--disable-gpu")
-            chrome_options.add_argument("--window-size=1920,1080")
             
-            # Detecteer of we in Docker draaien
-            in_docker = os.path.exists("/.dockerenv")
-            logger.info(f"Running in Docker: {in_docker}")
+            # Voeg deze regel toe om automatisch de juiste ChromeDriver te downloaden
+            service = Service(ChromeDriverManager().install())
             
-            try:
-                if in_docker:
-                    # In Docker, gebruik de geïnstalleerde Chrome
-                    chrome_options.binary_location = "/usr/bin/google-chrome"
-                    
-                    # Gebruik de geïnstalleerde ChromeDriver
-                    logger.info("Using installed ChromeDriver in Docker")
-                    self.driver = webdriver.Chrome(options=chrome_options)
-                else:
-                    # Lokaal, gebruik een specifieke versie van ChromeDriver
-                    from selenium.webdriver.chrome.service import Service
-                    
-                    logger.info("Using specific ChromeDriver version locally")
-                    # Gebruik een specifieke versie die compatibel is met de meeste Chrome versies
-                    from webdriver_manager.chrome import ChromeDriverManager
-                    service = Service(ChromeDriverManager(version="114.0.5735.90").install())
-                    self.driver = webdriver.Chrome(service=service, options=chrome_options)
-                
-                logger.info("Chrome driver initialized successfully")
-            except Exception as driver_error:
-                logger.error(f"Error initializing Chrome driver: {str(driver_error)}")
-                import traceback
-                logger.error(traceback.format_exc())
-                raise
+            self.driver = webdriver.Chrome(service=service, options=chrome_options)
+            self.driver.set_window_size(1920, 1080)
             
-            # Als er een session ID is, gebruik deze
-            if self.session_id:
-                logger.info(f"Using session ID for authentication: {self.session_id[:5]}...")
-                
-                # Ga eerst naar TradingView om cookies te kunnen instellen
-                try:
-                    logger.info("Navigating to TradingView...")
-                    self.driver.get("https://www.tradingview.com/")
-                    
-                    # Wacht even om de pagina te laden
-                    time.sleep(5)
-                    
-                    # Log alle huidige cookies
-                    logger.info(f"Current cookies before setting: {self.driver.get_cookies()}")
-                    
-                    # Verwijder alle bestaande cookies
-                    self.driver.delete_all_cookies()
-                    logger.info("Deleted all existing cookies")
-                    
-                    # Voeg cookies toe
-                    cookies_to_add = [
-                        {
-                            "name": "sessionid",
-                            "value": self.session_id,
-                            "domain": ".tradingview.com",
-                            "path": "/"
-                        },
-                        {
-                            "name": "device_t",
-                            "value": "web",
-                            "domain": ".tradingview.com",
-                            "path": "/"
-                        },
-                        {
-                            "name": "logged_in",
-                            "value": "1",
-                            "domain": ".tradingview.com",
-                            "path": "/"
-                        },
-                        {
-                            "name": "tv_ecuid",
-                            "value": self.session_id[:16],  # Gebruik een deel van de session ID
-                            "domain": ".tradingview.com",
-                            "path": "/"
-                        }
-                    ]
-                    
-                    for cookie in cookies_to_add:
-                        try:
-                            self.driver.add_cookie(cookie)
-                            logger.info(f"Added cookie: {cookie['name']}")
-                        except Exception as cookie_error:
-                            logger.error(f"Error adding cookie {cookie['name']}: {str(cookie_error)}")
-                    
-                    # Log alle cookies na het instellen
-                    logger.info(f"Current cookies after setting: {self.driver.get_cookies()}")
-                    
-                    # Ververs de pagina om de cookies te activeren
-                    self.driver.refresh()
-                    time.sleep(5)
-                except Exception as page_error:
-                    logger.error(f"Error setting cookies: {str(page_error)}")
-                    import traceback
-                    logger.error(traceback.format_exc())
-                
-                # Controleer of we zijn ingelogd
-                try:
-                    # Ga naar de chart pagina
-                    logger.info("Navigating to chart page...")
-                    self.driver.get("https://www.tradingview.com/chart/")
-                    
-                    # Wacht maximaal 15 seconden
-                    WebDriverWait(self.driver, 15).until(
-                        EC.presence_of_element_located((By.TAG_NAME, "body"))
-                    )
-                    
-                    # Wacht nog wat extra tijd voor de pagina om te laden
-                    time.sleep(5)
-                    
-                    # Neem een screenshot voor debugging
-                    debug_screenshot_path = "/tmp/tradingview_login_check.png"
-                    self.driver.save_screenshot(debug_screenshot_path)
-                    logger.info(f"Saved login check screenshot to {debug_screenshot_path}")
-                    
-                    # Controleer of we zijn ingelogd door te zoeken naar elementen die alleen zichtbaar zijn als je bent ingelogd
-                    page_source = self.driver.page_source
-                    
-                    # Zoek naar tekenen van ingelogd zijn
-                    logged_in_indicators = [
-                        "Sign Out",
-                        "Account",
-                        "Profile",
-                        "My Profile",
-                        "user-menu-button"
-                    ]
-                    
-                    is_logged_in = any(indicator in page_source for indicator in logged_in_indicators)
-                    
-                    if is_logged_in:
-                        logger.info("Successfully authenticated with session ID")
-                        self.is_logged_in = True
-                    else:
-                        logger.warning("Session ID authentication failed, but continuing anyway")
-                        self.is_logged_in = False
-                except Exception as page_error:
-                    logger.error(f"Error testing session: {str(page_error)}")
-                    import traceback
-                    logger.error(traceback.format_exc())
-                    self.is_logged_in = False
-            else:
-                logger.warning("No session ID provided")
-                self.is_logged_in = False
-            
-            self.is_initialized = True
+            logger.info("Selenium driver initialized successfully")
             return True
-        
         except Exception as e:
-            logger.error(f"Error initializing TradingView Selenium service: {str(e)}")
-            import traceback
-            logger.error(traceback.format_exc())
-            self.is_initialized = False
-            self.is_logged_in = False
-            
-            # Probeer de driver te sluiten als er een fout optreedt
-            try:
-                if self.driver:
-                    self.driver.quit()
-                    self.driver = None
-            except:
-                pass
-                
+            logger.error(f"Error initializing Selenium driver: {str(e)}")
             return False
     
     async def take_screenshot(self, symbol, timeframe=None):
