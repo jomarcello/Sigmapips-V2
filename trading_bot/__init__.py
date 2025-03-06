@@ -7,5 +7,3 @@ TradingViewPuppeteerService = TradingViewPlaywrightService
 
 # Leeg bestand of minimale imports
 # Vermijd het importeren van ChartService en TradingViewSeleniumService hier
-
-self.user_states = {}
