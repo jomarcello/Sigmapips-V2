@@ -5,5 +5,8 @@ from trading_bot.services.chart_service.tradingview_playwright import TradingVie
 # Voor backward compatibility
 TradingViewPuppeteerService = TradingViewPlaywrightService
 
+# Leeg bestand of minimale imports
+# Vermijd het importeren van ChartService en TradingViewSeleniumService hier
+
 
 
