@@ -737,55 +737,47 @@ class TelegramService:
             if analysis_type == 'technical':
                 # Show loading message
                 await query.edit_message_text(
-                    text=f"⏳ Generating technical analysis for {instrument}..."
+                    text=f"Generating chart for {instrument}...",
+                    reply_markup=None
                 )
                 
                 try:
-                    # Generate charts for different timeframes
-                    timeframes = ["1h", "4h", "1d"]
-                    charts = {}
+                    # Get chart image - only get a single timeframe (1h)
+                    chart_image = await self.chart.get_chart(instrument, timeframe="1h")
                     
-                    for timeframe in timeframes:
-                        chart = await self.chart.get_chart(instrument, timeframe)
-                        if chart:
-                            charts[timeframe] = chart
-                    
-                    if charts:
-                        # Send charts one by one
-                        await query.edit_message_text(
-                            text=f"✅ Technical analysis for {instrument} ready!",
+                    if chart_image:
+                        # Show chart image
+                        await query.message.reply_photo(
+                            photo=chart_image,
+                            caption=f"📊 {instrument} Technical Analysis",
                             reply_markup=InlineKeyboardMarkup([[
                                 InlineKeyboardButton("⬅️ Back", callback_data="back_market")
                             ]])
                         )
                         
-                        for timeframe, chart in charts.items():
-                            caption = f"📊 {instrument} - {timeframe} Timeframe"
-                            await query.message.reply_photo(
-                                photo=chart,
-                                caption=caption
-                            )
-                        
-                        return CHOOSE_MARKET
+                        # Delete the loading message
+                        await query.edit_message_text(
+                            text=f"Chart for {instrument} generated successfully.",
+                            reply_markup=None
+                        )
                     else:
-                        # No charts available
+                        # Show error message
                         await query.edit_message_text(
-                            text=f"❌ Could not generate charts for {instrument}. Please try again later.",
+                            text=f"❌ Could not generate chart for {instrument}. Please try again later.",
                             reply_markup=InlineKeyboardMarkup([[
                                 InlineKeyboardButton("⬅️ Back", callback_data="back_market")
                             ]])
                         )
-                        return CHOOSE_MARKET
-                        
-                except Exception as e:
-                    logger.error(f"Error generating technical analysis: {str(e)}")
+                except Exception as chart_error:
+                    logger.error(f"Error getting chart: {str(chart_error)}")
                     await query.edit_message_text(
-                        text=f"❌ An error occurred while generating technical analysis for {instrument}. Please try again later.",
+                        text=f"❌ Could not generate chart for {instrument}. Please try again later.",
                         reply_markup=InlineKeyboardMarkup([[
                             InlineKeyboardButton("⬅️ Back", callback_data="back_market")
                         ]])
                     )
-                    return CHOOSE_MARKET
+                
+                return SHOW_RESULT
                 
             elif analysis_type == 'sentiment':
                 # Show loading message
@@ -809,8 +801,10 @@ class TelegramService:
                 return SHOW_RESULT
             
             # Default: go to style selection for signals
+            context.user_data['instrument'] = instrument
+            
             await query.edit_message_text(
-                text="Select your trading style:",
+                text=f"Select your trading style for {instrument}:",
                 reply_markup=InlineKeyboardMarkup(STYLE_KEYBOARD)
             )
             
