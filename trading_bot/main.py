@@ -389,13 +389,19 @@ async def initialize_chart_service_background():
     """Initialize chart service in the background"""
     try:
         global chart
+        logger.info("Initializing chart service...")
         success = await chart.initialize()
         if success:
             logger.info(f"Chart service initialized with: {type(chart.tradingview).__name__ if chart.tradingview else 'None'}")
         else:
-            logger.warning("Chart service initialization failed")
+            logger.warning("Chart service initialization failed, will use fallback methods")
+        
+        # Start de session refresher
+        asyncio.create_task(session_refresher.start())
     except Exception as e:
-        logger.error(f"Error initializing chart service in background: {str(e)}")
+        logger.error(f"Error initializing chart service: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
 
 @app.get("/batch-screenshots")
 async def batch_screenshots(symbols: str = None, timeframes: str = None):
