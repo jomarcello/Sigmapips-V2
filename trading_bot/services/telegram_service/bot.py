@@ -437,8 +437,8 @@ class TelegramService:
         try:
             logger.info("Handling calendar_back_callback")
             
-            # Send a new message with the analysis menu
-            await query.message.reply_text(
+            # Edit the current message instead of sending a new one
+            await query.edit_message_text(
                 text="Select your analysis type:",
                 reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
             )
@@ -452,7 +452,7 @@ class TelegramService:
             logger.error(f"Error in calendar_back_callback: {str(e)}")
             # If there's an error, try to recover by showing the main menu
             try:
-                await query.message.reply_text(
+                await query.edit_message_text(
                     text=WELCOME_MESSAGE,
                     reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
                     parse_mode=ParseMode.HTML
