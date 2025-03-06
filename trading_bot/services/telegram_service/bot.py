@@ -262,6 +262,9 @@ class TelegramService:
                     CHOOSE_SIGNALS: [
                         CallbackQueryHandler(self.signals_add_callback, pattern="^signals_add$"),
                         CallbackQueryHandler(self.signals_manage_callback, pattern="^signals_manage$"),
+                        CallbackQueryHandler(self.delete_preferences_callback, pattern="^delete_prefs$"),
+                        CallbackQueryHandler(self.delete_single_preference_callback, pattern="^delete_pref_[0-9]+$"),
+                        CallbackQueryHandler(self.confirm_delete_callback, pattern="^confirm_delete$"),
                         CallbackQueryHandler(self.back_to_menu_callback, pattern="^back_menu$"),
                     ],
                     CHOOSE_MARKET: [
@@ -472,6 +475,134 @@ class TelegramService:
             )
         
         return CHOOSE_SIGNALS
+
+    async def delete_preferences_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        """Handle delete_prefs callback"""
+        query = update.callback_query
+        await query.answer()
+        
+        # Get user ID
+        user_id = update.effective_user.id
+        
+        try:
+            # Get user preferences
+            preferences = await self.db.get_user_preferences(user_id)
+            
+            if not preferences or len(preferences) == 0:
+                await query.edit_message_text(
+                    text="You don't have any preferences to delete.",
+                    reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD)
+                )
+                return CHOOSE_SIGNALS
+            
+            # Create keyboard with preferences to delete
+            keyboard = []
+            for i, pref in enumerate(preferences):
+                # Store preference ID in context for later use
+                pref_key = f"pref_{i}"
+                context.user_data[pref_key] = pref['id']
+                
+                # Create button with preference info
+                button_text = f"{pref['market']} - {pref['instrument']} ({pref['timeframe']})"
+                keyboard.append([InlineKeyboardButton(button_text, callback_data=f"delete_pref_{i}")])
+            
+            # Add back button
+            keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="signals_manage")])
+            
+            await query.edit_message_text(
+                text="Select a preference to delete:",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            
+            return CHOOSE_SIGNALS
+            
+        except Exception as e:
+            logger.error(f"Error in delete preferences: {str(e)}")
+            await query.edit_message_text(
+                text="An error occurred. Please try again later.",
+                reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD)
+            )
+            return CHOOSE_SIGNALS
+
+    async def delete_single_preference_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        """Handle delete_pref_X callback"""
+        query = update.callback_query
+        await query.answer()
+        
+        # Get preference index from callback data
+        pref_index = int(query.data.split('_')[-1])
+        pref_key = f"pref_{pref_index}"
+        
+        # Get preference ID from context
+        pref_id = context.user_data.get(pref_key)
+        
+        if not pref_id:
+            await query.edit_message_text(
+                text="Error: Could not find the selected preference.",
+                reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD)
+            )
+            return CHOOSE_SIGNALS
+        
+        try:
+            # Delete the preference
+            success = await self.db.delete_preference_by_id(pref_id)
+            
+            if success:
+                await query.edit_message_text(
+                    text="✅ The selected preference has been deleted successfully.",
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("⚙️ Manage More Preferences", callback_data="signals_manage")],
+                        [InlineKeyboardButton("🏠 Back to Start", callback_data="back_menu")]
+                    ])
+                )
+            else:
+                await query.edit_message_text(
+                    text="❌ Failed to delete the preference. Please try again.",
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("⚙️ Back to Preferences", callback_data="signals_manage")]
+                    ])
+                )
+            
+            return CHOOSE_SIGNALS
+            
+        except Exception as e:
+            logger.error(f"Error deleting preference: {str(e)}")
+            await query.edit_message_text(
+                text="An error occurred while deleting the preference. Please try again later.",
+                reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD)
+            )
+            return CHOOSE_SIGNALS
+
+    async def confirm_delete_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        """Handle confirm_delete callback"""
+        query = update.callback_query
+        await query.answer()
+        
+        # Get user ID
+        user_id = update.effective_user.id
+        
+        try:
+            # Delete all preferences
+            await self.db.delete_all_preferences(user_id)
+            
+            # Show success message
+            await query.edit_message_text(
+                text="✅ All your preferences have been deleted successfully.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("➕ Add New Pairs", callback_data="signals_add")],
+                    [InlineKeyboardButton("🏠 Back to Start", callback_data="back_menu")]
+                ])
+            )
+            
+            return CHOOSE_SIGNALS
+            
+        except Exception as e:
+            logger.error(f"Error deleting preferences: {str(e)}")
+            await query.edit_message_text(
+                text="An error occurred while deleting your preferences. Please try again later.",
+                reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD)
+            )
+            return CHOOSE_SIGNALS
 
     async def market_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """Handle market selection for analysis"""
