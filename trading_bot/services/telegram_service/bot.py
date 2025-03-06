@@ -1161,6 +1161,10 @@ class TelegramService:
             info = await self.bot.get_me()
             logger.info(f"Successfully connected to Telegram API. Bot info: {info}")
             
+            # Initialize services
+            logger.info("Initializing services")
+            await self.chart.initialize()
+            
             # Set bot commands
             commands = [
                 ("start", "Start the bot and show main menu"),
