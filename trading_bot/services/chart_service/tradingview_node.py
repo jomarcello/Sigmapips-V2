@@ -1,302 +1,146 @@
-import os
-import logging
-import asyncio
-import json
-import base64
-import subprocess
-from io import BytesIO
-from datetime import datetime
-from trading_bot.services.chart_service.tradingview import TradingViewService
+// Probeer verschillende manieren om Playwright te importeren
+let playwright;
+let chromium;
 
-logger = logging.getLogger(__name__)
+try {
+    // Probeer eerst @playwright/test
+    playwright = require('@playwright/test');
+    chromium = playwright.chromium;
+    console.log("Using @playwright/test module");
+} catch (e) {
+    try {
+        // Als dat niet lukt, probeer playwright
+        playwright = require('playwright');
+        chromium = playwright.chromium;
+        console.log("Using playwright module");
+    } catch (e2) {
+        console.error('Geen Playwright module gevonden. Installeer met: npm install playwright of npm install @playwright/test');
+        process.exit(1);
+    }
+}
 
-class TradingViewNodeService(TradingViewService):
-    def __init__(self, session_id=None):
-        """Initialize the TradingView Node.js service"""
-        super().__init__()
-        self.session_id = session_id or os.getenv("TRADINGVIEW_SESSION_ID", "")
-        self.username = os.getenv("TRADINGVIEW_USERNAME", "")
-        self.password = os.getenv("TRADINGVIEW_PASSWORD", "")
-        self.is_initialized = False
-        self.is_logged_in = False
-        self.base_url = "https://www.tradingview.com"
-        self.chart_url = "https://www.tradingview.com/chart"
-        self.script_path = os.path.join(os.getcwd(), "tradingview_screenshot.js")
+// Haal de argumenten op
+const url = process.argv[2];
+const outputPath = process.argv[3];
+const sessionId = process.argv[4]; // Voeg session ID toe als derde argument
+const fullscreen = process.argv[5] === 'fullscreen'; // Controleer of fullscreen is ingeschakeld
+
+if (!url || !outputPath) {
+    console.error('Usage: node screenshot.js <url> <outputPath> [sessionId] [fullscreen]');
+    process.exit(1);
+}
+
+(async () => {
+    try {
+        console.log(`Taking screenshot of ${url} and saving to ${outputPath} (fullscreen: ${fullscreen})`);
         
-        # Chart links voor verschillende symbolen
-        self.chart_links = {
-            "EURUSD": "https://www.tradingview.com/chart/?symbol=EURUSD",
-            "GBPUSD": "https://www.tradingview.com/chart/?symbol=GBPUSD",
-            "BTCUSD": "https://www.tradingview.com/chart/?symbol=BTCUSD",
-            "ETHUSD": "https://www.tradingview.com/chart/?symbol=ETHUSD"
+        // Start een browser
+        const browser = await playwright.chromium.launch({
+            headless: true,
+            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
+        });
+        
+        // Open een nieuwe pagina
+        const context = await browser.newContext({
+            locale: 'en-US', // Stel de locale in op Engels
+            timezoneId: 'Europe/Amsterdam', // Stel de tijdzone in op Amsterdam
+            viewport: { width: 1920, height: 1080 } // Stel een grotere viewport in
+        });
+        
+        // Voeg cookies toe als er een session ID is
+        if (sessionId) {
+            console.log(`Using session ID: ${sessionId.substring(0, 5)}...`);
+            
+            // Voeg de session cookie direct toe zonder eerst naar TradingView te gaan
+            await context.addCookies([
+                {
+                    name: 'sessionid',
+                    value: sessionId,
+                    domain: '.tradingview.com',
+                    path: '/',
+                    httpOnly: true,
+                    secure: true,
+                    sameSite: 'Lax'
+                },
+                {
+                    name: 'language',
+                    value: 'en',
+                    domain: '.tradingview.com',
+                    path: '/'
+                }
+            ]);
         }
         
-        logger.info(f"TradingView Node.js service initialized")
-    
-    async def initialize(self):
-        """Initialize the Node.js service"""
-        try:
-            logger.info("Initializing TradingView Node.js service")
-            
-            # Controleer of Node.js is geïnstalleerd
-            try:
-                node_version = subprocess.check_output(["node", "--version"]).decode().strip()
-                logger.info(f"Node.js version: {node_version}")
-            except Exception as node_error:
-                logger.error(f"Error checking Node.js version: {str(node_error)}")
-                return False
-            
-            # Controleer of het screenshot.js bestand bestaat
-            script_path = os.path.join(os.path.dirname(__file__), "screenshot.js")
-            if not os.path.exists(script_path):
-                logger.error(f"screenshot.js not found at {script_path}")
-                return False
-            
-            logger.info(f"screenshot.js found at {script_path}")
-            
-            # Controleer of de benodigde Node.js modules zijn geïnstalleerd
-            try:
-                # Controleer of playwright is geïnstalleerd
-                playwright_check = subprocess.run(["npm", "list", "-g", "playwright"], 
-                                                 stdout=subprocess.PIPE, 
-                                                 stderr=subprocess.PIPE)
-                
-                if playwright_check.returncode != 0:
-                    logger.info("Installing Playwright...")
-                    subprocess.run(["npm", "install", "-g", "playwright"], check=True)
-                
-                # Controleer of @playwright/test is geïnstalleerd
-                test_check = subprocess.run(["npm", "list", "-g", "@playwright/test"], 
-                                           stdout=subprocess.PIPE, 
-                                           stderr=subprocess.PIPE)
-                
-                if test_check.returncode != 0:
-                    logger.info("Installing @playwright/test...")
-                    subprocess.run(["npm", "install", "-g", "@playwright/test"], check=True)
-                
-                # Controleer of playwright-core is geïnstalleerd
-                core_check = subprocess.run(["npm", "list", "-g", "playwright-core"], 
-                                           stdout=subprocess.PIPE, 
-                                           stderr=subprocess.PIPE)
-                
-                if core_check.returncode != 0:
-                    logger.info("Installing playwright-core...")
-                    subprocess.run(["npm", "install", "-g", "playwright-core"], check=True)
-                
-                logger.info("Playwright modules are installed")
-            except Exception as e:
-                logger.error(f"Error checking/installing Playwright modules: {str(e)}")
-                # Ga door, want we kunnen nog steeds proberen om de service te gebruiken
-            
-            # Test de Node.js service met een eenvoudige URL
-            try:
-                logger.info("Testing Node.js service with a simple URL")
-                test_result = await self.take_screenshot_of_url("https://www.google.com")
-                if test_result:
-                    logger.info("Node.js service test successful")
-                    self.is_initialized = True
-                    return True
-                else:
-                    logger.error("Node.js service test failed")
-                    return False
-            except Exception as test_error:
-                logger.error(f"Error testing Node.js service: {str(test_error)}")
-                return False
-            
-        except Exception as e:
-            logger.error(f"Error initializing TradingView Node.js service: {str(e)}")
-            return False
-    
-    async def take_screenshot(self, symbol, timeframe=None, fullscreen=False):
-        """Take a screenshot of a chart"""
-        try:
-            logger.info(f"Taking screenshot for {symbol} on {timeframe} timeframe (fullscreen: {fullscreen})")
-            
-            # Normaliseer het symbool (verwijder / en converteer naar hoofdletters)
-            normalized_symbol = symbol.replace("/", "").upper()
-            
-            # Bouw de chart URL
-            chart_url = self.chart_links.get(normalized_symbol)
-            if not chart_url:
-                logger.warning(f"No chart URL found for {symbol}, using default URL")
-                # Gebruik een lichtere versie van de chart
-                chart_url = f"https://www.tradingview.com/chart/xknpxpcr/?symbol={normalized_symbol}"
-                if timeframe:
-                    tv_interval = self.interval_map.get(timeframe, "D")
-                    chart_url += f"&interval={tv_interval}"
-            
-            # Controleer of de URL geldig is
-            if not chart_url:
-                logger.error(f"Invalid chart URL for {symbol}")
-                return None
-            
-            # Maak een tijdelijk bestand voor de screenshot
-            import tempfile
-            with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as temp_file:
-                screenshot_path = temp_file.name
-            
-            # Voer het Node.js script uit om een screenshot te maken
-            import subprocess
-            
-            # Controleer of het script bestaat
-            script_path = os.path.join(os.path.dirname(__file__), "screenshot.js")
-            if not os.path.exists(script_path):
-                logger.error(f"Screenshot script not found at {script_path}")
-                return None
-            
-            # Voeg de session ID toe aan de command line arguments
-            command = ["node", script_path, chart_url, screenshot_path]
-            if self.session_id:
-                command.append(self.session_id)
-                logger.info(f"Using session ID: {self.session_id[:5]}...")
-            
-            # Voeg fullscreen parameter toe indien nodig
-            if fullscreen:
-                command.append("fullscreen")
-            
-            # Voer het script uit
-            logger.info(f"Running Node.js script: {script_path} with URL: {chart_url} and output: {screenshot_path}")
-            process = subprocess.Popen(
-                command,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE
-            )
-            stdout, stderr = process.communicate()
-            
-            # Log de output
-            if stdout:
-                logger.info(f"Node.js script output: {stdout.decode('utf-8')}")
-            if stderr:
-                logger.error(f"Node.js script error: {stderr.decode('utf-8')}")
-            
-            # Controleer of het script succesvol was
-            if process.returncode != 0:
-                logger.error(f"Node.js script failed with return code {process.returncode}")
-                return None
-            
-            # Controleer of het bestand bestaat
-            if not os.path.exists(screenshot_path):
-                logger.error(f"Screenshot file not found at {screenshot_path}")
-                return None
-            
-            # Lees het bestand
-            with open(screenshot_path, "rb") as f:
-                screenshot_bytes = f.read()
-            
-            # Verwijder het tijdelijke bestand
-            os.unlink(screenshot_path)
-            
-            return screenshot_bytes
-            
-        except Exception as e:
-            logger.error(f"Error taking screenshot: {str(e)}")
-            import traceback
-            logger.error(traceback.format_exc())
-            return None
-    
-    async def batch_capture_charts(self, symbols=None, timeframes=None):
-        """Capture multiple charts"""
-        if not self.is_initialized:
-            logger.warning("TradingView Node.js service not initialized")
-            return None
+        // Open een nieuwe pagina voor de screenshot
+        const page = await context.newPage();
         
-        if not symbols:
-            symbols = ["EURUSD", "GBPUSD", "BTCUSD", "ETHUSD"]
+        // Ga naar de URL
+        console.log(`Navigating to ${url}...`);
+        await page.goto(url, {
+            waitUntil: 'domcontentloaded',
+            timeout: 90000
+        });
         
-        if not timeframes:
-            timeframes = ["1h", "4h", "1d"]
-        
-        results = {}
-        
-        try:
-            for symbol in symbols:
-                results[symbol] = {}
+        // Wacht een vaste tijd om de pagina te laten renderen
+        console.log('Waiting for page to render...');
+        await page.waitForTimeout(10000);
+
+        // Als fullscreen is ingeschakeld, verberg UI-elementen
+        if (fullscreen) {
+            console.log('Removing UI elements for fullscreen...');
+            await page.evaluate(() => {
+                // Verberg de header
+                const header = document.querySelector('.tv-header');
+                if (header) header.style.display = 'none';
                 
-                for timeframe in timeframes:
-                    try:
-                        # Take screenshot
-                        screenshot = await self.take_screenshot(symbol, timeframe)
-                        results[symbol][timeframe] = screenshot
-                    except Exception as e:
-                        logger.error(f"Error capturing {symbol} at {timeframe}: {str(e)}")
-                        results[symbol][timeframe] = None
+                // Verberg de toolbar
+                const toolbar = document.querySelector('.tv-main-panel__toolbar');
+                if (toolbar) toolbar.style.display = 'none';
+                
+                // Verberg de zijbalk
+                const sidebar = document.querySelector('.tv-side-toolbar');
+                if (sidebar) sidebar.style.display = 'none';
+                
+                // Verberg andere UI-elementen
+                const panels = document.querySelectorAll('.layout__area--left, .layout__area--right');
+                panels.forEach(panel => {
+                    if (panel) panel.style.display = 'none';
+                });
+                
+                // Maximaliseer de chart
+                const chart = document.querySelector('.chart-container');
+                if (chart) {
+                    chart.style.width = '100vw';
+                    chart.style.height = '100vh';
+                }
+                
+                // Verberg de footer
+                const footer = document.querySelector('footer');
+                if (footer) footer.style.display = 'none';
+                
+                // Verberg de statusbalk
+                const statusBar = document.querySelector('.tv-main-panel__statuses');
+                if (statusBar) statusBar.style.display = 'none';
+            });
             
-            return results
-            
-        except Exception as e:
-            logger.error(f"Error in batch capture: {str(e)}")
-            return None
-    
-    async def cleanup(self):
-        """Clean up resources"""
-        # Geen resources om op te ruimen
-        logger.info("TradingView Node.js service cleaned up")
-    
-    async def take_screenshot_of_url(self, url, fullscreen=False):
-        """Take a screenshot of a URL"""
-        try:
-            logger.info(f"Taking screenshot of URL: {url} (fullscreen: {fullscreen})")
-            
-            # Maak een tijdelijk bestand voor de screenshot
-            import tempfile
-            with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as temp_file:
-                screenshot_path = temp_file.name
-            
-            # Voer het Node.js script uit om een screenshot te maken
-            import subprocess
-            
-            # Controleer of het script bestaat
-            script_path = os.path.join(os.path.dirname(__file__), "screenshot.js")
-            if not os.path.exists(script_path):
-                logger.error(f"Screenshot script not found at {script_path}")
-                return None
-            
-            # Voeg de session ID toe aan de command line arguments
-            command = ["node", script_path, url, screenshot_path]
-            if self.session_id:
-                command.append(self.session_id)
-                logger.info(f"Using session ID: {self.session_id[:5]}...")
-            
-            # Voeg fullscreen parameter toe indien nodig
-            if fullscreen:
-                command.append("fullscreen")
-            
-            # Voer het script uit
-            logger.info(f"Running Node.js script: {script_path} with URL: {url} and output: {screenshot_path}")
-            process = subprocess.Popen(
-                command,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE
-            )
-            stdout, stderr = process.communicate()
-            
-            # Log de output
-            if stdout:
-                logger.info(f"Node.js script output: {stdout.decode('utf-8')}")
-            if stderr:
-                logger.error(f"Node.js script error: {stderr.decode('utf-8')}")
-            
-            # Controleer of het script succesvol was
-            if process.returncode != 0:
-                logger.error(f"Node.js script failed with return code {process.returncode}")
-                return None
-            
-            # Controleer of het bestand bestaat
-            if not os.path.exists(screenshot_path):
-                logger.error(f"Screenshot file not found at {screenshot_path}")
-                return None
-            
-            # Lees het bestand
-            with open(screenshot_path, "rb") as f:
-                screenshot_bytes = f.read()
-            
-            # Verwijder het tijdelijke bestand
-            os.unlink(screenshot_path)
-            
-            return screenshot_bytes
-            
-        except Exception as e:
-            logger.error(f"Error taking screenshot of URL: {str(e)}")
-            import traceback
-            logger.error(traceback.format_exc())
-            return None 
+            // Wacht even om de wijzigingen toe te passen
+            await page.waitForTimeout(2000);
+        }
+
+        // Neem een screenshot
+        console.log('Taking screenshot...');
+        await page.screenshot({
+            path: outputPath,
+            fullPage: false
+        });
+        
+        // Sluit de browser
+        await browser.close();
+        
+        console.log('Screenshot taken successfully');
+        process.exit(0);
+    } catch (error) {
+        console.error('Error taking screenshot:', error);
+        process.exit(1);
+    }
+})(); 
