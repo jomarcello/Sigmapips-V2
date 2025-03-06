@@ -69,6 +69,20 @@ class TradingViewNodeService(TradingViewService):
                 logger.error(f"Error testing Node.js service: {str(test_error)}")
                 return False
             
+            # Controleer of de benodigde Node.js modules zijn geïnstalleerd
+            try:
+                subprocess.check_output(["npm", "list", "-g", "playwright"]).decode().strip()
+                logger.info("Playwright is installed")
+            except Exception as e:
+                logger.error(f"Playwright is not installed: {str(e)}")
+                try:
+                    logger.info("Installing Playwright...")
+                    subprocess.check_output(["npm", "install", "-g", "playwright"])
+                    logger.info("Playwright installed successfully")
+                except Exception as install_error:
+                    logger.error(f"Error installing Playwright: {str(install_error)}")
+                    return False
+            
         except Exception as e:
             logger.error(f"Error initializing TradingView Node.js service: {str(e)}")
             return False
