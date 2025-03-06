@@ -270,4 +270,29 @@ class TradingViewSeleniumService(TradingViewService):
             
         except Exception as e:
             logger.error(f"Error taking screenshot of URL: {str(e)}")
+            return None
+    
+    async def get_screenshot(self, url: str) -> bytes:
+        """Get a screenshot of a URL using Selenium"""
+        try:
+            logger.info(f"Getting screenshot of {url}")
+            
+            # Controleer of Selenium is geïnitialiseerd
+            if not self.is_initialized or not self.driver:
+                logger.error("Selenium is not initialized")
+                return None
+            
+            # Navigeer naar de URL
+            self.driver.get(url)
+            
+            # Wacht tot de pagina is geladen
+            await asyncio.sleep(5)  # Wacht 5 seconden (je kunt dit aanpassen)
+            
+            # Maak een screenshot
+            screenshot = self.driver.get_screenshot_as_png()
+            
+            return screenshot
+            
+        except Exception as e:
+            logger.error(f"Error getting screenshot: {str(e)}")
             return None 
