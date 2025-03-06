@@ -1,208 +1,96 @@
-const { chromium } = require('playwright-extra');
-const stealth = require('puppeteer-extra-plugin-stealth')();
-const RecaptchaPlugin = require('puppeteer-extra-plugin-recaptcha');
-const fs = require('fs');
-const path = require('path');
-require('dotenv').config();
+const { chromium } = require('@playwright/test');
 
-// Voeg de stealth plugin toe
-chromium.use(stealth);
+// Haal de argumenten op
+const url = process.argv[2];
+const outputPath = process.argv[3];
+const sessionId = process.argv[4]; // Voeg session ID toe als derde argument
 
-// Voeg de recaptcha plugin toe
-chromium.use(
-  RecaptchaPlugin({
-    provider: {
-      id: '2captcha',
-      token: process.env.TWOCAPTCHA_API_KEY || '442b77082098300c2d00291e4a99372f'
-    },
-    visualFeedback: true
-  })
-);
-
-// Configuratie
-const config = {
-  username: process.env.TRADINGVIEW_USERNAME || 'JovanniMT',
-  password: process.env.TRADINGVIEW_PASSWORD || 'JmT!102710!!',
-  outputDir: path.join(__dirname, 'screenshots'),
-  symbols: process.argv[2] ? [process.argv[2]] : ['EURUSD', 'GBPUSD', 'BTCUSD'],
-  timeframes: process.argv[3] ? [process.argv[3]] : ['1h', '4h', '1d']
-};
-
-// Zorg ervoor dat de output directory bestaat
-if (!fs.existsSync(config.outputDir)) {
-  fs.mkdirSync(config.outputDir, { recursive: true });
+if (!url || !outputPath) {
+    console.error('Usage: node screenshot.js <url> <outputPath> [sessionId]');
+    process.exit(1);
 }
 
-async function takeScreenshot(page, symbol, timeframe) {
-  console.log(`Taking screenshot for ${symbol} on ${timeframe} timeframe`);
-  
-  // Navigeer naar de chart pagina
-  await page.goto(`https://www.tradingview.com/chart/?symbol=${symbol}`, { waitUntil: 'networkidle' });
-  
-  // Wacht tot de chart is geladen
-  await page.waitForSelector('.chart-markup-table', { timeout: 30000 });
-  
-  // Verander de timeframe indien nodig
-  if (timeframe !== '1d') { // Standaard is 1d
-    console.log(`Changing timeframe to ${timeframe}`);
-    
-    // Klik op de timeframe selector
-    await page.click('.chart-toolbar-timeframes button');
-    
-    // Wacht op het dropdown menu
-    await page.waitForSelector('.menu-T1RzLuj3 .item-RhC5uhZw', { timeout: 10000 });
-    
-    // Zoek en klik op de juiste timeframe
-    const timeframeItems = await page.$$('.menu-T1RzLuj3 .item-RhC5uhZw');
-    let timeframeFound = false;
-    
-    for (const item of timeframeItems) {
-      const text = await item.textContent();
-      if (text.includes(timeframe.toUpperCase())) {
-        await item.click();
-        timeframeFound = true;
-        break;
-      }
-    }
-    
-    if (!timeframeFound) {
-      console.warn(`Timeframe ${timeframe} not found, using default`);
-    }
-    
-    // Wacht tot de chart is bijgewerkt
-    await page.waitForTimeout(3000);
-  }
-  
-  // Verberg UI elementen voor een schonere screenshot
-  await page.evaluate(() => {
-    // Verberg header, footer, sidebar, etc.
-    const elementsToHide = [
-      '.header-KN-Kpxs-',
-      '.drawingToolbar-2_so5tMw',
-      '.chart-controls-bar',
-      '.bottom-widgetbar-content.backtesting',
-      '.control-bar',
-      '.tv-side-toolbar'
-    ];
-    
-    elementsToHide.forEach(selector => {
-      const elements = document.querySelectorAll(selector);
-      elements.forEach(el => {
-        if (el) el.style.display = 'none';
-      });
-    });
-  });
-  
-  // Wacht even om zeker te zijn dat alles is bijgewerkt
-  await page.waitForTimeout(1000);
-  
-  // Neem de screenshot
-  const screenshotPath = path.join(config.outputDir, `${symbol}_${timeframe}.png`);
-  const screenshot = await page.screenshot({ path: screenshotPath, fullPage: false });
-  
-  console.log(`Screenshot saved to ${screenshotPath}`);
-  return screenshot;
-}
-
-async function run() {
-  console.log('Starting TradingView automation');
-  
-  const browser = await chromium.launch({
-    headless: false, // Zet op true voor productie
-    args: [
-      '--no-sandbox',
-      '--disable-dev-shm-usage',
-      '--disable-gpu',
-      '--window-size=1920,1080'
-    ]
-  });
-  
-  const context = await browser.newContext({
-    viewport: { width: 1920, height: 1080 },
-    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-  });
-  
-  const page = await context.newPage();
-  
-  try {
-    // Login op TradingView
-    console.log('Navigating to TradingView login page');
-    await page.goto('https://www.tradingview.com/#signin', { waitUntil: 'networkidle' });
-    
-    // Klik op de email login optie
-    console.log('Clicking email login option');
-    await page.click('span.js-show-email');
-    
-    // Vul inloggegevens in
-    console.log('Filling login credentials');
-    await page.fill('[name="username"]', config.username);
-    await page.fill('[name="password"]', config.password);
-    
-    // Klik op de login knop
-    console.log('Submitting login form');
-    await page.click('[type="submit"]');
-    
-    // Wacht tot we zijn ingelogd
+(async () => {
     try {
-      await page.waitForNavigation({ timeout: 30000 });
-      console.log('Successfully logged in');
-    } catch (error) {
-      console.log('Navigation timeout, checking for CAPTCHA');
-      
-      // Controleer op CAPTCHA
-      const captchaExists = await page.$$eval('iframe[src*="recaptcha"]', frames => frames.length > 0);
-      
-      if (captchaExists) {
-        console.log('CAPTCHA detected, solving...');
-        await page.solveRecaptchas();
+        console.log(`Taking screenshot of ${url} and saving to ${outputPath}`);
         
-        // Probeer opnieuw in te loggen na CAPTCHA
-        await page.click('[type="submit"]');
-        await page.waitForNavigation({ timeout: 30000 });
-      }
-    }
-    
-    // Neem screenshots voor elke combinatie van symbool en timeframe
-    const results = {};
-    
-    for (const symbol of config.symbols) {
-      results[symbol] = {};
-      
-      for (const timeframe of config.timeframes) {
-        try {
-          const screenshot = await takeScreenshot(page, symbol, timeframe);
-          results[symbol][timeframe] = screenshot;
-        } catch (error) {
-          console.error(`Error taking screenshot for ${symbol} ${timeframe}:`, error);
-          results[symbol][timeframe] = null;
+        // Start een browser
+        const browser = await chromium.launch({
+            headless: true,
+            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
+        });
+        
+        // Open een nieuwe pagina
+        const context = await browser.newContext();
+        
+        // Voeg cookies toe als er een session ID is
+        if (sessionId) {
+            console.log(`Using session ID: ${sessionId.substring(0, 5)}...`);
+            
+            // Voeg de session cookie direct toe zonder eerst naar TradingView te gaan
+            await context.addCookies([
+                {
+                    name: 'sessionid',
+                    value: sessionId,
+                    domain: '.tradingview.com',
+                    path: '/',
+                    httpOnly: true,
+                    secure: true,
+                    sameSite: 'Lax'
+                }
+            ]);
         }
-      }
+        
+        // Open een nieuwe pagina voor de screenshot
+        const page = await context.newPage();
+        
+        // Stel een langere timeout in
+        page.setDefaultTimeout(120000);
+        
+        try {
+            // Ga naar de URL met minder strenge wachttijd
+            console.log(`Navigating to ${url}...`);
+            await page.goto(url, {
+                waitUntil: 'domcontentloaded', // Minder streng dan 'networkidle'
+                timeout: 90000
+            });
+            
+            // Wacht een vaste tijd
+            console.log('Waiting for page to render...');
+            await page.waitForTimeout(15000);
+            
+            // Controleer of we zijn ingelogd
+            const isLoggedIn = await page.evaluate(() => {
+                return document.body.innerText.includes('Log out') || 
+                       document.body.innerText.includes('Account') ||
+                       document.querySelector('.tv-header__user-menu-button') !== null;
+            });
+            
+            console.log(`Logged in status: ${isLoggedIn}`);
+            
+            // Wacht nog wat langer als we zijn ingelogd om custom indicators te laden
+            if (isLoggedIn) {
+                console.log('Waiting for custom indicators to load...');
+                await page.waitForTimeout(5000);
+            }
+        } catch (error) {
+            console.error('Error loading page, trying to take screenshot anyway:', error);
+        }
+        
+        // Neem een screenshot
+        console.log('Taking screenshot...');
+        await page.screenshot({
+            path: outputPath,
+            fullPage: false
+        });
+        
+        // Sluit de browser
+        await browser.close();
+        
+        console.log('Screenshot taken successfully');
+        process.exit(0);
+    } catch (error) {
+        console.error('Error taking screenshot:', error);
+        process.exit(1);
     }
-    
-    console.log('All screenshots completed');
-    return results;
-    
-  } catch (error) {
-    console.error('Error during automation:', error);
-    throw error;
-  } finally {
-    // Sluit de browser
-    await browser.close();
-    console.log('Browser closed');
-  }
-}
-
-// Voer het script uit als het direct wordt aangeroepen
-if (require.main === module) {
-  run()
-    .then(() => {
-      console.log('Script completed successfully');
-      process.exit(0);
-    })
-    .catch(error => {
-      console.error('Script failed:', error);
-      process.exit(1);
-    });
-} else {
-  // Exporteer de functie voor gebruik in andere scripts
-  module.exports = { run, takeScreenshot }; 
+})(); 
