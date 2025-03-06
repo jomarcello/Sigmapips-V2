@@ -82,50 +82,40 @@ session_refresher = SessionRefresher()
 
 @app.on_event("startup")
 async def startup_event():
-    """Initialize async services on startup"""
-    # Setup Playwright browsers
+    """Startup event handler"""
     try:
-        # Inline setup in plaats van import
-        import subprocess
-        import logging
-        logger = logging.getLogger(__name__)
+        # Initialize telegram service
+        await telegram.initialize(use_webhook=True)
         
-        logger.info("Setting up Playwright browsers")
-        result = subprocess.run(["playwright", "install", "chromium"], 
-                               capture_output=True, text=True)
+        # Initialize chart service
+        await initialize_chart_service_background()
         
-        if result.returncode == 0:
-            logger.info("Playwright browsers installed successfully")
-        else:
-            logger.error(f"Error installing Playwright browsers: {result.stderr}")
+        # Set webhook URL
+        webhook_url = os.getenv("RAILWAY_PUBLIC_DOMAIN")
+        if webhook_url:
+            # Strip any trailing characters including semicolons
+            webhook_url = webhook_url.strip().rstrip(';')
+            full_url = f"https://{webhook_url}/webhook"
+            
+            # Verwijder eerst eventuele bestaande webhook
+            await telegram.bot.delete_webhook()
+            
+            # Stel de nieuwe webhook in
+            await telegram.bot.set_webhook(url=full_url)
+            
+            # Haal webhook info op om te controleren
+            webhook_info = await telegram.bot.get_webhook_info()
+            
+            logger.info(f"Webhook succesvol ingesteld op: {full_url}")
+            logger.info(f"Webhook info: {webhook_info}")
+        
+        # Start een achtergrondtaak voor periodieke health checks
+        asyncio.create_task(periodic_health_check())
+        
     except Exception as e:
-        logger.error(f"Error setting up Playwright: {str(e)}")
-    
-    # Initialize telegram service
-    await telegram.initialize(use_webhook=True)
-    
-    # Initialize chart service
-    global chart
-    chart = ChartService()
-    
-    # Wacht op de initialisatie van de chart service
-    try:
-        logger.info("Initializing chart service...")
-        success = await chart.initialize()
-        if success:
-            logger.info(f"Chart service initialized with: {type(chart.tradingview).__name__ if chart.tradingview else 'None'}")
-        else:
-            logger.warning("Chart service initialization failed, will use fallback methods")
-    except Exception as e:
-        logger.error(f"Error initializing chart service: {str(e)}")
+        logger.error(f"Error in startup event: {str(e)}")
         import traceback
         logger.error(traceback.format_exc())
-    
-    # Start een achtergrondtaak voor periodieke health checks
-    asyncio.create_task(periodic_health_check())
-
-    # Start de session refresher
-    asyncio.create_task(session_refresher.start())
 
 @app.on_event("shutdown")
 async def shutdown_event():
