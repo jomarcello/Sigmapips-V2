@@ -304,6 +304,9 @@ class TelegramService:
             # Add reset conversation handler
             self.application.add_handler(CommandHandler("reset", self.reset_conversation))
             
+            # Initialiseer de user_states dictionary
+            self.user_states = {}
+            
             logger.info("Telegram service initialized")
             
         except Exception as e:
@@ -461,7 +464,6 @@ class TelegramService:
                 return MENU
             except Exception as inner_e:
                 logger.error(f"Failed to recover from error: {str(inner_e)}")
-                return ConversationHandler.END
 
     async def signals_add_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """Handle signals_add callback"""
@@ -1037,63 +1039,28 @@ class TelegramService:
 
     async def back_to_market_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """Handle back to market callback"""
-        try:
-            query = update.callback_query
-            chat_id = query.message.chat_id
-            message_id = query.message.message_id
-            
-            # Log de huidige staat
-            current_state = self.user_states.get(chat_id, {}).get('state', 0)
-            analysis_type = self.user_states.get(chat_id, {}).get('analysis_type', 'technical')
-            logger.info(f"Back to market: current_state={current_state}, analysis_type={analysis_type}")
-            
-            # Bevestig de callback query
-            await query.answer()
-            
-            # Controleer of het bericht een foto bevat
-            if query.message.photo:
-                # Als het een foto is, verwijder het huidige bericht en stuur een nieuw bericht
-                try:
-                    await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
-                except Exception as delete_error:
-                    logger.error(f"Error deleting message: {str(delete_error)}")
-                
-                # Stuur een nieuw bericht met de instrumenten
-                await self.show_instruments(update, context)
-            else:
-                # Als het een tekstbericht is, bewerk het bericht
-                keyboard = self.get_instruments_keyboard()
-                
-                await context.bot.edit_message_text(
-                    chat_id=chat_id,
-                    message_id=message_id,
-                    text="🔍 Selecteer een instrument om te analyseren:",
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
-            
-            # Reset de staat
-            self.user_states[chat_id] = {'state': 1, 'analysis_type': analysis_type}
-            
-        except Exception as e:
-            logger.error(f"Error in back_to_market_callback: {str(e)}")
-            
-            # Probeer te herstellen door een nieuw bericht te sturen
-            try:
-                chat_id = update.callback_query.message.chat_id
-                await update.callback_query.answer()
-                
-                # Stuur een nieuw bericht met de instrumenten
-                keyboard = self.get_instruments_keyboard()
-                await update.callback_query.message.reply_text(
-                    "🔍 Selecteer een instrument om te analyseren:",
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
-                
-                # Reset de staat
-                self.user_states[chat_id] = {'state': 1, 'analysis_type': 'technical'}
-                
-            except Exception as recovery_error:
-                logger.error(f"Failed to recover from error: {str(recovery_error)}")
+        query = update.callback_query
+        await query.answer()
+        
+        # Toon het market menu
+        keyboard = [
+            [
+                InlineKeyboardButton("Forex", callback_data="market_forex"),
+                InlineKeyboardButton("Crypto", callback_data="market_crypto")
+            ],
+            [
+                InlineKeyboardButton("Indices", callback_data="market_indices"),
+                InlineKeyboardButton("Commodities", callback_data="market_commodities")
+            ],
+            [InlineKeyboardButton("⬅️ Terug", callback_data="back_to_menu")]
+        ]
+        
+        await query.edit_message_text(
+            text="Selecteer een markt:",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        
+        return CHOOSE_MARKET
 
     async def back_to_instrument(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """Handle back to instrument selection"""
@@ -1286,3 +1253,146 @@ class TelegramService:
                 )
             except Exception as update_error:
                 logger.error(f"Error updating loading message: {str(update_error)}")
+
+    async def show_instruments(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Show instruments keyboard"""
+        try:
+            chat_id = update.effective_chat.id
+            
+            # Bepaal welke markt we moeten tonen
+            market = self.user_states.get(chat_id, {}).get('market', 'forex')
+            
+            # Bepaal welk keyboard we moeten tonen op basis van de markt
+            keyboard_map = {
+                'forex': self.get_forex_keyboard(),
+                'crypto': self.get_crypto_keyboard(),
+                'indices': self.get_indices_keyboard(),
+                'commodities': self.get_commodities_keyboard()
+            }
+            
+            keyboard = keyboard_map.get(market, self.get_forex_keyboard())
+            
+            # Stuur het bericht met de instrumenten
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=f"🔍 Selecteer een instrument uit {market.capitalize()}:",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            
+            # Update de gebruikersstaat
+            self.user_states[chat_id] = {'state': 2, 'market': market, 'analysis_type': 'technical'}
+            
+        except Exception as e:
+            logger.error(f"Error showing instruments: {str(e)}")
+            
+            # Probeer te herstellen door een generiek bericht te sturen
+            try:
+                await context.bot.send_message(
+                    chat_id=update.effective_chat.id,
+                    text="Er is een fout opgetreden. Probeer het opnieuw met /start."
+                )
+            except Exception as recovery_error:
+                logger.error(f"Failed to recover from error: {str(recovery_error)}")
+
+    def get_instruments_keyboard(self):
+        """Get the instruments keyboard based on the current market"""
+        # Standaard forex keyboard
+        return [
+            [
+                InlineKeyboardButton("EUR/USD", callback_data="instrument_EURUSD"),
+                InlineKeyboardButton("GBP/USD", callback_data="instrument_GBPUSD"),
+                InlineKeyboardButton("USD/JPY", callback_data="instrument_USDJPY")
+            ],
+            [
+                InlineKeyboardButton("EUR/GBP", callback_data="instrument_EURGBP"),
+                InlineKeyboardButton("AUD/USD", callback_data="instrument_AUDUSD"),
+                InlineKeyboardButton("USD/CAD", callback_data="instrument_USDCAD")
+            ],
+            [
+                InlineKeyboardButton("EUR/JPY", callback_data="instrument_EURJPY"),
+                InlineKeyboardButton("GBP/JPY", callback_data="instrument_GBPJPY"),
+                InlineKeyboardButton("CHF/JPY", callback_data="instrument_CHFJPY")
+            ],
+            [
+                InlineKeyboardButton("⬅️ Back to Markets", callback_data="back_to_markets")
+            ]
+        ]
+
+    def get_forex_keyboard(self):
+        """Get the forex instruments keyboard"""
+        return [
+            [
+                InlineKeyboardButton("EUR/USD", callback_data="instrument_EURUSD"),
+                InlineKeyboardButton("GBP/USD", callback_data="instrument_GBPUSD"),
+                InlineKeyboardButton("USD/JPY", callback_data="instrument_USDJPY")
+            ],
+            [
+                InlineKeyboardButton("EUR/GBP", callback_data="instrument_EURGBP"),
+                InlineKeyboardButton("AUD/USD", callback_data="instrument_AUDUSD"),
+                InlineKeyboardButton("USD/CAD", callback_data="instrument_USDCAD")
+            ],
+            [
+                InlineKeyboardButton("EUR/JPY", callback_data="instrument_EURJPY"),
+                InlineKeyboardButton("GBP/JPY", callback_data="instrument_GBPJPY"),
+                InlineKeyboardButton("CHF/JPY", callback_data="instrument_CHFJPY")
+            ],
+            [
+                InlineKeyboardButton("⬅️ Back to Markets", callback_data="back_to_markets")
+            ]
+        ]
+
+    def get_crypto_keyboard(self):
+        """Get the crypto instruments keyboard"""
+        return [
+            [
+                InlineKeyboardButton("BTC/USD", callback_data="instrument_BTCUSD"),
+                InlineKeyboardButton("ETH/USD", callback_data="instrument_ETHUSD")
+            ],
+            [
+                InlineKeyboardButton("XRP/USD", callback_data="instrument_XRPUSD"),
+                InlineKeyboardButton("LTC/USD", callback_data="instrument_LTCUSD")
+            ],
+            [
+                InlineKeyboardButton("SOL/USD", callback_data="instrument_SOLUSD"),
+                InlineKeyboardButton("BNB/USD", callback_data="instrument_BNBUSD")
+            ],
+            [
+                InlineKeyboardButton("⬅️ Back to Markets", callback_data="back_to_markets")
+            ]
+        ]
+
+    def get_indices_keyboard(self):
+        """Get the indices instruments keyboard"""
+        return [
+            [
+                InlineKeyboardButton("US500", callback_data="instrument_US500"),
+                InlineKeyboardButton("US100", callback_data="instrument_US100")
+            ],
+            [
+                InlineKeyboardButton("US30", callback_data="instrument_US30"),
+                InlineKeyboardButton("UK100", callback_data="instrument_UK100")
+            ],
+            [
+                InlineKeyboardButton("DE40", callback_data="instrument_DE40"),
+                InlineKeyboardButton("JP225", callback_data="instrument_JP225")
+            ],
+            [
+                InlineKeyboardButton("⬅️ Back to Markets", callback_data="back_to_markets")
+            ]
+        ]
+
+    def get_commodities_keyboard(self):
+        """Get the commodities instruments keyboard"""
+        return [
+            [
+                InlineKeyboardButton("GOLD", callback_data="instrument_XAUUSD"),
+                InlineKeyboardButton("SILVER", callback_data="instrument_XAGUSD")
+            ],
+            [
+                InlineKeyboardButton("OIL", callback_data="instrument_XTIUSD"),
+                InlineKeyboardButton("NATURAL GAS", callback_data="instrument_NATGAS")
+            ],
+            [
+                InlineKeyboardButton("⬅️ Back to Markets", callback_data="back_to_markets")
+            ]
+        ]
