@@ -102,7 +102,7 @@ async def startup_event():
         logger.error(f"Error setting up Playwright: {str(e)}")
     
     # Initialize telegram service
-    await telegram.initialize()
+    await telegram.initialize(use_webhook=True)
     
     # Initialize chart service
     global chart
@@ -121,14 +121,6 @@ async def startup_event():
         import traceback
         logger.error(traceback.format_exc())
     
-    webhook_url = os.getenv("RAILWAY_PUBLIC_DOMAIN")
-    if webhook_url:
-        # Strip any trailing characters including semicolons
-        webhook_url = webhook_url.strip().rstrip(';')
-        full_url = f"https://{webhook_url}/webhook"
-        await telegram.set_webhook(full_url)
-        logger.info(f"Webhook set to: {full_url}")
-
     # Start een achtergrondtaak voor periodieke health checks
     asyncio.create_task(periodic_health_check())
 
@@ -153,17 +145,20 @@ async def health_check():
     return {"status": "ok"}
 
 @app.post("/webhook")
-async def webhook(request: Request):
-    """Webhook endpoint voor Telegram updates"""
+async def telegram_webhook(request: Request):
+    """Handle Telegram webhook"""
     try:
+        # Log dat de webhook is aangeroepen
         logger.info("Webhook aangeroepen")
-        data = await request.json()
-        logger.info(f"Webhook data: {data}")
         
-        # Verwerk de update
-        await telegram.process_update(data)
+        # Haal de update data op
+        update_data = await request.json()
+        logger.info(f"Webhook data: {update_data}")
         
-        return {"status": "success"}
+        # Verwerk de update via de TelegramService
+        await telegram.process_update(update_data)
+        
+        return {"status": "ok"}
     except Exception as e:
         logger.error(f"Error in webhook: {str(e)}")
         return {"status": "error", "message": str(e)}
