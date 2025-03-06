@@ -90,21 +90,35 @@ class TradingViewSeleniumService(TradingViewService):
             logger.info(f"Chrome options: {chrome_options.arguments}")
             
             try:
-                # Probeer eerst de lokaal geïnstalleerde ChromeDriver te gebruiken
-                logger.info("Using locally installed ChromeDriver...")
-                service = Service("/usr/bin/chromedriver")
-                logger.info("Using locally installed ChromeDriver")
-            except Exception as local_error:
-                logger.error(f"Error using locally installed ChromeDriver: {str(local_error)}")
+                # Gebruik webdriver-manager om de juiste ChromeDriver te installeren
+                from webdriver_manager.chrome import ChromeDriverManager
                 
-                # Als fallback, probeer WebDriverManager
+                # Probeer verschillende opties voor ChromeDriver
                 try:
-                    from webdriver_manager.chrome import ChromeDriverManager
-                    service = Service(ChromeDriverManager().install())
-                    logger.info("ChromeDriver installed successfully with WebDriverManager")
-                except Exception as wdm_error:
-                    logger.error(f"Error installing ChromeDriver with WebDriverManager: {str(wdm_error)}")
-                    return False
+                    # Optie 1: Gebruik de lokaal geïnstalleerde ChromeDriver
+                    logger.info("Using locally installed ChromeDriver...")
+                    service = Service("/usr/bin/chromedriver")
+                    logger.info("Using locally installed ChromeDriver")
+                except Exception as local_error:
+                    logger.error(f"Error using locally installed ChromeDriver: {str(local_error)}")
+                    
+                    # Optie 2: Gebruik de standaard ChromeDriver
+                    try:
+                        service = Service(ChromeDriverManager().install())
+                        logger.info("ChromeDriver installed successfully with default version")
+                    except Exception as default_error:
+                        logger.error(f"Error installing default ChromeDriver: {str(default_error)}")
+                        
+                        # Optie 3: Gebruik een specifieke versie
+                        try:
+                            service = Service(ChromeDriverManager(version="114.0.5735.90").install())
+                            logger.info("ChromeDriver installed successfully with specific version")
+                        except Exception as specific_error:
+                            logger.error(f"Error installing specific ChromeDriver: {str(specific_error)}")
+                            return False
+            except Exception as driver_error:
+                logger.error(f"Error installing ChromeDriver: {str(driver_error)}")
+                return False
             
             try:
                 self.driver = webdriver.Chrome(service=service, options=chrome_options)
