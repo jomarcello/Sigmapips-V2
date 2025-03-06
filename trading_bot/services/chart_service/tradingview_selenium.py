@@ -78,53 +78,21 @@ class TradingViewSeleniumService(TradingViewService):
         try:
             logger.info("Initializing TradingView Selenium service")
             
-            # Gebruik webdriver_manager om automatisch de juiste ChromeDriver te downloaden
-            chrome_options = webdriver.ChromeOptions()
-            chrome_options.add_argument("--headless")
-            chrome_options.add_argument("--no-sandbox")
-            chrome_options.add_argument("--disable-dev-shm-usage")
-            chrome_options.add_argument("--disable-gpu")
-            chrome_options.add_argument("--window-size=1920,1080")
-            
-            # Log de Chrome opties
-            logger.info(f"Chrome options: {chrome_options.arguments}")
-            
+            # Probeer een directe aanpak zonder webdriver-manager
             try:
-                # Gebruik webdriver-manager om de juiste ChromeDriver te installeren
-                from webdriver_manager.chrome import ChromeDriverManager
+                logger.info("Creating Chrome driver with direct path...")
+                chrome_options = webdriver.ChromeOptions()
+                chrome_options.add_argument("--headless")
+                chrome_options.add_argument("--no-sandbox")
+                chrome_options.add_argument("--disable-dev-shm-usage")
+                chrome_options.add_argument("--disable-gpu")
+                chrome_options.add_argument("--window-size=1920,1080")
                 
-                # Probeer verschillende opties voor ChromeDriver
-                try:
-                    # Optie 1: Gebruik de lokaal geïnstalleerde ChromeDriver
-                    logger.info("Using locally installed ChromeDriver...")
-                    service = Service("/usr/bin/chromedriver")
-                    logger.info("Using locally installed ChromeDriver")
-                except Exception as local_error:
-                    logger.error(f"Error using locally installed ChromeDriver: {str(local_error)}")
-                    
-                    # Optie 2: Gebruik de standaard ChromeDriver
-                    try:
-                        service = Service(ChromeDriverManager().install())
-                        logger.info("ChromeDriver installed successfully with default version")
-                    except Exception as default_error:
-                        logger.error(f"Error installing default ChromeDriver: {str(default_error)}")
-                        
-                        # Optie 3: Gebruik een specifieke versie
-                        try:
-                            service = Service(ChromeDriverManager(version="114.0.5735.90").install())
-                            logger.info("ChromeDriver installed successfully with specific version")
-                        except Exception as specific_error:
-                            logger.error(f"Error installing specific ChromeDriver: {str(specific_error)}")
-                            return False
-            except Exception as driver_error:
-                logger.error(f"Error installing ChromeDriver: {str(driver_error)}")
-                return False
-            
-            try:
-                self.driver = webdriver.Chrome(service=service, options=chrome_options)
-                logger.info("Chrome driver created successfully")
+                # Gebruik de direct path naar chromedriver
+                self.driver = webdriver.Chrome(options=chrome_options)
+                logger.info("Chrome driver created successfully with direct path")
             except Exception as chrome_error:
-                logger.error(f"Error creating Chrome driver: {str(chrome_error)}")
+                logger.error(f"Error creating Chrome driver with direct path: {str(chrome_error)}")
                 return False
             
             try:
