@@ -21,14 +21,67 @@ class ChartService:
     def __init__(self):
         """Initialize chart service"""
         try:
-            # Initialiseer de chart links
+            # Initialiseer de chart links met de specifieke TradingView links
             self.chart_links = {
-                "EURUSD": "https://www.tradingview.com/chart/?symbol=EURUSD",
-                "GBPUSD": "https://www.tradingview.com/chart/?symbol=GBPUSD",
-                "USDJPY": "https://www.tradingview.com/chart/?symbol=USDJPY",
-                "BTCUSD": "https://www.tradingview.com/chart/?symbol=BTCUSD",
-                "ETHUSD": "https://www.tradingview.com/chart/?symbol=ETHUSD",
-                # Voeg hier meer instrumenten toe indien nodig
+                # Commodities
+                "XAUUSD": "https://www.tradingview.com/chart/bylCuCgc/",
+                "XTIUSD": "https://www.tradingview.com/chart/jxU29rbq/",
+                
+                # Currencies
+                "EURUSD": "https://www.tradingview.com/chart/xknpxpcr/",
+                "EURGBP": "https://www.tradingview.com/chart/xt6LdUUi/",
+                "EURCHF": "https://www.tradingview.com/chart/4Jr8hVba/",
+                "EURJPY": "https://www.tradingview.com/chart/ume7H7lm/",
+                "EURCAD": "https://www.tradingview.com/chart/gbtrKFPk/",
+                "EURAUD": "https://www.tradingview.com/chart/WweOZl7z/",
+                "EURNZD": "https://www.tradingview.com/chart/bcrCHPsz/",
+                "GBPUSD": "https://www.tradingview.com/chart/jKph5b1W/",
+                "GBPCHF": "https://www.tradingview.com/chart/1qMsl4FS/",
+                "GBPJPY": "https://www.tradingview.com/chart/Zcmh5M2k/",
+                "GBPCAD": "https://www.tradingview.com/chart/CvwpPBpF/",
+                "GBPAUD": "https://www.tradingview.com/chart/neo3Fc3j/",
+                "GBPNZD": "https://www.tradingview.com/chart/egeCqr65/",
+                "CHFJPY": "https://www.tradingview.com/chart/g7qBPaqM/",
+                "USDJPY": "https://www.tradingview.com/chart/mcWuRDQv/",
+                "USDCHF": "https://www.tradingview.com/chart/e7xDgRyM/",
+                "USDCAD": "https://www.tradingview.com/chart/jjTOeBNM/",
+                "CADJPY": "https://www.tradingview.com/chart/KNsPbDME/",
+                "CADCHF": "https://www.tradingview.com/chart/XnHRKk5I/",
+                "AUDUSD": "https://www.tradingview.com/chart/h7CHetVW/",
+                "AUDCHF": "https://www.tradingview.com/chart/oooBW6HP/",
+                "AUDJPY": "https://www.tradingview.com/chart/sYiGgj7B/",
+                "AUDNZD": "https://www.tradingview.com/chart/AByyHLB4/",
+                "AUDCAD": "https://www.tradingview.com/chart/L4992qKp/",
+                "NDZUSD": "https://www.tradingview.com/chart/yab05IFU/",
+                "NZDCHF": "https://www.tradingview.com/chart/7epTugqA/",
+                "NZDJPY": "https://www.tradingview.com/chart/fdtQ7rx7/",
+                "NZDCAD": "https://www.tradingview.com/chart/mRVtXs19/",
+                
+                # Cryptocurrencies
+                "BTCUSD": "https://www.tradingview.com/chart/Nroi4EqI/",
+                "ETHUSD": "https://www.tradingview.com/chart/rVh10RLj/",
+                "XRPUSD": "https://www.tradingview.com/chart/tQu9Ca4E/",
+                "SOLUSD": "https://www.tradingview.com/chart/oTTmSjzQ/",
+                "BNBUSD": "https://www.tradingview.com/chart/wNBWNh23/",
+                "ADAUSD": "https://www.tradingview.com/chart/WcBNFrdb/",
+                "LTCUSD": "https://www.tradingview.com/chart/AoDblBMt/",
+                "DOGUSD": "https://www.tradingview.com/chart/F6SPb52v/",
+                "DOTUSD": "https://www.tradingview.com/chart/nT9dwAx2/",
+                "LNKUSD": "https://www.tradingview.com/chart/FzOrtgYw/",
+                "XLMUSD": "https://www.tradingview.com/chart/SnvxOhDh/",
+                "AVXUSD": "https://www.tradingview.com/chart/LfTlCrdQ/",
+                
+                # Indices
+                "AU200": "https://www.tradingview.com/chart/U5CKagMM/",
+                "EU50": "https://www.tradingview.com/chart/tt5QejVd/",
+                "FR40": "https://www.tradingview.com/chart/RoPe3S1Q/",
+                "HK50": "https://www.tradingview.com/chart/Rllftdyl/",
+                "JP225": "https://www.tradingview.com/chart/i562Fk6X/",
+                "UK100": "https://www.tradingview.com/chart/0I4gguQa/",
+                "US100": "https://www.tradingview.com/chart/5d36Cany/",
+                "US500": "https://www.tradingview.com/chart/VsfYHrwP/",
+                "US30": "https://www.tradingview.com/chart/heV5Zitn/",
+                "DE40": "https://www.tradingview.com/chart/OWzg0XNw/",
             }
             
             # Initialiseer de TradingView services
@@ -46,18 +99,40 @@ class ChartService:
         try:
             logger.info(f"Getting chart for {instrument} ({timeframe})")
             
-            # Try to get chart from TradingView
-            chart_image = await self.get_tradingview_chart(instrument, timeframe)
-            if chart_image:
-                return chart_image
+            # Normaliseer instrument (verwijder /)
+            instrument = instrument.upper().replace("/", "")
             
-            # If TradingView fails, try fallback
-            logger.warning(f"All chart services failed, using fallback for {instrument}")
-            return self.get_fallback_chart(instrument)
-        
+            # Gebruik de TradingView link voor dit instrument
+            tradingview_link = self.chart_links.get(instrument)
+            if not tradingview_link:
+                # Als er geen specifieke link is, gebruik een generieke link
+                logger.warning(f"No specific link found for {instrument}, using generic link")
+                tradingview_link = f"https://www.tradingview.com/chart/?symbol={instrument}"
+            
+            logger.info(f"Using TradingView link: {tradingview_link}")
+            
+            # Gebruik Selenium om een screenshot te maken van de TradingView link
+            if hasattr(self, 'tradingview_selenium') and self.tradingview_selenium:
+                try:
+                    # Maak een screenshot van de TradingView link
+                    chart_image = await self.tradingview_selenium.get_screenshot(tradingview_link)
+                    if chart_image:
+                        return chart_image
+                except Exception as e:
+                    logger.error(f"Error using Selenium for screenshot: {str(e)}")
+            
+            # Als Selenium niet werkt, probeer een andere methode
+            logger.warning(f"Selenium screenshot failed, using fallback for {instrument}")
+            return await self._generate_random_chart(instrument, timeframe)
+            
         except Exception as e:
             logger.error(f"Error getting chart: {str(e)}")
-            return self.get_fallback_chart(instrument)
+            # Probeer de fallback methode
+            try:
+                return await self._generate_random_chart(instrument, timeframe)
+            except Exception as fallback_error:
+                logger.error(f"Error generating fallback chart: {str(fallback_error)}")
+                return None
 
     async def _fallback_chart(self, instrument, timeframe="1h"):
         """Fallback method to get chart"""
@@ -114,33 +189,17 @@ class ChartService:
             logging.error(f"Error initializing chart service: {str(e)}")
             return False
 
-    async def get_fallback_chart(self) -> Optional[bytes]:
-        """Get a fallback chart image"""
+    def get_fallback_chart(self, instrument: str) -> bytes:
+        """Get a fallback chart image for a specific instrument"""
         try:
-            # Probeer alle statische chart URLs
-            for url in self.static_chart_urls:
-                logger.info(f"Trying static chart URL: {url}")
-                
-                async with aiohttp.ClientSession() as session:
-                    async with session.get(url) as response:
-                        if response.status == 200:
-                            return await response.read()
-                        else:
-                            logger.error(f"Static chart error: {response.status}")
+            logger.warning(f"Using fallback chart for {instrument}")
             
-            # Als alle URLs mislukken, probeer een andere aanpak
-            fallback_url = "https://finviz.com/chart.ashx?t=AAPL&ty=c&ta=1&p=d&s=l"
-            logger.info(f"Trying fallback URL: {fallback_url}")
+            # Hier zou je een eenvoudige fallback kunnen implementeren
+            # Voor nu gebruiken we de _generate_random_chart methode
+            return asyncio.run(self._generate_random_chart(instrument, "1h"))
             
-            async with aiohttp.ClientSession() as session:
-                async with session.get(fallback_url) as response:
-                    if response.status == 200:
-                        return await response.read()
-                    else:
-                        logger.error(f"Fallback chart error: {response.status}")
-                        return None
         except Exception as e:
-            logger.error(f"Error getting fallback chart: {str(e)}")
+            logger.error(f"Error in fallback chart: {str(e)}")
             return None
             
     async def cleanup(self):
