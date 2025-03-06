@@ -11,13 +11,17 @@ class MarketSentimentService:
     
     def __init__(self):
         """Initialize the market sentiment service"""
-        self.api_key = os.getenv("SENTIMENT_API_KEY")
-        self.base_url = os.getenv("SENTIMENT_API_URL", "https://api.example.com/sentiment")
+        self.api_key = os.getenv("DEEPSEEK_API_KEY")
+        self.api_url = "https://api.deepseek.com/v1/chat/completions"
+        self.headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json"
+        }
         
         # If no API key is provided, we'll use mock data
         self.use_mock = not self.api_key
         if self.use_mock:
-            logger.warning("No sentiment API key found, using mock data")
+            logger.warning("No DeepSeek API key found, using mock data")
     
     async def get_market_sentiment(self, instrument_or_signal) -> str:
         """Get market sentiment analysis"""
@@ -39,20 +43,65 @@ class MarketSentimentService:
             if self.use_mock:
                 return self._get_mock_sentiment(instrument)
             
-            # Make API request to get sentiment data
+            # Create prompt for DeepSeek
+            prompt = f"""Analyze the current market sentiment and latest news for {instrument}. Include both technical analysis and fundamental factors.
+
+🎯 {instrument} Market Analysis
+
+📈 Market Direction:
+[Analyze current price action, trend direction, and momentum. Include impact of latest economic data and central bank policies]
+
+📡 Latest News & Events:
+• [Most recent significant news affecting {instrument}]
+• [Relevant economic data releases]
+• [Central bank actions/statements]
+• [Other market-moving events]
+
+🎯 Key Levels:
+• Support Levels:
+  - [Immediate support with exact price and technical/fundamental reason]
+  - [Major support with exact price and historical significance]
+• Resistance Levels:
+  - [Immediate resistance with exact price and technical/fundamental reason]
+  - [Major resistance with exact price and historical significance]
+
+⚠️ Risk Factors:
+• Economic: [Current economic risks and data impacts]
+• Political: [Relevant political factors affecting the pair]
+• Technical: [Key technical risks and pattern warnings]
+• Market: [Current market sentiment and positioning risks]
+
+💡 Conclusion:
+[Summarize overall outlook and provide specific actionable trading recommendation]"""
+
+            payload = {
+                "model": "deepseek-chat",
+                "messages": [{
+                    "role": "system",
+                    "content": """You are a professional forex market analyst with expertise in both technical and fundamental analysis.
+                    Always include:
+                    - Latest market-moving news
+                    - Recent economic data impacts
+                    - Central bank actions
+                    - Specific price levels
+                    - Clear trading recommendations
+                    Base your analysis on current market conditions and recent events.
+                    Do not include any HTML tags or formatting marks in your response."""
+                }, {
+                    "role": "user",
+                    "content": prompt
+                }],
+                "temperature": 0.7
+            }
+
             async with aiohttp.ClientSession() as session:
-                params = {
-                    "api_key": self.api_key,
-                    "instrument": instrument
-                }
-                
-                async with session.get(self.base_url, params=params) as response:
-                    if response.status != 200:
-                        logger.error(f"Error getting sentiment data: {response.status}")
-                        return self._get_mock_sentiment(instrument)
-                    
-                    data = await response.json()
-                    return self._format_sentiment_data(instrument, data)
+                async with session.post(self.api_url, json=payload, headers=self.headers) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        return data['choices'][0]['message']['content']
+                    else:
+                        logger.error(f"DeepSeek API error: {response.status}")
+                        return self._get_fallback_sentiment(signal)
         
         except Exception as e:
             logger.error(f"Error getting sentiment: {str(e)}")
@@ -75,103 +124,34 @@ class MarketSentimentService:
     
     def _get_mock_sentiment(self, instrument: str) -> str:
         """Generate mock sentiment data for testing"""
-        # Create realistic mock data based on the instrument
-        sentiment_data = {
-            "instrument": instrument,
-            "overall": "bullish",
-            "strength": 65,  # 0-100 scale
-            "change": 3.5,   # percentage change
-            "time_frame": {
-                "short_term": "bullish",
-                "medium_term": "neutral",
-                "long_term": "bullish"
-            },
-            "indicators": {
-                "moving_averages": "buy",
-                "oscillators": "neutral",
-                "pivot_points": "buy"
-            },
-            "volume": {
-                "current": "high",
-                "change": 12.3  # percentage change
-            },
-            "key_levels": {
-                "support": [1.0750, 1.0680, 1.0620],
-                "resistance": [1.0850, 1.0920, 1.0980]
-            }
-        }
-        
-        return self._format_sentiment_data(instrument, sentiment_data)
+        return self._get_fallback_sentiment({'instrument': instrument})
     
-    def _format_sentiment_data(self, instrument: str, data: Dict[str, Any]) -> str:
-        """Format sentiment data into a readable message"""
-        try:
-            # Create a nicely formatted HTML message
-            message = f"<b>📊 Market Sentiment: {instrument}</b>\n\n"
-            
-            # Overall sentiment
-            sentiment = data.get("overall", "neutral").upper()
-            strength = data.get("strength", 50)
-            
-            # Add emoji based on sentiment
-            if sentiment == "BULLISH":
-                emoji = "🟢"
-            elif sentiment == "BEARISH":
-                emoji = "🔴"
-            else:
-                emoji = "⚪"
-            
-            message += f"{emoji} <b>Overall Sentiment:</b> {sentiment} (Strength: {strength}%)\n"
-            
-            # Add change
-            change = data.get("change", 0)
-            change_emoji = "📈" if change > 0 else "📉" if change < 0 else "➡️"
-            message += f"{change_emoji} <b>Change:</b> {change:+.1f}%\n\n"
-            
-            # Time frames
-            message += "<b>Time Frame Analysis:</b>\n"
-            time_frames = data.get("time_frame", {})
-            for tf, value in time_frames.items():
-                tf_name = tf.replace("_", " ").title()
-                message += f"• {tf_name}: {value.title()}\n"
-            
-            message += "\n<b>Technical Indicators:</b>\n"
-            indicators = data.get("indicators", {})
-            for ind, value in indicators.items():
-                ind_name = ind.replace("_", " ").title()
-                message += f"• {ind_name}: {value.title()}\n"
-            
-            # Key levels
-            message += "\n<b>Key Price Levels:</b>\n"
-            key_levels = data.get("key_levels", {})
-            
-            # Support levels
-            support = key_levels.get("support", [])
-            if support:
-                message += "• Support: "
-                message += ", ".join([f"{level:.4f}" for level in support])
-                message += "\n"
-            
-            # Resistance levels
-            resistance = key_levels.get("resistance", [])
-            if resistance:
-                message += "• Resistance: "
-                message += ", ".join([f"{level:.4f}" for level in resistance])
-                message += "\n"
-            
-            # Volume
-            volume = data.get("volume", {})
-            if volume:
-                message += f"\n<b>Volume:</b> {volume.get('current', 'normal').title()}"
-                vol_change = volume.get("change", 0)
-                if vol_change != 0:
-                    message += f" ({vol_change:+.1f}%)"
-            
-            # Add disclaimer
-            message += "\n\n<i>Note: This sentiment analysis is for informational purposes only and should not be considered as financial advice.</i>"
-            
-            return message
-            
-        except Exception as e:
-            logger.error(f"Error formatting sentiment data: {str(e)}")
-            return f"<b>📊 Market Sentiment: {instrument}</b>\n\nUnable to format sentiment data. Please try again later." 
+    def _get_fallback_sentiment(self, signal: Dict[str, Any]) -> str:
+        """Fallback sentiment analysis"""
+        symbol = signal.get('instrument', 'Unknown')
+        return f"""<b>{symbol} Market Analysis</b>
+
+<b>Market Direction:</b>
+The market is showing neutral sentiment with mixed signals. Current price action suggests a consolidation phase.
+
+<b>Key Levels:</b>
+• Support Levels:
+  - Previous low (Historical support zone)
+  - Technical support level
+• Resistance Levels:
+  - Previous high (Technical resistance)
+  - Psychological level
+
+<b>Risk Factors:</b>
+• Market Volatility: Increased uncertainty in current conditions
+• Technical Signals: Mixed indicators showing conflicting signals
+• Data Availability: Limited market data affecting analysis
+• External Factors: General market conditions remain uncertain
+
+<b>Trading Strategy:</b>
+• Short Term: Wait for clearer signals before entering positions
+• Long Term: Monitor key levels for potential trend changes
+• Risk Management: Use proper position sizing and tight stops
+
+<b>Conclusion:</b>
+Maintain cautious approach until market direction becomes clearer.""" 
