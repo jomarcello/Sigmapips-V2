@@ -12,8 +12,12 @@ import numpy as np
 import mplfinance as mpf
 from datetime import datetime, timedelta
 
-# Voeg deze import toe
+# Importeer de base class
+from trading_bot.services.chart_service.base import TradingViewService
+
+# Importeer de concrete implementaties
 from trading_bot.services.chart_service.tradingview_selenium import TradingViewSeleniumService
+from trading_bot.services.chart_service.tradingview_node import TradingViewNodeService
 from trading_bot.services.chart_service.tradingview_playwright import TradingViewPlaywrightService
 
 logger = logging.getLogger(__name__)
@@ -21,80 +25,96 @@ logger = logging.getLogger(__name__)
 class ChartService:
     def __init__(self):
         """Initialize chart service"""
-        # TradingView chart links mapping
-        self.chart_links = {
-            # Forex
-            "EURUSD": "https://www.tradingview.com/chart/xknpxpcr/",
-            "EURGBP": "https://www.tradingview.com/chart/xt6LdUUi/",
-            "EURCHF": "https://www.tradingview.com/chart/4Jr8hVba/",
-            "EURJPY": "https://www.tradingview.com/chart/ume7H7lm/",
-            "EURCAD": "https://www.tradingview.com/chart/gbtrKFPk/",
-            "EURAUD": "https://www.tradingview.com/chart/WweOZl7z/",
-            "EURNZD": "https://www.tradingview.com/chart/bcrCHPsz/",
-            "GBPUSD": "https://www.tradingview.com/chart/jKph5b1W/",
-            "GBPCHF": "https://www.tradingview.com/chart/1qMsl4FS/",
-            "GBPJPY": "https://www.tradingview.com/chart/Zcmh5M2k/",
-            "GBPCAD": "https://www.tradingview.com/chart/CvwpPBpF/",
-            "GBPAUD": "https://www.tradingview.com/chart/neo3Fc3j/",
-            "GBPNZD": "https://www.tradingview.com/chart/egeCqr65/",
-            "CHFJPY": "https://www.tradingview.com/chart/g7qBPaqM/",
-            "USDJPY": "https://www.tradingview.com/chart/mcWuRDQv/",
-            "USDCHF": "https://www.tradingview.com/chart/e7xDgRyM/",
-            "USDCAD": "https://www.tradingview.com/chart/jjTOeBNM/",
-            "CADJPY": "https://www.tradingview.com/chart/KNsPbDME/",
-            "CADCHF": "https://www.tradingview.com/chart/XnHRKk5I/",
-            "AUDUSD": "https://www.tradingview.com/chart/h7CHetVW/",
-            "AUDCHF": "https://www.tradingview.com/chart/oooBW6HP/",
-            "AUDJPY": "https://www.tradingview.com/chart/sYiGgj7B/",
-            "AUDNZD": "https://www.tradingview.com/chart/AByyHLB4/",
-            "AUDCAD": "https://www.tradingview.com/chart/L4992qKp/",
-            "NZDUSD": "https://www.tradingview.com/chart/yab05IFU/",
-            "NZDCHF": "https://www.tradingview.com/chart/7epTugqA/",
-            "NZDJPY": "https://www.tradingview.com/chart/fdtQ7rx7/",
-            "NZDCAD": "https://www.tradingview.com/chart/mRVtXs19/",
+        try:
+            # Initialiseer de chart links
+            self.chart_links = {
+                "EURUSD": "https://www.tradingview.com/chart/?symbol=EURUSD",
+                "GBPUSD": "https://www.tradingview.com/chart/?symbol=GBPUSD",
+                "USDJPY": "https://www.tradingview.com/chart/?symbol=USDJPY",
+                "BTCUSD": "https://www.tradingview.com/chart/?symbol=BTCUSD",
+                "ETHUSD": "https://www.tradingview.com/chart/?symbol=ETHUSD",
+                # Voeg hier meer instrumenten toe indien nodig
+            }
             
-            # Commodities
-            "XAUUSD": "https://www.tradingview.com/chart/bylCuCgc/",
-            "XTIUSD": "https://www.tradingview.com/chart/jxU29rbq/",
+            # Initialiseer de TradingView services
+            self.tradingview = None
+            self.tradingview_selenium = None
             
-            # Crypto
-            "BTCUSD": "https://www.tradingview.com/chart/Nroi4EqI/",
-            "ETHUSD": "https://www.tradingview.com/chart/rVh10RLj/",
-            "XRPUSD": "https://www.tradingview.com/chart/tQu9Ca4E/",
-            "SOLUSD": "https://www.tradingview.com/chart/oTTmSjzQ/",
-            "BNBUSD": "https://www.tradingview.com/chart/wNBWNh23/",
-            "ADAUSD": "https://www.tradingview.com/chart/WcBNFrdb/",
-            "LTCUSD": "https://www.tradingview.com/chart/AoDblBMt/",
-            "DOGUSD": "https://www.tradingview.com/chart/F6SPb52v/",
-            "DOTUSD": "https://www.tradingview.com/chart/nT9dwAx2/",
-            "LNKUSD": "https://www.tradingview.com/chart/FzOrtgYw/",
-            "XLMUSD": "https://www.tradingview.com/chart/SnvxOhDh/",
-            "AVXUSD": "https://www.tradingview.com/chart/LfTlCrdQ/",
+            # Probeer eerst de Selenium service te initialiseren
+            try:
+                from trading_bot.services.chart_service.tradingview_selenium import TradingViewSeleniumService
+                self.tradingview_selenium = TradingViewSeleniumService()
+                logging.info("TradingView Selenium service initialized")
+            except Exception as e:
+                logging.error(f"Failed to initialize TradingView Selenium service: {str(e)}")
             
-            # Indices
-            "AU200": "https://www.tradingview.com/chart/U5CKagMM/",
-            "EU50": "https://www.tradingview.com/chart/tt5QejVd/",
-            "FR40": "https://www.tradingview.com/chart/RoPe3S1Q/",
-            "HK50": "https://www.tradingview.com/chart/Rllftdyl/",
-            "JP225": "https://www.tradingview.com/chart/i562Fk6X/",
-            "UK100": "https://www.tradingview.com/chart/0I4gguQa/",
-            "US100": "https://www.tradingview.com/chart/5d36Cany/",
-            "US500": "https://www.tradingview.com/chart/VsfYHrwP/",
-            "US30": "https://www.tradingview.com/chart/heV5Zitn/",
-            "DE40": "https://www.tradingview.com/chart/OWzg0XNw/"
-        }
-        
-        # Statische chart URLs als fallback
-        self.static_chart_urls = [
-            "https://www.tradingview.com/x/heV5Zitn/",
-            "https://www.tradingview.com/x/xknpxpcr/",
-            "https://www.tradingview.com/x/VsfYHrwP/",
-            "https://www.tradingview.com/x/Nroi4EqI/"
-        ]
-        
-        self.tradingview = None
-        self.tradingview_selenium = None
-        self.tradingview_playwright = None
+            # Probeer dan de Node service te initialiseren als fallback
+            try:
+                from trading_bot.services.chart_service.tradingview_node import TradingViewNodeService
+                self.tradingview = TradingViewNodeService()
+                logging.info("TradingView Node service initialized")
+            except Exception as e:
+                logging.error(f"Failed to initialize TradingView Node service: {str(e)}")
+                
+            logging.info("Chart service initialized")
+            
+        except Exception as e:
+            logging.error(f"Error initializing chart service: {str(e)}")
+            raise
+
+    async def get_chart(self, instrument, timeframe="1h"):
+        """Get chart for instrument"""
+        try:
+            logging.info(f"Getting chart for {instrument} ({timeframe})")
+            
+            # Normaliseer instrument (verwijder /)
+            instrument = instrument.upper().replace("/", "")
+            
+            # Probeer eerst de Selenium service als die beschikbaar is
+            if self.tradingview_selenium and self.tradingview_selenium.is_initialized:
+                try:
+                    logging.info(f"Using Selenium service for {instrument}")
+                    chart_image = await self.tradingview_selenium.get_chart(instrument, timeframe)
+                    if chart_image:
+                        return chart_image
+                except Exception as e:
+                    logging.error(f"Error using Selenium service: {str(e)}")
+            
+            # Probeer dan de Node service als die beschikbaar is
+            if self.tradingview and self.tradingview.is_initialized:
+                try:
+                    logging.info(f"Using Node service for {instrument}")
+                    chart_image = await self.tradingview.get_chart(instrument, timeframe)
+                    if chart_image:
+                        return chart_image
+                except Exception as e:
+                    logging.error(f"Error using Node service: {str(e)}")
+            
+            # Als beide services niet werken, gebruik een fallback methode
+            logging.warning(f"All chart services failed, using fallback for {instrument}")
+            return await self._fallback_chart(instrument, timeframe)
+            
+        except Exception as e:
+            logging.error(f"Error getting chart: {str(e)}")
+            return None
+
+    async def _fallback_chart(self, instrument, timeframe="1h"):
+        """Fallback method to get chart"""
+        try:
+            # Hier zou je een eenvoudige fallback kunnen implementeren
+            # Bijvoorbeeld een statische afbeelding of een bericht
+            logging.warning(f"Using fallback chart for {instrument}")
+            
+            # Voor nu retourneren we None, wat betekent dat er geen chart beschikbaar is
+            return None
+            
+        except Exception as e:
+            logging.error(f"Error in fallback chart: {str(e)}")
+            return None
+
+    async def generate_chart(self, instrument, timeframe="1h"):
+        """Alias for get_chart for backward compatibility"""
+        return await self.get_chart(instrument, timeframe)
 
     async def initialize(self):
         """Initialize the chart service"""
@@ -105,7 +125,7 @@ class ChartService:
             self.chart_links = {
                 # Commodities
                 "XAUUSD": "https://www.tradingview.com/chart/bylCuCgc/",
-                "WTIUSD": "https://www.tradingview.com/chart/jxU29rbq/",
+                "XTIUSD": "https://www.tradingview.com/chart/jxU29rbq/",
                 
                 # Currencies
                 "EURUSD": "https://www.tradingview.com/chart/xknpxpcr/",
@@ -273,90 +293,6 @@ class ChartService:
             self.tradingview = None
             return False
         
-    async def get_chart(self, instrument, timeframe=None):
-        """Get a chart for the given instrument and timeframe"""
-        try:
-            logger.info(f"Getting chart for {instrument} with timeframe {timeframe}")
-            
-            # Controleer eerst of we een TradingView service hebben
-            if hasattr(self, 'tradingview') and self.tradingview:
-                logger.info(f"Using TradingView service: {type(self.tradingview).__name__}")
-                
-                # Gebruik de TradingView service
-                try:
-                    screenshot = await self.tradingview.take_screenshot(instrument, timeframe)
-                    if screenshot:
-                        logger.info(f"Successfully got screenshot for {instrument} using TradingView service")
-                        return screenshot
-                    else:
-                        logger.warning(f"Failed to get screenshot for {instrument} with TradingView service")
-                except Exception as e:
-                    logger.error(f"Error getting screenshot with TradingView service: {str(e)}")
-                    import traceback
-                    logger.error(traceback.format_exc())
-            else:
-                logger.warning("No TradingView service available")
-                
-                # Probeer de service te herinitialiseren
-                try:
-                    logger.info("Trying to reinitialize TradingView service")
-                    success = await self.initialize()
-                    if success and self.tradingview:
-                        logger.info(f"Successfully reinitialized TradingView service: {type(self.tradingview).__name__}")
-                        
-                        # Probeer opnieuw een screenshot te maken
-                        try:
-                            screenshot = await self.tradingview.take_screenshot(instrument, timeframe)
-                            if screenshot:
-                                logger.info(f"Successfully got screenshot for {instrument} after reinitializing")
-                                return screenshot
-                            else:
-                                logger.warning(f"Failed to get screenshot for {instrument} after reinitializing")
-                        except Exception as e:
-                            logger.error(f"Error getting screenshot after reinitializing: {str(e)}")
-                    else:
-                        logger.warning("Failed to reinitialize TradingView service")
-                except Exception as e:
-                    logger.error(f"Error reinitializing TradingView service: {str(e)}")
-            
-            # Als TradingView niet werkt, genereer een foutmelding
-            logger.error(f"Failed to get chart for {instrument}")
-            return None
-            
-        except Exception as e:
-            logger.error(f"Error getting chart: {str(e)}")
-            import traceback
-            logger.error(traceback.format_exc())
-            return None
-    
-    async def make_screenshot(self, url: str) -> Optional[bytes]:
-        """Make a screenshot of a URL using a screenshot service"""
-        try:
-            logger.info(f"Making screenshot of URL: {url}")
-            
-            # Gebruik alleen de TradingView service
-            if hasattr(self, 'tradingview') and self.tradingview:
-                logger.info(f"Using TradingView service for screenshot: {type(self.tradingview).__name__}")
-                
-                # Gebruik de TradingView service om een screenshot te maken
-                try:
-                    # Maak een tijdelijke pagina
-                    screenshot = await self.tradingview.take_screenshot_of_url(url)
-                    if screenshot:
-                        logger.info(f"Successfully got screenshot of URL using TradingView service")
-                        return screenshot
-                    else:
-                        logger.warning(f"Failed to get screenshot of URL with TradingView service")
-                except Exception as e:
-                    logger.error(f"Error getting screenshot of URL with TradingView service: {str(e)}")
-            
-            # Als TradingView niet werkt, genereer een foutmelding
-            logger.error("No screenshot service available")
-            return None
-        except Exception as e:
-            logger.error(f"Error making screenshot: {str(e)}")
-            return None
-    
     async def get_fallback_chart(self) -> Optional[bytes]:
         """Get a fallback chart image"""
         try:
