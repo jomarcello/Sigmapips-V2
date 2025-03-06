@@ -265,6 +265,7 @@ class TelegramService:
                         CallbackQueryHandler(self.delete_preferences_callback, pattern="^delete_prefs$"),
                         CallbackQueryHandler(self.delete_single_preference_callback, pattern="^delete_pref_[0-9]+$"),
                         CallbackQueryHandler(self.confirm_delete_callback, pattern="^confirm_delete$"),
+                        CallbackQueryHandler(self.back_to_signals, pattern="^back_signals$"),
                         CallbackQueryHandler(self.back_to_menu_callback, pattern="^back_menu$"),
                     ],
                     CHOOSE_MARKET: [
@@ -935,12 +936,26 @@ class TelegramService:
         query = update.callback_query
         await query.answer()
         
-        await query.edit_message_text(
-            text="What would you like to do with trading signals?",
-            reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD)
-        )
-        
-        return CHOOSE_SIGNALS
+        try:
+            # Toon het signals menu
+            await query.edit_message_text(
+                text="What would you like to do with trading signals?",
+                reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD)
+            )
+            
+            return CHOOSE_SIGNALS
+        except Exception as e:
+            logger.error(f"Error in back_to_signals: {str(e)}")
+            # Als er een fout optreedt, probeer een nieuw bericht te sturen
+            try:
+                await query.message.reply_text(
+                    text="What would you like to do with trading signals?",
+                    reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD)
+                )
+                return CHOOSE_SIGNALS
+            except Exception as inner_e:
+                logger.error(f"Failed to recover from error: {str(inner_e)}")
+                return ConversationHandler.END
 
     async def back_to_market_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """Handle back to market selection"""
