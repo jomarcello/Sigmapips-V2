@@ -1,4 +1,4 @@
-const { chromium } = require('@playwright/test');
+const playwright = require('playwright');
 
 // Haal de argumenten op
 const url = process.argv[2];
@@ -15,7 +15,7 @@ if (!url || !outputPath) {
         console.log(`Taking screenshot of ${url} and saving to ${outputPath}`);
         
         // Start een browser
-        const browser = await chromium.launch({
+        const browser = await playwright.chromium.launch({
             headless: true,
             args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
         });
@@ -54,232 +54,39 @@ if (!url || !outputPath) {
         // Open een nieuwe pagina voor de screenshot
         const page = await context.newPage();
         
-        // Stel headers in voor Engelse taal
-        await page.setExtraHTTPHeaders({
-            'Accept-Language': 'en-US,en;q=0.9'
+        // Ga naar de URL
+        console.log(`Navigating to ${url}...`);
+        await page.goto(url, {
+            waitUntil: 'domcontentloaded',
+            timeout: 90000
         });
         
-        // Stel een langere timeout in
-        page.setDefaultTimeout(120000);
-        
-        try {
-            // Ga naar de URL met minder strenge wachttijd
-            console.log(`Navigating to ${url}...`);
-            await page.goto(url, {
-                waitUntil: 'domcontentloaded', // Minder streng dan 'networkidle'
-                timeout: 90000
-            });
-            
-            // Wacht een vaste tijd
-            console.log('Waiting for page to render...');
-            await page.waitForTimeout(15000);
-            
-            // Controleer of we zijn ingelogd (alleen voor logging)
-            const isLoggedIn = await page.evaluate(() => {
-                // Verschillende manieren om te controleren of we zijn ingelogd
-                const hasLogoutButton = document.body.innerText.includes('Log out');
-                const hasAccountButton = document.body.innerText.includes('Account');
-                const hasUserMenuButton = document.querySelector('.tv-header__user-menu-button') !== null;
-                const hasUserAvatar = document.querySelector('.tv-header__user-avatar') !== null;
-                
-                console.log('Login checks:', {
-                    hasLogoutButton,
-                    hasAccountButton,
-                    hasUserMenuButton,
-                    hasUserAvatar
-                });
-                
-                return hasLogoutButton || hasAccountButton || hasUserMenuButton || hasUserAvatar;
-            });
-            
-            console.log(`Logged in status: ${isLoggedIn}`);
-            
-            // Wacht nog wat langer als we zijn ingelogd om custom indicators te laden
-            if (isLoggedIn) {
-                console.log('Waiting for custom indicators to load...');
-                await page.waitForTimeout(5000);
-            }
-            
-            // Verberg de zijbalk en maak fullscreen (altijd, ongeacht login status)
-            console.log('Making chart fullscreen...');
-            
-            // Probeer verschillende methoden voor fullscreen
-            try {
-                // Methode 1: Gebruik de TradingView shortcut 'F'
-                await page.keyboard.press('F');
-                await page.waitForTimeout(1000);
-                
-                // Methode 2: Klik op de fullscreen knop als deze bestaat
-                const fullscreenButton = await page.$('.js-chart-actions-fullscreen');
-                if (fullscreenButton) {
-                    await fullscreenButton.click();
-                    console.log('Clicked fullscreen button');
-                    await page.waitForTimeout(1000);
-                }
-                
-                // Methode 3: Gebruik JavaScript om de chart te maximaliseren
-                await page.evaluate(() => {
-                    // Verberg alleen specifieke UI elementen, niet alles
-                    const elementsToHide = [
-                        '.tv-header',                  // Header
-                        '.chart-toolbar',              // Chart toolbar
-                        '.tv-side-toolbar',            // Side toolbar
-                        '.tv-floating-toolbar',        // Floating toolbar
-                        '.layout__area--left',         // Left sidebar
-                        '.layout__area--right',        // Right sidebar
-                        '.tv-watermark',               // TradingView watermark
-                        '.tv-chart-toolbar',           // Chart toolbar
-                        '.tv-main-panel--top-toolbar', // Top toolbar
-                        '.tv-main-panel--bottom-toolbar', // Bottom toolbar
-                        '.tv-chart-studies',           // Studies panel
-                        '.tv-dialog',                  // Any open dialogs
-                        '.tv-insert-study-dialog',     // Study dialog
-                        '.tv-insert-indicator-dialog', // Indicator dialog
-                        '.tv-linetool-properties-toolbar', // Line tool properties
-                        '.chart-controls-bar',         // Controls bar
-                        '.tv-footer',                  // Footer
-                        '.tv-side-panel',              // Side panel
-                        '.tv-floating-panel',          // Floating panel
-                        '.tv-dialog-wrapper',          // Dialog wrapper
-                        '.tv-toasts',                  // Toasts/notifications
-                        '.tv-spinner',                 // Loading spinner
-                        '.tv-loading-screen',          // Loading screen
-                        '.control-bar',                // Control bar
-                        '.control-bar__btn',           // Control bar buttons
-                        '.drawing-toolbar',            // Drawing toolbar
-                        '.chart-controls-bar-buttons'  // Chart controls buttons
-                    ];
-                    
-                    // Verberg alleen de specifieke UI elementen
-                    elementsToHide.forEach(selector => {
-                        const elements = document.querySelectorAll(selector);
-                        elements.forEach(el => {
-                            if (el) {
-                                el.style.display = 'none';
-                            }
-                        });
-                    });
-                    
-                    // NIET alle marges en padding verwijderen, alleen voor specifieke elementen
-                    
-                    // Maximaliseer de chart container
-                    const chartContainer = document.querySelector('.chart-container');
-                    if (chartContainer) {
-                        chartContainer.style.width = '100vw';
-                        chartContainer.style.height = '100vh';
-                        chartContainer.style.position = 'fixed';
-                        chartContainer.style.top = '0';
-                        chartContainer.style.left = '0';
-                        chartContainer.style.zIndex = '9999';
-                    }
-                    
-                    // Zorg ervoor dat de main chart area zichtbaar blijft
-                    const chartArea = document.querySelector('.chart-markup-table');
-                    if (chartArea) {
-                        chartArea.style.display = 'block';
-                        chartArea.style.visibility = 'visible';
-                        chartArea.style.opacity = '1';
-                    }
-                    
-                    // Zorg ervoor dat de canvas zichtbaar blijft
-                    const canvas = document.querySelector('canvas');
-                    if (canvas) {
-                        canvas.style.display = 'block';
-                        canvas.style.visibility = 'visible';
-                        canvas.style.opacity = '1';
-                    }
-                    
-                    // Zorg ervoor dat de main pane zichtbaar blijft
-                    const mainPane = document.querySelector('.chart-container .layout__area--center, .chart-container .layout__area--main');
-                    if (mainPane) {
-                        mainPane.style.display = 'block';
-                        mainPane.style.visibility = 'visible';
-                        mainPane.style.opacity = '1';
-                        mainPane.style.width = '100vw';
-                        mainPane.style.height = '100vh';
-                    }
-                    
-                    console.log('Applied fullscreen optimizations while keeping chart visible');
-                });
-                
-                console.log('Applied fullscreen optimizations');
-            } catch (error) {
-                console.error('Error applying fullscreen:', error);
-            }
-            
-            // Wacht langer om de UI aanpassingen te verwerken
-            console.log('Waiting longer for UI changes to take effect...');
-            await page.waitForTimeout(10000); // Verhoog naar 10 seconden
-            
-            // Controleer of alle UI elementen echt weg zijn
-            await page.evaluate(() => {
-                // Nog een keer alle UI elementen verbergen voor de zekerheid
-                const elementsToHide = [
-                    '.tv-header',                  // Header
-                    '.chart-toolbar',              // Chart toolbar
-                    '.tv-side-toolbar',            // Side toolbar
-                    '.tv-floating-toolbar',        // Floating toolbar
-                    '.layout__area--left',         // Left sidebar
-                    '.layout__area--right',        // Right sidebar
-                    '.tv-watermark',               // TradingView watermark
-                    '.tv-chart-toolbar',           // Chart toolbar
-                    '.tv-main-panel--top-toolbar', // Top toolbar
-                    '.tv-main-panel--bottom-toolbar', // Bottom toolbar
-                    '.tv-chart-studies',           // Studies panel
-                    '.tv-dialog',                  // Any open dialogs
-                    '.tv-insert-study-dialog',     // Study dialog
-                    '.tv-insert-indicator-dialog', // Indicator dialog
-                    '.tv-linetool-properties-toolbar', // Line tool properties
-                    '.chart-controls-bar',         // Controls bar
-                ];
-                
-                // Verberg alle elementen
-                elementsToHide.forEach(selector => {
-                    const elements = document.querySelectorAll(selector);
-                    elements.forEach(el => {
-                        if (el) el.style.display = 'none';
-                    });
-                });
-                
-                // Zorg ervoor dat de chart container de volledige viewport vult
-                const chartContainer = document.querySelector('.chart-container');
-                if (chartContainer) {
-                    chartContainer.style.width = '100vw';
-                    chartContainer.style.height = '100vh';
-                    chartContainer.style.position = 'fixed';
-                    chartContainer.style.top = '0';
-                    chartContainer.style.left = '0';
-                }
-                
-                // Zorg ervoor dat de main chart area zichtbaar blijft
-                const chartArea = document.querySelector('.chart-markup-table');
-                if (chartArea) {
-                    chartArea.style.display = 'block';
-                    chartArea.style.visibility = 'visible';
-                    chartArea.style.opacity = '1';
-                }
-                
-                console.log('Double-checked UI elements are hidden and chart is visible');
-            });
-            
-            // Wacht nog een keer voor de zekerheid
-            await page.waitForTimeout(3000);
-            
-        } catch (error) {
-            console.error('Error loading page, trying to take screenshot anyway:', error);
-        }
-        
-        // Neem een screenshot
-        console.log('Taking screenshot...');
+        // Wacht een vaste tijd om de pagina te laten renderen
+        console.log('Waiting for page to render...');
+        await page.waitForTimeout(5000);
+
+        // Verwijder of verberg UI-elementen
+        console.log('Removing UI elements...');
+        await page.evaluate(() => {
+            // Verwijder de header
+            const header = document.querySelector('header');
+            if (header) header.remove();
+
+            // Verwijder de footer
+            const footer = document.querySelector('footer');
+            if (footer) footer.remove();
+
+            // Verwijder andere ongewenste elementen (pas dit aan op basis van de TradingView UI)
+            const unwantedElements = document.querySelectorAll('.unwanted-class'); // Vervang '.unwanted-class' door de juiste selector
+            unwantedElements.forEach(element => element.remove());
+        });
+
+        // Neem een fullscreen screenshot
+        console.log('Taking fullscreen screenshot...');
         await page.screenshot({
             path: outputPath,
-            fullPage: false,
-            clip: {
-                x: 0,
-                y: 0,
-                width: 1920,
-                height: 1080
-            }
+            fullPage: true, // Maak een volledige pagina-screenshot
+            omitBackground: true // Optioneel: verwijder de achtergrond voor een transparante screenshot
         });
         
         // Sluit de browser
@@ -291,4 +98,4 @@ if (!url || !outputPath) {
         console.error('Error taking screenshot:', error);
         process.exit(1);
     }
-})(); 
+})();
