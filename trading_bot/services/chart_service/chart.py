@@ -99,6 +99,11 @@ class ChartService:
         try:
             logger.info(f"Getting chart for {instrument} ({timeframe})")
             
+            # Zorg ervoor dat de services zijn geïnitialiseerd
+            if not hasattr(self, 'tradingview') or not self.tradingview:
+                logger.info("Services not initialized, initializing now")
+                await self.initialize()
+            
             # Normaliseer instrument (verwijder /)
             instrument = instrument.upper().replace("/", "")
             
@@ -171,38 +176,57 @@ class ChartService:
     async def initialize(self):
         """Initialize the chart service"""
         try:
+            logger.info("Initializing chart service")
+            
             # Lazy imports om circulaire imports te vermijden
-            from trading_bot.services.chart_service.tradingview_node import TradingViewNodeService
-            from trading_bot.services.chart_service.tradingview_selenium import TradingViewSeleniumService
+            try:
+                from trading_bot.services.chart_service.tradingview_node import TradingViewNodeService
+                logger.info("Successfully imported TradingViewNodeService")
+            except Exception as import_error:
+                logger.error(f"Error importing TradingViewNodeService: {str(import_error)}")
+                return False
+            
+            try:
+                from trading_bot.services.chart_service.tradingview_selenium import TradingViewSeleniumService
+                logger.info("Successfully imported TradingViewSeleniumService")
+            except Exception as import_error:
+                logger.error(f"Error importing TradingViewSeleniumService: {str(import_error)}")
+                return False
             
             # Probeer eerst de Node service te initialiseren
             try:
+                logger.info("Initializing Node.js service")
                 node_service = TradingViewNodeService()
                 node_initialized = await node_service.initialize()
                 if node_initialized:
                     self.tradingview = node_service
-                    logging.info("TradingView Node service initialized successfully")
+                    logger.info("TradingView Node service initialized successfully")
                     return True
+                else:
+                    logger.error("Node.js service initialization returned False")
             except Exception as e:
-                logging.error(f"Failed to initialize TradingView Node service: {str(e)}")
+                logger.error(f"Failed to initialize TradingView Node service: {str(e)}")
             
             # Probeer dan de Selenium service te initialiseren als fallback
             try:
+                logger.info("Initializing Selenium service")
                 self.tradingview_selenium = TradingViewSeleniumService()
                 selenium_initialized = await self.tradingview_selenium.initialize()
                 if selenium_initialized:
                     self.tradingview = self.tradingview_selenium
-                    logging.info("TradingView Selenium service initialized successfully")
+                    logger.info("TradingView Selenium service initialized successfully")
                     return True
+                else:
+                    logger.error("Selenium service initialization returned False")
             except Exception as e:
-                logging.error(f"Failed to initialize TradingView Selenium service: {str(e)}")
+                logger.error(f"Failed to initialize TradingView Selenium service: {str(e)}")
             
             # Als beide services falen, gebruik matplotlib als fallback
-            logging.warning("All TradingView services failed, using matplotlib fallback")
+            logger.warning("All TradingView services failed, using matplotlib fallback")
             return False
             
         except Exception as e:
-            logging.error(f"Error initializing chart service: {str(e)}")
+            logger.error(f"Error initializing chart service: {str(e)}")
             return False
 
     def get_fallback_chart(self, instrument: str) -> bytes:
