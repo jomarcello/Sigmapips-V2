@@ -231,19 +231,18 @@ class Database:
     async def delete_all_preferences(self, user_id: int) -> bool:
         """Delete all preferences for a user"""
         try:
-            # Connect to database
-            async with self.pool.acquire() as conn:
-                # Delete all preferences for this user
-                await conn.execute(
-                    "DELETE FROM user_preferences WHERE user_id = $1",
-                    user_id
-                )
+            # Delete all preferences for this user using Supabase
+            response = self.supabase.table('subscriber_preferences').delete().eq('user_id', user_id).execute()
             
-            logger.info(f"Deleted all preferences for user {user_id}")
-            return True
+            if response.data:
+                logger.info(f"Deleted all preferences for user {user_id}")
+                return True
+            else:
+                logger.error(f"Failed to delete all preferences: {response}")
+                return False
         except Exception as e:
             logger.error(f"Error deleting preferences: {str(e)}")
-            return False 
+            return False
 
     async def delete_preference_by_id(self, preference_id: int) -> bool:
         """Delete a preference by its ID"""
