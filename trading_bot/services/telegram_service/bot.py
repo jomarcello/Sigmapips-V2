@@ -407,7 +407,7 @@ class TelegramService:
                 text=calendar_data,
                 reply_markup=InlineKeyboardMarkup([[
                     InlineKeyboardButton("⬅️ Back to Analysis", callback_data="back_analysis")
-                ]]]),
+                ]]),
                 parse_mode=ParseMode.HTML
             )
             
@@ -419,7 +419,8 @@ class TelegramService:
                 text="An error occurred while retrieving the economic calendar. Please try again later.",
                 reply_markup=InlineKeyboardMarkup([[
                     InlineKeyboardButton("⬅️ Back to Analysis", callback_data="back_analysis")
-                ]]])
+                ]]),
+                parse_mode=ParseMode.HTML
             )
             return CHOOSE_ANALYSIS
 
