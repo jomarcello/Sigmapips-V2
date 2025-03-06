@@ -844,3 +844,28 @@ class TelegramService:
                 "Er is een fout opgetreden bij het tonen van de help informatie. Probeer het later opnieuw."
             )
             return MENU
+
+    async def initialize(self):
+        """Initialize the Telegram bot asynchronously."""
+        try:
+            # Get bot info
+            info = await self.bot.get_me()
+            logger.info(f"Successfully connected to Telegram API. Bot info: {info}")
+            
+            # Set bot commands
+            commands = [
+                ("start", "Start de bot en toon hoofdmenu"),
+                ("help", "Toon help bericht")
+            ]
+            await self.bot.set_my_commands(commands)
+            
+            # Start the bot
+            await self.application.initialize()
+            await self.application.start()
+            
+            # Start polling
+            await self.application.updater.start_polling()
+            logger.info("Telegram bot initialized and started polling.")
+        except Exception as e:
+            logger.error(f"Error during Telegram bot initialization: {str(e)}")
+            raise
