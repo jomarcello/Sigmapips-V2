@@ -12,13 +12,8 @@ import numpy as np
 import mplfinance as mpf
 from datetime import datetime, timedelta
 
-# Importeer de base class
+# Importeer alleen de base class
 from trading_bot.services.chart_service.base import TradingViewService
-
-# Importeer de concrete implementaties
-from trading_bot.services.chart_service.tradingview_selenium import TradingViewSeleniumService
-from trading_bot.services.chart_service.tradingview_node import TradingViewNodeService
-from trading_bot.services.chart_service.tradingview_playwright import TradingViewPlaywrightService
 
 logger = logging.getLogger(__name__)
 
@@ -40,22 +35,6 @@ class ChartService:
             self.tradingview = None
             self.tradingview_selenium = None
             
-            # Probeer eerst de Selenium service te initialiseren
-            try:
-                from trading_bot.services.chart_service.tradingview_selenium import TradingViewSeleniumService
-                self.tradingview_selenium = TradingViewSeleniumService()
-                logging.info("TradingView Selenium service initialized")
-            except Exception as e:
-                logging.error(f"Failed to initialize TradingView Selenium service: {str(e)}")
-            
-            # Probeer dan de Node service te initialiseren als fallback
-            try:
-                from trading_bot.services.chart_service.tradingview_node import TradingViewNodeService
-                self.tradingview = TradingViewNodeService()
-                logging.info("TradingView Node service initialized")
-            except Exception as e:
-                logging.error(f"Failed to initialize TradingView Node service: {str(e)}")
-                
             logging.info("Chart service initialized")
             
         except Exception as e:
@@ -119,180 +98,40 @@ class ChartService:
     async def initialize(self):
         """Initialize the chart service"""
         try:
-            logger.info("Initializing chart service")
+            # Lazy imports om circulaire imports te vermijden
+            from trading_bot.services.chart_service.tradingview_selenium import TradingViewSeleniumService
+            from trading_bot.services.chart_service.tradingview_node import TradingViewNodeService
             
-            # Definieer de chart links
-            self.chart_links = {
-                # Commodities
-                "XAUUSD": "https://www.tradingview.com/chart/bylCuCgc/",
-                "XTIUSD": "https://www.tradingview.com/chart/jxU29rbq/",
-                
-                # Currencies
-                "EURUSD": "https://www.tradingview.com/chart/xknpxpcr/",
-                "EURGBP": "https://www.tradingview.com/chart/xt6LdUUi/",
-                "EURCHF": "https://www.tradingview.com/chart/4Jr8hVba/",
-                "EURJPY": "https://www.tradingview.com/chart/ume7H7lm/",
-                "EURCAD": "https://www.tradingview.com/chart/gbtrKFPk/",
-                "EURAUD": "https://www.tradingview.com/chart/WweOZl7z/",
-                "EURNZD": "https://www.tradingview.com/chart/bcrCHPsz/",
-                "GBPUSD": "https://www.tradingview.com/chart/jKph5b1W/",
-                "GBPCHF": "https://www.tradingview.com/chart/1qMsl4FS/",
-                "GBPJPY": "https://www.tradingview.com/chart/Zcmh5M2k/",
-                "GBPCAD": "https://www.tradingview.com/chart/CvwpPBpF/",
-                "GBPAUD": "https://www.tradingview.com/chart/neo3Fc3j/",
-                "GBPNZD": "https://www.tradingview.com/chart/egeCqr65/",
-                "CHFJPY": "https://www.tradingview.com/chart/g7qBPaqM/",
-                "USDJPY": "https://www.tradingview.com/chart/mcWuRDQv/",
-                "USDCHF": "https://www.tradingview.com/chart/e7xDgRyM/",
-                "USDCAD": "https://www.tradingview.com/chart/jjTOeBNM/",
-                "CADJPY": "https://www.tradingview.com/chart/KNsPbDME/",
-                "CADCHF": "https://www.tradingview.com/chart/XnHRKk5I/",
-                "AUDUSD": "https://www.tradingview.com/chart/h7CHetVW/",
-                "AUDCHF": "https://www.tradingview.com/chart/oooBW6HP/",
-                "AUDJPY": "https://www.tradingview.com/chart/sYiGgj7B/",
-                "AUDNZD": "https://www.tradingview.com/chart/AByyHLB4/",
-                "AUDCAD": "https://www.tradingview.com/chart/L4992qKp/",
-                "NZDUSD": "https://www.tradingview.com/chart/yab05IFU/",
-                "NZDCHF": "https://www.tradingview.com/chart/7epTugqA/",
-                "NZDJPY": "https://www.tradingview.com/chart/fdtQ7rx7/",
-                "NZDCAD": "https://www.tradingview.com/chart/mRVtXs19/",
-                
-                # Cryptocurrencies
-                "BTCUSD": "https://www.tradingview.com/chart/Nroi4EqI/",
-                "ETHUSD": "https://www.tradingview.com/chart/rVh10RLj/",
-                "XRPUSD": "https://www.tradingview.com/chart/tQu9Ca4E/",
-                "SOLUSD": "https://www.tradingview.com/chart/oTTmSjzQ/",
-                "BNBUSD": "https://www.tradingview.com/chart/wNBWNh23/",
-                "ADAUSD": "https://www.tradingview.com/chart/WcBNFrdb/",
-                "LTCUSD": "https://www.tradingview.com/chart/AoDblBMt/",
-                "DOGUSD": "https://www.tradingview.com/chart/F6SPb52v/",
-                "DOTUSD": "https://www.tradingview.com/chart/nT9dwAx2/",
-                "LNKUSD": "https://www.tradingview.com/chart/FzOrtgYw/",
-                "XLMUSD": "https://www.tradingview.com/chart/SnvxOhDh/",
-                "AVXUSD": "https://www.tradingview.com/chart/LfTlCrdQ/",
-                
-                # Indices
-                "AU200": "https://www.tradingview.com/chart/U5CKagMM/",
-                "EU50": "https://www.tradingview.com/chart/tt5QejVd/",
-                "FR40": "https://www.tradingview.com/chart/RoPe3S1Q/",
-                "HK50": "https://www.tradingview.com/chart/Rllftdyl/",
-                "JP225": "https://www.tradingview.com/chart/i562Fk6X/",
-                "UK100": "https://www.tradingview.com/chart/0I4gguQa/",
-                "US100": "https://www.tradingview.com/chart/5d36Cany/",
-                "US500": "https://www.tradingview.com/chart/VsfYHrwP/",
-                "US30": "https://www.tradingview.com/chart/heV5Zitn/",
-                "DE40": "https://www.tradingview.com/chart/OWzg0XNw/"
-            }
-            
-            # Zet tradingview op None om te beginnen
-            self.tradingview = None
-            
-            # Probeer eerst de TradingView Selenium service met session ID
+            # Probeer eerst de Selenium service te initialiseren
             try:
-                from trading_bot.services.chart_service.tradingview_selenium import TradingViewSeleniumService
-                
-                # Haal de session ID op uit de omgevingsvariabelen of gebruik een hardcoded waarde
-                session_id = os.getenv("TRADINGVIEW_SESSION_ID", "z90l85p2anlgdwfppsrdnnfantz48z1o")
-                
-                if session_id:
-                    logger.info(f"Found TradingView session ID: {session_id[:5]}...")
-                    self.tradingview_selenium = TradingViewSeleniumService(
-                        chart_links=self.chart_links,
-                        session_id=session_id
-                    )
-                    
-                    # Initialiseer de service
-                    logger.info("Initializing TradingView Selenium service...")
-                    selenium_success = await self.tradingview_selenium.initialize()
-                    
-                    if selenium_success:
-                        logger.info("TradingView Selenium service initialized successfully")
-                        self.tradingview = self.tradingview_selenium
-                        return True
-                    else:
-                        logger.warning("TradingView Selenium service initialization failed")
-                else:
-                    logger.warning("No TradingView session ID found in environment variables")
-            except Exception as e:
-                logger.error(f"Error initializing TradingView Selenium service: {str(e)}")
-                import traceback
-                logger.error(traceback.format_exc())
-            
-            # Probeer Node.js als Session service faalt
-            try:
-                from trading_bot.services.chart_service.tradingview_node import TradingViewNodeService
-                # Geef de session ID door aan de Node.js service
-                self.tradingview_node = TradingViewNodeService(session_id=session_id)
-                node_success = await self.tradingview_node.initialize()
-                
-                if node_success:
-                    logger.info("Chart service initialized with Node.js successfully")
-                    self.tradingview = self.tradingview_node
-                    return True
-                else:
-                    logger.warning("Failed to initialize Node.js, trying Puppeteer")
-            except Exception as node_error:
-                logger.error(f"Error initializing Node.js: {str(node_error)}")
-                logger.warning("Failed to initialize Node.js, trying Puppeteer")
-            
-            # Probeer Puppeteer als Node.js faalt
-            try:
-                from trading_bot.services.chart_service.tradingview_puppeteer import TradingViewPuppeteerService
-                self.tradingview_puppeteer = TradingViewPuppeteerService()
-                puppeteer_success = await self.tradingview_puppeteer.initialize()
-                
-                if puppeteer_success:
-                    logger.info("Chart service initialized with Puppeteer successfully")
-                    self.tradingview = self.tradingview_puppeteer
-                    return True
-                else:
-                    logger.warning("Failed to initialize Puppeteer, trying Playwright")
-            except Exception as puppeteer_error:
-                logger.error(f"Error initializing Puppeteer: {str(puppeteer_error)}")
-                logger.warning("Failed to initialize Puppeteer, trying Playwright")
-            
-            # Probeer Playwright als Puppeteer faalt
-            try:
-                from trading_bot.services.chart_service.tradingview_playwright import TradingViewPlaywrightService
-                self.tradingview_playwright = TradingViewPlaywrightService()
-                playwright_success = await self.tradingview_playwright.initialize()
-                
-                if playwright_success:
-                    logger.info("Chart service initialized with Playwright successfully")
-                    self.tradingview = self.tradingview_playwright
-                    return True
-                else:
-                    logger.warning("Failed to initialize Playwright, trying Selenium")
-            except Exception as playwright_error:
-                logger.error(f"Error initializing Playwright: {str(playwright_error)}")
-                logger.warning("Failed to initialize Playwright, trying Selenium")
-            
-            # Probeer Selenium als Playwright faalt
-            try:
-                from trading_bot.services.chart_service.tradingview_selenium import TradingViewSeleniumService
                 self.tradingview_selenium = TradingViewSeleniumService()
-                selenium_success = await self.tradingview_selenium.initialize()
-                
-                if selenium_success:
-                    logger.info("Chart service initialized with Selenium successfully")
+                selenium_initialized = await self.tradingview_selenium.initialize()
+                if selenium_initialized:
                     self.tradingview = self.tradingview_selenium
+                    logging.info("TradingView Selenium service initialized successfully")
                     return True
-                else:
-                    logger.warning("Failed to initialize Selenium, using fallback methods")
-            except Exception as selenium_error:
-                logger.error(f"Error initializing Selenium: {str(selenium_error)}")
-                logger.warning("Failed to initialize Selenium, using fallback methods")
+            except Exception as e:
+                logging.error(f"Failed to initialize TradingView Selenium service: {str(e)}")
             
-            # Als alle methoden falen, gebruik fallback
-            logger.info("Using fallback methods for chart service")
+            # Probeer dan de Node service te initialiseren als fallback
+            try:
+                node_service = TradingViewNodeService()
+                node_initialized = await node_service.initialize()
+                if node_initialized:
+                    self.tradingview = node_service
+                    logging.info("TradingView Node service initialized successfully")
+                    return True
+            except Exception as e:
+                logging.error(f"Failed to initialize TradingView Node service: {str(e)}")
+            
+            # Als beide services falen, gebruik matplotlib als fallback
+            logging.warning("All TradingView services failed, using matplotlib fallback")
             return False
+            
         except Exception as e:
-            logger.error(f"Error initializing chart service: {str(e)}")
-            import traceback
-            logger.error(traceback.format_exc())
-            self.tradingview = None
+            logging.error(f"Error initializing chart service: {str(e)}")
             return False
-        
+
     async def get_fallback_chart(self) -> Optional[bytes]:
         """Get a fallback chart image"""
         try:
