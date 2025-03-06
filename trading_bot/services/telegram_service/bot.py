@@ -41,63 +41,63 @@ SHOW_RESULT = 6
 
 # Messages
 WELCOME_MESSAGE = """
-🚀 <b>Welkom bij SigmaPips Trading Bot!</b> 🚀
+🚀 <b>Welcome to SigmaPips Trading Bot!</b> 🚀
 
-Ik ben je AI-gestuurde trading assistent, ontworpen om je te helpen betere trading beslissingen te nemen.
+I'm your AI-powered trading assistant, designed to help you make better trading decisions.
 
-📊 <b>Mijn Diensten:</b>
-• <b>Technische Analyse</b> - Krijg real-time chart analyse en key levels
+📊 <b>My Services:</b>
+• <b>Technical Analysis</b> - Get real-time chart analysis and key levels
 
-• <b>Markt Sentiment</b> - Begrijp de markt stemming en trends
+• <b>Market Sentiment</b> - Understand market sentiment and trends
 
-• <b>Economische Kalender</b> - Blijf op de hoogte van markt-bewegende gebeurtenissen
+• <b>Economic Calendar</b> - Stay updated on market-moving events
 
-• <b>Trading Signalen</b> - Ontvang precieze entry/exit punten voor je favoriete paren
+• <b>Trading Signals</b> - Receive precise entry/exit points for your favorite pairs
 
-Selecteer een optie hieronder om te beginnen:
+Select an option below to get started:
 """
 
 MENU_MESSAGE = """
-Welkom bij SigmaPips Trading Bot!
+Welcome to SigmaPips Trading Bot!
 
-Kies een commando:
+Choose a command:
 
-/start - Stel nieuwe trading paren in
-Voeg nieuwe markt/instrument/timeframe combinaties toe om signalen te ontvangen
+/start - Set up new trading pairs
+Add new market/instrument/timeframe combinations to receive signals
 
-/manage - Beheer je voorkeuren
-Bekijk, bewerk of verwijder je opgeslagen trading paren
+/manage - Manage your preferences
+View, edit or delete your saved trading pairs
 
-Hulp nodig? Gebruik /help om alle beschikbare commando's te zien.
+Need help? Use /help to see all available commands.
 """
 
 HELP_MESSAGE = """
-Beschikbare commando's:
-/menu - Toon hoofdmenu
-/start - Stel nieuwe trading paren in
-/manage - Beheer je voorkeuren
-/help - Toon dit help bericht
+Available commands:
+/menu - Show main menu
+/start - Set up new trading pairs
+/manage - Manage your preferences
+/help - Show this help message
 """
 
 # Start menu keyboard
 START_KEYBOARD = [
-    [InlineKeyboardButton("🔍 Analyseer Markt", callback_data="menu_analyse")],
-    [InlineKeyboardButton("📊 Trading Signalen", callback_data="menu_signals")]
+    [InlineKeyboardButton("🔍 Analyze Market", callback_data="menu_analyse")],
+    [InlineKeyboardButton("📊 Trading Signals", callback_data="menu_signals")]
 ]
 
 # Analysis menu keyboard
 ANALYSIS_KEYBOARD = [
-    [InlineKeyboardButton("📈 Technische Analyse", callback_data="analysis_technical")],
-    [InlineKeyboardButton("🧠 Markt Sentiment", callback_data="analysis_sentiment")],
-    [InlineKeyboardButton("📅 Economische Kalender", callback_data="analysis_calendar")],
-    [InlineKeyboardButton("⬅️ Terug", callback_data="back_menu")]
+    [InlineKeyboardButton("📈 Technical Analysis", callback_data="analysis_technical")],
+    [InlineKeyboardButton("🧠 Market Sentiment", callback_data="analysis_sentiment")],
+    [InlineKeyboardButton("📅 Economic Calendar", callback_data="analysis_calendar")],
+    [InlineKeyboardButton("⬅️ Back", callback_data="back_menu")]
 ]
 
 # Signals menu keyboard
 SIGNALS_KEYBOARD = [
-    [InlineKeyboardButton("➕ Nieuwe Paren Toevoegen", callback_data="signals_add")],
-    [InlineKeyboardButton("⚙️ Beheer Voorkeuren", callback_data="signals_manage")],
-    [InlineKeyboardButton("⬅️ Terug", callback_data="back_menu")]
+    [InlineKeyboardButton("➕ Add New Pairs", callback_data="signals_add")],
+    [InlineKeyboardButton("⚙️ Manage Preferences", callback_data="signals_manage")],
+    [InlineKeyboardButton("⬅️ Back", callback_data="back_menu")]
 ]
 
 # Market keyboard voor signals
@@ -214,7 +214,7 @@ STYLE_KEYBOARD = [
     [InlineKeyboardButton("🏃 Scalp (15m)", callback_data="style_scalp")],
     [InlineKeyboardButton("📊 Intraday (1h)", callback_data="style_intraday")],
     [InlineKeyboardButton("🌊 Swing (4h)", callback_data="style_swing")],
-    [InlineKeyboardButton("⬅️ Terug", callback_data="back_instrument")]
+    [InlineKeyboardButton("⬅️ Back", callback_data="back_instrument")]
 ]
 
 # Timeframe mapping
@@ -305,7 +305,7 @@ class TelegramService:
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """Start the conversation."""
         try:
-            # Stuur welkomstbericht met hoofdmenu
+            # Send welcome message with main menu
             await update.message.reply_text(
                 text=WELCOME_MESSAGE,
                 reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
@@ -316,7 +316,7 @@ class TelegramService:
         except Exception as e:
             logger.error(f"Error in start command: {str(e)}")
             await update.message.reply_text(
-                "Sorry, er is iets misgegaan. Probeer het later opnieuw."
+                "Sorry, something went wrong. Please try again later."
             )
             return ConversationHandler.END
 
@@ -325,9 +325,9 @@ class TelegramService:
         query = update.callback_query
         await query.answer()
         
-        # Toon het analyse menu
+        # Show the analysis menu
         await query.edit_message_text(
-            text="Selecteer je analyse type:",
+            text="Select your analysis type:",
             reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
         )
         
@@ -338,9 +338,9 @@ class TelegramService:
         query = update.callback_query
         await query.answer()
         
-        # Toon het signals menu
+        # Show the signals menu
         await query.edit_message_text(
-            text="Wat wil je doen met trading signalen?",
+            text="What would you like to do with trading signals?",
             reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD)
         )
         
@@ -351,13 +351,13 @@ class TelegramService:
         query = update.callback_query
         await query.answer()
         
-        # Toon de markt selectie voor technische analyse
+        # Show market selection for technical analysis
         await query.edit_message_text(
-            text="Selecteer een markt voor technische analyse:",
+            text="Select a market for technical analysis:",
             reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
         )
         
-        # Sla het analyse type op in user_data
+        # Save analysis type in user_data
         context.user_data['analysis_type'] = 'technical'
         
         return CHOOSE_MARKET
@@ -367,13 +367,13 @@ class TelegramService:
         query = update.callback_query
         await query.answer()
         
-        # Toon de markt selectie voor sentiment analyse
+        # Show market selection for sentiment analysis
         await query.edit_message_text(
-            text="Selecteer een markt voor sentiment analyse:",
+            text="Select a market for sentiment analysis:",
             reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
         )
         
-        # Sla het analyse type op in user_data
+        # Save analysis type in user_data
         context.user_data['analysis_type'] = 'sentiment'
         
         return CHOOSE_MARKET
@@ -383,21 +383,21 @@ class TelegramService:
         query = update.callback_query
         await query.answer()
         
-        # Toon loading message
+        # Show loading message
         await query.edit_message_text(
-            text="⏳ Bezig met het laden van de economische kalender...",
+            text="⏳ Loading economic calendar...",
         )
         
         try:
-            # Haal kalender data op
+            # Get calendar data
             calendar_data = await self.calendar.get_economic_calendar()
             
-            # Toon de kalender
+            # Show the calendar
             await query.edit_message_text(
                 text=calendar_data,
                 parse_mode=ParseMode.HTML,
                 reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("⬅️ Terug", callback_data="back_analysis")
+                    InlineKeyboardButton("⬅️ Back", callback_data="back_analysis")
                 ]])
             )
             
@@ -406,11 +406,11 @@ class TelegramService:
         except Exception as e:
             logger.error(f"Error getting economic calendar: {str(e)}")
             
-            # Toon foutmelding
+            # Show error message
             await query.edit_message_text(
-                text="❌ Er is een fout opgetreden bij het ophalen van de economische kalender. Probeer het later opnieuw.",
+                text="❌ An error occurred while retrieving the economic calendar. Please try again later.",
                 reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("⬅️ Terug", callback_data="back_analysis")
+                    InlineKeyboardButton("⬅️ Back", callback_data="back_analysis")
                 ]])
             )
             
@@ -421,9 +421,9 @@ class TelegramService:
         query = update.callback_query
         await query.answer()
         
-        # Toon de markt selectie voor signals
+        # Show market selection for signals
         await query.edit_message_text(
-            text="Selecteer een markt voor je trading signalen:",
+            text="Select a market for your trading signals:",
             reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD_SIGNALS)
         )
         
@@ -434,7 +434,7 @@ class TelegramService:
         query = update.callback_query
         await query.answer()
         
-        # Haal voorkeuren op uit de database
+        # Get preferences from database
         user_id = update.effective_user.id
         
         try:
@@ -442,21 +442,21 @@ class TelegramService:
             
             if not preferences or len(preferences) == 0:
                 await query.edit_message_text(
-                    text="Je hebt nog geen voorkeuren ingesteld.\n\nGebruik 'Nieuwe Paren Toevoegen' om je eerste trading paar in te stellen.",
+                    text="You haven't set any preferences yet.\n\nUse 'Add New Pairs' to set up your first trading pair.",
                     reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD)
                 )
                 return CHOOSE_SIGNALS
             
             # Format preferences text
-            prefs_text = "Je huidige voorkeuren:\n\n"
+            prefs_text = "Your current preferences:\n\n"
             for i, pref in enumerate(preferences, 1):
                 prefs_text += f"{i}. {pref['market']} - {pref['instrument']}\n"
-                prefs_text += f"   Stijl: {pref['style']}, Timeframe: {pref['timeframe']}\n\n"
+                prefs_text += f"   Style: {pref['style']}, Timeframe: {pref['timeframe']}\n\n"
             
             keyboard = [
-                [InlineKeyboardButton("➕ Meer Toevoegen", callback_data="signals_add")],
-                [InlineKeyboardButton("🗑 Voorkeuren Verwijderen", callback_data="delete_prefs")],
-                [InlineKeyboardButton("⬅️ Terug", callback_data="back_signals")]
+                [InlineKeyboardButton("➕ Add More", callback_data="signals_add")],
+                [InlineKeyboardButton("🗑 Delete Preferences", callback_data="delete_prefs")],
+                [InlineKeyboardButton("⬅️ Back", callback_data="back_signals")]
             ]
             
             await query.edit_message_text(
@@ -467,7 +467,7 @@ class TelegramService:
         except Exception as e:
             logger.error(f"Error getting preferences: {str(e)}")
             await query.edit_message_text(
-                text="Er is een fout opgetreden bij het ophalen van je voorkeuren. Probeer het later opnieuw.",
+                text="An error occurred while retrieving your preferences. Please try again later.",
                 reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD)
             )
         
@@ -478,13 +478,13 @@ class TelegramService:
         query = update.callback_query
         await query.answer()
         
-        # Haal de markt op uit de callback data
+        # Get market from callback data
         market = query.data.replace('market_', '')
         
-        # Sla de markt op in user_data
+        # Save market in user_data
         context.user_data['market'] = market
         
-        # Bepaal welke keyboard te tonen op basis van de markt
+        # Determine which keyboard to show based on market
         keyboard_map = {
             'forex': FOREX_KEYBOARD,
             'crypto': CRYPTO_KEYBOARD,
@@ -494,9 +494,9 @@ class TelegramService:
         
         keyboard = keyboard_map.get(market, FOREX_KEYBOARD)
         
-        # Toon de instrumenten voor de gekozen markt
+        # Show instruments for the selected market
         await query.edit_message_text(
-            text=f"Selecteer een instrument uit {market.capitalize()}:",
+            text=f"Select an instrument from {market.capitalize()}:",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
         
@@ -507,14 +507,14 @@ class TelegramService:
         query = update.callback_query
         await query.answer()
         
-        # Haal de markt op uit de callback data
+        # Get market from callback data
         market = query.data.split('_')[1]  # market_forex_signals -> forex
         
-        # Sla de markt op in user_data
+        # Save market in user_data
         context.user_data['market'] = market
         context.user_data['analysis_type'] = 'signals'
         
-        # Bepaal welke keyboard te tonen op basis van market
+        # Determine which keyboard to show based on market
         keyboard_map = {
             'forex': FOREX_KEYBOARD,
             'crypto': CRYPTO_KEYBOARD,
@@ -524,20 +524,20 @@ class TelegramService:
         
         keyboard = keyboard_map.get(market, FOREX_KEYBOARD)
         
-        # Pas de callback data aan voor signals
+        # Adjust callback data for signals
         for row in keyboard:
             for button in row:
                 if "Back" not in button.text:
                     button.callback_data = f"instrument_{button.text}_signals"
         
-        # Voeg terug knop toe
+        # Add back button
         for row in keyboard:
             for button in row:
                 if "Back" in button.text:
                     button.callback_data = "back_signals"
         
         await query.edit_message_text(
-            text=f"Selecteer een instrument uit {market.capitalize()}:",
+            text=f"Select an instrument from {market.capitalize()}:",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
         
@@ -548,23 +548,23 @@ class TelegramService:
         query = update.callback_query
         await query.answer()
         
-        # Haal het instrument op uit de callback data
+        # Get instrument from callback data
         instrument = query.data.replace('instrument_', '')
         
-        # Sla het instrument op in user_data
+        # Save instrument in user_data
         context.user_data['instrument'] = instrument
         
-        # Haal het analyse type op uit user_data
+        # Get analysis type from user_data
         analysis_type = context.user_data.get('analysis_type', 'technical')
         
         if analysis_type == 'technical':
-            # Toon loading message
+            # Show loading message
             await query.edit_message_text(
-                text=f"⏳ Bezig met het genereren van technische analyse voor {instrument}..."
+                text=f"⏳ Generating technical analysis for {instrument}..."
             )
             
             try:
-                # Genereer chart voor verschillende timeframes
+                # Generate charts for different timeframes
                 timeframes = ["1h", "4h", "1d"]
                 charts = {}
                 
@@ -574,11 +574,11 @@ class TelegramService:
                         charts[timeframe] = chart
                 
                 if charts:
-                    # Stuur de charts één voor één
+                    # Send charts one by one
                     await query.edit_message_text(
-                        text=f"✅ Technische analyse voor {instrument} gereed!",
+                        text=f"✅ Technical analysis for {instrument} ready!",
                         reply_markup=InlineKeyboardMarkup([[
-                            InlineKeyboardButton("⬅️ Terug", callback_data="back_market")
+                            InlineKeyboardButton("⬅️ Back", callback_data="back_market")
                         ]])
                     )
                     
@@ -591,11 +591,11 @@ class TelegramService:
                     
                     return CHOOSE_MARKET
                 else:
-                    # Geen charts beschikbaar
+                    # No charts available
                     await query.edit_message_text(
-                        text=f"❌ Kon geen charts genereren voor {instrument}. Probeer het later opnieuw.",
+                        text=f"❌ Could not generate charts for {instrument}. Please try again later.",
                         reply_markup=InlineKeyboardMarkup([[
-                            InlineKeyboardButton("⬅️ Terug", callback_data="back_market")
+                            InlineKeyboardButton("⬅️ Back", callback_data="back_market")
                         ]])
                     )
                     return CHOOSE_MARKET
@@ -603,29 +603,29 @@ class TelegramService:
             except Exception as e:
                 logger.error(f"Error generating technical analysis: {str(e)}")
                 await query.edit_message_text(
-                    text=f"❌ Er is een fout opgetreden bij het genereren van technische analyse voor {instrument}. Probeer het later opnieuw.",
+                    text=f"❌ An error occurred while generating technical analysis for {instrument}. Please try again later.",
                     reply_markup=InlineKeyboardMarkup([[
-                        InlineKeyboardButton("⬅️ Terug", callback_data="back_market")
+                        InlineKeyboardButton("⬅️ Back", callback_data="back_market")
                     ]])
                 )
                 return CHOOSE_MARKET
                 
         elif analysis_type == 'sentiment':
-            # Toon loading message
+            # Show loading message
             await query.edit_message_text(
-                text=f"⏳ Bezig met het ophalen van sentiment data voor {instrument}..."
+                text=f"⏳ Retrieving sentiment data for {instrument}..."
             )
             
             try:
-                # Haal sentiment data op
+                # Get sentiment data
                 sentiment_data = await self.sentiment.get_market_sentiment(instrument)
                 
-                # Toon de sentiment data
+                # Show sentiment data
                 await query.edit_message_text(
                     text=sentiment_data,
                     parse_mode=ParseMode.HTML,
                     reply_markup=InlineKeyboardMarkup([[
-                        InlineKeyboardButton("⬅️ Terug", callback_data="back_market")
+                        InlineKeyboardButton("⬅️ Back", callback_data="back_market")
                     ]])
                 )
                 
@@ -634,16 +634,16 @@ class TelegramService:
             except Exception as e:
                 logger.error(f"Error getting sentiment data: {str(e)}")
                 await query.edit_message_text(
-                    text=f"❌ Er is een fout opgetreden bij het ophalen van sentiment data voor {instrument}. Probeer het later opnieuw.",
+                    text=f"❌ An error occurred while retrieving sentiment data for {instrument}. Please try again later.",
                     reply_markup=InlineKeyboardMarkup([[
-                        InlineKeyboardButton("⬅️ Terug", callback_data="back_market")
+                        InlineKeyboardButton("⬅️ Back", callback_data="back_market")
                     ]])
                 )
                 return CHOOSE_MARKET
         
-        # Default: ga naar style selectie voor signals
+        # Default: go to style selection for signals
         await query.edit_message_text(
-            text="Selecteer je trading stijl:",
+            text="Select your trading style:",
             reply_markup=InlineKeyboardMarkup(STYLE_KEYBOARD)
         )
         
@@ -654,16 +654,16 @@ class TelegramService:
         query = update.callback_query
         await query.answer()
         
-        # Haal het instrument op uit de callback data
+        # Get instrument from callback data
         parts = query.data.split('_')
         instrument = parts[1]  # instrument_EURUSD_signals -> EURUSD
         
-        # Sla het instrument op in user_data
+        # Save instrument in user_data
         context.user_data['instrument'] = instrument
         
-        # Toon de stijl selectie
+        # Show style selection
         await query.edit_message_text(
-            text=f"Selecteer je trading stijl voor {instrument}:",
+            text=f"Select your trading style for {instrument}:",
             reply_markup=InlineKeyboardMarkup(STYLE_KEYBOARD)
         )
         
@@ -675,7 +675,7 @@ class TelegramService:
         await query.answer()
         
         if query.data == "back_instrument":
-            # Terug naar instrument keuze
+            # Back to instrument selection
             market = context.user_data.get('market', 'forex')
             keyboard_map = {
                 'forex': FOREX_KEYBOARD,
@@ -685,20 +685,20 @@ class TelegramService:
             }
             keyboard = keyboard_map.get(market, FOREX_KEYBOARD)
             
-            # Pas de callback data aan voor signals
+            # Adjust callback data for signals
             for row in keyboard:
                 for button in row:
                     if "Back" not in button.text:
                         button.callback_data = f"instrument_{button.text}_signals"
             
-            # Voeg terug knop toe
+            # Add back button
             for row in keyboard:
                 for button in row:
                     if "Back" in button.text:
                         button.callback_data = "back_signals"
             
             await query.edit_message_text(
-                text=f"Selecteer een instrument uit {market.capitalize()}:",
+                text=f"Select an instrument from {market.capitalize()}:",
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
             return CHOOSE_INSTRUMENT
@@ -713,7 +713,7 @@ class TelegramService:
             market = context.user_data.get('market', 'forex')
             instrument = context.user_data.get('instrument', 'EURUSD')
             
-            # Controleer of deze combinatie al bestaat
+            # Check if this combination already exists
             preferences = await self.db.get_user_preferences(user_id)
             
             for pref in preferences:
@@ -721,21 +721,21 @@ class TelegramService:
                     pref['instrument'] == instrument and 
                     pref['style'] == style):
                     
-                    # Deze combinatie bestaat al
+                    # This combination already exists
                     await query.edit_message_text(
-                        text=f"Je hebt deze combinatie al opgeslagen!\n\n"
-                             f"Markt: {market}\n"
+                        text=f"You've already saved this combination!\n\n"
+                             f"Market: {market}\n"
                              f"Instrument: {instrument}\n"
-                             f"Stijl: {style} ({STYLE_TIMEFRAME_MAP[style]})",
+                             f"Style: {style} ({STYLE_TIMEFRAME_MAP[style]})",
                         reply_markup=InlineKeyboardMarkup([
-                            [InlineKeyboardButton("➕ Meer Toevoegen", callback_data="signals_add")],
-                            [InlineKeyboardButton("⚙️ Beheer Voorkeuren", callback_data="signals_manage")],
-                            [InlineKeyboardButton("🏠 Terug naar Start", callback_data="back_menu")]
+                            [InlineKeyboardButton("➕ Add More", callback_data="signals_add")],
+                            [InlineKeyboardButton("⚙️ Manage Preferences", callback_data="signals_manage")],
+                            [InlineKeyboardButton("🏠 Back to Start", callback_data="back_menu")]
                         ])
                     )
                     return SHOW_RESULT
             
-            # Sla de nieuwe voorkeur op
+            # Save the new preference
             await self.db.save_preference(
                 user_id=user_id,
                 market=market,
@@ -746,14 +746,14 @@ class TelegramService:
             
             # Show success message with options
             await query.edit_message_text(
-                text=f"✅ Je voorkeuren zijn succesvol opgeslagen!\n\n"
-                     f"Markt: {market}\n"
+                text=f"✅ Your preferences have been successfully saved!\n\n"
+                     f"Market: {market}\n"
                      f"Instrument: {instrument}\n"
-                     f"Stijl: {style} ({STYLE_TIMEFRAME_MAP[style]})",
+                     f"Style: {style} ({STYLE_TIMEFRAME_MAP[style]})",
                 reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("➕ Meer Toevoegen", callback_data="signals_add")],
-                    [InlineKeyboardButton("⚙️ Beheer Voorkeuren", callback_data="signals_manage")],
-                    [InlineKeyboardButton("🏠 Terug naar Start", callback_data="back_menu")]
+                    [InlineKeyboardButton("➕ Add More", callback_data="signals_add")],
+                    [InlineKeyboardButton("⚙️ Manage Preferences", callback_data="signals_manage")],
+                    [InlineKeyboardButton("🏠 Back to Start", callback_data="back_menu")]
                 ])
             )
             logger.info(f"Saved preferences for user {user_id}")
@@ -762,9 +762,9 @@ class TelegramService:
         except Exception as e:
             logger.error(f"Error saving preferences: {str(e)}")
             await query.edit_message_text(
-                text="❌ Fout bij het opslaan van voorkeuren. Probeer het opnieuw.",
+                text="❌ Error saving preferences. Please try again.",
                 reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("Probeer Opnieuw", callback_data="back_signals")]
+                    [InlineKeyboardButton("Try Again", callback_data="back_signals")]
                 ])
             )
             return CHOOSE_SIGNALS
@@ -777,7 +777,7 @@ class TelegramService:
         # Reset user_data
         context.user_data.clear()
         
-        # Toon het hoofdmenu
+        # Show main menu
         await query.edit_message_text(
             text=WELCOME_MESSAGE,
             reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
@@ -791,9 +791,9 @@ class TelegramService:
         query = update.callback_query
         await query.answer()
         
-        # Toon het analyse menu
+        # Show analysis menu
         await query.edit_message_text(
-            text="Selecteer je analyse type:",
+            text="Select your analysis type:",
             reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
         )
         
@@ -805,7 +805,7 @@ class TelegramService:
         await query.answer()
         
         await query.edit_message_text(
-            text="Wat wil je doen met trading signalen?",
+            text="What would you like to do with trading signals?",
             reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD)
         )
         
@@ -816,19 +816,19 @@ class TelegramService:
         query = update.callback_query
         await query.answer()
         
-        # Haal het analyse type op uit user_data
+        # Get analysis type from user_data
         analysis_type = context.user_data.get('analysis_type', 'technical')
         
         if analysis_type in ['technical', 'sentiment']:
-            # Toon de markt selectie voor analyse
+            # Show market selection for analysis
             await query.edit_message_text(
-                text=f"Selecteer een markt voor {analysis_type} analyse:",
+                text=f"Select a market for {analysis_type} analysis:",
                 reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
             )
         else:
-            # Toon de markt selectie voor signals
+            # Show market selection for signals
             await query.edit_message_text(
-                text="Selecteer een markt voor je trading signalen:",
+                text="Select a market for your trading signals:",
                 reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD_SIGNALS)
             )
         
@@ -839,10 +839,10 @@ class TelegramService:
         query = update.callback_query
         await query.answer()
         
-        # Haal de markt op uit user_data
+        # Get market from user_data
         market = context.user_data.get('market', 'forex')
         
-        # Bepaal welke keyboard te tonen op basis van de markt
+        # Determine which keyboard to show based on market
         keyboard_map = {
             'forex': FOREX_KEYBOARD,
             'crypto': CRYPTO_KEYBOARD,
@@ -852,23 +852,23 @@ class TelegramService:
         
         keyboard = keyboard_map.get(market, FOREX_KEYBOARD)
         
-        # Voeg _signals toe aan de callback data als we in signals flow zitten
+        # Add _signals to callback data if we're in signals flow
         if context.user_data.get('analysis_type') != 'technical':
             for row in keyboard:
                 for button in row:
                     if button.callback_data.startswith('instrument_'):
                         button.callback_data = f"{button.callback_data}_signals"
         
-        # Toon de instrumenten voor de gekozen markt
+        # Show instruments for the selected market
         await query.edit_message_text(
-            text=f"Selecteer een instrument uit {market.capitalize()}:",
+            text=f"Select an instrument from {market.capitalize()}:",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
         
         return CHOOSE_INSTRUMENT
 
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-        """Toon help informatie"""
+        """Show help information"""
         try:
             await update.message.reply_text(
                 HELP_MESSAGE,
@@ -878,7 +878,7 @@ class TelegramService:
         except Exception as e:
             logger.error(f"Error in help_command: {str(e)}")
             await update.message.reply_text(
-                "Er is een fout opgetreden bij het tonen van de help informatie. Probeer het later opnieuw."
+                "An error occurred while displaying the help information. Please try again later."
             )
             return MENU
 
@@ -891,8 +891,8 @@ class TelegramService:
             
             # Set bot commands
             commands = [
-                ("start", "Start de bot en toon hoofdmenu"),
-                ("help", "Toon help bericht")
+                ("start", "Start the bot and show main menu"),
+                ("help", "Show help message")
             ]
             await self.bot.set_my_commands(commands)
             
