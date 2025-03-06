@@ -90,10 +90,9 @@ class TradingViewSeleniumService(TradingViewService):
             logger.info(f"Chrome options: {chrome_options.arguments}")
             
             try:
-                # Gebruik een specifieke versie van ChromeDriver (bijvoorbeeld 114.0.5735.90)
-                # die compatibel is met de meeste Chrome-versies
+                # Gebruik de nieuwste versie van ChromeDriver in plaats van een specifieke versie
                 from webdriver_manager.chrome import ChromeDriverManager
-                service = Service(ChromeDriverManager(version="114.0.5735.90").install())
+                service = Service(ChromeDriverManager().install())
                 logger.info("ChromeDriver installed successfully")
             except Exception as driver_error:
                 logger.error(f"Error installing ChromeDriver: {str(driver_error)}")
