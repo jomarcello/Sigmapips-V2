@@ -1,38 +1,18 @@
-// Probeer verschillende manieren om Playwright te importeren
-let playwright;
-let chromium;
-
-try {
-    // Probeer eerst @playwright/test
-    playwright = require('@playwright/test');
-    chromium = playwright.chromium;
-    console.log("Using @playwright/test module");
-} catch (e) {
-    try {
-        // Als dat niet lukt, probeer playwright
-        playwright = require('playwright');
-        chromium = playwright.chromium;
-        console.log("Using playwright module");
-    } catch (e2) {
-        console.error('Geen Playwright module gevonden. Installeer met: npm install playwright of npm install @playwright/test');
-        process.exit(1);
-    }
-}
+const playwright = require('playwright');
 
 // Haal de argumenten op
 const url = process.argv[2];
 const outputPath = process.argv[3];
 const sessionId = process.argv[4]; // Voeg session ID toe als derde argument
-const fullscreen = process.argv[5] === 'fullscreen'; // Controleer of fullscreen is ingeschakeld
 
 if (!url || !outputPath) {
-    console.error('Usage: node screenshot.js <url> <outputPath> [sessionId] [fullscreen]');
+    console.error('Usage: node screenshot.js <url> <outputPath> [sessionId]');
     process.exit(1);
 }
 
 (async () => {
     try {
-        console.log(`Taking screenshot of ${url} and saving to ${outputPath} (fullscreen: ${fullscreen})`);
+        console.log(`Taking screenshot of ${url} and saving to ${outputPath}`);
         
         // Start een browser
         const browser = await playwright.chromium.launch({
@@ -83,55 +63,42 @@ if (!url || !outputPath) {
         
         // Wacht een vaste tijd om de pagina te laten renderen
         console.log('Waiting for page to render...');
-        await page.waitForTimeout(10000);
+        await page.waitForTimeout(5000);
 
-        // Als fullscreen is ingeschakeld, verberg UI-elementen
-        if (fullscreen) {
-            console.log('Removing UI elements for fullscreen...');
-            await page.evaluate(() => {
-                // Verberg de header
-                const header = document.querySelector('.tv-header');
-                if (header) header.style.display = 'none';
-                
-                // Verberg de toolbar
-                const toolbar = document.querySelector('.tv-main-panel__toolbar');
-                if (toolbar) toolbar.style.display = 'none';
-                
-                // Verberg de zijbalk
-                const sidebar = document.querySelector('.tv-side-toolbar');
-                if (sidebar) sidebar.style.display = 'none';
-                
-                // Verberg andere UI-elementen
-                const panels = document.querySelectorAll('.layout__area--left, .layout__area--right');
-                panels.forEach(panel => {
-                    if (panel) panel.style.display = 'none';
-                });
-                
-                // Maximaliseer de chart
-                const chart = document.querySelector('.chart-container');
-                if (chart) {
-                    chart.style.width = '100vw';
-                    chart.style.height = '100vh';
-                }
-                
-                // Verberg de footer
-                const footer = document.querySelector('footer');
-                if (footer) footer.style.display = 'none';
-                
-                // Verberg de statusbalk
-                const statusBar = document.querySelector('.tv-main-panel__statuses');
-                if (statusBar) statusBar.style.display = 'none';
-            });
-            
-            // Wacht even om de wijzigingen toe te passen
-            await page.waitForTimeout(2000);
-        }
+        // Klik op de fullscreen-knop (als deze bestaat)
+        console.log('Entering fullscreen mode...');
+        await page.evaluate(() => {
+            const fullscreenButton = document.querySelector('[data-name="fullscreen-button"]'); // Pas de selector aan op basis van de TradingView UI
+            if (fullscreenButton) {
+                fullscreenButton.click();
+            }
+        });
 
-        // Neem een screenshot
-        console.log('Taking screenshot...');
+        // Wacht even om de fullscreen-modus te activeren
+        await page.waitForTimeout(2000);
+
+        // Verwijder of verberg UI-elementen
+        console.log('Removing UI elements...');
+        await page.evaluate(() => {
+            // Verwijder de header
+            const header = document.querySelector('header');
+            if (header) header.remove();
+
+            // Verwijder de footer
+            const footer = document.querySelector('footer');
+            if (footer) footer.remove();
+
+            // Verwijder andere ongewenste elementen (pas dit aan op basis van de TradingView UI)
+            const unwantedElements = document.querySelectorAll('.unwanted-class'); // Vervang '.unwanted-class' door de juiste selector
+            unwantedElements.forEach(element => element.remove());
+        });
+
+        // Neem een fullscreen screenshot
+        console.log('Taking fullscreen screenshot...');
         await page.screenshot({
             path: outputPath,
-            fullPage: false
+            fullPage: true, // Maak een volledige pagina-screenshot
+            omitBackground: true // Optioneel: verwijder de achtergrond voor een transparante screenshot
         });
         
         // Sluit de browser
@@ -143,4 +110,4 @@ if (!url || !outputPath) {
         console.error('Error taking screenshot:', error);
         process.exit(1);
     }
-})(); 
+})();
