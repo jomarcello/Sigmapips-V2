@@ -1,4 +1,3 @@
-// Eenvoudiger script dat alleen de standaard 'playwright' module gebruikt
 const playwright = require('playwright');
 
 // Haal de argumenten op
@@ -62,15 +61,32 @@ if (!url || !outputPath) {
             timeout: 90000
         });
         
-        // Wacht een vaste tijd
+        // Wacht een vaste tijd om de pagina te laten renderen
         console.log('Waiting for page to render...');
         await page.waitForTimeout(5000);
-        
-        // Neem een screenshot
-        console.log('Taking screenshot...');
+
+        // Verwijder of verberg UI-elementen
+        console.log('Removing UI elements...');
+        await page.evaluate(() => {
+            // Verwijder de header
+            const header = document.querySelector('header');
+            if (header) header.remove();
+
+            // Verwijder de footer
+            const footer = document.querySelector('footer');
+            if (footer) footer.remove();
+
+            // Verwijder andere ongewenste elementen (pas dit aan op basis van de TradingView UI)
+            const unwantedElements = document.querySelectorAll('.unwanted-class'); // Vervang '.unwanted-class' door de juiste selector
+            unwantedElements.forEach(element => element.remove());
+        });
+
+        // Neem een fullscreen screenshot
+        console.log('Taking fullscreen screenshot...');
         await page.screenshot({
             path: outputPath,
-            fullPage: false
+            fullPage: true, // Maak een volledige pagina-screenshot
+            omitBackground: true // Optioneel: verwijder de achtergrond voor een transparante screenshot
         });
         
         // Sluit de browser
@@ -82,4 +98,4 @@ if (!url || !outputPath) {
         console.error('Error taking screenshot:', error);
         process.exit(1);
     }
-})(); 
+})();
