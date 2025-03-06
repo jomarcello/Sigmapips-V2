@@ -277,7 +277,6 @@ class TelegramService:
                     CHOOSE_INSTRUMENT: [
                         CallbackQueryHandler(self.instrument_signals_callback, pattern="^instrument_[A-Z0-9]+_signals$"),
                         CallbackQueryHandler(self.instrument_callback, pattern="^instrument_[A-Z0-9]+$"),
-                        CallbackQueryHandler(self.back_to_signals, pattern="^back_signals$"),
                         CallbackQueryHandler(self.back_to_market_callback, pattern="^back_market$"),
                     ],
                     CHOOSE_STYLE: [
@@ -285,6 +284,7 @@ class TelegramService:
                         CallbackQueryHandler(self.back_to_instrument, pattern="^back_instrument$"),
                     ],
                     SHOW_RESULT: [
+                        CallbackQueryHandler(self.back_to_market_callback, pattern="^back_market$"),
                         CallbackQueryHandler(self.signals_add_callback, pattern="^signals_add$"),
                         CallbackQueryHandler(self.signals_manage_callback, pattern="^signals_manage$"),
                         CallbackQueryHandler(self.back_to_menu_callback, pattern="^back_menu$"),
@@ -962,23 +962,51 @@ class TelegramService:
         query = update.callback_query
         await query.answer()
         
-        # Get analysis type from user_data
-        analysis_type = context.user_data.get('analysis_type', 'technical')
-        
-        if analysis_type in ['technical', 'sentiment']:
-            # Show market selection for analysis
-            await query.edit_message_text(
-                text=f"Select a market for {analysis_type} analysis:",
-                reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
-            )
-        else:
-            # Show market selection for signals
-            await query.edit_message_text(
-                text="Select a market for your trading signals:",
-                reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD_SIGNALS)
-            )
-        
-        return CHOOSE_MARKET
+        try:
+            # Get the analysis type from user_data
+            analysis_type = context.user_data.get('analysis_type', 'technical')
+            
+            if analysis_type == 'sentiment':
+                # Show market selection for sentiment analysis
+                await query.edit_message_text(
+                    text="Select a market for sentiment analysis:",
+                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
+                )
+                return CHOOSE_MARKET
+            elif analysis_type == 'technical':
+                # Show market selection for technical analysis
+                await query.edit_message_text(
+                    text="Select a market for technical analysis:",
+                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
+                )
+                return CHOOSE_MARKET
+            elif analysis_type == 'signals':
+                # Show market selection for signals
+                await query.edit_message_text(
+                    text="Select a market for your trading signals:",
+                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD_SIGNALS)
+                )
+                return CHOOSE_MARKET
+            else:
+                # Default to analysis menu
+                await query.edit_message_text(
+                    text="Select your analysis type:",
+                    reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
+                )
+                return CHOOSE_ANALYSIS
+        except Exception as e:
+            logger.error(f"Error in back_to_market_callback: {str(e)}")
+            # If there's an error, try to recover by showing the main menu
+            try:
+                await query.edit_message_text(
+                    text=WELCOME_MESSAGE,
+                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
+                    parse_mode=ParseMode.HTML
+                )
+                return MENU
+            except Exception as inner_e:
+                logger.error(f"Failed to recover from error: {str(inner_e)}")
+                return ConversationHandler.END
 
     async def back_to_instrument(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """Handle back to instrument selection"""
