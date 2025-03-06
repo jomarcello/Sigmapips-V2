@@ -94,10 +94,10 @@ class ChartService:
             logging.error(f"Error initializing chart service: {str(e)}")
             raise
 
-    async def get_chart(self, instrument: str, timeframe: str = "1h") -> bytes:
+    async def get_chart(self, instrument: str, timeframe: str = "1h", fullscreen: bool = False) -> bytes:
         """Get chart image for instrument and timeframe"""
         try:
-            logger.info(f"Getting chart for {instrument} ({timeframe})")
+            logger.info(f"Getting chart for {instrument} ({timeframe}) fullscreen: {fullscreen}")
             
             # Zorg ervoor dat de services zijn geïnitialiseerd
             if not hasattr(self, 'tradingview') or not self.tradingview:
@@ -114,13 +114,20 @@ class ChartService:
                 logger.warning(f"No specific link found for {instrument}, using generic link")
                 tradingview_link = f"https://www.tradingview.com/chart/?symbol={instrument}"
             
+            # Voeg fullscreen parameter toe aan de URL als dat nodig is
+            if fullscreen:
+                if "?" in tradingview_link:
+                    tradingview_link += "&fullscreen=true&hide_side_toolbar=true&hide_top_toolbar=true"
+                else:
+                    tradingview_link += "?fullscreen=true&hide_side_toolbar=true&hide_top_toolbar=true"
+            
             logger.info(f"Using TradingView link: {tradingview_link}")
             
             # Probeer eerst de Node.js service te gebruiken
             if hasattr(self, 'tradingview') and self.tradingview and hasattr(self.tradingview, 'take_screenshot_of_url'):
                 try:
                     logger.info(f"Taking screenshot with Node.js service: {tradingview_link}")
-                    chart_image = await self.tradingview.take_screenshot_of_url(tradingview_link)
+                    chart_image = await self.tradingview.take_screenshot_of_url(tradingview_link, fullscreen)
                     if chart_image:
                         logger.info("Screenshot taken successfully with Node.js service")
                         return chart_image
@@ -133,7 +140,7 @@ class ChartService:
             if hasattr(self, 'tradingview_selenium') and self.tradingview_selenium and self.tradingview_selenium.is_initialized:
                 try:
                     logger.info(f"Taking screenshot with Selenium: {tradingview_link}")
-                    chart_image = await self.tradingview_selenium.get_screenshot(tradingview_link)
+                    chart_image = await self.tradingview_selenium.get_screenshot(tradingview_link, fullscreen)
                     if chart_image:
                         logger.info("Screenshot taken successfully with Selenium")
                         return chart_image
@@ -145,15 +152,15 @@ class ChartService:
             # Als beide services niet werken, gebruik een fallback methode
             logger.warning(f"All screenshot services failed, using fallback for {instrument}")
             return await self._generate_random_chart(instrument, timeframe)
-            
+        
         except Exception as e:
             logger.error(f"Error getting chart: {str(e)}")
-            # Probeer de fallback methode
-            try:
-                return await self._generate_random_chart(instrument, timeframe)
-            except Exception as fallback_error:
-                logger.error(f"Error generating fallback chart: {str(fallback_error)}")
-                return None
+            import traceback
+            logger.error(traceback.format_exc())
+            
+            # Als er een fout optreedt, genereer een matplotlib chart
+            logger.warning(f"Error occurred, using fallback for {instrument}")
+            return await self._generate_random_chart(instrument, timeframe)
 
     async def _fallback_chart(self, instrument, timeframe="1h"):
         """Fallback method to get chart"""
@@ -493,3 +500,73 @@ class ChartService:
         except Exception as e:
             logger.error(f"Error getting screenshot from API: {str(e)}")
             return None
+
+    async def generate_matplotlib_chart(self, symbol, timeframe=None):
+        """Generate a chart using matplotlib"""
+        try:
+            logger.info(f"Generating random chart for {symbol} with timeframe {timeframe}")
+            
+            # Maak een meer realistische dataset
+            np.random.seed(42)  # Voor consistente resultaten
+            
+            # Genereer datums voor de afgelopen 30 dagen
+            end_date = datetime.now()
+            start_date = end_date - timedelta(days=30)
+            dates = pd.date_range(start=start_date, end=end_date, freq='1H')
+            
+            # Genereer prijzen met een realistisch patroon
+            base_price = 1.0 if symbol.startswith("EUR") else (0.8 if symbol.startswith("GBP") else 110.0 if symbol.startswith("USD") and symbol.endswith("JPY") else 1.3)
+            
+            # Maak een random walk met een kleine trend
+            trend = 0.0001 * np.random.randn()
+            prices = [base_price]
+            for i in range(1, len(dates)):
+                # Voeg wat realisme toe met volatiliteit die varieert gedurende de dag
+                hour = dates[i].hour
+                volatility = 0.0005 if 8 <= hour <= 16 else 0.0002
+                
+                # Genereer de volgende prijs
+                next_price = prices[-1] * (1 + trend + volatility * np.random.randn())
+                prices.append(next_price)
+            
+            # Maak een DataFrame
+            df = pd.DataFrame({
+                'Open': prices,
+                'High': [p * (1 + 0.001 * np.random.rand()) for p in prices],
+                'Low': [p * (1 - 0.001 * np.random.rand()) for p in prices],
+                'Close': [p * (1 + 0.0005 * np.random.randn()) for p in prices],
+                'Volume': [int(1000000 * np.random.rand()) for _ in prices]
+            }, index=dates)
+            
+            # Maak een mooiere plot
+            plt.figure(figsize=(12, 6))
+            plt.style.use('dark_background')
+            
+            # Plot de candlestick chart
+            mpf.plot(df, type='candle', style='charles',
+                    title=f"{symbol} - {timeframe} Timeframe",
+                    ylabel='Price',
+                    volume=True,
+                    figsize=(12, 6),
+                    savefig=dict(fname='temp_chart.png', dpi=300))
+            
+            # Lees de afbeelding
+            with open('temp_chart.png', 'rb') as f:
+                chart_bytes = f.read()
+            
+            # Verwijder het tijdelijke bestand
+            os.remove('temp_chart.png')
+            
+            return chart_bytes
+        except Exception as e:
+            logger.error(f"Error generating matplotlib chart: {str(e)}")
+            
+            # Als fallback, genereer een zeer eenvoudige chart
+            buf = BytesIO()
+            plt.figure(figsize=(10, 6))
+            plt.plot(np.random.randn(100).cumsum())
+            plt.title(f"{symbol} - {timeframe} (Fallback Chart)")
+            plt.savefig(buf, format='png')
+            plt.close()
+            
+            return buf.getvalue()
