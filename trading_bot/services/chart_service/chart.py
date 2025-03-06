@@ -41,41 +41,23 @@ class ChartService:
             logging.error(f"Error initializing chart service: {str(e)}")
             raise
 
-    async def get_chart(self, instrument, timeframe="1h"):
-        """Get chart for instrument"""
+    async def get_chart(self, instrument: str, timeframe: str = "1h") -> bytes:
+        """Get chart image for instrument and timeframe"""
         try:
-            logging.info(f"Getting chart for {instrument} ({timeframe})")
+            logger.info(f"Getting chart for {instrument} ({timeframe})")
             
-            # Normaliseer instrument (verwijder /)
-            instrument = instrument.upper().replace("/", "")
+            # Try to get chart from TradingView
+            chart_image = await self.get_tradingview_chart(instrument, timeframe)
+            if chart_image:
+                return chart_image
             
-            # Probeer eerst de Selenium service als die beschikbaar is
-            if self.tradingview_selenium and self.tradingview_selenium.is_initialized:
-                try:
-                    logging.info(f"Using Selenium service for {instrument}")
-                    chart_image = await self.tradingview_selenium.get_chart(instrument, timeframe)
-                    if chart_image:
-                        return chart_image
-                except Exception as e:
-                    logging.error(f"Error using Selenium service: {str(e)}")
-            
-            # Probeer dan de Node service als die beschikbaar is
-            if self.tradingview and self.tradingview.is_initialized:
-                try:
-                    logging.info(f"Using Node service for {instrument}")
-                    chart_image = await self.tradingview.get_chart(instrument, timeframe)
-                    if chart_image:
-                        return chart_image
-                except Exception as e:
-                    logging.error(f"Error using Node service: {str(e)}")
-            
-            # Als beide services niet werken, gebruik een fallback methode
-            logging.warning(f"All chart services failed, using fallback for {instrument}")
-            return await self._fallback_chart(instrument, timeframe)
-            
+            # If TradingView fails, try fallback
+            logger.warning(f"All chart services failed, using fallback for {instrument}")
+            return self.get_fallback_chart(instrument)
+        
         except Exception as e:
-            logging.error(f"Error getting chart: {str(e)}")
-            return None
+            logger.error(f"Error getting chart: {str(e)}")
+            return self.get_fallback_chart(instrument)
 
     async def _fallback_chart(self, instrument, timeframe="1h"):
         """Fallback method to get chart"""
