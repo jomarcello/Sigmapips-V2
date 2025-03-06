@@ -38,67 +38,36 @@ class TradingViewNodeService(TradingViewService):
         try:
             logger.info("Initializing TradingView Node.js service")
             
-            # Controleer of het script bestaat
-            if not os.path.exists(self.script_path):
-                logger.error(f"Script not found at {self.script_path}")
+            # Controleer of Node.js is geïnstalleerd
+            try:
+                node_version = subprocess.check_output(["node", "--version"]).decode().strip()
+                logger.info(f"Node.js version: {node_version}")
+            except Exception as node_error:
+                logger.error(f"Error checking Node.js version: {str(node_error)}")
                 return False
             
-            # Test of Node.js beschikbaar is
+            # Controleer of het screenshot.js bestand bestaat
+            script_path = os.path.join(os.path.dirname(__file__), "screenshot.js")
+            if not os.path.exists(script_path):
+                logger.error(f"screenshot.js not found at {script_path}")
+                return False
+            
+            logger.info(f"screenshot.js found at {script_path}")
+            
+            # Test de Node.js service met een eenvoudige URL
             try:
-                process = await asyncio.create_subprocess_exec(
-                    'node', '--version',
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE
-                )
-                
-                stdout, stderr = await process.communicate()
-                
-                if process.returncode != 0:
-                    logger.error(f"Node.js not available: {stderr.decode()}")
+                logger.info("Testing Node.js service with a simple URL")
+                test_result = await self.take_screenshot_of_url("https://www.google.com")
+                if test_result:
+                    logger.info("Node.js service test successful")
+                    self.is_initialized = True
+                    return True
+                else:
+                    logger.error("Node.js service test failed")
                     return False
-                
-                logger.info(f"Node.js version: {stdout.decode().strip()}")
-            except Exception as e:
-                logger.error(f"Error checking Node.js: {str(e)}")
+            except Exception as test_error:
+                logger.error(f"Error testing Node.js service: {str(test_error)}")
                 return False
-            
-            # Controleer of de benodigde npm packages zijn geïnstalleerd
-            try:
-                process = await asyncio.create_subprocess_exec(
-                    'npm', 'list', 'playwright-extra',
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE
-                )
-                
-                stdout, stderr = await process.communicate()
-                
-                if process.returncode != 0:
-                    logger.warning(f"playwright-extra not installed: {stderr.decode()}")
-                    logger.info("Installing required npm packages...")
-                    
-                    # Installeer de benodigde packages
-                    install_process = await asyncio.create_subprocess_exec(
-                        'npm', 'install', 'playwright-extra', 'puppeteer-extra-plugin-stealth', 
-                        'puppeteer-extra-plugin-recaptcha', 'dotenv', '@playwright/test',
-                        stdout=asyncio.subprocess.PIPE,
-                        stderr=asyncio.subprocess.PIPE
-                    )
-                    
-                    install_stdout, install_stderr = await install_process.communicate()
-                    
-                    if install_process.returncode != 0:
-                        logger.error(f"Failed to install npm packages: {install_stderr.decode()}")
-                        return False
-                    
-                    logger.info("Successfully installed npm packages")
-            except Exception as e:
-                logger.error(f"Error checking npm packages: {str(e)}")
-                return False
-            
-            self.is_initialized = True
-            self.is_logged_in = True  # We gaan ervan uit dat het script de login afhandelt
-            logger.info("TradingView Node.js service initialized successfully")
-            return True
             
         except Exception as e:
             logger.error(f"Error initializing TradingView Node.js service: {str(e)}")
