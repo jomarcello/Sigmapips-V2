@@ -291,7 +291,11 @@ class TelegramService:
                         CallbackQueryHandler(self.back_to_menu_callback, pattern="^back_menu$"),
                     ],
                 },
-                fallbacks=[CommandHandler("help", self.help_command)],
+                fallbacks=[
+                    CommandHandler("help", self.help_command),
+                    # Add a global handler for back_analysis to ensure it works from any state
+                    CallbackQueryHandler(self.back_to_analysis_callback, pattern="^back_analysis$"),
+                ],
                 name="my_conversation",
                 persistent=False,
                 per_message=False,
@@ -391,7 +395,7 @@ class TelegramService:
         
         # Store analysis type in user_data
         context.user_data['analysis_type'] = 'calendar'
-        context.user_data['current_state'] = CHOOSE_ANALYSIS
+        context.user_data['current_state'] = SHOW_RESULT  # Use SHOW_RESULT instead of CHOOSE_ANALYSIS
         
         try:
             # Show loading message
@@ -403,26 +407,29 @@ class TelegramService:
             # Get calendar data
             calendar_data = await self.calendar.get_economic_calendar()
             
-            # Show calendar data
+            # Show calendar data with a custom keyboard that includes a unique callback
+            back_button = InlineKeyboardButton("⬅️ Back to Analysis", callback_data="back_analysis")
+            
             await query.edit_message_text(
                 text=calendar_data,
-                reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("⬅️ Back", callback_data="back_analysis")
-                ]]),
+                reply_markup=InlineKeyboardMarkup([[back_button]]),
                 parse_mode=ParseMode.HTML
             )
             
-            return CHOOSE_ANALYSIS
+            # Log the state for debugging
+            logger.info(f"Calendar shown, current state: {context.user_data.get('current_state')}")
+            
+            return SHOW_RESULT  # Return SHOW_RESULT instead of CHOOSE_ANALYSIS
         
         except Exception as e:
             logger.error(f"Error getting calendar data: {str(e)}")
             await query.edit_message_text(
                 text="An error occurred while retrieving the economic calendar. Please try again later.",
                 reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("⬅️ Back", callback_data="back_analysis")
+                    InlineKeyboardButton("⬅️ Back to Analysis", callback_data="back_analysis")
                 ]])
             )
-            return CHOOSE_ANALYSIS
+            return SHOW_RESULT  # Return SHOW_RESULT instead of CHOOSE_ANALYSIS
 
     async def signals_add_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """Handle signals_add callback"""
