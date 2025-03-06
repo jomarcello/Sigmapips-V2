@@ -12,12 +12,6 @@ import json
 import redis
 from fastapi.responses import JSONResponse
 
-# Import hack voor ontbrekende module
-from trading_bot.services.chart_service.tradingview_selenium import TradingViewSeleniumService
-sys.modules['trading_bot.services.chart_service.tradingview_puppeteer'] = type('', (), {
-    'TradingViewPuppeteerService': TradingViewSeleniumService
-})()
-
 # Import de constanten
 from trading_bot.services.telegram_service.bot import (
     WELCOME_MESSAGE, 
@@ -25,7 +19,7 @@ from trading_bot.services.telegram_service.bot import (
     HELP_MESSAGE
 )
 
-# Correcte absolute imports
+# Correcte imports
 from trading_bot.services.telegram_service.bot import TelegramService
 from trading_bot.services.chart_service.chart import ChartService
 from trading_bot.services.database.db import Database
