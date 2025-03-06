@@ -111,38 +111,34 @@ class ChartService:
             
             logger.info(f"Using TradingView link: {tradingview_link}")
             
-            # Controleer of Selenium is geïnitialiseerd
-            if not hasattr(self, 'tradingview_selenium') or not self.tradingview_selenium:
-                logger.error("Selenium service is not available")
-                # Probeer Selenium te initialiseren
-                initialized = await self.initialize()
-                if not initialized:
-                    logger.error("Failed to initialize Selenium service")
-                    return await self._generate_random_chart(instrument, timeframe)
+            # Probeer eerst de Node.js service te gebruiken
+            if hasattr(self, 'tradingview') and self.tradingview and hasattr(self.tradingview, 'take_screenshot_of_url'):
+                try:
+                    logger.info(f"Taking screenshot with Node.js service: {tradingview_link}")
+                    chart_image = await self.tradingview.take_screenshot_of_url(tradingview_link)
+                    if chart_image:
+                        logger.info("Screenshot taken successfully with Node.js service")
+                        return chart_image
+                    else:
+                        logger.error("Node.js screenshot is None")
+                except Exception as e:
+                    logger.error(f"Error using Node.js for screenshot: {str(e)}")
             
-            # Controleer of Selenium is geïnitialiseerd
-            if not self.tradingview_selenium.is_initialized:
-                logger.error("Selenium service is not initialized")
-                # Probeer Selenium te initialiseren
-                initialized = await self.tradingview_selenium.initialize()
-                if not initialized:
-                    logger.error("Failed to initialize Selenium service")
-                    return await self._generate_random_chart(instrument, timeframe)
+            # Als Node.js niet werkt, probeer Selenium
+            if hasattr(self, 'tradingview_selenium') and self.tradingview_selenium and self.tradingview_selenium.is_initialized:
+                try:
+                    logger.info(f"Taking screenshot with Selenium: {tradingview_link}")
+                    chart_image = await self.tradingview_selenium.get_screenshot(tradingview_link)
+                    if chart_image:
+                        logger.info("Screenshot taken successfully with Selenium")
+                        return chart_image
+                    else:
+                        logger.error("Selenium screenshot is None")
+                except Exception as e:
+                    logger.error(f"Error using Selenium for screenshot: {str(e)}")
             
-            # Gebruik Selenium om een screenshot te maken van de TradingView link
-            try:
-                logger.info(f"Taking screenshot of {tradingview_link}")
-                chart_image = await self.tradingview_selenium.get_screenshot(tradingview_link)
-                if chart_image:
-                    logger.info("Screenshot taken successfully")
-                    return chart_image
-                else:
-                    logger.error("Screenshot is None")
-            except Exception as e:
-                logger.error(f"Error using Selenium for screenshot: {str(e)}")
-            
-            # Als Selenium niet werkt, probeer een andere methode
-            logger.warning(f"Selenium screenshot failed, using fallback for {instrument}")
+            # Als beide services niet werken, gebruik een fallback methode
+            logger.warning(f"All screenshot services failed, using fallback for {instrument}")
             return await self._generate_random_chart(instrument, timeframe)
             
         except Exception as e:
@@ -176,21 +172,10 @@ class ChartService:
         """Initialize the chart service"""
         try:
             # Lazy imports om circulaire imports te vermijden
-            from trading_bot.services.chart_service.tradingview_selenium import TradingViewSeleniumService
             from trading_bot.services.chart_service.tradingview_node import TradingViewNodeService
+            from trading_bot.services.chart_service.tradingview_selenium import TradingViewSeleniumService
             
-            # Probeer eerst de Selenium service te initialiseren
-            try:
-                self.tradingview_selenium = TradingViewSeleniumService()
-                selenium_initialized = await self.tradingview_selenium.initialize()
-                if selenium_initialized:
-                    self.tradingview = self.tradingview_selenium
-                    logging.info("TradingView Selenium service initialized successfully")
-                    return True
-            except Exception as e:
-                logging.error(f"Failed to initialize TradingView Selenium service: {str(e)}")
-            
-            # Probeer dan de Node service te initialiseren als fallback
+            # Probeer eerst de Node service te initialiseren
             try:
                 node_service = TradingViewNodeService()
                 node_initialized = await node_service.initialize()
@@ -200,6 +185,17 @@ class ChartService:
                     return True
             except Exception as e:
                 logging.error(f"Failed to initialize TradingView Node service: {str(e)}")
+            
+            # Probeer dan de Selenium service te initialiseren als fallback
+            try:
+                self.tradingview_selenium = TradingViewSeleniumService()
+                selenium_initialized = await self.tradingview_selenium.initialize()
+                if selenium_initialized:
+                    self.tradingview = self.tradingview_selenium
+                    logging.info("TradingView Selenium service initialized successfully")
+                    return True
+            except Exception as e:
+                logging.error(f"Failed to initialize TradingView Selenium service: {str(e)}")
             
             # Als beide services falen, gebruik matplotlib als fallback
             logging.warning("All TradingView services failed, using matplotlib fallback")
@@ -449,3 +445,27 @@ class ChartService:
         plt.close()
         
         return buf.getvalue()
+
+    async def get_screenshot_from_api(self, url: str) -> bytes:
+        """Get a screenshot from an external API"""
+        try:
+            # Gebruik een screenshot API zoals screenshotapi.net
+            api_key = os.getenv("SCREENSHOT_API_KEY", "")
+            if not api_key:
+                logger.error("No API key for screenshot service")
+                return None
+            
+            # Bouw de API URL
+            api_url = f"https://api.screenshotapi.net/screenshot?token={api_key}&url={url}&output=image&width=1920&height=1080"
+            
+            # Haal de screenshot op
+            async with aiohttp.ClientSession() as session:
+                async with session.get(api_url) as response:
+                    if response.status == 200:
+                        return await response.read()
+                    else:
+                        logger.error(f"Screenshot API error: {response.status}")
+                        return None
+        except Exception as e:
+            logger.error(f"Error getting screenshot from API: {str(e)}")
+            return None
