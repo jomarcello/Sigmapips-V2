@@ -173,31 +173,57 @@ class Database:
         
         return query.execute() 
 
-    async def get_user_preferences(self, user_id: int):
+    async def get_user_preferences(self, user_id: int) -> List[Dict[str, Any]]:
         """Get user preferences from database"""
         try:
-            # Query subscriber_preferences table
-            response = self.supabase.table('subscriber_preferences')\
-                .select('*')\
-                .eq('user_id', user_id)\
-                .execute()
-                
-            logger.info(f"Found {len(response.data)} preferences for user {user_id}")
-            return response.data
+            # Haal voorkeuren op uit de database
+            response = self.supabase.table('subscriber_preferences').select('*').eq('user_id', user_id).execute()
             
+            if response.data:
+                return response.data
+            else:
+                return []
         except Exception as e:
             logger.error(f"Error getting user preferences: {str(e)}")
             return []
 
-    async def delete_preference(self, user_id: int, instrument: str):
-        """Delete a specific preference"""
+    async def save_preference(self, user_id: int, market: str, instrument: str, style: str, timeframe: str) -> bool:
+        """Save user preference to database"""
         try:
-            response = self.supabase.table('subscriber_preferences')\
-                .delete()\
-                .eq('user_id', user_id)\
-                .eq('instrument', instrument)\
-                .execute()
-            return response
+            # Maak een nieuwe voorkeur
+            new_preference = {
+                'user_id': user_id,
+                'market': market,
+                'instrument': instrument,
+                'style': style,
+                'timeframe': timeframe
+            }
+            
+            # Sla op in de database
+            response = self.supabase.table('subscriber_preferences').insert(new_preference).execute()
+            
+            if response.data:
+                logger.info(f"Saved preference for user {user_id}: {instrument} ({timeframe})")
+                return True
+            else:
+                logger.error(f"Failed to save preference: {response}")
+                return False
+        except Exception as e:
+            logger.error(f"Error saving preference: {str(e)}")
+            return False
+
+    async def delete_preference(self, user_id: int, instrument: str) -> bool:
+        """Delete user preference from database"""
+        try:
+            # Verwijder de voorkeur
+            response = self.supabase.table('subscriber_preferences').delete().eq('user_id', user_id).eq('instrument', instrument).execute()
+            
+            if response.data:
+                logger.info(f"Deleted preference for user {user_id}: {instrument}")
+                return True
+            else:
+                logger.error(f"Failed to delete preference: {response}")
+                return False
         except Exception as e:
             logger.error(f"Error deleting preference: {str(e)}")
-            raise 
+            return False 
