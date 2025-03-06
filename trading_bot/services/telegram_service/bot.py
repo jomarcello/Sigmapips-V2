@@ -300,6 +300,9 @@ class TelegramService:
             self.application.add_handler(conv_handler)
             self.application.add_handler(CommandHandler("help", self.help_command))
             
+            # Add reset conversation handler
+            self.application.add_handler(CommandHandler("reset", self.reset_conversation))
+            
             logger.info("Telegram service initialized")
             
         except Exception as e:
@@ -930,24 +933,42 @@ class TelegramService:
         await query.answer()
         
         try:
-            logger.info("Handling back_to_analysis_callback")
+            logger.info("Handling back_to_analysis_callback - start")
             
-            # Show analysis menu
-            await query.edit_message_text(
-                text="Select your analysis type:",
-                reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
-            )
+            # Log message details for debugging
+            message_id = query.message.message_id if query.message else "unknown"
+            chat_id = query.message.chat.id if query.message and query.message.chat else "unknown"
+            logger.info(f"Message ID: {message_id}, Chat ID: {chat_id}")
+            
+            # Show analysis menu with a completely new message to avoid any issues
+            try:
+                # First try to edit the existing message
+                await query.edit_message_text(
+                    text="Select your analysis type:",
+                    reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
+                )
+                logger.info("Successfully edited message")
+            except Exception as edit_error:
+                logger.error(f"Error editing message: {str(edit_error)}")
+                # If editing fails, try to send a new message
+                await query.message.reply_text(
+                    text="Select your analysis type:",
+                    reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
+                )
+                logger.info("Sent new message as fallback")
             
             # Update state in user_data
             context.user_data['current_state'] = CHOOSE_ANALYSIS
+            logger.info("Updated user_data state to CHOOSE_ANALYSIS")
             
+            logger.info("Handling back_to_analysis_callback - end")
             return CHOOSE_ANALYSIS
         
         except Exception as e:
             logger.error(f"Error in back_to_analysis_callback: {str(e)}")
             # If there's an error, try to recover by showing the main menu
             try:
-                await query.edit_message_text(
+                await query.message.reply_text(
                     text=WELCOME_MESSAGE,
                     reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
                     parse_mode=ParseMode.HTML
@@ -1077,6 +1098,31 @@ class TelegramService:
                 "An error occurred while displaying the help information. Please try again later."
             )
             return MENU
+
+    async def reset_conversation(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        """Reset the conversation to the main menu"""
+        try:
+            # Clear user data
+            context.user_data.clear()
+            
+            # Send a new message with the main menu
+            if update.callback_query:
+                await update.callback_query.message.reply_text(
+                    text=WELCOME_MESSAGE,
+                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
+                    parse_mode=ParseMode.HTML
+                )
+            else:
+                await update.message.reply_text(
+                    text=WELCOME_MESSAGE,
+                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
+                    parse_mode=ParseMode.HTML
+                )
+            
+            return MENU
+        except Exception as e:
+            logger.error(f"Error resetting conversation: {str(e)}")
+            return ConversationHandler.END
 
     async def initialize(self, use_webhook=False):
         """Initialize the Telegram bot asynchronously."""
