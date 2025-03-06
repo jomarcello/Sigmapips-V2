@@ -1,4 +1,16 @@
-const { chromium } = require('@playwright/test');
+let playwright;
+try {
+    playwright = require('@playwright/test');
+} catch (e) {
+    try {
+        playwright = require('playwright');
+    } catch (e2) {
+        console.error('Geen Playwright module gevonden. Installeer met: npm install playwright');
+        process.exit(1);
+    }
+}
+
+const { chromium } = playwright;
 
 // Haal de argumenten op
 const url = process.argv[2];
@@ -119,7 +131,7 @@ if (!url || !outputPath) {
                 
                 // Methode 3: Gebruik JavaScript om de chart te maximaliseren
                 await page.evaluate(() => {
-                    // Verberg alleen specifieke UI elementen, niet alles
+                    // Verberg alleen de belangrijkste UI elementen
                     const elementsToHide = [
                         '.tv-header',                  // Header
                         '.chart-toolbar',              // Chart toolbar
@@ -136,18 +148,7 @@ if (!url || !outputPath) {
                         '.tv-insert-study-dialog',     // Study dialog
                         '.tv-insert-indicator-dialog', // Indicator dialog
                         '.tv-linetool-properties-toolbar', // Line tool properties
-                        '.chart-controls-bar',         // Controls bar
-                        '.tv-footer',                  // Footer
-                        '.tv-side-panel',              // Side panel
-                        '.tv-floating-panel',          // Floating panel
-                        '.tv-dialog-wrapper',          // Dialog wrapper
-                        '.tv-toasts',                  // Toasts/notifications
-                        '.tv-spinner',                 // Loading spinner
-                        '.tv-loading-screen',          // Loading screen
-                        '.control-bar',                // Control bar
-                        '.control-bar__btn',           // Control bar buttons
-                        '.drawing-toolbar',            // Drawing toolbar
-                        '.chart-controls-bar-buttons'  // Chart controls buttons
+                        '.chart-controls-bar'          // Controls bar
                     ];
                     
                     // Verberg alleen de specifieke UI elementen
@@ -160,9 +161,7 @@ if (!url || !outputPath) {
                         });
                     });
                     
-                    // NIET alle marges en padding verwijderen, alleen voor specifieke elementen
-                    
-                    // Maximaliseer de chart container
+                    // Maximaliseer de chart container zonder andere stijlen aan te passen
                     const chartContainer = document.querySelector('.chart-container');
                     if (chartContainer) {
                         chartContainer.style.width = '100vw';
@@ -173,30 +172,12 @@ if (!url || !outputPath) {
                         chartContainer.style.zIndex = '9999';
                     }
                     
-                    // Zorg ervoor dat de main chart area zichtbaar blijft
+                    // Zorg ervoor dat de chart zichtbaar blijft
                     const chartArea = document.querySelector('.chart-markup-table');
                     if (chartArea) {
                         chartArea.style.display = 'block';
                         chartArea.style.visibility = 'visible';
                         chartArea.style.opacity = '1';
-                    }
-                    
-                    // Zorg ervoor dat de canvas zichtbaar blijft
-                    const canvas = document.querySelector('canvas');
-                    if (canvas) {
-                        canvas.style.display = 'block';
-                        canvas.style.visibility = 'visible';
-                        canvas.style.opacity = '1';
-                    }
-                    
-                    // Zorg ervoor dat de main pane zichtbaar blijft
-                    const mainPane = document.querySelector('.chart-container .layout__area--center, .chart-container .layout__area--main');
-                    if (mainPane) {
-                        mainPane.style.display = 'block';
-                        mainPane.style.visibility = 'visible';
-                        mainPane.style.opacity = '1';
-                        mainPane.style.width = '100vw';
-                        mainPane.style.height = '100vh';
                     }
                     
                     console.log('Applied fullscreen optimizations while keeping chart visible');
@@ -251,7 +232,7 @@ if (!url || !outputPath) {
                     chartContainer.style.left = '0';
                 }
                 
-                // Zorg ervoor dat de main chart area zichtbaar blijft
+                // Zorg ervoor dat de chart zichtbaar blijft
                 const chartArea = document.querySelector('.chart-markup-table');
                 if (chartArea) {
                     chartArea.style.display = 'block';
