@@ -131,7 +131,8 @@ if (!url || !outputPath) {
         console.log('Taking screenshot...');
         await page.screenshot({
             path: outputPath,
-            fullPage: false
+            fullPage: fullscreen, // Gebruik fullPage als fullscreen is ingeschakeld
+            omitBackground: true // Optioneel: verwijder de achtergrond voor een transparante screenshot
         });
         
         // Sluit de browser
@@ -143,4 +144,4 @@ if (!url || !outputPath) {
         console.error('Error taking screenshot:', error);
         process.exit(1);
     }
-})(); 
+})();
