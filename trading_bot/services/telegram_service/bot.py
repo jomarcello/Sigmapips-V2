@@ -869,3 +869,21 @@ class TelegramService:
         except Exception as e:
             logger.error(f"Error during Telegram bot initialization: {str(e)}")
             raise
+
+    async def set_webhook(self, webhook_url: str):
+        """Set the Telegram bot webhook URL."""
+        try:
+            # Verwijder eerst eventuele bestaande webhook
+            await self.bot.delete_webhook()
+            
+            # Stel de nieuwe webhook in
+            await self.bot.set_webhook(url=webhook_url)
+            
+            # Haal webhook info op om te controleren
+            webhook_info = await self.bot.get_webhook_info()
+            
+            logger.info(f"Webhook succesvol ingesteld op: {webhook_url}")
+            logger.info(f"Webhook info: {webhook_info}")
+        except Exception as e:
+            logger.error(f"Fout bij het instellen van de webhook: {str(e)}")
+            raise
