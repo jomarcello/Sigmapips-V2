@@ -257,7 +257,6 @@ class TelegramService:
                         CallbackQueryHandler(self.analysis_technical_callback, pattern="^analysis_technical$"),
                         CallbackQueryHandler(self.analysis_sentiment_callback, pattern="^analysis_sentiment$"),
                         CallbackQueryHandler(self.analysis_calendar_callback, pattern="^analysis_calendar$"),
-                        CallbackQueryHandler(self.back_to_menu_callback, pattern="^back_menu$"),
                     ],
                     CHOOSE_SIGNALS: [
                         CallbackQueryHandler(self.signals_add_callback, pattern="^signals_add$"),
@@ -265,37 +264,23 @@ class TelegramService:
                         CallbackQueryHandler(self.delete_preferences_callback, pattern="^delete_prefs$"),
                         CallbackQueryHandler(self.delete_single_preference_callback, pattern="^delete_pref_[0-9]+$"),
                         CallbackQueryHandler(self.confirm_delete_callback, pattern="^confirm_delete$"),
-                        CallbackQueryHandler(self.back_to_signals, pattern="^back_signals$"),
-                        CallbackQueryHandler(self.back_to_menu_callback, pattern="^back_menu$"),
                     ],
                     CHOOSE_MARKET: [
                         CallbackQueryHandler(self.market_signals_callback, pattern="^market_[a-z]+_signals$"),
                         CallbackQueryHandler(self.market_callback, pattern="^market_[a-z]+$"),
-                        CallbackQueryHandler(self.back_to_signals, pattern="^back_signals$"),
-                        CallbackQueryHandler(self.back_to_analysis_callback, pattern="^back_analysis$"),
                     ],
                     CHOOSE_INSTRUMENT: [
                         CallbackQueryHandler(self.instrument_signals_callback, pattern="^instrument_[A-Z0-9]+_signals$"),
                         CallbackQueryHandler(self.instrument_callback, pattern="^instrument_[A-Z0-9]+$"),
-                        CallbackQueryHandler(self.back_to_market_callback, pattern="^back_market$"),
                     ],
                     CHOOSE_STYLE: [
                         CallbackQueryHandler(self.style_choice, pattern="^style_[a-z]+$"),
-                        CallbackQueryHandler(self.back_to_instrument, pattern="^back_instrument$"),
                     ],
                     SHOW_RESULT: [
-                        CallbackQueryHandler(self.back_to_market_callback, pattern="^back_market$"),
-                        CallbackQueryHandler(self.back_to_analysis_callback, pattern="^back_analysis$"),
-                        CallbackQueryHandler(self.signals_add_callback, pattern="^signals_add$"),
-                        CallbackQueryHandler(self.signals_manage_callback, pattern="^signals_manage$"),
-                        CallbackQueryHandler(self.back_to_menu_callback, pattern="^back_menu$"),
+                        # Laat deze leeg, omdat we globale handlers gebruiken voor back buttons
                     ],
                 },
-                fallbacks=[
-                    CommandHandler("help", self.help_command),
-                    # Add a global handler for back_analysis to ensure it works from any state
-                    CallbackQueryHandler(self.back_to_analysis_callback, pattern="^back_analysis$"),
-                ],
+                fallbacks=[CommandHandler("help", self.help_command)],
                 name="my_conversation",
                 persistent=False,
                 per_message=False,
@@ -304,6 +289,13 @@ class TelegramService:
             # Add handlers
             self.application.add_handler(conv_handler)
             self.application.add_handler(CommandHandler("help", self.help_command))
+            
+            # Voeg globale handlers toe voor alle back buttons
+            self.application.add_handler(CallbackQueryHandler(self.back_to_analysis_callback, pattern="^back_analysis$"))
+            self.application.add_handler(CallbackQueryHandler(self.back_to_market_callback, pattern="^back_market$"))
+            self.application.add_handler(CallbackQueryHandler(self.back_to_menu_callback, pattern="^back_menu$"))
+            self.application.add_handler(CallbackQueryHandler(self.back_to_signals, pattern="^back_signals$"))
+            self.application.add_handler(CallbackQueryHandler(self.back_to_instrument, pattern="^back_instrument$"))
             
             logger.info("Telegram service initialized")
             
@@ -948,6 +940,7 @@ class TelegramService:
             # Update state in user_data
             context.user_data['current_state'] = CHOOSE_ANALYSIS
             
+            # Explicitly return the state
             return CHOOSE_ANALYSIS
         
         except Exception as e:
@@ -1122,6 +1115,10 @@ class TelegramService:
         try:
             # Converteer de update data naar een Update object
             update = Update.de_json(update_data, self.bot)
+            
+            # Log de update voor debugging
+            if isinstance(update, Update) and update.callback_query:
+                logger.info(f"Processing callback: {update.callback_query.data}")
             
             # Verwerk de update via de application
             await self.application.process_update(update)
