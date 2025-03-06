@@ -83,13 +83,44 @@ class TradingViewSeleniumService(TradingViewService):
             chrome_options.add_argument("--headless")
             chrome_options.add_argument("--no-sandbox")
             chrome_options.add_argument("--disable-dev-shm-usage")
+            chrome_options.add_argument("--disable-gpu")
+            chrome_options.add_argument("--window-size=1920,1080")
             
-            # Voeg deze regel toe om automatisch de juiste ChromeDriver te downloaden
-            service = Service(ChromeDriverManager().install())
+            # Log de Chrome opties
+            logger.info(f"Chrome options: {chrome_options.arguments}")
             
-            self.driver = webdriver.Chrome(service=service, options=chrome_options)
-            self.driver.set_window_size(1920, 1080)
+            try:
+                # Voeg deze regel toe om automatisch de juiste ChromeDriver te downloaden
+                service = Service(ChromeDriverManager().install())
+                logger.info("ChromeDriver installed successfully")
+            except Exception as driver_error:
+                logger.error(f"Error installing ChromeDriver: {str(driver_error)}")
+                return False
             
+            try:
+                self.driver = webdriver.Chrome(service=service, options=chrome_options)
+                logger.info("Chrome driver created successfully")
+            except Exception as chrome_error:
+                logger.error(f"Error creating Chrome driver: {str(chrome_error)}")
+                return False
+            
+            try:
+                self.driver.set_window_size(1920, 1080)
+                logger.info("Window size set successfully")
+            except Exception as window_error:
+                logger.error(f"Error setting window size: {str(window_error)}")
+                # Dit is niet kritiek, dus we gaan door
+            
+            # Test of de driver werkt door naar een eenvoudige URL te navigeren
+            try:
+                logger.info("Testing driver with a simple URL")
+                self.driver.get("https://www.google.com")
+                logger.info("Driver test successful")
+            except Exception as test_error:
+                logger.error(f"Driver test failed: {str(test_error)}")
+                return False
+            
+            self.is_initialized = True
             logger.info("Selenium driver initialized successfully")
             return True
         except Exception as e:
@@ -278,20 +309,48 @@ class TradingViewSeleniumService(TradingViewService):
             logger.info(f"Getting screenshot of {url}")
             
             # Controleer of Selenium is geïnitialiseerd
-            if not self.is_initialized or not self.driver:
-                logger.error("Selenium is not initialized")
+            if not self.is_initialized:
+                logger.error("Selenium is not initialized, attempting to initialize")
+                initialized = await self.initialize()
+                if not initialized:
+                    logger.error("Failed to initialize Selenium")
+                    return None
+            
+            if not self.driver:
+                logger.error("Selenium driver is None")
                 return None
             
             # Navigeer naar de URL
-            self.driver.get(url)
+            logger.info(f"Navigating to URL: {url}")
+            try:
+                self.driver.get(url)
+                logger.info("Successfully navigated to URL")
+            except Exception as nav_error:
+                logger.error(f"Error navigating to URL: {str(nav_error)}")
+                return None
             
             # Wacht tot de pagina is geladen
-            await asyncio.sleep(5)  # Wacht 5 seconden (je kunt dit aanpassen)
+            logger.info("Waiting for page to load")
+            try:
+                await asyncio.sleep(10)  # Wacht 10 seconden (verhoogd van 5)
+                logger.info("Wait completed")
+            except Exception as wait_error:
+                logger.error(f"Error during wait: {str(wait_error)}")
+                return None
             
             # Maak een screenshot
-            screenshot = self.driver.get_screenshot_as_png()
-            
-            return screenshot
+            logger.info("Taking screenshot")
+            try:
+                screenshot = self.driver.get_screenshot_as_png()
+                if screenshot:
+                    logger.info("Screenshot taken successfully")
+                    return screenshot
+                else:
+                    logger.error("Screenshot is None")
+                    return None
+            except Exception as ss_error:
+                logger.error(f"Error taking screenshot: {str(ss_error)}")
+                return None
             
         except Exception as e:
             logger.error(f"Error getting screenshot: {str(e)}")
