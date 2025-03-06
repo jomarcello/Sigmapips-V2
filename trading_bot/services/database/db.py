@@ -227,3 +227,36 @@ class Database:
         except Exception as e:
             logger.error(f"Error deleting preference: {str(e)}")
             return False 
+
+    async def delete_all_preferences(self, user_id: int) -> bool:
+        """Delete all preferences for a user"""
+        try:
+            # Connect to database
+            async with self.pool.acquire() as conn:
+                # Delete all preferences for this user
+                await conn.execute(
+                    "DELETE FROM user_preferences WHERE user_id = $1",
+                    user_id
+                )
+            
+            logger.info(f"Deleted all preferences for user {user_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Error deleting preferences: {str(e)}")
+            return False 
+
+    async def delete_preference_by_id(self, preference_id: int) -> bool:
+        """Delete a preference by its ID"""
+        try:
+            # Delete the preference
+            response = self.supabase.table('subscriber_preferences').delete().eq('id', preference_id).execute()
+            
+            if response.data:
+                logger.info(f"Deleted preference with ID {preference_id}")
+                return True
+            else:
+                logger.error(f"Failed to delete preference: {response}")
+                return False
+        except Exception as e:
+            logger.error(f"Error deleting preference: {str(e)}")
+            return False 
