@@ -1,4 +1,4 @@
-dit zijn de huidige werkende files chart.py: import os
+import os
 import logging
 import aiohttp
 from typing import Optional
