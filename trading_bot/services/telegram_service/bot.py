@@ -1036,64 +1036,50 @@ class TelegramService:
                 return ConversationHandler.END
 
     async def back_to_market_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-        """Handle back to market callback"""
+        """Handle back to market selection"""
+        query = update.callback_query
+        await query.answer()
+        
         try:
-            query = update.callback_query
-            chat_id = query.message.chat_id
-            message_id = query.message.message_id
+            # Determine which keyboard to show based on the current state
+            current_state = context.user_data.get('current_state', MENU)
+            analysis_type = context.user_data.get('analysis_type', 'technical')
             
-            # Log de huidige staat
-            current_state = self.user_states.get(chat_id, {}).get('state', 0)
-            analysis_type = self.user_states.get(chat_id, {}).get('analysis_type', 'technical')
             logger.info(f"Back to market: current_state={current_state}, analysis_type={analysis_type}")
             
-            # Bevestig de callback query
-            await query.answer()
-            
-            # Controleer of het bericht een foto bevat
-            if query.message.photo:
-                # Als het een foto is, verwijder het huidige bericht en stuur een nieuw bericht
-                try:
-                    await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
-                except Exception as delete_error:
-                    logger.error(f"Error deleting message: {str(delete_error)}")
-                
-                # Stuur een nieuw bericht met de instrumenten
-                await self.show_instruments(update, context)
+            # Always show the market selection keyboard
+            if analysis_type == 'signals':
+                # For signals, use the signals market keyboard
+                await query.edit_message_text(
+                    text="Select a market for your trading signals:",
+                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD_SIGNALS)
+                )
             else:
-                # Als het een tekstbericht is, bewerk het bericht
-                keyboard = self.get_instruments_keyboard()
-                
-                await context.bot.edit_message_text(
-                    chat_id=chat_id,
-                    message_id=message_id,
-                    text="🔍 Selecteer een instrument om te analyseren:",
-                    reply_markup=InlineKeyboardMarkup(keyboard)
+                # For analysis (technical or sentiment), use the regular market keyboard
+                await query.edit_message_text(
+                    text=f"Select a market for {analysis_type} analysis:",
+                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
                 )
             
-            # Reset de staat
-            self.user_states[chat_id] = {'state': 1, 'analysis_type': analysis_type}
+            # Store the current state for future reference
+            context.user_data['current_state'] = CHOOSE_MARKET
             
+            return CHOOSE_MARKET
+        
         except Exception as e:
             logger.error(f"Error in back_to_market_callback: {str(e)}")
-            
-            # Probeer te herstellen door een nieuw bericht te sturen
+            # If there's an error, try to recover by showing the main menu
             try:
-                chat_id = update.callback_query.message.chat_id
-                await update.callback_query.answer()
-                
-                # Stuur een nieuw bericht met de instrumenten
-                keyboard = self.get_instruments_keyboard()
-                await update.callback_query.message.reply_text(
-                    "🔍 Selecteer een instrument om te analyseren:",
-                    reply_markup=InlineKeyboardMarkup(keyboard)
+                await query.edit_message_text(
+                    text=WELCOME_MESSAGE,
+                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
+                    parse_mode=ParseMode.HTML
                 )
-                
-                # Reset de staat
-                self.user_states[chat_id] = {'state': 1, 'analysis_type': 'technical'}
-                
-            except Exception as recovery_error:
-                logger.error(f"Failed to recover from error: {str(recovery_error)}")
+                context.user_data['current_state'] = MENU
+                return MENU
+            except Exception as inner_e:
+                logger.error(f"Failed to recover from error: {str(inner_e)}")
+                return ConversationHandler.END
 
     async def back_to_instrument(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """Handle back to instrument selection"""
@@ -1224,65 +1210,3 @@ class TelegramService:
         except Exception as e:
             logger.error(f"Error processing update: {str(e)}")
             return False
-
-    async def show_chart(self, update: Update, context: CallbackContext, instrument: str, timeframe: str = "1h", fullscreen: bool = False):
-        """Show chart for instrument"""
-        try:
-            # Haal de chat ID op
-            chat_id = update.effective_chat.id
-            
-            # Stuur een "loading" bericht
-            loading_message = await context.bot.send_message(
-                chat_id=chat_id,
-                text=f"⏳ Genereren van chart voor {instrument} ({timeframe})..."
-            )
-            
-            # Haal de chart op
-            chart_service = ChartService()
-            chart_bytes = await chart_service.get_chart(instrument, timeframe, fullscreen)
-            
-            if not chart_bytes:
-                await context.bot.edit_message_text(
-                    chat_id=chat_id,
-                    message_id=loading_message.message_id,
-                    text=f"❌ Kon geen chart genereren voor {instrument}. Probeer het later opnieuw."
-                )
-                return
-            
-            # Maak een caption voor de chart
-            caption = f"📊 {instrument} Technical Analysis"
-            
-            # Maak een keyboard met een "Back" knop
-            keyboard = [
-                [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
-            ]
-            
-            # Verwijder het loading bericht
-            await context.bot.delete_message(
-                chat_id=chat_id,
-                message_id=loading_message.message_id
-            )
-            
-            # Stuur de chart als foto
-            await context.bot.send_photo(
-                chat_id=chat_id,
-                photo=chart_bytes,
-                caption=caption,
-                reply_markup=InlineKeyboardMarkup(keyboard)
-            )
-            
-            # Update de gebruikersstaat
-            self.user_states[chat_id] = {'state': 6, 'instrument': instrument, 'timeframe': timeframe, 'analysis_type': 'technical'}
-            
-        except Exception as e:
-            logger.error(f"Error showing chart: {str(e)}")
-            
-            # Probeer het loading bericht te updaten als er een fout optreedt
-            try:
-                await context.bot.edit_message_text(
-                    chat_id=chat_id,
-                    message_id=loading_message.message_id,
-                    text=f"❌ Er is een fout opgetreden bij het genereren van de chart: {str(e)}"
-                )
-            except Exception as update_error:
-                logger.error(f"Error updating loading message: {str(update_error)}")
