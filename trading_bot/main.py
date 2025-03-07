@@ -4,6 +4,7 @@ from fastapi import FastAPI, HTTPException, Request, Depends
 import os
 from typing import Dict, Any
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
+from telegram.ext import ContextTypes
 import asyncio
 import time
 import base64
@@ -11,7 +12,6 @@ import aiohttp
 import json
 import redis
 from fastapi.responses import JSONResponse
-from telegram import ContextTypes
 
 # Import de constanten
 from trading_bot.services.telegram_service.bot import (
