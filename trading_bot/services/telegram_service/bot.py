@@ -291,7 +291,13 @@ class TelegramService:
                         CallbackQueryHandler(self.back_to_menu_callback, pattern="^back_menu$"),
                     ],
                 },
-                fallbacks=[CommandHandler("help", self.help_command)],
+                fallbacks=[
+                    CommandHandler("start", self.start_command),
+                    CommandHandler("menu", self.menu_command),
+                    CommandHandler("help", self.help_command),
+                    CallbackQueryHandler(self.callback_query_handler, pattern="^analysis_.*$"),
+                    CallbackQueryHandler(self.back_to_signal_callback, pattern="^back_to_signal$"),
+                ],
                 name="my_conversation",
                 persistent=False,
                 per_message=False,
@@ -1432,3 +1438,207 @@ class TelegramService:
                 InlineKeyboardButton("⬅️ Back to Markets", callback_data="back_to_markets")
             ]
         ]
+
+    async def callback_query_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        """Handle callback queries that don't match other patterns"""
+        query = update.callback_query
+        await query.answer()
+        
+        # Log de callback data
+        logger.info(f"Received callback: {query.data}")
+        
+        # Verwerk de callback data
+        if query.data.startswith("analysis_technical_"):
+            # Extract instrument from callback data
+            parts = query.data.split("_")
+            instrument = parts[2]
+            
+            # Check if this is from a signal (will have a 4th part)
+            from_signal = len(parts) > 3 and parts[3] == "signal"
+            
+            return await self.show_technical_analysis(update, context, instrument, from_signal)
+        
+        elif query.data.startswith("analysis_sentiment_"):
+            # Extract instrument from callback data
+            parts = query.data.split("_")
+            instrument = parts[2]
+            
+            # Check if this is from a signal
+            from_signal = len(parts) > 3 and parts[3] == "signal"
+            
+            return await self.show_sentiment_analysis(update, context, instrument, from_signal)
+        
+        elif query.data.startswith("analysis_calendar_"):
+            # Extract instrument from callback data
+            parts = query.data.split("_")
+            instrument = parts[2]
+            
+            # Check if this is from a signal
+            from_signal = len(parts) > 3 and parts[3] == "signal"
+            
+            return await self.show_economic_calendar(update, context, instrument, from_signal)
+        
+        # Fallback
+        await query.edit_message_text(
+            text="I'm not sure what you want to do. Please try again or use /menu to start over."
+        )
+        return MENU
+
+    async def show_technical_analysis(self, update: Update, context: ContextTypes.DEFAULT_TYPE, instrument: str = None, from_signal: bool = False) -> int:
+        """Show technical analysis for an instrument"""
+        query = update.callback_query
+        
+        if not instrument:
+            # Get instrument from user_data if not provided
+            instrument = context.user_data.get('instrument', 'EURUSD')
+        
+        # Show loading message
+        await query.edit_message_text(
+            text=f"Generating technical analysis for {instrument}...",
+            reply_markup=None
+        )
+        
+        try:
+            # Get chart image
+            chart_image = await self.chart.get_chart(instrument)
+            
+            if not chart_image:
+                # Create appropriate back button based on source
+                back_button = InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal") if from_signal else InlineKeyboardButton("⬅️ Back", callback_data="back_menu")
+                
+                await query.edit_message_text(
+                    text=f"❌ Could not generate chart for {instrument}. Please try again later.",
+                    reply_markup=InlineKeyboardMarkup([[back_button]])
+                )
+                return MENU
+            
+            # Create appropriate back button based on source
+            back_button = InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal") if from_signal else InlineKeyboardButton("⬅️ Back", callback_data="back_menu")
+            
+            # Send chart image
+            await query.message.reply_photo(
+                photo=chart_image,
+                caption=f"Technical Analysis for {instrument}",
+                reply_markup=InlineKeyboardMarkup([[back_button]])
+            )
+            
+            # Delete the loading message
+            await query.delete_message()
+            
+            return MENU
+        
+        except Exception as e:
+            logger.error(f"Error showing technical analysis: {str(e)}")
+            
+            # Create appropriate back button based on source
+            back_button = InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal") if from_signal else InlineKeyboardButton("⬅️ Back", callback_data="back_menu")
+            
+            await query.edit_message_text(
+                text=f"❌ Error generating analysis for {instrument}. Please try again later.",
+                reply_markup=InlineKeyboardMarkup([[back_button]])
+            )
+            return MENU
+
+    async def show_sentiment_analysis(self, update: Update, context: ContextTypes.DEFAULT_TYPE, instrument: str = None, from_signal: bool = False) -> int:
+        """Show sentiment analysis for an instrument"""
+        query = update.callback_query
+        
+        if not instrument:
+            # Get instrument from user_data if not provided
+            instrument = context.user_data.get('instrument', 'EURUSD')
+        
+        # Show loading message
+        await query.edit_message_text(
+            text=f"Getting market sentiment for {instrument}...",
+            reply_markup=None
+        )
+        
+        try:
+            # Get sentiment analysis
+            sentiment = await self.sentiment.get_market_sentiment(instrument)
+            
+            # Create appropriate back button based on source
+            back_button = InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal") if from_signal else InlineKeyboardButton("⬅️ Back", callback_data="back_menu")
+            
+            # Show sentiment analysis
+            await query.edit_message_text(
+                text=sentiment,
+                reply_markup=InlineKeyboardMarkup([[back_button]]),
+                parse_mode=ParseMode.HTML
+            )
+            
+            return MENU
+        
+        except Exception as e:
+            logger.error(f"Error showing sentiment analysis: {str(e)}")
+            
+            # Create appropriate back button based on source
+            back_button = InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal") if from_signal else InlineKeyboardButton("⬅️ Back", callback_data="back_menu")
+            
+            await query.edit_message_text(
+                text=f"❌ Error getting sentiment for {instrument}. Please try again later.",
+                reply_markup=InlineKeyboardMarkup([[back_button]])
+            )
+            return MENU
+
+    async def show_economic_calendar(self, update: Update, context: ContextTypes.DEFAULT_TYPE, instrument: str = None, from_signal: bool = False) -> int:
+        """Show economic calendar for an instrument"""
+        query = update.callback_query
+        
+        if not instrument:
+            # Get instrument from user_data if not provided
+            instrument = context.user_data.get('instrument', 'EURUSD')
+        
+        # Show loading message
+        await query.edit_message_text(
+            text=f"Getting economic calendar for {instrument}...",
+            reply_markup=None
+        )
+        
+        try:
+            # Get economic calendar
+            calendar = await self.calendar.get_economic_calendar(instrument)
+            
+            # Create appropriate back button based on source
+            back_button = InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal") if from_signal else InlineKeyboardButton("⬅️ Back", callback_data="back_menu")
+            
+            # Show economic calendar
+            await query.edit_message_text(
+                text=calendar,
+                reply_markup=InlineKeyboardMarkup([[back_button]]),
+                parse_mode=ParseMode.HTML
+            )
+            
+            return MENU
+        
+        except Exception as e:
+            logger.error(f"Error showing economic calendar: {str(e)}")
+            
+            # Create appropriate back button based on source
+            back_button = InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal") if from_signal else InlineKeyboardButton("⬅️ Back", callback_data="back_menu")
+            
+            await query.edit_message_text(
+                text=f"❌ Error getting economic calendar for {instrument}. Please try again later.",
+                reply_markup=InlineKeyboardMarkup([[back_button]])
+            )
+            return MENU
+
+    # Voeg een handler toe voor de back_to_signal callback
+    async def back_to_signal_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        """Handle back to signal button"""
+        query = update.callback_query
+        await query.answer()
+        
+        try:
+            # Hier zou je normaal gesproken terug moeten gaan naar het signaal,
+            # maar omdat het signaal al is verzonden, kunnen we alleen een nieuw bericht sturen
+            await query.edit_message_text(
+                text="You've returned from the analysis. To see more analyses, please check the original signal message.",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("🏠 Main Menu", callback_data="back_menu")
+                ]])
+            )
+            return MENU
+        except Exception as e:
+            logger.error(f"Error in back_to_signal_callback: {str(e)}")
+            return MENU
