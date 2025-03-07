@@ -691,27 +691,58 @@ class TelegramService:
         context.user_data['market'] = market
         context.user_data['analysis_type'] = 'signals'
         
-        # Determine which keyboard to show based on market
-        keyboard_map = {
-            'forex': FOREX_KEYBOARD,
-            'crypto': CRYPTO_KEYBOARD,
-            'commodities': COMMODITIES_KEYBOARD,
-            'indices': INDICES_KEYBOARD
-        }
-        
-        keyboard = keyboard_map.get(market, FOREX_KEYBOARD)
-        
-        # Adjust callback data for signals
-        for row in keyboard:
-            for button in row:
-                if "Back" not in button.text:
-                    button.callback_data = f"instrument_{button.text}_signals"
-        
-        # Add back button
-        for row in keyboard:
-            for button in row:
-                if "Back" in button.text:
-                    button.callback_data = "back_signals"
+        # Maak een nieuwe keyboard op basis van de markt
+        if market == 'forex':
+            keyboard = [
+                [
+                    InlineKeyboardButton("EURUSD", callback_data="instrument_EURUSD_signals"),
+                    InlineKeyboardButton("GBPUSD", callback_data="instrument_GBPUSD_signals"),
+                    InlineKeyboardButton("USDJPY", callback_data="instrument_USDJPY_signals")
+                ],
+                [
+                    InlineKeyboardButton("AUDUSD", callback_data="instrument_AUDUSD_signals"),
+                    InlineKeyboardButton("USDCAD", callback_data="instrument_USDCAD_signals"),
+                    InlineKeyboardButton("EURGBP", callback_data="instrument_EURGBP_signals")
+                ],
+                [InlineKeyboardButton("⬅️ Terug", callback_data="back_signals")]
+            ]
+        elif market == 'crypto':
+            keyboard = [
+                [
+                    InlineKeyboardButton("BTCUSD", callback_data="instrument_BTCUSD_signals"),
+                    InlineKeyboardButton("ETHUSD", callback_data="instrument_ETHUSD_signals"),
+                    InlineKeyboardButton("XRPUSD", callback_data="instrument_XRPUSD_signals")
+                ],
+                [InlineKeyboardButton("⬅️ Terug", callback_data="back_signals")]
+            ]
+        elif market == 'commodities':
+            keyboard = [
+                [
+                    InlineKeyboardButton("XAUUSD", callback_data="instrument_XAUUSD_signals"),
+                    InlineKeyboardButton("XAGUSD", callback_data="instrument_XAGUSD_signals"),
+                    InlineKeyboardButton("USOIL", callback_data="instrument_USOIL_signals")
+                ],
+                [InlineKeyboardButton("⬅️ Terug", callback_data="back_signals")]
+            ]
+        elif market == 'indices':
+            keyboard = [
+                [
+                    InlineKeyboardButton("US30", callback_data="instrument_US30_signals"),
+                    InlineKeyboardButton("US500", callback_data="instrument_US500_signals"),
+                    InlineKeyboardButton("US100", callback_data="instrument_US100_signals")
+                ],
+                [InlineKeyboardButton("⬅️ Terug", callback_data="back_signals")]
+            ]
+        else:
+            # Fallback naar forex als de markt niet wordt herkend
+            keyboard = [
+                [
+                    InlineKeyboardButton("EURUSD", callback_data="instrument_EURUSD_signals"),
+                    InlineKeyboardButton("GBPUSD", callback_data="instrument_GBPUSD_signals"),
+                    InlineKeyboardButton("USDJPY", callback_data="instrument_USDJPY_signals")
+                ],
+                [InlineKeyboardButton("⬅️ Terug", callback_data="back_signals")]
+            ]
         
         await query.edit_message_text(
             text=f"Select an instrument from {market.capitalize()}:",
@@ -857,18 +888,6 @@ class TelegramService:
                 'indices': INDICES_KEYBOARD
             }
             keyboard = keyboard_map.get(market, FOREX_KEYBOARD)
-            
-            # Adjust callback data for signals
-            for row in keyboard:
-                for button in row:
-                    if "Back" not in button.text:
-                        button.callback_data = f"instrument_{button.text}_signals"
-            
-            # Add back button
-            for row in keyboard:
-                for button in row:
-                    if "Back" in button.text:
-                        button.callback_data = "back_signals"
             
             await query.edit_message_text(
                 text=f"Select an instrument from {market.capitalize()}:",
@@ -1413,4 +1432,3 @@ class TelegramService:
                 InlineKeyboardButton("⬅️ Back to Markets", callback_data="back_to_markets")
             ]
         ]
-        
