@@ -1669,3 +1669,27 @@ class TelegramService:
         except Exception as e:
             logger.error(f"Fout in cancel commando: {str(e)}")
             return ConversationHandler.END
+
+    async def error_handler(self, update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handelt fouten af die tijdens het uitvoeren van updates optreden."""
+        logger.error(f"Update {update} veroorzaakte fout: {context.error}")
+        
+        # Log de volledige stacktrace
+        import traceback
+        logger.error(traceback.format_exc())
+        
+        # Probeer de gebruiker te informeren over de fout
+        if update and hasattr(update, 'effective_message') and update.effective_message:
+            await update.effective_message.reply_text(
+                "Er is een fout opgetreden tijdens het verwerken van je verzoek. "
+                "Probeer het later opnieuw of gebruik /start om opnieuw te beginnen."
+            )
+        
+        # Als er een callback query is, beantwoord deze om de "wachtende" status te verwijderen
+        if update and hasattr(update, 'callback_query') and update.callback_query:
+            try:
+                await update.callback_query.answer(
+                    "Er is een fout opgetreden. Probeer het opnieuw."
+                )
+            except Exception as e:
+                logger.error(f"Kon callback query niet beantwoorden: {e}")
