@@ -293,7 +293,7 @@ class TelegramService:
                 },
                 fallbacks=[
                     CommandHandler("start", self.start_command),
-                    CommandHandler("menu", self.menu_command),
+                    CommandHandler("menu", self.start_command),
                     CommandHandler("help", self.help_command),
                     CallbackQueryHandler(self.callback_query_handler, pattern="^analysis_.*$"),
                     CallbackQueryHandler(self.back_to_signal_callback, pattern="^back_to_signal$"),
@@ -1624,6 +1624,21 @@ class TelegramService:
         await query.edit_message_text(
             text="Test button clicked!",
             reply_markup=None
+        )
+        
+        return MENU
+
+    async def menu_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        """Show the main menu"""
+        keyboard = [
+            [InlineKeyboardButton("📊 Market Analysis", callback_data="analysis")],
+            [InlineKeyboardButton("🔔 Trading Signals", callback_data="signals")],
+            [InlineKeyboardButton("ℹ️ Help", callback_data="help")]
+        ]
+        
+        await update.message.reply_text(
+            "Welcome to SigmaPips Trading Bot! Please select an option:",
+            reply_markup=InlineKeyboardMarkup(keyboard)
         )
         
         return MENU
