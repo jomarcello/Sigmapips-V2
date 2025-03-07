@@ -744,21 +744,23 @@ class TelegramService:
                 )
                 
                 try:
-                    # Get chart image
+                    # Get chart image - only get a single timeframe (1h)
                     chart_image = await self.chart.get_chart(instrument, timeframe="1h")
                     
                     if chart_image:
-                        # Upload de afbeelding naar Telegraph
-                        telegraph_url = await self.upload_to_telegraph(chart_image, f"{instrument} Chart")
+                        # Show chart image
+                        await query.message.reply_photo(
+                            photo=chart_image,
+                            caption=f"📊 {instrument} Technical Analysis",
+                            reply_markup=InlineKeyboardMarkup([[
+                                InlineKeyboardButton("⬅️ Back", callback_data="back_market")
+                            ]])
+                        )
                         
-                        # Toon een link naar de afbeelding
+                        # Delete the loading message
                         await query.edit_message_text(
-                            text=f"📊 {instrument} Technical Analysis\n\n"
-                                 f"[View Chart]({telegraph_url})",
-                            reply_markup=InlineKeyboardMarkup([
-                                [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
-                            ]),
-                            parse_mode=ParseMode.MARKDOWN
+                            text=f"Chart for {instrument} generated successfully.",
+                            reply_markup=None
                         )
                     else:
                         # Show error message
