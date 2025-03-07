@@ -1416,10 +1416,8 @@ class TelegramService:
             return MENU
         
         elif query.data == "back_to_signal":
-            # We can't actually go back to the original signal message,
-            # but we can inform the user to check their chat history
             try:
-                # Try to extract the instrument from the current message text
+                # Extract instrument from message text
                 instrument = None
                 message_text = query.message.text if query.message and hasattr(query.message, 'text') else ""
                 
@@ -1432,34 +1430,40 @@ class TelegramService:
                 if not instrument and context.user_data and 'instrument' in context.user_data:
                     instrument = context.user_data.get('instrument')
                 
-                # Prepare response message
-                response_text = "You've returned to signal view. "
-                response_text += "Please check your chat history for the original signal message."
+                # Create a signal-like message
+                signal_message = f"🎯 <b>Trading Signal</b> 🎯\n\n"
+                signal_message += f"Instrument: {instrument}\n"
                 
-                # Create keyboard with appropriate buttons
-                keyboard = []
-                if instrument:
-                    keyboard.append([InlineKeyboardButton("🔍 Analyze Again", callback_data=f"analyze_market_{instrument}")])
+                # Add placeholder data if we don't have the actual signal data
+                signal_message += f"Action: BUY 📈\n\n"
+                signal_message += f"Entry Price: [Last price]\n"
+                signal_message += f"Stop Loss: [Recommended level] 🔴\n"
+                signal_message += f"Take Profit: [Target level] 🎯\n\n"
+                signal_message += f"Timeframe: 1h\n"
+                signal_message += f"Strategy: Trend Following\n\n"
                 
-                keyboard.append([InlineKeyboardButton("🏠 Main Menu", callback_data="back_menu")])
+                # Create the analyze market button
+                keyboard = [
+                    [InlineKeyboardButton("🔍 Analyze Market", callback_data=f"analyze_market_{instrument}")]
+                ]
                 
-                # Send the response
+                # Send the recreated signal
                 await query.edit_message_text(
-                    text=response_text,
-                    reply_markup=InlineKeyboardMarkup(keyboard)
+                    text=signal_message,
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.HTML
                 )
                 
-                # Log success
-                logger.info(f"Successfully handled back_to_signal with instrument: {instrument}")
+                logger.info(f"Recreated signal view for instrument: {instrument}")
                 return MENU
             except Exception as e:
                 logger.error(f"Error in back_to_signal handler: {str(e)}")
-                logger.exception(e)  # Log full traceback
+                logger.exception(e)
                 
-                # If there's an error, try to show a simple message
+                # If there's an error, show a simple message
                 try:
                     await query.edit_message_text(
-                        text="Please check your chat history for the original signal.",
+                        text="Could not return to signal view. Please check your chat history for the original signal.",
                         reply_markup=InlineKeyboardMarkup([[
                             InlineKeyboardButton("🏠 Main Menu", callback_data="back_menu")
                         ]])
