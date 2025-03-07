@@ -61,38 +61,36 @@ if (!url || !outputPath) {
             timeout: 90000
         });
         
-        // Wacht een vaste tijd om de pagina te laten renderen
-        console.log('Waiting for page to render...');
-        await page.waitForTimeout(10000); // Verhoog de wachttijd naar 10 seconden
-
-        // Wacht op een specifiek element dat aangeeft dat de indicators geladen zijn
-        console.log('Waiting for indicators to load...');
-        await page.waitForSelector('.chart-container', { state: 'attached', timeout: 30000 }); // Pas de selector aan op basis van de TradingView UI
+        // Wacht tot de pagina volledig is geladen
+        console.log('Waiting for the chart to fully load...');
+        await page.waitForTimeout(15000); // Wacht 15 seconden
+        await page.waitForSelector('.chart-container', { state: 'attached', timeout: 30000 });
+        await page.waitForSelector('.chart-container .candlestick', { state: 'visible', timeout: 30000 });
 
         // Verwijder of verberg UI-elementen
         console.log('Removing UI elements...');
         await page.evaluate(() => {
-            // Verwijder de header
+            // Verberg de header
             const header = document.querySelector('header');
-            if (header) header.remove();
+            if (header) header.style.display = 'none';
 
-            // Verwijder de footer
+            // Verberg de footer
             const footer = document.querySelector('footer');
-            if (footer) footer.remove();
+            if (footer) footer.style.display = 'none';
 
-            // Verwijder de sidebar
+            // Verberg de sidebar
             const sidebar = document.querySelector('.sidebar');
-            if (sidebar) sidebar.remove();
+            if (sidebar) sidebar.style.display = 'none';
 
-            // Verwijder de toolbar
+            // Verberg de toolbar
             const toolbar = document.querySelector('.chart-toolbar');
-            if (toolbar) toolbar.remove();
+            if (toolbar) toolbar.style.display = 'none';
 
-            // Verwijder andere ongewenste elementen (pas dit aan op basis van de TradingView UI)
-            const unwantedElements = document.querySelectorAll('.unwanted-class'); // Vervang '.unwanted-class' door de juiste selector
-            unwantedElements.forEach(element => element.remove());
+            // Verberg andere ongewenste elementen
+            const unwantedElements = document.querySelectorAll('.unwanted-class');
+            unwantedElements.forEach(element => element.style.display = 'none');
 
-            // Activeer de fullscreen-modus van TradingView
+            // Maak de chart fullscreen
             const chart = document.querySelector('.chart-container');
             if (chart) {
                 chart.style.position = 'fixed';
@@ -102,6 +100,9 @@ if (!url || !outputPath) {
                 chart.style.height = '100%';
                 chart.style.zIndex = '1000';
             }
+
+            // Maak de achtergrond transparant
+            document.body.style.backgroundColor = 'transparent';
         });
 
         // Neem een fullscreen screenshot
@@ -109,7 +110,7 @@ if (!url || !outputPath) {
         await page.screenshot({
             path: outputPath,
             fullPage: true, // Maak een volledige pagina-screenshot
-            omitBackground: true // Optioneel: verwijder de achtergrond voor een transparante screenshot
+            omitBackground: true // Verwijder de achtergrond voor een transparante screenshot
         });
         
         // Sluit de browser
