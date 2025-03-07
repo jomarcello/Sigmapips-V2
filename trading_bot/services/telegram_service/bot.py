@@ -297,6 +297,7 @@ class TelegramService:
                     CommandHandler("help", self.help_command),
                     CallbackQueryHandler(self.callback_query_handler, pattern="^analysis_.*$"),
                     CallbackQueryHandler(self.back_to_signal_callback, pattern="^back_to_signal$"),
+                    CallbackQueryHandler(self.test_button_callback, pattern="^test_button$"),
                 ],
                 name="my_conversation",
                 persistent=False,
@@ -312,6 +313,9 @@ class TelegramService:
             
             # Initialiseer de user_states dictionary
             self.user_states = {}
+            
+            # Zorg ervoor dat de bot wordt geïnitialiseerd
+            self.initialize()
             
             logger.info("Telegram service initialized")
             
@@ -1177,41 +1181,10 @@ class TelegramService:
             logger.error(f"Error resetting conversation: {str(e)}")
             return ConversationHandler.END
 
-    async def initialize(self, use_webhook=False):
-        """Initialize the Telegram bot asynchronously."""
-        try:
-            # Get bot info
-            info = await self.bot.get_me()
-            logger.info(f"Successfully connected to Telegram API. Bot info: {info}")
-            
-            # Initialize services
-            logger.info("Initializing services")
-            await self.chart.initialize()
-            
-            # Set bot commands
-            commands = [
-                ("start", "Start the bot and show main menu"),
-                ("help", "Show help message")
-            ]
-            await self.bot.set_my_commands(commands)
-            
-            # Start the bot
-            await self.application.initialize()
-            await self.application.start()
-            
-            if not use_webhook:
-                # Verwijder eerst eventuele bestaande webhook
-                await self.bot.delete_webhook()
-                
-                # Start polling
-                await self.application.updater.start_polling()
-                logger.info("Telegram bot initialized and started polling.")
-            else:
-                logger.info("Telegram bot initialized for webhook use.")
-            
-        except Exception as e:
-            logger.error(f"Error during Telegram bot initialization: {str(e)}")
-            raise
+    async def initialize(self):
+        # Initialiseer de bot
+        self.bot = Bot(token=self.token)
+        # Rest van de initialisatie...
 
     async def process_update(self, update_data):
         """Process an update from the webhook."""
@@ -1642,3 +1615,15 @@ class TelegramService:
         except Exception as e:
             logger.error(f"Error in back_to_signal_callback: {str(e)}")
             return MENU
+
+    async def test_button_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        """Handle test button callback"""
+        query = update.callback_query
+        await query.answer()
+        
+        await query.edit_message_text(
+            text="Test button clicked!",
+            reply_markup=None
+        )
+        
+        return MENU
