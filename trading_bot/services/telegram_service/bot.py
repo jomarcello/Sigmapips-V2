@@ -1404,11 +1404,11 @@ class TelegramService:
                 [InlineKeyboardButton("📊 Technical Analysis", callback_data=f"analysis_technical_{instrument}_signal")],
                 [InlineKeyboardButton("🧠 Market Sentiment", callback_data=f"analysis_sentiment_{instrument}_signal")],
                 [InlineKeyboardButton("📅 Economic Calendar", callback_data=f"analysis_calendar_{instrument}_signal")],
-                [InlineKeyboardButton("⬅️ Terug naar Signaal", callback_data=f"back_to_signal")]
+                [InlineKeyboardButton("⬅️ Back to Signal", callback_data=f"back_to_signal")]
             ]
             
             await query.edit_message_text(
-                text=f"Kies analyse type voor {instrument}:",
+                text=f"Choose analysis type for {instrument}:",
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
             
@@ -1418,9 +1418,9 @@ class TelegramService:
             # Hier kunnen we niet echt terug naar het originele signaal, 
             # maar we kunnen wel een nieuw bericht sturen
             await query.edit_message_text(
-                text="Je bent teruggekeerd naar het signaal. Gebruik de knoppen in het originele signaal voor meer analyses.",
+                text="You've returned to the signal. Use the buttons in the original signal for more analyses.",
                 reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("🏠 Hoofdmenu", callback_data="back_menu")
+                    InlineKeyboardButton("🏠 Main Menu", callback_data="back_menu")
                 ]])
             )
             return MENU
@@ -1605,7 +1605,7 @@ class TelegramService:
         try:
             # Stuur een bericht dat de conversatie is geannuleerd
             await update.message.reply_text(
-                "Huidige operatie geannuleerd. Gebruik /start om opnieuw te beginnen."
+                "Current operation cancelled. Use /start to begin again."
             )
             
             # Reset user_data
@@ -1615,12 +1615,12 @@ class TelegramService:
             return ConversationHandler.END
             
         except Exception as e:
-            logger.error(f"Fout in cancel commando: {str(e)}")
+            logger.error(f"Error in cancel command: {str(e)}")
             return ConversationHandler.END
 
     async def error_handler(self, update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Handelt fouten af die tijdens het uitvoeren van updates optreden."""
-        logger.error(f"Update {update} veroorzaakte fout: {context.error}")
+        """Handles errors that occur during the execution of updates."""
+        logger.error(f"Update {update} caused error: {context.error}")
         
         # Log de volledige stacktrace
         import traceback
@@ -1629,18 +1629,18 @@ class TelegramService:
         # Probeer de gebruiker te informeren over de fout
         if update and hasattr(update, 'effective_message') and update.effective_message:
             await update.effective_message.reply_text(
-                "Er is een fout opgetreden tijdens het verwerken van je verzoek. "
-                "Probeer het later opnieuw of gebruik /start om opnieuw te beginnen."
+                "An error occurred while processing your request. "
+                "Please try again later or use /start to begin again."
             )
         
         # Als er een callback query is, beantwoord deze om de "wachtende" status te verwijderen
         if update and hasattr(update, 'callback_query') and update.callback_query:
             try:
                 await update.callback_query.answer(
-                    "Er is een fout opgetreden. Probeer het opnieuw."
+                    "An error occurred. Please try again."
                 )
             except Exception as e:
-                logger.error(f"Kon callback query niet beantwoorden: {e}")
+                logger.error(f"Could not answer callback query: {e}")
 
     async def menu_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """Show the main menu"""
@@ -1651,7 +1651,7 @@ class TelegramService:
         ]
         
         await update.message.reply_text(
-            "Welkom bij SigmaPips Trading Bot! Selecteer een optie:",
+            "Welcome to SigmaPips Trading Bot! Select an option:",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
         
