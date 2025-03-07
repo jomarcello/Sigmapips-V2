@@ -211,94 +211,13 @@ async def signal_webhook(request: Request):
         market = _detect_market(signal_data['instrument'])
         signal_data['market'] = market
         
-        # Voeg de process_signal methode toe aan TelegramService als deze nog niet bestaat
-        if not hasattr(telegram, 'process_signal'):
-            # Implementeer de methode dynamisch
-            async def process_signal(self, signal_data):
-                """Process a trading signal and send it to subscribed users."""
-                try:
-                    # Log het ontvangen signaal
-                    logger.info(f"Processing signal: {signal_data}")
-                    
-                    # Haal de relevante informatie uit het signaal
-                    instrument = signal_data.get('instrument')
-                    timeframe = signal_data.get('timeframe', '1h')
-                    direction = signal_data.get('direction')
-                    price = signal_data.get('price')
-                    stop_loss = signal_data.get('stop_loss')
-                    take_profit = signal_data.get('take_profit')
-                    message = signal_data.get('message')
-                    market = signal_data.get('market', 'forex')
-                    
-                    # Converteer het signaal naar het formaat dat match_subscribers verwacht
-                    signal_for_matching = {
-                        'market': market,
-                        'symbol': instrument,
-                        'timeframe': timeframe,
-                        'direction': direction,
-                        'price': price,
-                        'stop_loss': stop_loss,
-                        'take_profit': take_profit,
-                        'message': message
-                    }
-                    
-                    # Gebruik de match_subscribers methode om de juiste gebruikers te vinden
-                    matched_subscribers = await self.db.match_subscribers(signal_for_matching)
-                    
-                    logger.info(f"Found {len(matched_subscribers)} subscribers for {instrument} {timeframe}")
-                    if not matched_subscribers:
-                        logger.info(f"No users subscribed to {instrument} {timeframe} signals")
-                        return True
-                    
-                    # Maak het signaal bericht
-                    signal_message = f"🎯 <b>New Trading Signal</b> 🎯\n\n"
-                    signal_message += f"Instrument: {instrument}\n"
-                    signal_message += f"Action: {direction.upper()} {'📈' if direction.lower() == 'buy' else '📉'}\n\n"
-                    
-                    signal_message += f"Entry Price: {price}\n"
-                    
-                    if stop_loss:
-                        signal_message += f"Stop Loss: {stop_loss} {'🔴' if stop_loss else ''}\n"
-                    
-                    if take_profit:
-                        signal_message += f"Take Profit: {take_profit} {'🎯' if take_profit else ''}\n\n"
-                    
-                    signal_message += f"Timeframe: {timeframe}\n"
-                    
-                    # Stuur het signaal naar alle geabonneerde gebruikers
-                    for subscriber in matched_subscribers:
-                        try:
-                            user_id = subscriber['user_id']
-                            # Stuur eerst het signaal
-                            keyboard = [
-                                [InlineKeyboardButton("📊 Technical Analysis", callback_data=f"analysis_technical_{instrument}_signal")],
-                                [InlineKeyboardButton("🧠 Market Sentiment", callback_data=f"analysis_sentiment_{instrument}_signal")],
-                                [InlineKeyboardButton("📅 Economic Calendar", callback_data=f"analysis_calendar_{instrument}_signal")]
-                            ]
-                            
-                            await self.bot.send_message(
-                                chat_id=user_id,
-                                text=signal_message,
-                                parse_mode='HTML',
-                                reply_markup=InlineKeyboardMarkup(keyboard)
-                            )
-                            
-                            logger.info(f"Sent signal and test button to user {user_id}")
-                        except Exception as user_error:
-                            logger.error(f"Error sending signal to user {subscriber['user_id']}: {str(user_error)}")
-                            logger.exception(user_error)
-                    
-                    return True
-                except Exception as e:
-                    logger.error(f"Error processing signal: {str(e)}")
-                    logger.exception(e)
-                    return False
-            
-            # Voeg de methode toe aan de TelegramService klasse
-            telegram.process_signal = process_signal
-        
         # Verwerk het signaal
-        success = await telegram.process_signal(signal_data)
+        if hasattr(telegram, 'process_signal'):
+            # Roep de methode aan met de juiste parameters
+            success = await telegram.process_signal(signal_data)
+        else:
+            logger.error("process_signal method not found on telegram service")
+            success = False
         
         # Stuur een test bericht met knoppen
         try:
@@ -432,10 +351,12 @@ async def receive_signal(signal: Dict[str, Any]):
                 return signal
         
         # Stuur het signaal naar de webhook
-        return await signal_webhook(MockRequest())
+        mock_request = MockRequest()
+        return await signal_webhook(mock_request)
         
     except Exception as e:
         logger.error(f"Error processing signal: {str(e)}")
+        logger.exception(e)  # Log de volledige stacktrace
         return {"status": "error", "message": str(e)}
 
 @app.post("/test-signal")
