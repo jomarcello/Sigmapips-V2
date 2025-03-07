@@ -11,6 +11,7 @@ import aiohttp
 import json
 import redis
 from fastapi.responses import JSONResponse
+from telegram import ContextTypes
 
 # Import de constanten
 from trading_bot.services.telegram_service.bot import (
@@ -130,22 +131,53 @@ async def health_check():
     return {"status": "ok"}
 
 @app.post("/webhook")
-async def telegram_webhook(request: Request):
-    """Handle Telegram webhook"""
+async def webhook(request: Request):
+    """Webhook endpoint voor Telegram"""
     try:
-        # Log dat de webhook is aangeroepen
         logger.info("Webhook aangeroepen")
         
         # Haal de update data op
         update_data = await request.json()
+        
+        # Log de update data
         logger.info(f"Webhook data: {update_data}")
         
-        # Verwerk de update via de TelegramService
-        await telegram.process_update(update_data)
+        # Controleer of het een callback query is
+        if 'callback_query' in update_data:
+            callback_data = update_data['callback_query']['data']
+            logger.info(f"Callback data: {callback_data}")
+            
+            # Maak een Update object
+            update = Update.de_json(data=update_data, bot=telegram.bot)
+            
+            # Als het een analyze_market callback is, verwerk deze direct
+            if callback_data.startswith('analyze_market_'):
+                logger.info(f"Verwerking analyze_market callback: {callback_data}")
+                
+                # Haal het instrument op uit de callback data
+                parts = callback_data.split('_')
+                instrument = parts[2]
+                
+                # Maak een context object
+                context = ContextTypes.DEFAULT_TYPE.context
+                context.user_data = {}
+                
+                # Verwerk de callback direct
+                await telegram.callback_query_handler(update, context)
+                
+                return {"status": "success"}
         
-        return {"status": "ok"}
+        # Stuur de update naar de telegram service
+        success = await telegram.process_update(update_data)
+        
+        if success:
+            return {"status": "success"}
+        else:
+            return {"status": "error", "message": "Failed to process update"}
+    
     except Exception as e:
         logger.error(f"Error in webhook: {str(e)}")
+        logger.exception(e)
         return {"status": "error", "message": str(e)}
 
 def _detect_market(symbol: str) -> str:
@@ -452,6 +484,59 @@ async def test_button():
         return {"status": "success", "message": "Test button sent"}
     except Exception as e:
         logger.error(f"Error sending test button: {str(e)}")
+        logger.exception(e)
+        return {"status": "error", "message": str(e)}
+
+@app.get("/test-callback/{instrument}")
+async def test_callback(instrument: str):
+    """Test endpoint voor callbacks"""
+    try:
+        # Maak een mock update
+        update_data = {
+            "update_id": 123456789,
+            "callback_query": {
+                "id": "123456789",
+                "from": {
+                    "id": 2004519703,
+                    "is_bot": False,
+                    "first_name": "Test",
+                    "username": "test_user"
+                },
+                "message": {
+                    "message_id": 123,
+                    "from": {
+                        "id": 7328581013,
+                        "is_bot": True,
+                        "first_name": "SigmapipsAI",
+                        "username": "SignapipsAI_bot"
+                    },
+                    "chat": {
+                        "id": 2004519703,
+                        "first_name": "Test",
+                        "username": "test_user",
+                        "type": "private"
+                    },
+                    "date": int(time.time()),
+                    "text": "Test message"
+                },
+                "chat_instance": "123456789",
+                "data": f"analyze_market_{instrument}"
+            }
+        }
+        
+        # Maak een Update object
+        update = Update.de_json(data=update_data, bot=telegram.bot)
+        
+        # Maak een context object
+        context = ContextTypes.DEFAULT_TYPE.context
+        context.user_data = {}
+        
+        # Verwerk de callback direct
+        await telegram.callback_query_handler(update, context)
+        
+        return {"status": "success", "message": f"Test callback for {instrument} processed"}
+    except Exception as e:
+        logger.error(f"Error in test callback: {str(e)}")
         logger.exception(e)
         return {"status": "error", "message": str(e)}
 
