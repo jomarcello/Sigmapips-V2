@@ -1415,15 +1415,39 @@ class TelegramService:
             return MENU
         
         elif query.data == "back_to_signal":
-            # Hier kunnen we niet echt terug naar het originele signaal, 
-            # maar we kunnen wel een nieuw bericht sturen
-            await query.edit_message_text(
-                text="You've returned to the signal. Use the buttons in the original signal for more analyses.",
-                reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("🏠 Main Menu", callback_data="back_menu")
-                ]])
-            )
-            return MENU
+            # We can't actually go back to the original signal message,
+            # but we can inform the user to check their chat history
+            try:
+                # Get the instrument from the previous analysis if available
+                instrument = None
+                if context.user_data and 'instrument' in context.user_data:
+                    instrument = context.user_data.get('instrument')
+                
+                message_text = "You've returned to signal view. "
+                message_text += "Please check your chat history for the original signal message."
+                
+                # Create a new analyze button to allow the user to analyze again
+                keyboard = []
+                if instrument:
+                    keyboard.append([InlineKeyboardButton("🔍 Analyze Again", callback_data=f"analyze_market_{instrument}")])
+                
+                keyboard.append([InlineKeyboardButton("🏠 Main Menu", callback_data="back_menu")])
+                
+                await query.edit_message_text(
+                    text=message_text,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+                return MENU
+            except Exception as e:
+                logger.error(f"Error in back_to_signal handler: {str(e)}")
+                # If there's an error, try to show a simple message
+                await query.edit_message_text(
+                    text="Please check your chat history for the original signal.",
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("🏠 Main Menu", callback_data="back_menu")
+                    ]])
+                )
+                return MENU
         
         elif query.data.startswith("analysis_technical_"):
             # Extract instrument from callback data
