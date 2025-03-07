@@ -52,47 +52,31 @@ class Database:
             'swing': '4h'
         }
         
-    async def match_subscribers(self, signal: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """Match signal with subscribers based on market, instrument and timeframe"""
+    async def match_subscribers(self, signal):
+        """Match subscribers to a signal"""
         try:
-            logger.info(f"Incoming signal: market={signal['market']}, symbol={signal['symbol']}, timeframe={signal['timeframe']}")
+            market = signal.get('market', 'forex')
+            symbol = signal.get('symbol', '')
+            timeframe = signal.get('timeframe', '1h')
             
-            # Haal alle actieve subscribers op
-            subscribers = self.supabase.table('subscriber_preferences').select('*').execute()
-            total_subscribers = len(subscribers.data)
-            logger.info(f"Found {total_subscribers} total subscribers in database")
-
-            # Filter subscribers die matchen met het signaal
-            matched_subscribers = []
-            for subscriber in subscribers.data:
-                # Exacte vergelijking (case-sensitive)
-                logger.info(f"Checking subscriber {subscriber['id']}: "
-                           f"market={subscriber['market']}=={signal['market']}, "
-                           f"instrument={subscriber['instrument']}=={signal['symbol']}, "
-                           f"timeframe={subscriber['timeframe']}=={signal['timeframe']}")
-
-                # Check of market, instrument en timeframe exact matchen
-                if (subscriber['market'] == signal['market'] and
-                    subscriber['instrument'] == signal['symbol'] and
-                    subscriber['timeframe'] == signal['timeframe'] and
-                    subscriber.get('is_active', True)):
-                    
-                    subscriber['chat_id'] = str(subscriber['user_id'])
-                    matched_subscribers.append(subscriber)
-                    logger.info(f"✅ Matched subscriber {subscriber['id']}: user_id={subscriber['user_id']}")
-                else:
-                    logger.info(f"❌ No match for subscriber {subscriber['id']}")
-
-            # Log samenvattende statistieken
-            logger.info(f"Matching Summary:")
-            logger.info(f"- Total subscribers: {total_subscribers}")
-            logger.info(f"- Matched subscribers: {len(matched_subscribers)}")
-            logger.info(f"- Match rate: {(len(matched_subscribers)/total_subscribers)*100:.1f}%")
-            if matched_subscribers:
-                logger.info(f"- Matched user_ids: {[sub['user_id'] for sub in matched_subscribers]}")
-
-            return matched_subscribers
-
+            logger.info(f"Matching subscribers for: market={market}, symbol={symbol}, timeframe={timeframe}")
+            
+            # Log de query die we gaan uitvoeren
+            query = f"""
+            SELECT * FROM subscriber_preferences 
+            WHERE market = '{market}' 
+            AND instrument = '{symbol}' 
+            AND timeframe = '{timeframe}'
+            """
+            logger.info(f"Query: {query}")
+            
+            # Voer de query uit
+            result = await self.execute_query(query)
+            
+            # Log het resultaat
+            logger.info(f"Match result: {result}")
+            
+            return result
         except Exception as e:
             logger.error(f"Error matching subscribers: {str(e)}")
             logger.exception(e)
