@@ -229,29 +229,51 @@ class TelegramService:
     def __init__(self, db: Database):
         """Initialize telegram service"""
         try:
-            # Initialize bot
-            self.token = os.getenv("TELEGRAM_BOT_TOKEN")
-            if not self.token:
-                raise ValueError("Missing Telegram bot token")
-            
-            self.bot = Bot(self.token)
-            self.application = Application.builder().token(self.token).build()
-            
-            # Store database instance
+            # Sla de database op
             self.db = db
             
-            # Setup services
+            # Initialiseer de bot
+            bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
+            if not bot_token:
+                raise ValueError("Missing Telegram bot token")
+            
+            # Initialiseer de bot
+            self.bot = Bot(token=bot_token)
+            
+            # Initialiseer de application
+            self.application = Application.builder().bot(self.bot).build()
+            
+            # Initialiseer de services
             self.chart = ChartService()
             self.sentiment = MarketSentimentService()
             self.calendar = EconomicCalendarService()
             
-            # Setup conversation handler
+            # Registreer de handlers
+            self._register_handlers()
+            
+            logger.info("Telegram service initialized")
+        except Exception as e:
+            logger.error(f"Error initializing Telegram service: {str(e)}")
+            raise
+
+    def _register_handlers(self):
+        """Register all handlers"""
+        try:
+            # Registreer de conversation handler
             conv_handler = ConversationHandler(
-                entry_points=[CommandHandler("start", self.start_command)],
+                entry_points=[
+                    CommandHandler("start", self.start_command),
+                    CommandHandler("menu", self.menu_command),
+                    CommandHandler("help", self.help_command),
+                    CommandHandler("manage", self.manage_command),
+                ],
                 states={
                     MENU: [
-                        CallbackQueryHandler(self.menu_analyse_callback, pattern="^menu_analyse$"),
-                        CallbackQueryHandler(self.menu_signals_callback, pattern="^menu_signals$"),
+                        CallbackQueryHandler(self.menu_callback, pattern="^menu_"),
+                        CallbackQueryHandler(self.analysis_callback, pattern="^analysis"),
+                        CallbackQueryHandler(self.signals_callback, pattern="^signals"),
+                        CallbackQueryHandler(self.help_callback, pattern="^help"),
+                        CallbackQueryHandler(self.back_to_menu_callback, pattern="^back_menu"),
                     ],
                     CHOOSE_ANALYSIS: [
                         CallbackQueryHandler(self.analysis_technical_callback, pattern="^analysis_technical$"),
@@ -292,35 +314,23 @@ class TelegramService:
                     ],
                 },
                 fallbacks=[
-                    CommandHandler("start", self.start_command),
-                    CommandHandler("menu", self.start_command),
-                    CommandHandler("help", self.help_command),
-                    CallbackQueryHandler(self.callback_query_handler, pattern="^analysis_.*$"),
-                    CallbackQueryHandler(self.back_to_signal_callback, pattern="^back_to_signal$"),
-                    CallbackQueryHandler(self.test_button_callback, pattern="^test_button$"),
+                    CommandHandler("cancel", self.cancel_command),
+                    # Voeg een algemene callback handler toe voor alle andere callbacks
+                    CallbackQueryHandler(self.callback_query_handler),
                 ],
-                name="my_conversation",
-                persistent=False,
                 per_message=False,
             )
             
-            # Add handlers
             self.application.add_handler(conv_handler)
-            self.application.add_handler(CommandHandler("help", self.help_command))
             
-            # Add reset conversation handler
-            self.application.add_handler(CommandHandler("reset", self.reset_conversation))
+            # Voeg een algemene callback handler toe voor alle callbacks die niet door de conversation handler worden afgehandeld
+            self.application.add_handler(CallbackQueryHandler(self.callback_query_handler))
             
-            # Initialiseer de user_states dictionary
-            self.user_states = {}
-            
-            # Zorg ervoor dat de bot wordt geïnitialiseerd
-            self.initialize()
-            
-            logger.info("Telegram service initialized")
+            # Voeg een error handler toe
+            self.application.add_error_handler(self.error_handler)
             
         except Exception as e:
-            logger.error(f"Error initializing Telegram service: {str(e)}")
+            logger.error(f"Error registering handlers: {str(e)}")
             raise
 
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -1324,7 +1334,7 @@ class TelegramService:
                         parse_mode='HTML',
                         reply_markup=InlineKeyboardMarkup(keyboard)
                     )
-                    
+            
                     logger.info(f"Successfully sent signal with analyze button to user {user_id}")
                     success_count += 1
                 except Exception as user_error:
