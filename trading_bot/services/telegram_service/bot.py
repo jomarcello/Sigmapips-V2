@@ -1403,14 +1403,26 @@ class TelegramService:
             keyboard = [
                 [InlineKeyboardButton("📊 Technical Analysis", callback_data=f"analysis_technical_{instrument}_signal")],
                 [InlineKeyboardButton("🧠 Market Sentiment", callback_data=f"analysis_sentiment_{instrument}_signal")],
-                [InlineKeyboardButton("📅 Economic Calendar", callback_data=f"analysis_calendar_{instrument}_signal")]
+                [InlineKeyboardButton("📅 Economic Calendar", callback_data=f"analysis_calendar_{instrument}_signal")],
+                [InlineKeyboardButton("⬅️ Terug naar Signaal", callback_data=f"back_to_signal")]
             ]
             
             await query.edit_message_text(
-                text=f"Choose analysis type for {instrument}:",
+                text=f"Kies analyse type voor {instrument}:",
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
             
+            return MENU
+        
+        elif query.data == "back_to_signal":
+            # Hier kunnen we niet echt terug naar het originele signaal, 
+            # maar we kunnen wel een nieuw bericht sturen
+            await query.edit_message_text(
+                text="Je bent teruggekeerd naar het signaal. Gebruik de knoppen in het originele signaal voor meer analyses.",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("🏠 Hoofdmenu", callback_data="back_menu")
+                ]])
+            )
             return MENU
         
         elif query.data.startswith("analysis_technical_"):
@@ -1587,70 +1599,6 @@ class TelegramService:
                 reply_markup=InlineKeyboardMarkup([[back_button]])
             )
             return MENU
-
-    # Voeg een handler toe voor de back_to_signal callback
-    async def back_to_signal_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-        """Handle back to signal button"""
-        query = update.callback_query
-        await query.answer()
-        
-        try:
-            # Hier zou je normaal gesproken terug moeten gaan naar het signaal,
-            # maar omdat het signaal al is verzonden, kunnen we alleen een nieuw bericht sturen
-            await query.edit_message_text(
-                text="You've returned from the analysis. To see more analyses, please check the original signal message.",
-                reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("🏠 Main Menu", callback_data="back_menu")
-                ]])
-            )
-            return MENU
-        except Exception as e:
-            logger.error(f"Error in back_to_signal_callback: {str(e)}")
-            return MENU
-
-    async def test_button_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-        """Handle test button callback"""
-        query = update.callback_query
-        await query.answer()
-        
-        await query.edit_message_text(
-            text="Test button clicked!",
-            reply_markup=None
-        )
-        
-        return MENU
-
-    async def menu_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-        """Show the main menu"""
-        keyboard = [
-            [InlineKeyboardButton("📊 Market Analysis", callback_data="analysis")],
-            [InlineKeyboardButton("🔔 Trading Signals", callback_data="signals")],
-            [InlineKeyboardButton("ℹ️ Help", callback_data="help")]
-        ]
-        
-        await update.message.reply_text(
-            "Welcome to SigmaPips Trading Bot! Please select an option:",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-        
-        return MENU
-
-    async def process_update(self, update_data):
-        """Process an update from the webhook"""
-        try:
-            logger.info(f"Processing update: {update_data}")
-            
-            # Maak een Update object van de update data
-            update = Update.de_json(data=update_data, bot=self.bot)
-            
-            # Stuur de update naar de application
-            await self.application.process_update(update)
-            
-            return True
-        except Exception as e:
-            logger.error(f"Error processing update: {str(e)}")
-            logger.exception(e)
-            return False
 
     async def cancel_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """Cancel the conversation."""
