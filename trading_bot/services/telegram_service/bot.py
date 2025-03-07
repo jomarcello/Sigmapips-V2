@@ -248,6 +248,9 @@ class TelegramService:
             self.sentiment = MarketSentimentService()
             self.calendar = EconomicCalendarService()
             
+            # Initialiseer de dictionary voor gebruikerssignalen
+            self.user_signals = {}
+            
             # Registreer de handlers
             self._register_handlers()
             
@@ -626,7 +629,6 @@ class TelegramService:
             await query.edit_message_text(
                 text="An error occurred. Please try again later.",
                 reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD)
-            )
             return CHOOSE_SIGNALS
 
     async def delete_single_preference_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -675,7 +677,6 @@ class TelegramService:
             await query.edit_message_text(
                 text="An error occurred while deleting the preference. Please try again later.",
                 reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD)
-            )
             return CHOOSE_SIGNALS
 
     async def confirm_delete_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -706,7 +707,6 @@ class TelegramService:
             await query.edit_message_text(
                 text="An error occurred while deleting your preferences. Please try again later.",
                 reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD)
-            )
             return CHOOSE_SIGNALS
 
     async def market_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -1355,23 +1355,18 @@ class TelegramService:
             else:
                 signal_message += f"The {instrument} {direction.lower()} signal shows a promising setup with a favorable risk/reward ratio. Entry at {price} with defined risk parameters offers a good trading opportunity.\n"
             
-            # Sla het signaal op in Redis voor later gebruik
-            try:
-                # Maak een key voor Redis
-                signal_key = f"signal:{instrument}"
-                
-                # Sla het signaal op in Redis
-                signal_data_to_store = {
-                    'message': signal_message,
-                    'instrument': instrument,
-                    'timestamp': int(time.time())
-                }
-                
-                # Sla op in Redis als JSON string
-                self.db.redis.set(signal_key, json.dumps(signal_data_to_store), ex=86400)  # 24 uur bewaren
-                logger.info(f"Stored signal for {instrument} in Redis")
-            except Exception as redis_error:
-                logger.error(f"Error storing signal in Redis: {str(redis_error)}")
+            # Sla het signaal op in de gebruikerscontext
+            for subscriber in matched_subscribers:
+                try:
+                    user_id = subscriber['user_id']
+                    # Sla het signaal op in Redis en in de gebruikerscontext
+                    self.user_signals[user_id] = {
+                        'instrument': instrument,
+                        'message': signal_message,
+                        'timestamp': int(time.time())
+                    }
+                except Exception as e:
+                    logger.error(f"Error storing signal in user context: {str(e)}")
             
             # Stuur het signaal naar alle geabonneerde gebruikers
             success_count = 0
@@ -1439,6 +1434,8 @@ class TelegramService:
                 parts = query.data.split("_")
                 instrument = parts[3] if len(parts) > 3 else None
                 
+                logger.info(f"Back to signal callback with data: {query.data}, extracted instrument: {instrument}")
+                
                 # Als er geen instrument in de callback data zit, probeer het uit de message text te halen
                 if not instrument:
                     message_text = query.message.text if query.message and hasattr(query.message, 'text') else ""
@@ -1447,10 +1444,12 @@ class TelegramService:
                     instrument_match = re.search(r"for ([A-Z0-9]+):", message_text)
                     if instrument_match:
                         instrument = instrument_match.group(1)
+                        logger.info(f"Extracted instrument from message text: {instrument}")
                 
                 # Als nog steeds geen instrument, probeer user_data
                 if not instrument and context.user_data and 'instrument' in context.user_data:
                     instrument = context.user_data.get('instrument')
+                    logger.info(f"Using instrument from user_data: {instrument}")
                 
                 logger.info(f"Back to signal for instrument: {instrument}")
                 
@@ -1458,16 +1457,29 @@ class TelegramService:
                 original_signal = None
                 if instrument:
                     try:
-                        signal_key = f"signal:{instrument}"
-                        stored_signal = self.db.redis.get(signal_key)
-                        
-                        if stored_signal:
-                            # Parse the JSON string
-                            signal_data = json.loads(stored_signal)
-                            original_signal = signal_data.get('message')
-                            logger.info(f"Retrieved original signal for {instrument} from Redis")
+                        # Controleer of Redis beschikbaar is
+                        if hasattr(self.db, 'redis') and self.db.redis:
+                            signal_key = f"signal:{instrument}"
+                            logger.info(f"Looking for signal in Redis with key: {signal_key}")
+                            
+                            stored_signal = self.db.redis.get(signal_key)
+                            
+                            if stored_signal:
+                                # Parse the JSON string
+                                try:
+                                    signal_data = json.loads(stored_signal)
+                                    original_signal = signal_data.get('message')
+                                    logger.info(f"Retrieved original signal for {instrument} from Redis: {len(original_signal)} chars")
+                                except json.JSONDecodeError as json_error:
+                                    logger.error(f"Error parsing JSON from Redis: {str(json_error)}")
+                                    logger.error(f"Raw Redis data: {stored_signal[:100]}...")
+                            else:
+                                logger.warning(f"No signal found in Redis for key: {signal_key}")
+                        else:
+                            logger.warning("Redis not available, cannot retrieve signal")
                     except Exception as redis_error:
                         logger.error(f"Error retrieving signal from Redis: {str(redis_error)}")
+                        logger.exception(redis_error)
                 
                 # If we have the original signal, use it
                 if original_signal:
@@ -1484,7 +1496,10 @@ class TelegramService:
                     )
                     
                     logger.info(f"Restored original signal for instrument: {instrument}")
+                    return MENU
                 else:
+                    logger.warning(f"Original signal not found for {instrument}, using fallback")
+                    
                     # Fallback to a generic signal if the original is not available
                     signal_message = f"🎯 <b>Trading Signal</b> 🎯\n\n"
                     signal_message += f"Instrument: {instrument}\n"
@@ -1508,8 +1523,7 @@ class TelegramService:
                     )
                     
                     logger.info(f"Used fallback signal for instrument: {instrument} (original not found)")
-                
-                return MENU
+                    return MENU
             except Exception as e:
                 logger.error(f"Error in back_to_signal handler: {str(e)}")
                 logger.exception(e)
