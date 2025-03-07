@@ -310,144 +310,21 @@ class TelegramService:
             logger.error(f"Error initializing Telegram service: {str(e)}")
             raise
 
-    async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-        """Start the conversation."""
-        try:
-            # Send welcome message with main menu
-            await update.message.reply_text(
-                text=WELCOME_MESSAGE,
-                reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
-                parse_mode=ParseMode.HTML
-            )
-            return MENU
-            
-        except Exception as e:
-            logger.error(f"Error in start command: {str(e)}")
-            await update.message.reply_text(
-                "Sorry, something went wrong. Please try again later."
-            )
-            return ConversationHandler.END
-
-    async def menu_analyse_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-        """Handle menu_analyse callback"""
+    async def back_to_menu_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        """Handle back to menu"""
         query = update.callback_query
         await query.answer()
         
-        # Show the analysis menu
+        # Reset user_data
+        context.user_data.clear()
+        
+        # Show main menu
         await query.edit_message_text(
-            text="Select your analysis type:",
-            reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
+            text=WELCOME_MESSAGE,
+            reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
+            parse_mode=ParseMode.HTML
         )
         
-        return CHOOSE_ANALYSIS
+        return MENU
 
-    async def menu_signals_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-        """Handle menu_signals callback"""
-        query = update.callback_query
-        await query.answer()
-        
-        # Show the signals menu
-        await query.edit_message_text(
-            text="What would you like to do with trading signals?",
-            reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD)
-        )
-        
-        return CHOOSE_SIGNALS
-
-    async def analysis_technical_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-        """Handle analysis_technical callback"""
-        query = update.callback_query
-        await query.answer()
-        
-        # Show market selection for technical analysis
-        await query.edit_message_text(
-            text="Select a market for technical analysis:",
-            reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
-        )
-        
-        # Save analysis type in user_data
-        context.user_data['analysis_type'] = 'technical'
-        
-        return CHOOSE_MARKET
-
-    async def analysis_sentiment_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-        """Handle sentiment analysis selection"""
-        query = update.callback_query
-        await query.answer()
-        
-        # Store analysis type in user_data
-        context.user_data['analysis_type'] = 'sentiment'
-        context.user_data['current_state'] = CHOOSE_MARKET
-        
-        # Show market selection
-        await query.edit_message_text(
-            text="Select a market for sentiment analysis:",
-            reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
-        )
-        
-        return CHOOSE_MARKET
-
-    async def analysis_calendar_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-        """Handle economic calendar selection"""
-        query = update.callback_query
-        await query.answer()
-        
-        # Store analysis type in user_data
-        context.user_data['analysis_type'] = 'calendar'
-        context.user_data['current_state'] = CHOOSE_ANALYSIS
-        
-        try:
-            # Show loading message
-            await query.edit_message_text(
-                text="Retrieving economic calendar data...",
-                reply_markup=None
-            )
-            
-            # Get calendar data
-            calendar_data = await self.calendar.get_economic_calendar()
-            
-            # Use a unique callback data for the back button
-            back_button = InlineKeyboardButton("⬅️ Back to Menu", callback_data="calendar_back")
-            
-            # Show calendar data
-            await query.edit_message_text(
-                text=calendar_data,
-                reply_markup=InlineKeyboardMarkup([[back_button]]),
-                parse_mode=ParseMode.HTML
-            )
-            
-            return CHOOSE_ANALYSIS
-        
-        except Exception as e:
-            logger.error(f"Error getting calendar data: {str(e)}")
-            await query.edit_message_text(
-                text="An error occurred while retrieving the economic calendar. Please try again later.",
-                reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("⬅️ Back to Menu", callback_data="calendar_back")
-                ]]),
-                parse_mode=ParseMode.HTML
-            )
-            return CHOOSE_ANALYSIS
-
-    async def calendar_back_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-        """Handle back from calendar to analysis menu"""
-        query = update.callback_query
-        await query.answer()
-        
-        try:
-            logger.info("Handling calendar_back_callback")
-            
-            # Edit the current message instead of sending a new one
-            await query.edit_message_text(
-                text="Select your analysis type:",
-                reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
-            )
-            
-            # Update state in user_data
-            context.user_data['current_state'] = CHOOSE_ANALYSIS
-            
-            return CHOOSE_ANALYSIS
-        
-        except Exception as e:
-            logger.error(f"Error in calendar_back_callback: {str(e)}")
-            #
+    # Voeg hier de rest van de methoden toe...
