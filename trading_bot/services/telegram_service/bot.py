@@ -1641,3 +1641,35 @@ class TelegramService:
                 )
             except Exception as e:
                 logger.error(f"Kon callback query niet beantwoorden: {e}")
+
+    async def menu_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        """Show the main menu"""
+        keyboard = [
+            [InlineKeyboardButton("📊 Market Analysis", callback_data="analysis")],
+            [InlineKeyboardButton("🔔 Trading Signals", callback_data="signals")],
+            [InlineKeyboardButton("ℹ️ Help", callback_data="help")]
+        ]
+        
+        await update.message.reply_text(
+            "Welkom bij SigmaPips Trading Bot! Selecteer een optie:",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        
+        return MENU
+
+    async def process_update(self, update_data):
+        """Process an update from the webhook"""
+        try:
+            logger.info(f"Processing update: {update_data}")
+            
+            # Maak een Update object van de update data
+            update = Update.de_json(data=update_data, bot=self.bot)
+            
+            # Stuur de update naar de application
+            await self.application.process_update(update)
+            
+            return True
+        except Exception as e:
+            logger.error(f"Error processing update: {str(e)}")
+            logger.exception(e)
+            return False
