@@ -265,7 +265,6 @@ class TelegramService:
                     CommandHandler("start", self.start_command),
                     CommandHandler("menu", self.menu_command),
                     CommandHandler("help", self.help_command),
-                    CommandHandler("manage", self.manage_command),
                 ],
                 states={
                     MENU: [
@@ -1596,6 +1595,28 @@ class TelegramService:
         )
         
         return MENU
+
+    async def manage_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        """Handle the /manage command"""
+        try:
+            # Toon het beheer menu
+            keyboard = [
+                [InlineKeyboardButton("⚙️ Manage Preferences", callback_data="signals_manage")],
+                [InlineKeyboardButton("🏠 Main Menu", callback_data="back_menu")]
+            ]
+            
+            await update.message.reply_text(
+                "Manage your trading signal preferences:",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            
+            return CHOOSE_SIGNALS
+        except Exception as e:
+            logger.error(f"Error in manage command: {str(e)}")
+            await update.message.reply_text(
+                "Sorry, something went wrong. Please try again later."
+            )
+            return ConversationHandler.END
 
     async def process_update(self, update_data):
         """Process an update from the webhook"""
