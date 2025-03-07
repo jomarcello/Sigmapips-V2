@@ -1313,25 +1313,19 @@ class TelegramService:
                     user_id = subscriber['user_id']
                     logger.info(f"Sending signal to user {user_id}")
                     
-                    # Stuur eerst het signaal
-                    await self.bot.send_message(
-                        chat_id=user_id,
-                        text=signal_message,
-                        parse_mode='HTML'
-                    )
-                    
-                    # Stuur daarna één knop voor "Analyze Market" in plaats van drie aparte knoppen
+                    # Stuur het signaal met de analyse-knop direct eronder
                     keyboard = [
                         [InlineKeyboardButton("🔍 Analyze Market", callback_data=f"analyze_market_{instrument}")]
                     ]
                     
                     await self.bot.send_message(
                         chat_id=user_id,
-                        text="Want to analyze this market?",
+                        text=signal_message,
+                        parse_mode='HTML',
                         reply_markup=InlineKeyboardMarkup(keyboard)
                     )
                     
-                    logger.info(f"Successfully sent signal and button to user {user_id}")
+                    logger.info(f"Successfully sent signal with analyze button to user {user_id}")
                     success_count += 1
                 except Exception as user_error:
                     logger.error(f"Error sending signal to user {subscriber['user_id']}: {str(user_error)}")
@@ -1591,4 +1585,4 @@ class TelegramService:
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
         
-        return MENUgi
+        return MENU
