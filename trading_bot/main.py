@@ -147,23 +147,16 @@ async def webhook(request: Request):
             callback_data = update_data['callback_query']['data']
             logger.info(f"Callback data: {callback_data}")
             
-            # Maak een Update object
-            update = Update.de_json(data=update_data, bot=telegram.bot)
-            
             # Als het een analyze_market callback is, verwerk deze direct
             if callback_data.startswith('analyze_market_'):
                 logger.info(f"Verwerking analyze_market callback: {callback_data}")
                 
-                # Haal het instrument op uit de callback data
-                parts = callback_data.split('_')
-                instrument = parts[2]
+                # Maak een Update object
+                update = Update.de_json(data=update_data, bot=telegram.bot)
                 
-                # Maak een context object
-                context = ContextTypes.DEFAULT_TYPE.context
-                context.user_data = {}
-                
-                # Verwerk de callback direct
-                await telegram.callback_query_handler(update, context)
+                # Stuur de update naar de telegram service voor verwerking
+                # Laat de application de context aanmaken
+                await telegram.process_update(update_data)
                 
                 return {"status": "success"}
         
