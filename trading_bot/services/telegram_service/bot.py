@@ -1408,125 +1408,134 @@ class TelegramService:
             return False
 
     async def callback_query_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-        """Handle callback queries that don't match other patterns"""
+        """Handle callback queries that are not handled by other handlers"""
         query = update.callback_query
         await query.answer()
         
-        # Log de callback data
         logger.info(f"Received callback: {query.data}")
         
-        # Verwerk de callback data
-        if query.data.startswith("analyze_market_"):
-            # Extract instrument from callback data
-            parts = query.data.split("_")
-            instrument = parts[2]
-            
-            # Toon de analyse opties
-            keyboard = [
-                [InlineKeyboardButton("📊 Technical Analysis", callback_data=f"analysis_technical_{instrument}_signal")],
-                [InlineKeyboardButton("🧠 Market Sentiment", callback_data=f"analysis_sentiment_{instrument}_signal")],
-                [InlineKeyboardButton("📅 Economic Calendar", callback_data=f"analysis_calendar_{instrument}_signal")],
-                [InlineKeyboardButton("⬅️ Back to Signal", callback_data=f"back_to_signal_{instrument}")]
-            ]
-            
-            await query.edit_message_text(
-                text=f"Choose analysis type for {instrument}:",
-                reply_markup=InlineKeyboardMarkup(keyboard)
-            )
-            
-            return MENU
-        
-        elif query.data.startswith("back_to_signal"):
-            try:
+        try:
+            if query.data.startswith("analyze_market_"):
                 # Extract instrument from callback data
                 parts = query.data.split("_")
-                instrument = parts[3] if len(parts) > 3 else None
+                instrument = parts[2]
                 
-                logger.info(f"Back to signal callback with data: {query.data}, extracted instrument: {instrument}")
+                # Check if the message is a photo (has caption) or text message
+                is_photo_message = hasattr(query.message, 'caption') and query.message.caption is not None
                 
-                # Als er geen instrument in de callback data zit, probeer het uit de message text te halen
-                if not instrument:
-                    message_text = query.message.text if query.message and hasattr(query.message, 'text') else ""
-                    
-                    # Extract instrument from message text like "Choose analysis type for XAUUSD:"
-                    instrument_match = re.search(r"for ([A-Z0-9]+):", message_text)
-                    if instrument_match:
-                        instrument = instrument_match.group(1)
-                        logger.info(f"Extracted instrument from message text: {instrument}")
+                # Create keyboard with analysis options
+                keyboard = [
+                    [InlineKeyboardButton("📊 Technical Analysis", callback_data=f"analysis_technical_{instrument}_signal")],
+                    [InlineKeyboardButton("🧠 Market Sentiment", callback_data=f"analysis_sentiment_{instrument}_signal")],
+                    [InlineKeyboardButton("📅 Economic Calendar", callback_data=f"analysis_calendar_{instrument}_signal")]
+                ]
                 
-                # Als nog steeds geen instrument, probeer user_data
-                if not instrument and context.user_data and 'instrument' in context.user_data:
-                    instrument = context.user_data.get('instrument')
-                    logger.info(f"Using instrument from user_data: {instrument}")
-                
-                logger.info(f"Back to signal for instrument: {instrument}")
-                
-                # Probeer het signaal uit de gebruikerscontext te halen
-                original_signal = None
-                user_id = update.effective_user.id
-                logger.info(f"Looking for signal in user_signals for user_id: {user_id}")
-                
-                # Debug: print alle user_signals
-                logger.info(f"All user_signals: {self.user_signals}")
-                
-                if hasattr(self, 'user_signals') and user_id in self.user_signals:
-                    user_signal = self.user_signals.get(user_id)
-                    logger.info(f"Found user signal: {user_signal}")
-                    
-                    if user_signal and user_signal.get('instrument') == instrument:
-                        original_signal = user_signal.get('message')
-                        logger.info(f"Retrieved original signal from user context: {len(original_signal)} chars")
-                    else:
-                        logger.warning(f"User signal found but instrument doesn't match. User signal instrument: {user_signal.get('instrument')}, requested instrument: {instrument}")
-                else:
-                    logger.warning(f"No user signal found for user_id: {user_id}")
-                
-                # Als we geen signaal in de gebruikerscontext vinden, probeer Redis
-                if not original_signal and instrument:
-                    try:
-                        # Controleer of Redis beschikbaar is
-                        if hasattr(self.db, 'redis') and self.db.redis:
-                            signal_key = f"signal:{instrument}"
-                            logger.info(f"Looking for signal in Redis with key: {signal_key}")
-                            
-                            stored_signal = self.db.redis.get(signal_key)
-                            
-                            if stored_signal:
-                                # Parse the JSON string
-                                try:
-                                    signal_data = json.loads(stored_signal)
-                                    original_signal = signal_data.get('message')
-                                    logger.info(f"Retrieved original signal for {instrument} from Redis: {len(original_signal)} chars")
-                                except json.JSONDecodeError as json_error:
-                                    logger.error(f"Error parsing JSON from Redis: {str(json_error)}")
-                                    logger.error(f"Raw Redis data: {stored_signal[:100]}...")
-                            else:
-                                logger.warning(f"No signal found in Redis for key: {signal_key}")
-                        else:
-                            logger.warning("Redis not available, cannot retrieve signal")
-                    except Exception as redis_error:
-                        logger.error(f"Error retrieving signal from Redis: {str(redis_error)}")
-                        logger.exception(redis_error)
-                
-                # If we have the original signal, use it
-                if original_signal:
-                    # Create the analyze market button
-                    keyboard = [
-                        [InlineKeyboardButton("🔍 Analyze Market", callback_data=f"analyze_market_{instrument}")]
-                    ]
-                    
-                    # Send the original signal
-                    await query.edit_message_text(
-                        text=original_signal,
-                        reply_markup=InlineKeyboardMarkup(keyboard),
-                        parse_mode=ParseMode.HTML
+                if is_photo_message:
+                    # If it's a photo message, send a new message instead of editing
+                    await query.message.reply_text(
+                        text=f"Choose analysis type for {instrument}:",
+                        reply_markup=InlineKeyboardMarkup(keyboard)
                     )
-                    
-                    logger.info(f"Restored original signal for instrument: {instrument}")
-                    return MENU
                 else:
-                    logger.warning(f"Original signal not found for {instrument}, using fallback")
+                    # If it's a text message, edit it
+                    await query.edit_message_text(
+                        text=f"Choose analysis type for {instrument}:",
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+                
+                return MENU
+            
+            elif query.data.startswith("back_to_signal"):
+                try:
+                    # Extract instrument from callback data
+                    parts = query.data.split("_")
+                    instrument = parts[3] if len(parts) > 3 else None
                     
+                    logger.info(f"Back to signal callback with data: {query.data}, extracted instrument: {instrument}")
+                    
+                    # Als er geen instrument in de callback data zit, probeer het uit de message text te halen
+                    if not instrument:
+                        message_text = query.message.text if query.message and hasattr(query.message, 'text') else ""
+                        
+                        # Extract instrument from message text like "Choose analysis type for XAUUSD:"
+                        instrument_match = re.search(r"for ([A-Z0-9]+):", message_text)
+                        if instrument_match:
+                            instrument = instrument_match.group(1)
+                            logger.info(f"Extracted instrument from message text: {instrument}")
+                    
+                    # Als nog steeds geen instrument, probeer user_data
+                    if not instrument and context.user_data and 'instrument' in context.user_data:
+                        instrument = context.user_data.get('instrument')
+                        logger.info(f"Using instrument from user_data: {instrument}")
+                    
+                    logger.info(f"Back to signal for instrument: {instrument}")
+                    
+                    # Probeer het signaal uit de gebruikerscontext te halen
+                    original_signal = None
+                    user_id = update.effective_user.id
+                    logger.info(f"Looking for signal in user_signals for user_id: {user_id}")
+                    
+                    # Debug: print alle user_signals
+                    logger.info(f"All user_signals: {self.user_signals}")
+                    
+                    if hasattr(self, 'user_signals') and user_id in self.user_signals:
+                        user_signal = self.user_signals.get(user_id)
+                        logger.info(f"Found user signal: {user_signal}")
+                        
+                        if user_signal and user_signal.get('instrument') == instrument:
+                            original_signal = user_signal.get('message')
+                            logger.info(f"Retrieved original signal from user context: {len(original_signal)} chars")
+                        else:
+                            logger.warning(f"User signal found but instrument doesn't match. User signal instrument: {user_signal.get('instrument')}, requested instrument: {instrument}")
+                    else:
+                        logger.warning(f"No user signal found for user_id: {user_id}")
+                    
+                    # Als we geen signaal in de gebruikerscontext vinden, probeer Redis
+                    if not original_signal and instrument:
+                        try:
+                            # Controleer of Redis beschikbaar is
+                            if hasattr(self.db, 'redis') and self.db.redis:
+                                signal_key = f"signal:{instrument}"
+                                logger.info(f"Looking for signal in Redis with key: {signal_key}")
+                                
+                                stored_signal = self.db.redis.get(signal_key)
+                                
+                                if stored_signal:
+                                    # Parse the JSON string
+                                    try:
+                                        signal_data = json.loads(stored_signal)
+                                        original_signal = signal_data.get('message')
+                                        logger.info(f"Retrieved original signal for {instrument} from Redis: {len(original_signal)} chars")
+                                    except json.JSONDecodeError as json_error:
+                                        logger.error(f"Error parsing JSON from Redis: {str(json_error)}")
+                                        logger.error(f"Raw Redis data: {stored_signal[:100]}...")
+                                else:
+                                    logger.warning(f"No signal found in Redis for key: {signal_key}")
+                            else:
+                                logger.warning("Redis not available, cannot retrieve signal")
+                        except Exception as redis_error:
+                            logger.error(f"Error retrieving signal from Redis: {str(redis_error)}")
+                            logger.exception(redis_error)
+                    
+                    # If we have the original signal, use it
+                    if original_signal:
+                        # Create the analyze market button
+                        keyboard = [
+                            [InlineKeyboardButton("🔍 Analyze Market", callback_data=f"analyze_market_{instrument}")]
+                        ]
+                        
+                        # Send the original signal
+                        await query.edit_message_text(
+                            text=original_signal,
+                            reply_markup=InlineKeyboardMarkup(keyboard),
+                            parse_mode=ParseMode.HTML
+                        )
+                        
+                        logger.info(f"Restored original signal for instrument: {instrument}")
+                        return MENU
+                    else:
+                        logger.warning(f"Original signal not found for {instrument}, using fallback")
+                        
                     # Fallback to a generic signal if the original is not available
                     signal_message = f"🎯 <b>Trading Signal</b> 🎯\n\n"
                     signal_message += f"Instrument: {instrument}\n"
@@ -1551,71 +1560,76 @@ class TelegramService:
                     
                     logger.info(f"Used fallback signal for instrument: {instrument} (original not found)")
                     return MENU
-            except Exception as e:
-                logger.error(f"Error in back_to_signal handler: {str(e)}")
-                logger.exception(e)
+                except Exception as e:
+                    logger.error(f"Error in back_to_signal handler: {str(e)}")
+                    logger.exception(e)
+                    
+                    # If there's an error, show a simple message
+                    try:
+                        await query.edit_message_text(
+                            text="Could not return to signal view. Please check your chat history for the original signal.",
+                            reply_markup=InlineKeyboardMarkup([[
+                                InlineKeyboardButton("🏠 Main Menu", callback_data="back_menu")
+                            ]])
+                        )
+                    except Exception as inner_e:
+                        logger.error(f"Failed to send fallback message: {str(inner_e)}")
+                    
+                    return MENU
+            
+            elif query.data.startswith("analysis_technical_"):
+                # Extract instrument from callback data
+                parts = query.data.split("_")
+                instrument = parts[2]
                 
-                # If there's an error, show a simple message
-                try:
+                # Check if this is from a signal (will have a 4th part)
+                from_signal = len(parts) > 3 and parts[3] == "signal"
+                
+                if from_signal:
+                    # Direct naar de chart gaan zonder instrument te kiezen
+                    return await self.show_technical_analysis(update, context, instrument, from_signal=True)
+                else:
+                    # Normale flow voor analyse
+                    context.user_data['instrument'] = instrument
+                    
+                    # Toon de stijl keuze
                     await query.edit_message_text(
-                        text="Could not return to signal view. Please check your chat history for the original signal.",
-                        reply_markup=InlineKeyboardMarkup([[
-                            InlineKeyboardButton("🏠 Main Menu", callback_data="back_menu")
-                        ]])
+                        text=f"Choose analysis style for {instrument}:",
+                        reply_markup=InlineKeyboardMarkup(STYLE_KEYBOARD)
                     )
-                except Exception as inner_e:
-                    logger.error(f"Failed to send fallback message: {str(inner_e)}")
+                    
+                    return CHOOSE_STYLE
+            
+            elif query.data.startswith("analysis_sentiment_"):
+                # Extract instrument from callback data
+                parts = query.data.split("_")
+                instrument = parts[2]
                 
-                return MENU
-        
-        elif query.data.startswith("analysis_technical_"):
-            # Extract instrument from callback data
-            parts = query.data.split("_")
-            instrument = parts[2]
-            
-            # Check if this is from a signal (will have a 4th part)
-            from_signal = len(parts) > 3 and parts[3] == "signal"
-            
-            if from_signal:
-                # Direct naar de chart gaan zonder instrument te kiezen
-                return await self.show_technical_analysis(update, context, instrument, from_signal=True)
-            else:
-                # Normale flow voor analyse
-                context.user_data['instrument'] = instrument
+                # Check if this is from a signal
+                from_signal = len(parts) > 3 and parts[3] == "signal"
                 
-                # Toon de stijl keuze
-                await query.edit_message_text(
-                    text=f"Choose analysis style for {instrument}:",
-                    reply_markup=InlineKeyboardMarkup(STYLE_KEYBOARD)
-                )
+                return await self.show_sentiment_analysis(update, context, instrument, from_signal)
+            
+            elif query.data.startswith("analysis_calendar_"):
+                # Extract instrument from callback data
+                parts = query.data.split("_")
+                instrument = parts[2]
                 
-                return CHOOSE_STYLE
+                # Check if this is from a signal
+                from_signal = len(parts) > 3 and parts[3] == "signal"
+                
+                return await self.show_economic_calendar(update, context, instrument, from_signal)
+            
+            # Fallback
+            await query.edit_message_text(
+                text="I'm not sure what you want to do. Please try again or use /menu to start over."
+            )
+            return MENU
         
-        elif query.data.startswith("analysis_sentiment_"):
-            # Extract instrument from callback data
-            parts = query.data.split("_")
-            instrument = parts[2]
-            
-            # Check if this is from a signal
-            from_signal = len(parts) > 3 and parts[3] == "signal"
-            
-            return await self.show_sentiment_analysis(update, context, instrument, from_signal)
-        
-        elif query.data.startswith("analysis_calendar_"):
-            # Extract instrument from callback data
-            parts = query.data.split("_")
-            instrument = parts[2]
-            
-            # Check if this is from a signal
-            from_signal = len(parts) > 3 and parts[3] == "signal"
-            
-            return await self.show_economic_calendar(update, context, instrument, from_signal)
-        
-        # Fallback
-        await query.edit_message_text(
-            text="I'm not sure what you want to do. Please try again or use /menu to start over."
-        )
-        return MENU
+        except Exception as e:
+            logger.error(f"Error in callback query handler: {str(e)}")
+            logger.exception(e)
+            return MENU
 
     async def show_technical_analysis(self, update: Update, context: ContextTypes.DEFAULT_TYPE, instrument: str = None, from_signal: bool = False) -> int:
         """Show technical analysis for an instrument"""
