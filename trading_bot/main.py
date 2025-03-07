@@ -491,4 +491,16 @@ if __name__ == "__main__":
 
 @app.get("/")
 async def root():
-    return {"message": "Hello World"} 
+    return {"message": "Hello World"}
+
+@app.get("/debug/subscribers")
+async def debug_subscribers():
+    """Debug endpoint om alle abonnees te bekijken"""
+    try:
+        # Haal alle abonnees op
+        subscribers = await db.execute_query("SELECT * FROM subscriber_preferences")
+        
+        return {"status": "success", "subscribers": subscribers}
+    except Exception as e:
+        logger.error(f"Error getting subscribers: {str(e)}")
+        return {"status": "error", "message": str(e)} 
