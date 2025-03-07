@@ -629,6 +629,7 @@ class TelegramService:
             await query.edit_message_text(
                 text="An error occurred. Please try again later.",
                 reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD)
+            )
             return CHOOSE_SIGNALS
 
     async def delete_single_preference_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -677,6 +678,7 @@ class TelegramService:
             await query.edit_message_text(
                 text="An error occurred while deleting the preference. Please try again later.",
                 reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD)
+            )
             return CHOOSE_SIGNALS
 
     async def confirm_delete_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -707,6 +709,7 @@ class TelegramService:
             await query.edit_message_text(
                 text="An error occurred while deleting your preferences. Please try again later.",
                 reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD)
+            )
             return CHOOSE_SIGNALS
 
     async def market_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
