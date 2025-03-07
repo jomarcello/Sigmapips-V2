@@ -267,7 +267,8 @@ class TelegramService:
                 ],
                 states={
                     MENU: [
-                        CallbackQueryHandler(self.menu_callback, pattern="^menu_"),
+                        CallbackQueryHandler(self.menu_analyse_callback, pattern="^menu_analyse$"),
+                        CallbackQueryHandler(self.menu_signals_callback, pattern="^menu_signals$"),
                         CallbackQueryHandler(self.analysis_callback, pattern="^analysis"),
                         CallbackQueryHandler(self.signals_callback, pattern="^signals"),
                         CallbackQueryHandler(self.help_callback, pattern="^help"),
@@ -374,6 +375,45 @@ class TelegramService:
         )
         
         return CHOOSE_SIGNALS
+
+    async def analysis_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        """Handle analysis callback"""
+        query = update.callback_query
+        await query.answer()
+        
+        # Toon het analyse menu
+        await query.edit_message_text(
+            text="Select your analysis type:",
+            reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
+        )
+        
+        return CHOOSE_ANALYSIS
+
+    async def signals_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        """Handle signals callback"""
+        query = update.callback_query
+        await query.answer()
+        
+        # Toon het signals menu
+        await query.edit_message_text(
+            text="What would you like to do with trading signals?",
+            reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD)
+        )
+        
+        return CHOOSE_SIGNALS
+
+    async def help_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        """Handle help callback"""
+        query = update.callback_query
+        await query.answer()
+        
+        # Toon help informatie
+        await query.edit_message_text(
+            text=HELP_MESSAGE,
+            parse_mode=ParseMode.HTML
+        )
+        
+        return MENU
 
     async def analysis_technical_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """Handle analysis_technical callback"""
