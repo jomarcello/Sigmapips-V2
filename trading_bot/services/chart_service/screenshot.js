@@ -80,9 +80,28 @@ if (!url || !outputPath) {
             const footer = document.querySelector('footer');
             if (footer) footer.remove();
 
+            // Verwijder de sidebar
+            const sidebar = document.querySelector('.sidebar');
+            if (sidebar) sidebar.remove();
+
+            // Verwijder de toolbar
+            const toolbar = document.querySelector('.chart-toolbar');
+            if (toolbar) toolbar.remove();
+
             // Verwijder andere ongewenste elementen (pas dit aan op basis van de TradingView UI)
             const unwantedElements = document.querySelectorAll('.unwanted-class'); // Vervang '.unwanted-class' door de juiste selector
             unwantedElements.forEach(element => element.remove());
+
+            // Activeer de fullscreen-modus van TradingView
+            const chart = document.querySelector('.chart-container');
+            if (chart) {
+                chart.style.position = 'fixed';
+                chart.style.top = '0';
+                chart.style.left = '0';
+                chart.style.width = '100%';
+                chart.style.height = '100%';
+                chart.style.zIndex = '1000';
+            }
         });
 
         // Neem een fullscreen screenshot
