@@ -1217,231 +1217,133 @@ class TelegramService:
             logger.error(f"Error during Telegram bot initialization: {str(e)}")
             raise
 
-    async def process_update(self, update_data):
-        """Process an update from the webhook."""
+    async def process_signal(self, signal_data):
+        """Process a trading signal and send it to subscribed users."""
         try:
-            # Converteer de update data naar een Update object
-            update = Update.de_json(update_data, self.bot)
+            # Log het ontvangen signaal
+            logger.info(f"Processing signal: {signal_data}")
             
-            # Log de update voor debugging
-            if isinstance(update, Update):
-                if update.callback_query:
-                    logger.info(f"Processing callback: {update.callback_query.data}")
-                elif update.message and update.message.text:
-                    logger.info(f"Processing message: {update.message.text}")
+            # Zorg ervoor dat we een market hebben
+            if 'market' not in signal_data:
+                # Detecteer de markt op basis van het instrument
+                instrument = signal_data.get('instrument', '')
+                if 'BTC' in instrument or 'ETH' in instrument:
+                    signal_data['market'] = 'crypto'
+                elif 'XAU' in instrument or 'XAG' in instrument:
+                    signal_data['market'] = 'commodities'
+                elif 'US30' in instrument or 'US500' in instrument:
+                    signal_data['market'] = 'indices'
+                else:
+                    signal_data['market'] = 'forex'
+                
+                logger.info(f"Detected market: {signal_data['market']} for instrument {instrument}")
             
-            # Verwerk de update via de application
-            await self.application.process_update(update)
+            # Haal de relevante informatie uit het signaal
+            instrument = signal_data.get('instrument')
+            timeframe = signal_data.get('timeframe', '1h')
+            direction = signal_data.get('direction')
+            price = signal_data.get('price')
+            stop_loss = signal_data.get('stop_loss')
+            take_profit = signal_data.get('take_profit')
+            message = signal_data.get('message')
+            market = signal_data.get('market', 'forex')
+            strategy = signal_data.get('strategy', 'Test Strategy')
+            risk_management = signal_data.get('risk_management', ["Position size: 1-2% max", "Use proper stop loss", "Follow your trading plan"])
+            verdict = signal_data.get('verdict', '')
             
-            return True
-        except Exception as e:
-            logger.error(f"Error processing update: {str(e)}")
-            return False
-
-    async def show_chart(self, update: Update, context: CallbackContext, instrument: str, timeframe: str = "1h", fullscreen: bool = False):
-        """Show chart for instrument"""
-        try:
-            # Haal de chat ID op
-            chat_id = update.effective_chat.id
-            
-            # Stuur een "loading" bericht
-            loading_message = await context.bot.send_message(
-                chat_id=chat_id,
-                text=f"⏳ Genereren van chart voor {instrument} ({timeframe})..."
-            )
-            
-            # Haal de chart op
-            chart_service = ChartService()
-            chart_bytes = await chart_service.get_chart(instrument, timeframe, fullscreen)
-            
-            if not chart_bytes:
-                await context.bot.edit_message_text(
-                    chat_id=chat_id,
-                    message_id=loading_message.message_id,
-                    text=f"❌ Kon geen chart genereren voor {instrument}. Probeer het later opnieuw."
-                )
-                return
-            
-            # Maak een caption voor de chart
-            caption = f"📊 {instrument} Technical Analysis"
-            
-            # Maak een keyboard met een "Back" knop
-            keyboard = [
-                [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
-            ]
-            
-            # Verwijder het loading bericht
-            await context.bot.delete_message(
-                chat_id=chat_id,
-                message_id=loading_message.message_id
-            )
-            
-            # Stuur de chart als foto
-            await context.bot.send_photo(
-                chat_id=chat_id,
-                photo=chart_bytes,
-                caption=caption,
-                reply_markup=InlineKeyboardMarkup(keyboard)
-            )
-            
-            # Update de gebruikersstaat
-            self.user_states[chat_id] = {'state': 6, 'instrument': instrument, 'timeframe': timeframe, 'analysis_type': 'technical'}
-            
-        except Exception as e:
-            logger.error(f"Error showing chart: {str(e)}")
-            
-            # Probeer het loading bericht te updaten als er een fout optreedt
-            try:
-                await context.bot.edit_message_text(
-                    chat_id=chat_id,
-                    message_id=loading_message.message_id,
-                    text=f"❌ Er is een fout opgetreden bij het genereren van de chart: {str(e)}"
-                )
-            except Exception as update_error:
-                logger.error(f"Error updating loading message: {str(update_error)}")
-
-    async def show_instruments(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Show instruments keyboard"""
-        try:
-            chat_id = update.effective_chat.id
-            
-            # Bepaal welke markt we moeten tonen
-            market = self.user_states.get(chat_id, {}).get('market', 'forex')
-            
-            # Bepaal welk keyboard we moeten tonen op basis van de markt
-            keyboard_map = {
-                'forex': self.get_forex_keyboard(),
-                'crypto': self.get_crypto_keyboard(),
-                'indices': self.get_indices_keyboard(),
-                'commodities': self.get_commodities_keyboard()
+            # Converteer het signaal naar het formaat dat match_subscribers verwacht
+            signal_for_matching = {
+                'market': market,
+                'symbol': instrument,
+                'timeframe': timeframe,
+                'direction': direction,
+                'price': price,
+                'stop_loss': stop_loss,
+                'take_profit': take_profit,
+                'message': message
             }
             
-            keyboard = keyboard_map.get(market, self.get_forex_keyboard())
+            # Log de matching parameters
+            logger.info(f"Matching parameters: market={market}, symbol={instrument}, timeframe={timeframe}")
             
-            # Stuur het bericht met de instrumenten
-            await context.bot.send_message(
-                chat_id=chat_id,
-                text=f"🔍 Selecteer een instrument uit {market.capitalize()}:",
-                reply_markup=InlineKeyboardMarkup(keyboard)
-            )
+            # Gebruik de match_subscribers methode om de juiste gebruikers te vinden
+            matched_subscribers = await self.db.match_subscribers(signal_for_matching)
             
-            # Update de gebruikersstaat
-            self.user_states[chat_id] = {'state': 2, 'market': market, 'analysis_type': 'technical'}
+            logger.info(f"Found {len(matched_subscribers)} subscribers for {instrument} {timeframe}")
             
+            # Als er geen matches zijn, log dit en stop de verwerking
+            if not matched_subscribers:
+                logger.info(f"No subscribers found for {instrument} {timeframe}. Signal will not be sent.")
+                return False
+            
+            # Maak het signaal bericht
+            signal_message = f"🎯 <b>New Trading Signal</b> 🎯\n\n"
+            signal_message += f"Instrument: {instrument}\n"
+            signal_message += f"Action: {direction.upper()} {'📈' if direction.lower() == 'buy' else '📉'}\n\n"
+            
+            signal_message += f"Entry Price: {price}\n"
+            
+            if stop_loss:
+                signal_message += f"Stop Loss: {stop_loss} {'🔴' if stop_loss else ''}\n"
+            
+            if take_profit:
+                signal_message += f"Take Profit: {take_profit} {'🎯' if take_profit else ''}\n\n"
+            
+            signal_message += f"Timeframe: {timeframe}\n"
+            signal_message += f"Strategy: {strategy}\n\n"
+            
+            signal_message += f"{'—'*20}\n\n"
+            
+            signal_message += f"<b>Risk Management:</b>\n"
+            for tip in risk_management:
+                signal_message += f"• {tip}\n"
+            
+            signal_message += f"\n{'—'*20}\n\n"
+            
+            signal_message += f"🤖 <b>SigmaPips AI Verdict:</b>\n"
+            if verdict:
+                signal_message += f"{verdict}\n"
+            else:
+                signal_message += f"The {instrument} {direction.lower()} signal shows a promising setup with a favorable risk/reward ratio. Entry at {price} with defined risk parameters offers a good trading opportunity.\n"
+            
+            # Stuur het signaal naar alle geabonneerde gebruikers
+            success_count = 0
+            for subscriber in matched_subscribers:
+                try:
+                    user_id = subscriber['user_id']
+                    logger.info(f"Sending signal to user {user_id}")
+                    
+                    # Stuur eerst het signaal
+                    await self.bot.send_message(
+                        chat_id=user_id,
+                        text=signal_message,
+                        parse_mode='HTML'
+                    )
+                    
+                    # Stuur daarna de knoppen in een apart bericht
+                    keyboard = [
+                        [InlineKeyboardButton("📊 Technical Analysis", callback_data=f"analysis_technical_{instrument}_signal")],
+                        [InlineKeyboardButton("🧠 Market Sentiment", callback_data=f"analysis_sentiment_{instrument}_signal")],
+                        [InlineKeyboardButton("📅 Economic Calendar", callback_data=f"analysis_calendar_{instrument}_signal")]
+                    ]
+                    
+                    await self.bot.send_message(
+                        chat_id=user_id,
+                        text="Analysis options:",
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+                    
+                    logger.info(f"Successfully sent signal and buttons to user {user_id}")
+                    success_count += 1
+                except Exception as user_error:
+                    logger.error(f"Error sending signal to user {subscriber['user_id']}: {str(user_error)}")
+                    logger.exception(user_error)
+            
+            return success_count > 0
         except Exception as e:
-            logger.error(f"Error showing instruments: {str(e)}")
-            
-            # Probeer te herstellen door een generiek bericht te sturen
-            try:
-                await context.bot.send_message(
-                    chat_id=update.effective_chat.id,
-                    text="Er is een fout opgetreden. Probeer het opnieuw met /start."
-                )
-            except Exception as recovery_error:
-                logger.error(f"Failed to recover from error: {str(recovery_error)}")
-
-    def get_instruments_keyboard(self):
-        """Get the instruments keyboard based on the current market"""
-        # Standaard forex keyboard
-        return [
-            [
-                InlineKeyboardButton("EUR/USD", callback_data="instrument_EURUSD"),
-                InlineKeyboardButton("GBP/USD", callback_data="instrument_GBPUSD"),
-                InlineKeyboardButton("USD/JPY", callback_data="instrument_USDJPY")
-            ],
-            [
-                InlineKeyboardButton("EUR/GBP", callback_data="instrument_EURGBP"),
-                InlineKeyboardButton("AUD/USD", callback_data="instrument_AUDUSD"),
-                InlineKeyboardButton("USD/CAD", callback_data="instrument_USDCAD")
-            ],
-            [
-                InlineKeyboardButton("EUR/JPY", callback_data="instrument_EURJPY"),
-                InlineKeyboardButton("GBP/JPY", callback_data="instrument_GBPJPY"),
-                InlineKeyboardButton("CHF/JPY", callback_data="instrument_CHFJPY")
-            ],
-            [
-                InlineKeyboardButton("⬅️ Back to Markets", callback_data="back_to_markets")
-            ]
-        ]
-
-    def get_forex_keyboard(self):
-        """Get the forex instruments keyboard"""
-        return [
-            [
-                InlineKeyboardButton("EUR/USD", callback_data="instrument_EURUSD"),
-                InlineKeyboardButton("GBP/USD", callback_data="instrument_GBPUSD"),
-                InlineKeyboardButton("USD/JPY", callback_data="instrument_USDJPY")
-            ],
-            [
-                InlineKeyboardButton("EUR/GBP", callback_data="instrument_EURGBP"),
-                InlineKeyboardButton("AUD/USD", callback_data="instrument_AUDUSD"),
-                InlineKeyboardButton("USD/CAD", callback_data="instrument_USDCAD")
-            ],
-            [
-                InlineKeyboardButton("EUR/JPY", callback_data="instrument_EURJPY"),
-                InlineKeyboardButton("GBP/JPY", callback_data="instrument_GBPJPY"),
-                InlineKeyboardButton("CHF/JPY", callback_data="instrument_CHFJPY")
-            ],
-            [
-                InlineKeyboardButton("⬅️ Back to Markets", callback_data="back_to_markets")
-            ]
-        ]
-
-    def get_crypto_keyboard(self):
-        """Get the crypto instruments keyboard"""
-        return [
-            [
-                InlineKeyboardButton("BTC/USD", callback_data="instrument_BTCUSD"),
-                InlineKeyboardButton("ETH/USD", callback_data="instrument_ETHUSD")
-            ],
-            [
-                InlineKeyboardButton("XRP/USD", callback_data="instrument_XRPUSD"),
-                InlineKeyboardButton("LTC/USD", callback_data="instrument_LTCUSD")
-            ],
-            [
-                InlineKeyboardButton("SOL/USD", callback_data="instrument_SOLUSD"),
-                InlineKeyboardButton("BNB/USD", callback_data="instrument_BNBUSD")
-            ],
-            [
-                InlineKeyboardButton("⬅️ Back to Markets", callback_data="back_to_markets")
-            ]
-        ]
-
-    def get_indices_keyboard(self):
-        """Get the indices instruments keyboard"""
-        return [
-            [
-                InlineKeyboardButton("US500", callback_data="instrument_US500"),
-                InlineKeyboardButton("US100", callback_data="instrument_US100")
-            ],
-            [
-                InlineKeyboardButton("US30", callback_data="instrument_US30"),
-                InlineKeyboardButton("UK100", callback_data="instrument_UK100")
-            ],
-            [
-                InlineKeyboardButton("DE40", callback_data="instrument_DE40"),
-                InlineKeyboardButton("JP225", callback_data="instrument_JP225")
-            ],
-            [
-                InlineKeyboardButton("⬅️ Back to Markets", callback_data="back_to_markets")
-            ]
-        ]
-
-    def get_commodities_keyboard(self):
-        """Get the commodities instruments keyboard"""
-        return [
-            [
-                InlineKeyboardButton("GOLD", callback_data="instrument_XAUUSD"),
-                InlineKeyboardButton("SILVER", callback_data="instrument_XAGUSD")
-            ],
-            [
-                InlineKeyboardButton("OIL", callback_data="instrument_XTIUSD"),
-                InlineKeyboardButton("NATURAL GAS", callback_data="instrument_NATGAS")
-            ],
-            [
-                InlineKeyboardButton("⬅️ Back to Markets", callback_data="back_to_markets")
-            ]
-        ]
+            logger.error(f"Error processing signal: {str(e)}")
+            logger.exception(e)
+            return False
 
     async def callback_query_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """Handle callback queries that don't match other patterns"""
@@ -1673,116 +1575,3 @@ class TelegramService:
         )
         
         return MENU
-
-    async def process_signal(self, signal_data):
-        """Process a trading signal and send it to subscribed users."""
-        try:
-            # Log het ontvangen signaal
-            logger.info(f"Processing signal: {signal_data}")
-            
-            # Haal de relevante informatie uit het signaal
-            instrument = signal_data.get('instrument')
-            timeframe = signal_data.get('timeframe', '1h')
-            direction = signal_data.get('direction')
-            price = signal_data.get('price')
-            stop_loss = signal_data.get('stop_loss')
-            take_profit = signal_data.get('take_profit')
-            message = signal_data.get('message')
-            market = signal_data.get('market', 'forex')
-            strategy = signal_data.get('strategy', 'Test Strategy')
-            risk_management = signal_data.get('risk_management', ["Position size: 1-2% max", "Use proper stop loss", "Follow your trading plan"])
-            verdict = signal_data.get('verdict', '')
-            
-            # Converteer het signaal naar het formaat dat match_subscribers verwacht
-            signal_for_matching = {
-                'market': market,
-                'symbol': instrument,
-                'timeframe': timeframe,
-                'direction': direction,
-                'price': price,
-                'stop_loss': stop_loss,
-                'take_profit': take_profit,
-                'message': message
-            }
-            
-            # Log de matching parameters
-            logger.info(f"Matching parameters: market={market}, symbol={instrument}, timeframe={timeframe}")
-            
-            # Gebruik de match_subscribers methode om de juiste gebruikers te vinden
-            matched_subscribers = await self.db.match_subscribers(signal_for_matching)
-            
-            logger.info(f"Found {len(matched_subscribers)} subscribers for {instrument} {timeframe}")
-            
-            # Als er geen matches zijn, log dit en stop de verwerking
-            if not matched_subscribers:
-                logger.info(f"No subscribers found for {instrument} {timeframe}. Signal will not be sent.")
-                return False
-            
-            # Maak het signaal bericht
-            signal_message = f"🎯 <b>New Trading Signal</b> 🎯\n\n"
-            signal_message += f"Instrument: {instrument}\n"
-            signal_message += f"Action: {direction.upper()} {'📈' if direction.lower() == 'buy' else '📉'}\n\n"
-            
-            signal_message += f"Entry Price: {price}\n"
-            
-            if stop_loss:
-                signal_message += f"Stop Loss: {stop_loss} {'🔴' if stop_loss else ''}\n"
-            
-            if take_profit:
-                signal_message += f"Take Profit: {take_profit} {'🎯' if take_profit else ''}\n\n"
-            
-            signal_message += f"Timeframe: {timeframe}\n"
-            signal_message += f"Strategy: {strategy}\n\n"
-            
-            signal_message += f"{'—'*20}\n\n"
-            
-            signal_message += f"<b>Risk Management:</b>\n"
-            for tip in risk_management:
-                signal_message += f"• {tip}\n"
-            
-            signal_message += f"\n{'—'*20}\n\n"
-            
-            signal_message += f"🤖 <b>SigmaPips AI Verdict:</b>\n"
-            if verdict:
-                signal_message += f"{verdict}\n"
-            else:
-                signal_message += f"The {instrument} {direction.lower()} signal shows a promising setup with a favorable risk/reward ratio. Entry at {price} with defined risk parameters offers a good trading opportunity.\n"
-            
-            # Stuur het signaal naar alle geabonneerde gebruikers
-            success_count = 0
-            for subscriber in matched_subscribers:
-                try:
-                    user_id = subscriber['user_id']
-                    logger.info(f"Sending signal to user {user_id}")
-                    
-                    # Stuur eerst het signaal
-                    await self.bot.send_message(
-                        chat_id=user_id,
-                        text=signal_message,
-                        parse_mode='HTML'
-                    )
-                    
-                    # Stuur daarna de knoppen in een apart bericht
-                    keyboard = [
-                        [InlineKeyboardButton("📊 Technical Analysis", callback_data=f"analysis_technical_{instrument}_signal")],
-                        [InlineKeyboardButton("🧠 Market Sentiment", callback_data=f"analysis_sentiment_{instrument}_signal")],
-                        [InlineKeyboardButton("📅 Economic Calendar", callback_data=f"analysis_calendar_{instrument}_signal")]
-                    ]
-                    
-                    await self.bot.send_message(
-                        chat_id=user_id,
-                        text="Analysis options:",
-                        reply_markup=InlineKeyboardMarkup(keyboard)
-                    )
-                    
-                    logger.info(f"Successfully sent signal and buttons to user {user_id}")
-                    success_count += 1
-                except Exception as user_error:
-                    logger.error(f"Error sending signal to user {subscriber['user_id']}: {str(user_error)}")
-                    logger.exception(user_error)
-            
-            return success_count > 0
-        except Exception as e:
-            logger.error(f"Error processing signal: {str(e)}")
-            logger.exception(e)
-            return False
