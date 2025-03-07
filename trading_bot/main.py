@@ -230,16 +230,22 @@ async def signal_webhook(request: Request):
                     message = signal_data.get('message')
                     market = signal_data.get('market', 'forex')
                     
-                    # Bepaal de stijl op basis van de timeframe
-                    style_map = {
-                        '1m': 'test', '15m': 'scalp', '1h': 'intraday', '4h': 'swing'
+                    # Converteer het signaal naar het formaat dat match_subscribers verwacht
+                    signal_for_matching = {
+                        'market': market,
+                        'symbol': instrument,
+                        'timeframe': timeframe,
+                        'direction': direction,
+                        'price': price,
+                        'stop_loss': stop_loss,
+                        'take_profit': take_profit,
+                        'message': message
                     }
-                    style = style_map.get(timeframe, 'intraday')
                     
-                    # Haal alle gebruikers op die geabonneerd zijn op dit signaal
-                    users = await self.db.get_users_for_signal(market, instrument, timeframe)
+                    # Gebruik de match_subscribers methode om de juiste gebruikers te vinden
+                    matched_subscribers = await self.db.match_subscribers(signal_for_matching)
                     
-                    if not users:
+                    if not matched_subscribers:
                         logger.info(f"No users subscribed to {instrument} {timeframe} signals")
                         return True
                     
@@ -261,16 +267,17 @@ async def signal_webhook(request: Request):
                         signal_message += f"📝 <b>Analysis:</b>\n{message}"
                     
                     # Stuur het signaal naar alle geabonneerde gebruikers
-                    for user in users:
+                    for subscriber in matched_subscribers:
                         try:
+                            user_id = subscriber['user_id']
                             await self.bot.send_message(
-                                chat_id=user['user_id'],
+                                chat_id=user_id,
                                 text=signal_message,
                                 parse_mode='HTML'
                             )
-                            logger.info(f"Sent signal to user {user['user_id']}")
+                            logger.info(f"Sent signal to user {user_id}")
                         except Exception as user_error:
-                            logger.error(f"Error sending signal to user {user['user_id']}: {str(user_error)}")
+                            logger.error(f"Error sending signal to user {subscriber['user_id']}: {str(user_error)}")
                     
                     return True
                 except Exception as e:
