@@ -1413,14 +1413,4 @@ class TelegramService:
                 InlineKeyboardButton("⬅️ Back to Markets", callback_data="back_to_markets")
             ]
         ]
-
-    async def upload_to_telegraph(self, image_bytes, caption):
-        """Upload an image to Telegraph and return the URL"""
-        try:
-            # Implement the logic to upload the image to Telegraph and return the URL
-            # This is a placeholder and should be replaced with the actual implementation
-            # to upload the image and return the URL
-            return "https://example.com/telegraph-url"
-        except Exception as e:
-            logger.error(f"Error uploading to Telegraph: {str(e)}")
-            return None
+        
