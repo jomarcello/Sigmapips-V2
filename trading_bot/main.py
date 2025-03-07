@@ -34,6 +34,7 @@ port = int(os.getenv("PORT", 8080))
 # Initialize services once
 db = Database()
 telegram = TelegramService(db)
+asyncio.create_task(telegram.initialize(use_webhook=True))
 chart = ChartService()
 
 # Redis configuratie
