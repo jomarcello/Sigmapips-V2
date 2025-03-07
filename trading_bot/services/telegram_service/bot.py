@@ -1355,6 +1355,24 @@ class TelegramService:
             else:
                 signal_message += f"The {instrument} {direction.lower()} signal shows a promising setup with a favorable risk/reward ratio. Entry at {price} with defined risk parameters offers a good trading opportunity.\n"
             
+            # Sla het signaal op in Redis voor later gebruik
+            try:
+                # Maak een key voor Redis
+                signal_key = f"signal:{instrument}"
+                
+                # Sla het signaal op in Redis
+                signal_data_to_store = {
+                    'message': signal_message,
+                    'instrument': instrument,
+                    'timestamp': int(time.time())
+                }
+                
+                # Sla op in Redis als JSON string
+                self.db.redis.set(signal_key, json.dumps(signal_data_to_store), ex=86400)  # 24 uur bewaren
+                logger.info(f"Stored signal for {instrument} in Redis")
+            except Exception as redis_error:
+                logger.error(f"Error storing signal in Redis: {str(redis_error)}")
+            
             # Stuur het signaal naar alle geabonneerde gebruikers
             success_count = 0
             for subscriber in matched_subscribers:
@@ -1430,31 +1448,61 @@ class TelegramService:
                 if not instrument and context.user_data and 'instrument' in context.user_data:
                     instrument = context.user_data.get('instrument')
                 
-                # Create a signal-like message
-                signal_message = f"🎯 <b>Trading Signal</b> 🎯\n\n"
-                signal_message += f"Instrument: {instrument}\n"
+                # Try to get the original signal from Redis
+                original_signal = None
+                if instrument:
+                    try:
+                        signal_key = f"signal:{instrument}"
+                        stored_signal = self.db.redis.get(signal_key)
+                        
+                        if stored_signal:
+                            # Parse the JSON string
+                            signal_data = json.loads(stored_signal)
+                            original_signal = signal_data.get('message')
+                            logger.info(f"Retrieved original signal for {instrument} from Redis")
+                    except Exception as redis_error:
+                        logger.error(f"Error retrieving signal from Redis: {str(redis_error)}")
                 
-                # Add placeholder data if we don't have the actual signal data
-                signal_message += f"Action: BUY 📈\n\n"
-                signal_message += f"Entry Price: [Last price]\n"
-                signal_message += f"Stop Loss: [Recommended level] 🔴\n"
-                signal_message += f"Take Profit: [Target level] 🎯\n\n"
-                signal_message += f"Timeframe: 1h\n"
-                signal_message += f"Strategy: Trend Following\n\n"
+                # If we have the original signal, use it
+                if original_signal:
+                    # Create the analyze market button
+                    keyboard = [
+                        [InlineKeyboardButton("🔍 Analyze Market", callback_data=f"analyze_market_{instrument}")]
+                    ]
+                    
+                    # Send the original signal
+                    await query.edit_message_text(
+                        text=original_signal,
+                        reply_markup=InlineKeyboardMarkup(keyboard),
+                        parse_mode=ParseMode.HTML
+                    )
+                    
+                    logger.info(f"Restored original signal for instrument: {instrument}")
+                else:
+                    # Fallback to a generic signal if the original is not available
+                    signal_message = f"🎯 <b>Trading Signal</b> 🎯\n\n"
+                    signal_message += f"Instrument: {instrument}\n"
+                    signal_message += f"Action: BUY 📈\n\n"
+                    signal_message += f"Entry Price: [Last price]\n"
+                    signal_message += f"Stop Loss: [Recommended level] 🔴\n"
+                    signal_message += f"Take Profit: [Target level] 🎯\n\n"
+                    signal_message += f"Timeframe: 1h\n"
+                    signal_message += f"Strategy: Trend Following\n\n"
+                    
+                    # Create the analyze market button
+                    keyboard = [
+                        [InlineKeyboardButton("🔍 Analyze Market", callback_data=f"analyze_market_{instrument}")]
+                    ]
+                    
+                    # Send the fallback signal
+                    await query.edit_message_text(
+                        text=signal_message,
+                        reply_markup=InlineKeyboardMarkup(keyboard),
+                        parse_mode=ParseMode.HTML
+                    )
+                    
+                    logger.info(f"Used fallback signal for instrument: {instrument} (original not found)")
                 
-                # Create the analyze market button
-                keyboard = [
-                    [InlineKeyboardButton("🔍 Analyze Market", callback_data=f"analyze_market_{instrument}")]
-                ]
-                
-                # Send the recreated signal
-                await query.edit_message_text(
-                    text=signal_message,
-                    reply_markup=InlineKeyboardMarkup(keyboard),
-                    parse_mode=ParseMode.HTML
-                )
-                
-                logger.info(f"Recreated signal view for instrument: {instrument}")
                 return MENU
             except Exception as e:
                 logger.error(f"Error in back_to_signal handler: {str(e)}")
