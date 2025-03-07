@@ -1651,3 +1651,21 @@ class TelegramService:
             logger.error(f"Error processing update: {str(e)}")
             logger.exception(e)
             return False
+
+    async def cancel_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        """Cancel the conversation."""
+        try:
+            # Stuur een bericht dat de conversatie is geannuleerd
+            await update.message.reply_text(
+                "Huidige operatie geannuleerd. Gebruik /start om opnieuw te beginnen."
+            )
+            
+            # Reset user_data
+            context.user_data.clear()
+            
+            # Beëindig de conversatie
+            return ConversationHandler.END
+            
+        except Exception as e:
+            logger.error(f"Fout in cancel commando: {str(e)}")
+            return ConversationHandler.END
