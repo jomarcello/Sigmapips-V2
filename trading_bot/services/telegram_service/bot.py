@@ -1453,9 +1453,21 @@ class TelegramService:
                 
                 logger.info(f"Back to signal for instrument: {instrument}")
                 
-                # Try to get the original signal from Redis
+                # Probeer het signaal uit de gebruikerscontext te halen
                 original_signal = None
-                if instrument:
+                user_id = update.effective_user.id
+                logger.info(f"Looking for signal in user_signals for user_id: {user_id}")
+                
+                if hasattr(self, 'user_signals') and user_id in self.user_signals:
+                    user_signal = self.user_signals.get(user_id)
+                    logger.info(f"Found user signal: {user_signal}")
+                    
+                    if user_signal and user_signal.get('instrument') == instrument:
+                        original_signal = user_signal.get('message')
+                        logger.info(f"Retrieved original signal from user context: {len(original_signal)} chars")
+                
+                # Als we geen signaal in de gebruikerscontext vinden, probeer Redis
+                if not original_signal and instrument:
                     try:
                         # Controleer of Redis beschikbaar is
                         if hasattr(self.db, 'redis') and self.db.redis:
