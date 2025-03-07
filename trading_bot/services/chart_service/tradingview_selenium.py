@@ -1,4 +1,4 @@
-DEZE VERSIE WERKTE NOG WEL: import os
+import os
 import time
 import logging
 import asyncio
