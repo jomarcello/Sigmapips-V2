@@ -1423,7 +1423,7 @@ class TelegramService:
                 [InlineKeyboardButton("📊 Technical Analysis", callback_data=f"analysis_technical_{instrument}_signal")],
                 [InlineKeyboardButton("🧠 Market Sentiment", callback_data=f"analysis_sentiment_{instrument}_signal")],
                 [InlineKeyboardButton("📅 Economic Calendar", callback_data=f"analysis_calendar_{instrument}_signal")],
-                [InlineKeyboardButton("⬅️ Back to Signal", callback_data=f"back_to_signal")]
+                [InlineKeyboardButton("⬅️ Back to Signal", callback_data=f"back_to_signal_{instrument}")]
             ]
             
             await query.edit_message_text(
@@ -1433,20 +1433,26 @@ class TelegramService:
             
             return MENU
         
-        elif query.data == "back_to_signal":
+        elif query.data.startswith("back_to_signal"):
             try:
-                # Extract instrument from message text
-                instrument = None
-                message_text = query.message.text if query.message and hasattr(query.message, 'text') else ""
+                # Extract instrument from callback data
+                parts = query.data.split("_")
+                instrument = parts[3] if len(parts) > 3 else None
                 
-                # Extract instrument from message text like "Choose analysis type for XAUUSD:"
-                instrument_match = re.search(r"for ([A-Z0-9]+):", message_text)
-                if instrument_match:
-                    instrument = instrument_match.group(1)
+                # Als er geen instrument in de callback data zit, probeer het uit de message text te halen
+                if not instrument:
+                    message_text = query.message.text if query.message and hasattr(query.message, 'text') else ""
+                    
+                    # Extract instrument from message text like "Choose analysis type for XAUUSD:"
+                    instrument_match = re.search(r"for ([A-Z0-9]+):", message_text)
+                    if instrument_match:
+                        instrument = instrument_match.group(1)
                 
-                # If not found in message text, try user_data
+                # Als nog steeds geen instrument, probeer user_data
                 if not instrument and context.user_data and 'instrument' in context.user_data:
                     instrument = context.user_data.get('instrument')
+                
+                logger.info(f"Back to signal for instrument: {instrument}")
                 
                 # Try to get the original signal from Redis
                 original_signal = None
