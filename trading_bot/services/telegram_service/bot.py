@@ -8,6 +8,7 @@ import json
 from typing import Dict, Any, List
 import base64
 import time
+import re
 
 from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery, InputMediaPhoto, BotCommand
 from telegram.ext import (
@@ -1418,35 +1419,54 @@ class TelegramService:
             # We can't actually go back to the original signal message,
             # but we can inform the user to check their chat history
             try:
-                # Get the instrument from the previous analysis if available
+                # Try to extract the instrument from the current message text
                 instrument = None
-                if context.user_data and 'instrument' in context.user_data:
+                message_text = query.message.text if query.message and hasattr(query.message, 'text') else ""
+                
+                # Extract instrument from message text like "Choose analysis type for XAUUSD:"
+                instrument_match = re.search(r"for ([A-Z0-9]+):", message_text)
+                if instrument_match:
+                    instrument = instrument_match.group(1)
+                
+                # If not found in message text, try user_data
+                if not instrument and context.user_data and 'instrument' in context.user_data:
                     instrument = context.user_data.get('instrument')
                 
-                message_text = "You've returned to signal view. "
-                message_text += "Please check your chat history for the original signal message."
+                # Prepare response message
+                response_text = "You've returned to signal view. "
+                response_text += "Please check your chat history for the original signal message."
                 
-                # Create a new analyze button to allow the user to analyze again
+                # Create keyboard with appropriate buttons
                 keyboard = []
                 if instrument:
                     keyboard.append([InlineKeyboardButton("🔍 Analyze Again", callback_data=f"analyze_market_{instrument}")])
                 
                 keyboard.append([InlineKeyboardButton("🏠 Main Menu", callback_data="back_menu")])
                 
+                # Send the response
                 await query.edit_message_text(
-                    text=message_text,
+                    text=response_text,
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
+                
+                # Log success
+                logger.info(f"Successfully handled back_to_signal with instrument: {instrument}")
                 return MENU
             except Exception as e:
                 logger.error(f"Error in back_to_signal handler: {str(e)}")
+                logger.exception(e)  # Log full traceback
+                
                 # If there's an error, try to show a simple message
-                await query.edit_message_text(
-                    text="Please check your chat history for the original signal.",
-                    reply_markup=InlineKeyboardMarkup([[
-                        InlineKeyboardButton("🏠 Main Menu", callback_data="back_menu")
-                    ]])
-                )
+                try:
+                    await query.edit_message_text(
+                        text="Please check your chat history for the original signal.",
+                        reply_markup=InlineKeyboardMarkup([[
+                            InlineKeyboardButton("🏠 Main Menu", callback_data="back_menu")
+                        ]])
+                    )
+                except Exception as inner_e:
+                    logger.error(f"Failed to send fallback message: {str(inner_e)}")
+                
                 return MENU
         
         elif query.data.startswith("analysis_technical_"):
