@@ -1586,3 +1586,20 @@ class TelegramService:
         )
         
         return MENU
+
+    async def process_update(self, update_data):
+        """Process an update from the webhook"""
+        try:
+            logger.info(f"Processing update: {update_data}")
+            
+            # Maak een Update object van de update data
+            update = Update.de_json(data=update_data, bot=self.bot)
+            
+            # Stuur de update naar de application
+            await self.application.process_update(update)
+            
+            return True
+        except Exception as e:
+            logger.error(f"Error processing update: {str(e)}")
+            logger.exception(e)
+            return False
