@@ -394,8 +394,13 @@ async def receive_signal(signal: Dict[str, Any]):
         market_type = _detect_market(signal.get('instrument', ''))
         signal['market'] = market_type
         
-        # Verwerk het signaal via de nieuwe webhook
-        return await signal_webhook(Request(scope={"type": "http"}))
+        # Maak een mock request object
+        class MockRequest:
+            async def json(self):
+                return signal
+        
+        # Stuur het signaal naar de webhook
+        return await signal_webhook(MockRequest())
         
     except Exception as e:
         logger.error(f"Error processing signal: {str(e)}")
