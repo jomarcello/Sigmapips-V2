@@ -63,7 +63,11 @@ if (!url || !outputPath) {
         
         // Wacht een vaste tijd om de pagina te laten renderen
         console.log('Waiting for page to render...');
-        await page.waitForTimeout(5000);
+        await page.waitForTimeout(10000); // Verhoog de wachttijd naar 10 seconden
+
+        // Wacht op een specifiek element dat aangeeft dat de indicators geladen zijn
+        console.log('Waiting for indicators to load...');
+        await page.waitForSelector('.chart-container', { state: 'attached', timeout: 30000 }); // Pas de selector aan op basis van de TradingView UI
 
         // Verwijder of verberg UI-elementen
         console.log('Removing UI elements...');
