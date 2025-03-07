@@ -69,9 +69,14 @@ if (!url || !outputPath) {
         console.log('Waiting for indicators to load...');
         await page.waitForSelector('.chart-container', { state: 'attached', timeout: 30000 }); // Pas de selector aan op basis van de TradingView UI
 
-        // Verwijder of verberg UI-elementen
-        console.log('Removing UI elements...');
+        // Maak de chart fullscreen en verberg UI-elementen
+        console.log('Making chart fullscreen and removing UI elements...');
         await page.evaluate(() => {
+            // Probeer fullscreen modus te forceren
+            document.documentElement.requestFullscreen().catch(err => {
+                console.error(`Error attempting fullscreen: ${err.message}`);
+            });
+
             // Verwijder de header
             const header = document.querySelector('header');
             if (header) header.remove();
@@ -83,6 +88,20 @@ if (!url || !outputPath) {
             // Verwijder andere ongewenste elementen (pas dit aan op basis van de TradingView UI)
             const unwantedElements = document.querySelectorAll('.unwanted-class'); // Vervang '.unwanted-class' door de juiste selector
             unwantedElements.forEach(element => element.remove());
+
+            // Maak de chart-container fullscreen
+            const chart = document.querySelector('.chart-container');
+            if (chart) {
+                chart.style.position = 'fixed';
+                chart.style.top = '0';
+                chart.style.left = '0';
+                chart.style.width = '100vw';
+                chart.style.height = '100vh';
+                chart.style.zIndex = '1000';
+            }
+
+            // Maak de achtergrond transparant
+            document.body.style.backgroundColor = 'transparent';
         });
 
         // Neem een fullscreen screenshot
