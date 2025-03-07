@@ -1359,14 +1359,19 @@ class TelegramService:
             for subscriber in matched_subscribers:
                 try:
                     user_id = subscriber['user_id']
-                    # Sla het signaal op in Redis en in de gebruikerscontext
+                    # Sla het signaal op in de gebruikerscontext
                     self.user_signals[user_id] = {
                         'instrument': instrument,
                         'message': signal_message,
                         'timestamp': int(time.time())
                     }
+                    logger.info(f"Stored signal for user {user_id}, instrument {instrument} in user_signals")
+                    
+                    # Debug: print alle user_signals na opslaan
+                    logger.info(f"All user_signals after storing: {self.user_signals}")
                 except Exception as e:
                     logger.error(f"Error storing signal in user context: {str(e)}")
+                    logger.exception(e)
             
             # Stuur het signaal naar alle geabonneerde gebruikers
             success_count = 0
@@ -1458,6 +1463,9 @@ class TelegramService:
                 user_id = update.effective_user.id
                 logger.info(f"Looking for signal in user_signals for user_id: {user_id}")
                 
+                # Debug: print alle user_signals
+                logger.info(f"All user_signals: {self.user_signals}")
+                
                 if hasattr(self, 'user_signals') and user_id in self.user_signals:
                     user_signal = self.user_signals.get(user_id)
                     logger.info(f"Found user signal: {user_signal}")
@@ -1465,6 +1473,10 @@ class TelegramService:
                     if user_signal and user_signal.get('instrument') == instrument:
                         original_signal = user_signal.get('message')
                         logger.info(f"Retrieved original signal from user context: {len(original_signal)} chars")
+                    else:
+                        logger.warning(f"User signal found but instrument doesn't match. User signal instrument: {user_signal.get('instrument')}, requested instrument: {instrument}")
+                else:
+                    logger.warning(f"No user signal found for user_id: {user_id}")
                 
                 # Als we geen signaal in de gebruikerscontext vinden, probeer Redis
                 if not original_signal and instrument:
