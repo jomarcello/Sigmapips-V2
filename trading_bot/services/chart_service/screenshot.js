@@ -22,16 +22,15 @@ if (!url || !outputPath) {
         
         // Open een nieuwe pagina
         const context = await browser.newContext({
-            locale: 'en-US', // Stel de locale in op Engels
-            timezoneId: 'Europe/Amsterdam', // Stel de tijdzone in op Amsterdam
-            viewport: { width: 1920, height: 1080 } // Stel een grotere viewport in
+            locale: 'en-US',
+            timezoneId: 'Europe/Amsterdam',
+            viewport: { width: 1920, height: 1080 }
         });
         
         // Voeg cookies toe als er een session ID is
         if (sessionId) {
             console.log(`Using session ID: ${sessionId.substring(0, 5)}...`);
             
-            // Voeg de session cookie direct toe zonder eerst naar TradingView te gaan
             await context.addCookies([
                 {
                     name: 'sessionid',
@@ -51,7 +50,6 @@ if (!url || !outputPath) {
             ]);
         }
         
-        // Open een nieuwe pagina voor de screenshot
         const page = await context.newPage();
         
         // Ga naar de URL
@@ -60,36 +58,15 @@ if (!url || !outputPath) {
             waitUntil: 'domcontentloaded',
             timeout: 90000
         });
-        
-        // Wacht een vaste tijd om de pagina te laten renderen
-        console.log('Waiting for page to render...');
-        await page.waitForTimeout(10000); // Verhoog de wachttijd naar 10 seconden
 
-        // Wacht op een specifiek element dat aangeeft dat de indicators geladen zijn
-        console.log('Waiting for indicators to load...');
-        await page.waitForSelector('.chart-container', { state: 'attached', timeout: 30000 }); // Pas de selector aan op basis van de TradingView UI
+        // Wacht totdat de TradingView-grafiek geladen is
+        console.log('Waiting for the chart to fully load...');
+        await page.waitForTimeout(15000);
+        await page.waitForSelector('.chart-container', { state: 'attached', timeout: 30000 });
 
-        // Maak de chart fullscreen en verberg UI-elementen
-        console.log('Making chart fullscreen and removing UI elements...');
+        // Forceer de TradingView grafiek in fullscreen modus
+        console.log('Forcing TradingView into fullscreen mode...');
         await page.evaluate(() => {
-            // Probeer fullscreen modus te forceren
-            document.documentElement.requestFullscreen().catch(err => {
-                console.error(`Error attempting fullscreen: ${err.message}`);
-            });
-
-            // Verwijder de header
-            const header = document.querySelector('header');
-            if (header) header.remove();
-
-            // Verwijder de footer
-            const footer = document.querySelector('footer');
-            if (footer) footer.remove();
-
-            // Verwijder andere ongewenste elementen (pas dit aan op basis van de TradingView UI)
-            const unwantedElements = document.querySelectorAll('.unwanted-class'); // Vervang '.unwanted-class' door de juiste selector
-            unwantedElements.forEach(element => element.remove());
-
-            // Maak de chart-container fullscreen
             const chart = document.querySelector('.chart-container');
             if (chart) {
                 chart.style.position = 'fixed';
@@ -100,18 +77,32 @@ if (!url || !outputPath) {
                 chart.style.zIndex = '1000';
             }
 
-            // Maak de achtergrond transparant
-            document.body.style.backgroundColor = 'transparent';
+            // Verberg ongewenste UI-elementen
+            const elementsToHide = [
+                'header', 'footer', '.sidebar', '.chart-toolbar', '.tv-side-toolbar', 
+                '.tv-header', '.tv-footer', '.chart-panel'
+            ];
+            elementsToHide.forEach(selector => {
+                const el = document.querySelector(selector);
+                if (el) el.style.display = 'none';
+            });
+
+            // Simuleer de "Fullscreen" toets (F11) in TradingView
+            const fullscreenButton = document.querySelector('[data-name="fullscreen-button"]');
+            if (fullscreenButton) fullscreenButton.click();
         });
+
+        // Extra wachttijd om ervoor te zorgen dat fullscreen correct wordt toegepast
+        await page.waitForTimeout(5000);
 
         // Neem een fullscreen screenshot
         console.log('Taking fullscreen screenshot...');
         await page.screenshot({
             path: outputPath,
-            fullPage: true, // Maak een volledige pagina-screenshot
-            omitBackground: true // Optioneel: verwijder de achtergrond voor een transparante screenshot
+            fullPage: false, // Zet op false om alleen het zichtbare deel vast te leggen
+            omitBackground: true
         });
-        
+
         // Sluit de browser
         await browser.close();
         
