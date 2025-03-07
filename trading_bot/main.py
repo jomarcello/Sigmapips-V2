@@ -334,25 +334,26 @@ async def process_signal_with_deepseek(signal_data: Dict[str, Any]) -> Dict[str,
         
         # Maak een prompt voor DeepSeek
         prompt = f"""
-        Je bent een expert trading signal processor. Je taak is om het volgende ruwe trading signaal te analyseren en te formatteren in een gestructureerd formaat.
+        You are an expert trading signal processor. Your task is to analyze the following raw trading signal and format it into a structured format.
 
-        Ruwe signaal data:
+        Raw signal data:
         {json.dumps(signal_data, indent=2)}
         
-        Verwerk dit signaal en geef een gestructureerde JSON output met de volgende velden:
-        - instrument: Het trading instrument (bijv. EURUSD, BTCUSD)
-        - direction: De richting van de trade (buy of sell)
-        - price: De entry price
-        - stop_loss: Het stop loss niveau (indien beschikbaar)
-        - take_profit: Het take profit niveau (indien beschikbaar)
-        - timeframe: De timeframe van de trade (bijv. 1m, 15m, 1h, 4h)
-        - strategy: Een korte naam voor de strategie (bijv. "Trend Following", "Breakout", "Support/Resistance")
-        - risk_management: Een lijst met risk management tips (bijv. ["Position size: 1-2% max", "Use proper stop loss"])
-        - message: Een gedetailleerde analyse van de trade
-        - verdict: Een korte conclusie over de trade setup
+        Process this signal and provide a structured JSON output with the following fields:
+        - instrument: The trading instrument (e.g., EURUSD, BTCUSD)
+        - direction: The direction of the trade (buy or sell)
+        - price: The entry price
+        - stop_loss: The stop loss level (if available)
+        - take_profit: The take profit level (if available)
+        - timeframe: The timeframe of the trade (e.g., 1m, 15m, 1h, 4h)
+        - strategy: A short name for the strategy (e.g., "Trend Following", "Breakout", "Support/Resistance")
+        - risk_management: A list of risk management tips (e.g., ["Position size: 1-2% max", "Use proper stop loss"])
+        - message: A detailed analysis of the trade
+        - verdict: A short conclusion about the trade setup
         
-        Als er velden ontbreken in het ruwe signaal, probeer deze te extraheren uit de beschikbare tekst of vul ze in op basis van je expertise.
-        Geef alleen de JSON output terug, geen extra tekst.
+        If fields are missing in the raw signal, try to extract them from the available text or fill them in based on your expertise.
+        All content must be in English.
+        Only return the JSON output, no additional text.
         """
         
         # Maak de request naar DeepSeek
@@ -364,7 +365,7 @@ async def process_signal_with_deepseek(signal_data: Dict[str, Any]) -> Dict[str,
         payload = {
             "model": "deepseek-chat",
             "messages": [
-                {"role": "system", "content": "Je bent een expert trading signal processor."},
+                {"role": "system", "content": "You are an expert trading signal processor."},
                 {"role": "user", "content": prompt}
             ],
             "temperature": 0.2,
