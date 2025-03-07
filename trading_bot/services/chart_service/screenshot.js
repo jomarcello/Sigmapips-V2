@@ -67,9 +67,14 @@ if (!url || !outputPath) {
         await page.waitForSelector('.chart-container', { state: 'attached', timeout: 30000 });
         await page.waitForSelector('.chart-container .candlestick', { state: 'visible', timeout: 30000 });
 
-        // Verwijder of verberg UI-elementen
-        console.log('Removing UI elements...');
+        // Maak de chart fullscreen en verwijder UI-elementen
+        console.log('Making chart fullscreen and removing UI elements...');
         await page.evaluate(() => {
+            // Probeer de volledige schermmodus te forceren
+            document.documentElement.requestFullscreen().catch(err => {
+                console.error(`Error attempting fullscreen: ${err.message}`);
+            });
+
             // Verberg de header
             const header = document.querySelector('header');
             if (header) header.style.display = 'none';
@@ -90,14 +95,14 @@ if (!url || !outputPath) {
             const unwantedElements = document.querySelectorAll('.unwanted-class');
             unwantedElements.forEach(element => element.style.display = 'none');
 
-            // Maak de chart fullscreen
+            // Maak de chart-container fullscreen
             const chart = document.querySelector('.chart-container');
             if (chart) {
                 chart.style.position = 'fixed';
                 chart.style.top = '0';
                 chart.style.left = '0';
-                chart.style.width = '100%';
-                chart.style.height = '100%';
+                chart.style.width = '100vw';
+                chart.style.height = '100vh';
                 chart.style.zIndex = '1000';
             }
 
