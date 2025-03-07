@@ -1320,20 +1320,18 @@ class TelegramService:
                         parse_mode='HTML'
                     )
                     
-                    # Stuur daarna de knoppen in een apart bericht
+                    # Stuur daarna één knop voor "Analyze Market" in plaats van drie aparte knoppen
                     keyboard = [
-                        [InlineKeyboardButton("📊 Technical Analysis", callback_data=f"analysis_technical_{instrument}_signal")],
-                        [InlineKeyboardButton("🧠 Market Sentiment", callback_data=f"analysis_sentiment_{instrument}_signal")],
-                        [InlineKeyboardButton("📅 Economic Calendar", callback_data=f"analysis_calendar_{instrument}_signal")]
+                        [InlineKeyboardButton("🔍 Analyze Market", callback_data=f"analyze_market_{instrument}")]
                     ]
                     
                     await self.bot.send_message(
                         chat_id=user_id,
-                        text="Analysis options:",
+                        text="Want to analyze this market?",
                         reply_markup=InlineKeyboardMarkup(keyboard)
                     )
                     
-                    logger.info(f"Successfully sent signal and buttons to user {user_id}")
+                    logger.info(f"Successfully sent signal and button to user {user_id}")
                     success_count += 1
                 except Exception as user_error:
                     logger.error(f"Error sending signal to user {subscriber['user_id']}: {str(user_error)}")
@@ -1354,7 +1352,26 @@ class TelegramService:
         logger.info(f"Received callback: {query.data}")
         
         # Verwerk de callback data
-        if query.data.startswith("analysis_technical_"):
+        if query.data.startswith("analyze_market_"):
+            # Extract instrument from callback data
+            parts = query.data.split("_")
+            instrument = parts[2]
+            
+            # Toon de analyse opties
+            keyboard = [
+                [InlineKeyboardButton("📊 Technical Analysis", callback_data=f"analysis_technical_{instrument}_signal")],
+                [InlineKeyboardButton("🧠 Market Sentiment", callback_data=f"analysis_sentiment_{instrument}_signal")],
+                [InlineKeyboardButton("📅 Economic Calendar", callback_data=f"analysis_calendar_{instrument}_signal")]
+            ]
+            
+            await query.edit_message_text(
+                text=f"Choose analysis type for {instrument}:",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            
+            return MENU
+        
+        elif query.data.startswith("analysis_technical_"):
             # Extract instrument from callback data
             parts = query.data.split("_")
             instrument = parts[2]
@@ -1410,7 +1427,7 @@ class TelegramService:
             
             if not chart_image:
                 # Create appropriate back button based on source
-                back_button = InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal") if from_signal else InlineKeyboardButton("⬅️ Back", callback_data="back_menu")
+                back_button = InlineKeyboardButton("⬅️ Back to Analysis", callback_data=f"analyze_market_{instrument}") if from_signal else InlineKeyboardButton("⬅️ Back", callback_data="back_menu")
                 
                 await query.edit_message_text(
                     text=f"❌ Could not generate chart for {instrument}. Please try again later.",
@@ -1419,7 +1436,7 @@ class TelegramService:
                 return MENU
             
             # Create appropriate back button based on source
-            back_button = InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal") if from_signal else InlineKeyboardButton("⬅️ Back", callback_data="back_menu")
+            back_button = InlineKeyboardButton("⬅️ Back to Analysis", callback_data=f"analyze_market_{instrument}") if from_signal else InlineKeyboardButton("⬅️ Back", callback_data="back_menu")
             
             # Send chart image
             await query.message.reply_photo(
@@ -1437,7 +1454,7 @@ class TelegramService:
             logger.error(f"Error showing technical analysis: {str(e)}")
             
             # Create appropriate back button based on source
-            back_button = InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal") if from_signal else InlineKeyboardButton("⬅️ Back", callback_data="back_menu")
+            back_button = InlineKeyboardButton("⬅️ Back to Analysis", callback_data=f"analyze_market_{instrument}") if from_signal else InlineKeyboardButton("⬅️ Back", callback_data="back_menu")
             
             await query.edit_message_text(
                 text=f"❌ Error generating analysis for {instrument}. Please try again later.",
@@ -1464,7 +1481,7 @@ class TelegramService:
             sentiment = await self.sentiment.get_market_sentiment(instrument)
             
             # Create appropriate back button based on source
-            back_button = InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal") if from_signal else InlineKeyboardButton("⬅️ Back", callback_data="back_menu")
+            back_button = InlineKeyboardButton("⬅️ Back to Analysis", callback_data=f"analyze_market_{instrument}") if from_signal else InlineKeyboardButton("⬅️ Back", callback_data="back_menu")
             
             # Show sentiment analysis
             await query.edit_message_text(
@@ -1479,7 +1496,7 @@ class TelegramService:
             logger.error(f"Error showing sentiment analysis: {str(e)}")
             
             # Create appropriate back button based on source
-            back_button = InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal") if from_signal else InlineKeyboardButton("⬅️ Back", callback_data="back_menu")
+            back_button = InlineKeyboardButton("⬅️ Back to Analysis", callback_data=f"analyze_market_{instrument}") if from_signal else InlineKeyboardButton("⬅️ Back", callback_data="back_menu")
             
             await query.edit_message_text(
                 text=f"❌ Error getting sentiment for {instrument}. Please try again later.",
@@ -1506,7 +1523,7 @@ class TelegramService:
             calendar = await self.calendar.get_economic_calendar(instrument)
             
             # Create appropriate back button based on source
-            back_button = InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal") if from_signal else InlineKeyboardButton("⬅️ Back", callback_data="back_menu")
+            back_button = InlineKeyboardButton("⬅️ Back to Analysis", callback_data=f"analyze_market_{instrument}") if from_signal else InlineKeyboardButton("⬅️ Back", callback_data="back_menu")
             
             # Show economic calendar
             await query.edit_message_text(
@@ -1521,7 +1538,7 @@ class TelegramService:
             logger.error(f"Error showing economic calendar: {str(e)}")
             
             # Create appropriate back button based on source
-            back_button = InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal") if from_signal else InlineKeyboardButton("⬅️ Back", callback_data="back_menu")
+            back_button = InlineKeyboardButton("⬅️ Back to Analysis", callback_data=f"analyze_market_{instrument}") if from_signal else InlineKeyboardButton("⬅️ Back", callback_data="back_menu")
             
             await query.edit_message_text(
                 text=f"❌ Error getting economic calendar for {instrument}. Please try again later.",
@@ -1574,4 +1591,4 @@ class TelegramService:
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
         
-        return MENU
+        return MENUgi
