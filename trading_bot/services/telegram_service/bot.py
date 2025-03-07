@@ -1713,21 +1713,10 @@ class TelegramService:
             
             logger.info(f"Found {len(matched_subscribers)} subscribers for {instrument} {timeframe}")
             
-            # TIJDELIJKE OPLOSSING: Haal alle gebruikers op als er geen matches zijn
+            # Als er geen matches zijn, log dit en stop de verwerking
             if not matched_subscribers:
-                logger.info(f"No users subscribed to {instrument} {timeframe}, getting all users")
-                # Haal alle gebruikers op
-                all_users = await self.db.get_all_users()
-                logger.info(f"Found {len(all_users)} total users")
-                
-                # Gebruik de eerste gebruiker als test
-                if all_users:
-                    matched_subscribers = [all_users[0]]
-                    logger.info(f"Using first user as test: {matched_subscribers[0]}")
-                else:
-                    # Als er geen gebruikers zijn, gebruik een hardgecodeerde test gebruiker
-                    matched_subscribers = [{'user_id': 2004519703}]  # Vervang dit door je eigen user ID
-                    logger.info(f"No users found, using hardcoded test user: {matched_subscribers[0]}")
+                logger.info(f"No subscribers found for {instrument} {timeframe}. Signal will not be sent.")
+                return False
             
             # Maak het signaal bericht
             signal_message = f"🎯 <b>New Trading Signal</b> 🎯\n\n"
@@ -1760,6 +1749,7 @@ class TelegramService:
                 signal_message += f"The {instrument} {direction.lower()} signal shows a promising setup with a favorable risk/reward ratio. Entry at {price} with defined risk parameters offers a good trading opportunity.\n"
             
             # Stuur het signaal naar alle geabonneerde gebruikers
+            success_count = 0
             for subscriber in matched_subscribers:
                 try:
                     user_id = subscriber['user_id']
@@ -1786,11 +1776,12 @@ class TelegramService:
                     )
                     
                     logger.info(f"Successfully sent signal and buttons to user {user_id}")
+                    success_count += 1
                 except Exception as user_error:
                     logger.error(f"Error sending signal to user {subscriber['user_id']}: {str(user_error)}")
                     logger.exception(user_error)
             
-            return True
+            return success_count > 0
         except Exception as e:
             logger.error(f"Error processing signal: {str(e)}")
             logger.exception(e)
