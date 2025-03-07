@@ -1576,7 +1576,20 @@ class TelegramService:
             # Check if this is from a signal (will have a 4th part)
             from_signal = len(parts) > 3 and parts[3] == "signal"
             
-            return await self.show_technical_analysis(update, context, instrument, from_signal)
+            if from_signal:
+                # Direct naar de chart gaan zonder instrument te kiezen
+                return await self.show_technical_analysis(update, context, instrument, from_signal=True)
+            else:
+                # Normale flow voor analyse
+                context.user_data['instrument'] = instrument
+                
+                # Toon de stijl keuze
+                await query.edit_message_text(
+                    text=f"Choose analysis style for {instrument}:",
+                    reply_markup=InlineKeyboardMarkup(STYLE_KEYBOARD)
+                )
+                
+                return CHOOSE_STYLE
         
         elif query.data.startswith("analysis_sentiment_"):
             # Extract instrument from callback data
