@@ -229,6 +229,9 @@ async def signal_webhook(request: Request):
                     take_profit = signal_data.get('take_profit')
                     message = signal_data.get('message')
                     market = signal_data.get('market', 'forex')
+                    strategy = signal_data.get('strategy', 'Test Strategy')
+                    risk_management = signal_data.get('risk_management', ["Position size: 1-2% max", "Use proper stop loss", "Follow your trading plan"])
+                    verdict = signal_data.get('verdict', '')
                     
                     # Converteer het signaal naar het formaat dat match_subscribers verwacht
                     signal_for_matching = {
@@ -250,21 +253,34 @@ async def signal_webhook(request: Request):
                         return True
                     
                     # Maak het signaal bericht
-                    signal_message = f"🚨 <b>TRADING SIGNAL</b> 🚨\n\n"
-                    signal_message += f"📊 <b>{instrument}</b> ({timeframe})\n"
-                    signal_message += f"📈 <b>Direction:</b> {'BUY' if direction.lower() == 'buy' else 'SELL'}\n"
-                    signal_message += f"💰 <b>Entry Price:</b> {price}\n"
+                    signal_message = f"🎯 <b>New Trading Signal</b> 🎯\n\n"
+                    signal_message += f"Instrument: {instrument}\n"
+                    signal_message += f"Action: {direction.upper()} {'📈' if direction.lower() == 'buy' else '📉'}\n\n"
+                    
+                    signal_message += f"Entry Price: {price}\n"
                     
                     if stop_loss:
-                        signal_message += f"🛑 <b>Stop Loss:</b> {stop_loss}\n"
+                        signal_message += f"Stop Loss: {stop_loss} {'🔴' if stop_loss else ''}\n"
                     
                     if take_profit:
-                        signal_message += f"🎯 <b>Take Profit:</b> {take_profit}\n"
+                        signal_message += f"Take Profit: {take_profit} {'🎯' if take_profit else ''}\n\n"
                     
-                    signal_message += "\n"
+                    signal_message += f"Timeframe: {timeframe}\n"
+                    signal_message += f"Strategy: {strategy}\n\n"
                     
-                    if message:
-                        signal_message += f"📝 <b>Analysis:</b>\n{message}"
+                    signal_message += f"{'—'*20}\n\n"
+                    
+                    signal_message += f"<b>Risk Management:</b>\n"
+                    for tip in risk_management:
+                        signal_message += f"• {tip}\n"
+                    
+                    signal_message += f"\n{'—'*20}\n\n"
+                    
+                    signal_message += f"🤖 <b>SigmaPips AI Verdict:</b>\n"
+                    if verdict:
+                        signal_message += f"{verdict}\n"
+                    else:
+                        signal_message += f"The {instrument} {direction.lower()} signal shows a promising setup with a favorable risk/reward ratio. Entry at {price} with defined risk parameters offers a good trading opportunity.\n"
                     
                     # Stuur het signaal naar alle geabonneerde gebruikers
                     for subscriber in matched_subscribers:
@@ -330,9 +346,12 @@ async def process_signal_with_deepseek(signal_data: Dict[str, Any]) -> Dict[str,
         - stop_loss: Het stop loss niveau (indien beschikbaar)
         - take_profit: Het take profit niveau (indien beschikbaar)
         - timeframe: De timeframe van de trade (bijv. 1m, 15m, 1h, 4h)
-        - message: Een korte analyse van de trade
+        - strategy: Een korte naam voor de strategie (bijv. "Trend Following", "Breakout", "Support/Resistance")
+        - risk_management: Een lijst met risk management tips (bijv. ["Position size: 1-2% max", "Use proper stop loss"])
+        - message: Een gedetailleerde analyse van de trade
+        - verdict: Een korte conclusie over de trade setup
         
-        Als er velden ontbreken in het ruwe signaal, probeer deze te extraheren uit de beschikbare tekst of laat ze weg.
+        Als er velden ontbreken in het ruwe signaal, probeer deze te extraheren uit de beschikbare tekst of vul ze in op basis van je expertise.
         Geef alleen de JSON output terug, geen extra tekst.
         """
         
