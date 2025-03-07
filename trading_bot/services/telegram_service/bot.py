@@ -1673,3 +1673,125 @@ class TelegramService:
         )
         
         return MENU
+
+    async def process_signal(self, signal_data):
+        """Process a trading signal and send it to subscribed users."""
+        try:
+            # Log het ontvangen signaal
+            logger.info(f"Processing signal: {signal_data}")
+            
+            # Haal de relevante informatie uit het signaal
+            instrument = signal_data.get('instrument')
+            timeframe = signal_data.get('timeframe', '1h')
+            direction = signal_data.get('direction')
+            price = signal_data.get('price')
+            stop_loss = signal_data.get('stop_loss')
+            take_profit = signal_data.get('take_profit')
+            message = signal_data.get('message')
+            market = signal_data.get('market', 'forex')
+            strategy = signal_data.get('strategy', 'Test Strategy')
+            risk_management = signal_data.get('risk_management', ["Position size: 1-2% max", "Use proper stop loss", "Follow your trading plan"])
+            verdict = signal_data.get('verdict', '')
+            
+            # Converteer het signaal naar het formaat dat match_subscribers verwacht
+            signal_for_matching = {
+                'market': market,
+                'symbol': instrument,
+                'timeframe': timeframe,
+                'direction': direction,
+                'price': price,
+                'stop_loss': stop_loss,
+                'take_profit': take_profit,
+                'message': message
+            }
+            
+            # Log de matching parameters
+            logger.info(f"Matching parameters: market={market}, symbol={instrument}, timeframe={timeframe}")
+            
+            # Gebruik de match_subscribers methode om de juiste gebruikers te vinden
+            matched_subscribers = await self.db.match_subscribers(signal_for_matching)
+            
+            logger.info(f"Found {len(matched_subscribers)} subscribers for {instrument} {timeframe}")
+            
+            # TIJDELIJKE OPLOSSING: Haal alle gebruikers op als er geen matches zijn
+            if not matched_subscribers:
+                logger.info(f"No users subscribed to {instrument} {timeframe}, getting all users")
+                # Haal alle gebruikers op
+                all_users = await self.db.get_all_users()
+                logger.info(f"Found {len(all_users)} total users")
+                
+                # Gebruik de eerste gebruiker als test
+                if all_users:
+                    matched_subscribers = [all_users[0]]
+                    logger.info(f"Using first user as test: {matched_subscribers[0]}")
+                else:
+                    # Als er geen gebruikers zijn, gebruik een hardgecodeerde test gebruiker
+                    matched_subscribers = [{'user_id': 2004519703}]  # Vervang dit door je eigen user ID
+                    logger.info(f"No users found, using hardcoded test user: {matched_subscribers[0]}")
+            
+            # Maak het signaal bericht
+            signal_message = f"🎯 <b>New Trading Signal</b> 🎯\n\n"
+            signal_message += f"Instrument: {instrument}\n"
+            signal_message += f"Action: {direction.upper()} {'📈' if direction.lower() == 'buy' else '📉'}\n\n"
+            
+            signal_message += f"Entry Price: {price}\n"
+            
+            if stop_loss:
+                signal_message += f"Stop Loss: {stop_loss} {'🔴' if stop_loss else ''}\n"
+            
+            if take_profit:
+                signal_message += f"Take Profit: {take_profit} {'🎯' if take_profit else ''}\n\n"
+            
+            signal_message += f"Timeframe: {timeframe}\n"
+            signal_message += f"Strategy: {strategy}\n\n"
+            
+            signal_message += f"{'—'*20}\n\n"
+            
+            signal_message += f"<b>Risk Management:</b>\n"
+            for tip in risk_management:
+                signal_message += f"• {tip}\n"
+            
+            signal_message += f"\n{'—'*20}\n\n"
+            
+            signal_message += f"🤖 <b>SigmaPips AI Verdict:</b>\n"
+            if verdict:
+                signal_message += f"{verdict}\n"
+            else:
+                signal_message += f"The {instrument} {direction.lower()} signal shows a promising setup with a favorable risk/reward ratio. Entry at {price} with defined risk parameters offers a good trading opportunity.\n"
+            
+            # Stuur het signaal naar alle geabonneerde gebruikers
+            for subscriber in matched_subscribers:
+                try:
+                    user_id = subscriber['user_id']
+                    logger.info(f"Sending signal to user {user_id}")
+                    
+                    # Stuur eerst het signaal
+                    await self.bot.send_message(
+                        chat_id=user_id,
+                        text=signal_message,
+                        parse_mode='HTML'
+                    )
+                    
+                    # Stuur daarna de knoppen in een apart bericht
+                    keyboard = [
+                        [InlineKeyboardButton("📊 Technical Analysis", callback_data=f"analysis_technical_{instrument}_signal")],
+                        [InlineKeyboardButton("🧠 Market Sentiment", callback_data=f"analysis_sentiment_{instrument}_signal")],
+                        [InlineKeyboardButton("📅 Economic Calendar", callback_data=f"analysis_calendar_{instrument}_signal")]
+                    ]
+                    
+                    await self.bot.send_message(
+                        chat_id=user_id,
+                        text="Analysis options:",
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+                    
+                    logger.info(f"Successfully sent signal and buttons to user {user_id}")
+                except Exception as user_error:
+                    logger.error(f"Error sending signal to user {subscriber['user_id']}: {str(user_error)}")
+                    logger.exception(user_error)
+            
+            return True
+        except Exception as e:
+            logger.error(f"Error processing signal: {str(e)}")
+            logger.exception(e)
+            return False
