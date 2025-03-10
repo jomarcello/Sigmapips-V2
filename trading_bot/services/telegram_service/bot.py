@@ -1456,7 +1456,7 @@ class TelegramService:
             logger.info(f"Processing signal: {signal_data}")
             
             # Controleer of het signaal alle benodigde velden heeft
-            required_fields = ['instrument', 'price', 'direction']
+            required_fields = ['instrument', 'signal', 'price']
             missing_fields = [field for field in required_fields if field not in signal_data]
             
             if missing_fields:
@@ -1465,63 +1465,15 @@ class TelegramService:
             
             # Haal de relevante informatie uit het signaal
             instrument = signal_data.get('instrument')
-            timeframe = signal_data.get('timeframe', '1h')
-            direction = signal_data.get('direction')
+            direction = signal_data.get('signal')  # Gebruik 'signal' in plaats van 'direction'
             price = signal_data.get('price')
-            stop_loss = signal_data.get('sl', signal_data.get('stop_loss', ''))
-            take_profit = signal_data.get('tp1', signal_data.get('take_profit', ''))
+            stop_loss = signal_data.get('sl', '')  # Gebruik 'sl' voor stop loss
+            tp1 = signal_data.get('tp1', '')  # Gebruik 'tp1', 'tp2', 'tp3' voor take profits
             tp2 = signal_data.get('tp2', '')
             tp3 = signal_data.get('tp3', '')
             
-            # Log de signaal parameters
-            logger.info(f"Signal parameters: instrument={instrument}, direction={direction}, price={price}")
-            
-            # Rest van de code...
-            
-            # Detecteer de markt op basis van het instrument als het niet is opgegeven
-            if market == 'forex':
-                if 'BTC' in instrument or 'ETH' in instrument:
-                    market = 'crypto'
-                elif 'XAU' in instrument or 'XAG' in instrument:
-                    market = 'commodities'
-                elif 'US30' in instrument or 'US500' in instrument:
-                    market = 'indices'
-            
-            # Converteer het signaal naar het formaat dat match_subscribers verwacht
-            signal_for_matching = {
-                'market': market,
-                'symbol': instrument,
-                'timeframe': timeframe,
-                'direction': direction,
-                'price': price,
-                'stop_loss': stop_loss,
-                'take_profit': take_profit,
-                'message': message
-            }
-            
-            # Log de matching parameters
-            logger.info(f"Matching parameters: market={market}, symbol={instrument}, timeframe={timeframe}")
-            
-            # Gebruik de match_subscribers methode om de juiste gebruikers te vinden
-            matched_subscribers = await self.db.match_subscribers(signal_for_matching)
-            
-            logger.info(f"Found {len(matched_subscribers)} subscribers for {instrument} {timeframe}")
-            
-            # TIJDELIJKE OPLOSSING: Haal alle gebruikers op als er geen matches zijn
-            if not matched_subscribers:
-                logger.info(f"No users subscribed to {instrument} {timeframe}, getting all users")
-                # Haal alle gebruikers op
-                all_users = await self.db.get_all_users()
-                logger.info(f"Found {len(all_users)} total users")
-                
-                # Gebruik de eerste gebruiker als test
-                if all_users:
-                    matched_subscribers = [all_users[0]]
-                    logger.info(f"Using first user as test: {matched_subscribers[0]}")
-                else:
-                    # Als er geen gebruikers zijn, gebruik een hardgecodeerde test gebruiker
-                    matched_subscribers = [{'user_id': 2004519703}]  # Vervang dit door je eigen user ID
-                    logger.info(f"No users found, using hardcoded test user: {matched_subscribers[0]}")
+            # Detecteer de markt op basis van het instrument
+            market = _detect_market(instrument)
             
             # Maak het signaal bericht
             signal_message = f"🎯 <b>New Trading Signal</b> 🎯\n\n"
@@ -1531,37 +1483,37 @@ class TelegramService:
             signal_message += f"Entry Price: {price}\n"
             
             if stop_loss:
-                signal_message += f"Stop Loss: {stop_loss} {'🔴' if stop_loss else ''}\n"
+                signal_message += f"Stop Loss: {stop_loss} 🔴\n"
             
-            if take_profit:
-                signal_message += f"Take Profit 1: {take_profit} {'🎯' if take_profit else ''}\n"
-            
-            # Voeg extra take profit niveaus toe als ze beschikbaar zijn
+            # Voeg alle take profit niveaus toe als ze beschikbaar zijn
+            if tp1:
+                signal_message += f"Take Profit 1: {tp1} 🎯\n"
             if tp2:
                 signal_message += f"Take Profit 2: {tp2} 🎯\n"
-            
             if tp3:
-                signal_message += f"Take Profit 3: {tp3} 🎯\n\n"
-            else:
-                signal_message += "\n"
+                signal_message += f"Take Profit 3: {tp3} 🎯\n"
             
-            signal_message += f"Timeframe: {timeframe}\n"
-            signal_message += f"Strategy: {strategy}\n\n"
+            signal_message += "\n"
+            signal_message += f"Timeframe: 1h\n"  # Default timeframe
+            signal_message += f"Strategy: TradingView Signal\n\n"
             
             signal_message += f"{'—'*20}\n\n"
             
+            # Voeg standaard risk management tips toe
             signal_message += f"<b>Risk Management:</b>\n"
-            for tip in risk_management:
-                signal_message += f"• {tip}\n"
+            signal_message += f"• Position size: 1-2% max\n"
+            signal_message += f"• Use proper stop loss\n"
+            signal_message += f"• Follow your trading plan\n"
             
             signal_message += f"\n{'—'*20}\n\n"
             
+            # Voeg een standaard verdict toe
             signal_message += f"🤖 <b>SigmaPips AI Verdict:</b>\n"
-            if verdict:
-                signal_message += f"{verdict}\n"
-            else:
-                signal_message += f"The {instrument} {direction.lower()} signal shows a promising setup with a favorable risk/reward ratio. Entry at {price} with defined risk parameters offers a good trading opportunity.\n"
-            
+            signal_message += f"The {instrument} {direction.lower()} signal shows a promising setup with defined entry at {price}"
+            if stop_loss:
+                signal_message += f" and stop loss at {stop_loss}"
+            signal_message += ". Multiple take profit levels provide opportunities for partial profit taking.\n"
+
             # Sla het signaal op in Redis voor later gebruik
             if self.db.redis:
                 try:
