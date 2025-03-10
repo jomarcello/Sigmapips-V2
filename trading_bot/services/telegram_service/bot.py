@@ -367,10 +367,9 @@ class TelegramService:
         
         return CHOOSE_ANALYSIS
 
-    async def menu_signals_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    async def menu_signals_callback(self, update: Update, context=None) -> int:
         """Handle menu_signals callback"""
         query = update.callback_query
-        await query.answer()
         
         # Show the signals menu
         await query.edit_message_text(
@@ -1233,7 +1232,7 @@ class TelegramService:
             logger.error(f"Error resetting conversation: {str(e)}")
             return ConversationHandler.END
 
-    async def initialize(self, use_webhook=True):
+    async def initialize(self, use_webhook=False):
         """Initialize the Telegram bot asynchronously."""
         try:
             # Get bot info
@@ -1885,6 +1884,53 @@ class TelegramService:
                     return True
                 elif command == '/help':
                     await self.help_command(update, None)
+                    return True
+            
+            # Controleer of het een callback query is en verwerk het direct
+            if update.callback_query:
+                callback_data = update.callback_query.data
+                logger.info(f"Received callback: {callback_data}")
+                
+                # Beantwoord de callback query om de "wachtende" status te verwijderen
+                await update.callback_query.answer()
+                
+                # Verwerk de callback data
+                if callback_data == "menu_analyse":
+                    await self.menu_analyse_callback(update, None)
+                    return True
+                elif callback_data == "menu_signals":
+                    await self.menu_signals_callback(update, None)
+                    return True
+                elif callback_data == "back_menu":
+                    await self.back_to_menu_callback(update, None)
+                    return True
+                elif callback_data.startswith("analysis_"):
+                    await self.analysis_callback(update, None)
+                    return True
+                elif callback_data.startswith("signals_"):
+                    await self.signals_callback(update, None)
+                    return True
+                elif callback_data.startswith("market_"):
+                    if "_signals" in callback_data:
+                        await self.market_signals_callback(update, None)
+                    else:
+                        await self.market_callback(update, None)
+                    return True
+                elif callback_data.startswith("instrument_"):
+                    if "_signals" in callback_data:
+                        await self.instrument_signals_callback(update, None)
+                    else:
+                        await self.instrument_callback(update, None)
+                    return True
+                elif callback_data.startswith("style_"):
+                    await self.style_choice(update, None)
+                    return True
+                elif callback_data.startswith("analyze_market_"):
+                    await self.callback_query_handler(update, None)
+                    return True
+                else:
+                    # Fallback naar de algemene callback handler
+                    await self.callback_query_handler(update, None)
                     return True
             
             # Stuur de update naar de application
