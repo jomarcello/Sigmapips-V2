@@ -1222,10 +1222,10 @@ class TelegramService:
         query = update.callback_query
         
         try:
-            # Beantwoord de callback query om de "wachtende" status te verwijderen
+            # Answer the callback query
             await query.answer()
             
-            # Toon het analyse menu
+            # Show the analysis menu
             await query.edit_message_text(
                 text="Select your analysis type:",
                 reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
@@ -1233,17 +1233,17 @@ class TelegramService:
             
             return CHOOSE_ANALYSIS
         except Exception as e:
-            logger.error(f"Error in back_to_analysis_callback: {str(e)}")
+            logger.error(f"Error in back_analysis_callback: {str(e)}")
             logger.exception(e)
             
-            # Stuur een nieuw bericht als fallback
+            # Send a new message as fallback
             try:
                 await query.message.reply_text(
                     text="Select your analysis type:",
                     reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
                 )
-            except:
-                pass
+            except Exception as inner_e:
+                logger.error(f"Failed to send fallback message: {str(inner_e)}")
             
             return CHOOSE_ANALYSIS
 
@@ -2303,29 +2303,29 @@ class TelegramService:
         query = update.callback_query
         
         try:
-            # Beantwoord de callback query
+            # Answer the callback query
             await query.answer()
             
-            # Bepaal welk type analyse is gekozen
+            # Determine which type of analysis was chosen
             analysis_type = query.data.replace('analysis_', '')
             
             if analysis_type == 'calendar':
-                # Toon direct de economische kalender zonder market selectie
+                # Show economic calendar directly without market selection
                 try:
-                    # Toon laadmelding
+                    # Show loading message
                     await query.edit_message_text(
-                        text="Even geduld, economische kalender wordt opgehaald...",
+                        text="Please wait, fetching economic calendar...",
                         reply_markup=None
                     )
                     
-                    # Haal kalender data op
+                    # Get calendar data
                     calendar_data = await self.calendar.get_economic_calendar()
                     
-                    # Toon de kalender met een terug knop
+                    # Show the calendar with back button
                     await query.edit_message_text(
                         text=calendar_data,
                         reply_markup=InlineKeyboardMarkup([[
-                            InlineKeyboardButton("⬅️ Terug", callback_data="back_analysis")
+                            InlineKeyboardButton("⬅️ Back", callback_data="back_analysis")
                         ]]),
                         parse_mode=ParseMode.HTML
                     )
@@ -2335,25 +2335,25 @@ class TelegramService:
                 except Exception as e:
                     logger.error(f"Error showing calendar: {str(e)}")
                     await query.edit_message_text(
-                        text="Er is een fout opgetreden bij het ophalen van de kalender. Probeer het later opnieuw.",
+                        text="An error occurred while fetching the calendar. Please try again later.",
                         reply_markup=InlineKeyboardMarkup([[
-                            InlineKeyboardButton("⬅️ Terug", callback_data="back_analysis")
+                            InlineKeyboardButton("⬅️ Back", callback_data="back_analysis")
                         ]])
                     )
                     return MENU
             
             elif analysis_type == 'technical':
-                # Toon market selectie voor technische analyse
+                # Show market selection for technical analysis
                 await query.edit_message_text(
-                    text="Selecteer een markt voor technische analyse:",
+                    text="Select a market for technical analysis:",
                     reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
                 )
                 return CHOOSE_MARKET
                 
             elif analysis_type == 'sentiment':
-                # Toon market selectie voor sentiment analyse
+                # Show market selection for sentiment analysis
                 await query.edit_message_text(
-                    text="Selecteer een markt voor sentiment analyse:",
+                    text="Select a market for sentiment analysis:",
                     reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
                 )
                 return CHOOSE_MARKET
@@ -2361,7 +2361,7 @@ class TelegramService:
             else:
                 logger.warning(f"Unknown analysis type: {analysis_type}")
                 await query.edit_message_text(
-                    text="Onbekend analyse type. Probeer het opnieuw.",
+                    text="Unknown analysis type. Please try again.",
                     reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
                 )
                 return CHOOSE_ANALYSIS
@@ -2370,10 +2370,10 @@ class TelegramService:
             logger.error(f"Error in analysis_choice: {str(e)}")
             logger.exception(e)
             
-            # Stuur een nieuw bericht als fallback
+            # Send a new message as fallback
             try:
                 await query.message.reply_text(
-                    text="Er is een fout opgetreden. Probeer het opnieuw.",
+                    text="An error occurred. Please try again.",
                     reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
                 )
             except:
