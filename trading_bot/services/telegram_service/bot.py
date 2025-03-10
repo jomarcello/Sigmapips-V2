@@ -607,7 +607,7 @@ class TelegramService:
             # Toon het markt selectie menu voor signalen
             await query.edit_message_text(
                 text="Select a market for trading signals:",
-                reply_markup=InlineKeyboardMarkup(MARKET_SIGNALS_KEYBOARD)
+                reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD_SIGNALS)
             )
             
             return CHOOSE_MARKET
