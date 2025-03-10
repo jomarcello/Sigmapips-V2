@@ -2077,6 +2077,40 @@ class TelegramService:
                 elif callback_data == "back_menu":
                     await self.back_to_menu_callback(update, None)
                     return True
+                # Trading Signals callbacks
+                elif callback_data == "signals_add":
+                    await self.signals_add_callback(update, None)
+                    return True
+                elif callback_data == "signals_manage":
+                    await self.signals_manage_callback(update, None)
+                    return True
+                elif callback_data.startswith("market_"):
+                    if "_signals" in callback_data:
+                        await self.market_signals_callback(update, None)
+                    else:
+                        await self.market_callback(update, None)
+                    return True
+                elif callback_data.startswith("instrument_"):
+                    if "_signals" in callback_data:
+                        await self.instrument_signals_callback(update, None)
+                    else:
+                        await self.instrument_callback(update, None)
+                    return True
+                elif callback_data.startswith("style_"):
+                    await self.style_choice(update, None)
+                    return True
+                elif callback_data.startswith("timeframe_"):
+                    await self.timeframe_callback(update, None)
+                    return True
+                elif callback_data.startswith("confirm_"):
+                    await self.confirm_callback(update, None)
+                    return True
+                elif callback_data.startswith("delete_"):
+                    await self.delete_callback(update, None)
+                    return True
+                elif callback_data == "back_signals":
+                    await self.back_to_signals(update, None)
+                    return True
             
             # Stuur de update naar de application
             await self.application.process_update(update)
