@@ -116,7 +116,7 @@ MARKET_KEYBOARD = [
     [InlineKeyboardButton("Crypto", callback_data="market_crypto")],
     [InlineKeyboardButton("Commodities", callback_data="market_commodities")],
     [InlineKeyboardButton("Indices", callback_data="market_indices")],
-    [InlineKeyboardButton("⬅️ Terug", callback_data="back_analysis")]
+    [InlineKeyboardButton("⬅️ Back", callback_data="back_analysis")]
 ]
 
 # Forex keyboard voor analyse
@@ -131,7 +131,7 @@ FOREX_KEYBOARD = [
         InlineKeyboardButton("USDCAD", callback_data="instrument_USDCAD"),
         InlineKeyboardButton("EURGBP", callback_data="instrument_EURGBP")
     ],
-    [InlineKeyboardButton("⬅️ Terug", callback_data="back_market")]
+    [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
 ]
 
 # Forex keyboard voor signals
@@ -674,7 +674,7 @@ class TelegramService:
         
         return CHOOSE_SIGNALS
 
-    async def delete_preferences_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    async def delete_preferences_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
         """Handle delete_prefs callback"""
         query = update.callback_query
         await query.answer()
@@ -695,10 +695,22 @@ class TelegramService:
             
             # Create keyboard with preferences to delete
             keyboard = []
+            
+            # Maak een tijdelijke opslag voor preference IDs als er geen context is
+            if not hasattr(self, 'temp_pref_ids'):
+                self.temp_pref_ids = {}
+            
+            self.temp_pref_ids[user_id] = {}
+            
             for i, pref in enumerate(preferences):
-                # Store preference ID in context for later use
+                # Store preference ID for later use
                 pref_key = f"pref_{i}"
-                context.user_data[pref_key] = pref['id']
+                
+                if context and hasattr(context, 'user_data'):
+                    context.user_data[pref_key] = pref['id']
+                else:
+                    # Sla op in tijdelijke opslag
+                    self.temp_pref_ids[user_id][pref_key] = pref['id']
                 
                 # Create button with preference info
                 button_text = f"{pref['market']} - {pref['instrument']} ({pref['timeframe']})"
@@ -722,17 +734,24 @@ class TelegramService:
             )
             return CHOOSE_SIGNALS
 
-    async def delete_single_preference_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    async def delete_single_preference_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
         """Handle delete_pref_X callback"""
         query = update.callback_query
         await query.answer()
+        
+        # Get user ID
+        user_id = update.effective_user.id
         
         # Get preference index from callback data
         pref_index = int(query.data.split('_')[-1])
         pref_key = f"pref_{pref_index}"
         
-        # Get preference ID from context
-        pref_id = context.user_data.get(pref_key)
+        # Get preference ID from context or temp storage
+        pref_id = None
+        if context and hasattr(context, 'user_data'):
+            pref_id = context.user_data.get(pref_key)
+        elif hasattr(self, 'temp_pref_ids') and user_id in self.temp_pref_ids:
+            pref_id = self.temp_pref_ids[user_id].get(pref_key)
         
         if not pref_id:
             await query.edit_message_text(
@@ -2137,6 +2156,15 @@ class TelegramService:
                 elif callback_data == "signals_manage":
                     await self.signals_manage_callback(update, None)
                     return True
+                elif callback_data == "delete_prefs":
+                    await self.delete_preferences_callback(update, None)
+                    return True
+                elif callback_data.startswith("delete_pref_"):
+                    await self.delete_single_preference_callback(update, None)
+                    return True
+                elif callback_data == "confirm_delete":
+                    await self.confirm_delete_callback(update, None)
+                    return True
                 elif callback_data.startswith("market_"):
                     if "_signals" in callback_data:
                         await self.market_signals_callback(update, None)
@@ -2154,15 +2182,6 @@ class TelegramService:
                     return True
                 elif callback_data.startswith("timeframe_"):
                     await self.timeframe_callback(update, None)
-                    return True
-                elif callback_data.startswith("confirm_"):
-                    await self.confirm_callback(update, None)
-                    return True
-                elif callback_data.startswith("delete_"):
-                    await self.delete_callback(update, None)
-                    return True
-                elif callback_data == "back_signals":
-                    await self.back_to_signals(update, None)
                     return True
             
             # Stuur de update naar de application
