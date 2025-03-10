@@ -429,18 +429,29 @@ class TelegramService:
         
         return CHOOSE_SIGNALS
 
-    async def help_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    async def help_callback(self, update: Update, context=None) -> int:
         """Handle help callback"""
         query = update.callback_query
-        await query.answer()
         
-        # Toon help informatie
-        await query.edit_message_text(
-            text=HELP_MESSAGE,
-            parse_mode=ParseMode.HTML
-        )
-        
-        return MENU
+        try:
+            # Toon help informatie
+            await query.edit_message_text(
+                text=HELP_MESSAGE,
+                parse_mode=ParseMode.HTML
+            )
+            
+            return MENU
+        except Exception as e:
+            logger.error(f"Error in help_callback: {str(e)}")
+            try:
+                await query.message.reply_text(
+                    text=HELP_MESSAGE,
+                    parse_mode=ParseMode.HTML
+                )
+                return MENU
+            except Exception as inner_e:
+                logger.error(f"Failed to recover from error: {str(inner_e)}")
+                return MENU
 
     async def analysis_technical_callback(self, update: Update, context=None) -> int:
         """Handle analysis_technical callback"""
@@ -528,51 +539,53 @@ class TelegramService:
                 logger.error(f"Failed to recover from error: {str(inner_e)}")
                 return MENU
 
-    async def calendar_back_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-        """Handle back from calendar to analysis menu"""
+    async def calendar_back_callback(self, update: Update, context=None) -> int:
+        """Handle back from calendar"""
         query = update.callback_query
-        await query.answer()
         
         try:
-            logger.info("Handling calendar_back_callback")
-            
-            # Edit the current message instead of sending a new one
+            # Show the analysis menu
             await query.edit_message_text(
                 text="Select your analysis type:",
                 reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
             )
             
-            # Update state in user_data
-            context.user_data['current_state'] = CHOOSE_ANALYSIS
-            
             return CHOOSE_ANALYSIS
-        
         except Exception as e:
             logger.error(f"Error in calendar_back_callback: {str(e)}")
-            # If there's an error, try to recover by showing the main menu
             try:
-                await query.edit_message_text(
-                    text=WELCOME_MESSAGE,
-                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
-                    parse_mode=ParseMode.HTML
+                await query.message.reply_text(
+                    text="Select your analysis type:",
+                    reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
                 )
-                context.user_data['current_state'] = MENU
-                return MENU
+                return CHOOSE_ANALYSIS
             except Exception as inner_e:
                 logger.error(f"Failed to recover from error: {str(inner_e)}")
+                return MENU
 
-    async def signals_add_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    async def signals_add_callback(self, update: Update, context=None) -> int:
         """Handle signals_add callback"""
         query = update.callback_query
-        await query.answer()
         
-        # Show market selection for signals
-        await query.edit_message_text(
-            text="Select a market for your trading signals:",
-            reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD_SIGNALS)
-        )
-        
-        return CHOOSE_MARKET
+        try:
+            # Show market selection for signals
+            await query.edit_message_text(
+                text="Select a market for trading signals:",
+                reply_markup=InlineKeyboardMarkup(MARKET_SIGNALS_KEYBOARD)
+            )
+            
+            return CHOOSE_MARKET
+        except Exception as e:
+            logger.error(f"Error in signals_add_callback: {str(e)}")
+            try:
+                await query.message.reply_text(
+                    text="Select a market for trading signals:",
+                    reply_markup=InlineKeyboardMarkup(MARKET_SIGNALS_KEYBOARD)
+                )
+                return CHOOSE_MARKET
+            except Exception as inner_e:
+                logger.error(f"Failed to recover from error: {str(inner_e)}")
+                return MENU
 
     async def signals_manage_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """Handle signals_manage callback"""
@@ -873,7 +886,7 @@ class TelegramService:
                         reply_markup=None
                     )
                     
-                    # Genereer de analyse
+                    # Genereer de technische analyse
                     await self.show_technical_analysis(update, context, instrument)
                     return SHOW_RESULT
                 except Exception as e:
@@ -896,7 +909,7 @@ class TelegramService:
                         reply_markup=None
                     )
                     
-                    # Genereer de analyse
+                    # Genereer de sentiment analyse (niet de technische analyse)
                     await self.show_sentiment_analysis(update, context, instrument)
                     return SHOW_RESULT
                 except Exception as e:
@@ -919,7 +932,7 @@ class TelegramService:
                         reply_markup=None
                     )
                     
-                    # Genereer de analyse
+                    # Genereer de economische kalender (niet de technische analyse)
                     await self.show_economic_calendar(update, context, instrument)
                     return SHOW_RESULT
                 except Exception as e:
@@ -1980,3 +1993,4 @@ class TelegramService:
             logger.error(f"Error processing update: {str(e)}")
             logger.exception(e)
             return False
+            
