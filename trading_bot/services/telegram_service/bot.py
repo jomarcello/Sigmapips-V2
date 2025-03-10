@@ -1290,7 +1290,7 @@ class TelegramService:
             if not stop_loss:
                 stop_loss = signal_data.get('stop_loss')  # Fallback voor oude formaat
             
-            # Gebruik tp1 als primaire take profit
+            # Gebruik tp1, tp2, tp3 voor take profit niveaus
             take_profit = signal_data.get('tp1')
             if not take_profit:
                 take_profit = signal_data.get('take_profit')  # Fallback voor oude formaat
@@ -1304,6 +1304,15 @@ class TelegramService:
             strategy = signal_data.get('strategy', 'Test Strategy')
             risk_management = signal_data.get('risk_management', ["Position size: 1-2% max", "Use proper stop loss", "Follow your trading plan"])
             verdict = signal_data.get('verdict', '')
+            
+            # Detecteer de markt op basis van het instrument als het niet is opgegeven
+            if market == 'forex':
+                if 'BTC' in instrument or 'ETH' in instrument:
+                    market = 'crypto'
+                elif 'XAU' in instrument or 'XAG' in instrument:
+                    market = 'commodities'
+                elif 'US30' in instrument or 'US500' in instrument:
+                    market = 'indices'
             
             # Converteer het signaal naar het formaat dat match_subscribers verwacht
             signal_for_matching = {
