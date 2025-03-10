@@ -1551,7 +1551,7 @@ class TelegramService:
             signal_message += ". Multiple take profit levels provide opportunities for partial profit taking.\n"
 
             # Sla het signaal op in Redis voor later gebruik
-            if self.db.redis:
+            if hasattr(self.db, 'redis') and self.db.redis:
                 try:
                     signal_key = f"signal:{instrument}"
                     self.db.redis.set(signal_key, json.dumps({
@@ -1564,6 +1564,19 @@ class TelegramService:
                 except Exception as redis_error:
                     logger.error(f"Error saving signal to Redis: {str(redis_error)}")
             
+            # Haal alle gebruikers op of gebruik een test gebruiker
+            try:
+                matched_subscribers = await self.db.get_all_users()
+                if not matched_subscribers:
+                    # Als er geen gebruikers zijn, gebruik een test gebruiker
+                    matched_subscribers = [{'user_id': 2004519703}]  # Vervang met je eigen user ID
+                    logger.info("Using test user as no subscribers found")
+            except Exception as db_error:
+                logger.error(f"Error getting subscribers: {str(db_error)}")
+                # Fallback naar test gebruiker
+                matched_subscribers = [{'user_id': 2004519703}]  # Vervang met je eigen user ID
+                logger.info("Using test user due to database error")
+
             # Stuur het signaal naar alle geabonneerde gebruikers
             for subscriber in matched_subscribers:
                 try:
