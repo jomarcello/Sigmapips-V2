@@ -32,15 +32,28 @@ class Database:
             
         # Setup Redis
         try:
+            redis_host = os.getenv("REDIS_HOST", "redis")
+            redis_port = int(os.getenv("REDIS_PORT", 6379))
+            redis_password = os.getenv("REDIS_PASSWORD", None)
+            
             self.redis = redis.Redis(
-                host=os.getenv("REDIS_HOST", "localhost"),
-                port=int(os.getenv("REDIS_PORT", 6379)),
-                decode_responses=True
+                host=redis_host,
+                port=redis_port,
+                password=redis_password,
+                db=0,
+                decode_responses=True,
+                socket_connect_timeout=5,
+                socket_keepalive=True,
+                retry_on_timeout=True,
+                health_check_interval=30
             )
-            logger.info("Successfully connected to Redis")
-        except Exception as e:
-            logger.error(f"Failed to connect to Redis: {str(e)}")
-            raise
+            
+            # Test de verbinding
+            self.redis.ping()
+            logger.info(f"Redis connection established to {redis_host}:{redis_port}")
+        except Exception as redis_error:
+            logger.warning(f"Redis connection failed: {str(redis_error)}. Using local caching.")
+            self.redis = None
         
         self.CACHE_TIMEOUT = 300  # 5 minuten in seconden
         
@@ -260,7 +273,7 @@ class Database:
                 return False
         except Exception as e:
             logger.error(f"Error deleting preference: {str(e)}")
-            return False 
+            return False
 
     async def execute_query(self, query: str) -> List[Dict[str, Any]]:
         """Execute a query on Supabase (simplified version)"""
@@ -302,21 +315,24 @@ class Database:
             logger.exception(e)
             return []
 
-    async def get_all_users(self) -> List[Dict[str, Any]]:
+    async def get_all_users(self):
         """Get all users from the database"""
         try:
-            # Haal alle gebruikers op uit de users tabel
-            users = self.supabase.table('users').select('*').execute()
+            # Probeer eerst de users tabel
+            try:
+                users = await self.execute_query("SELECT * FROM users")
+            except Exception as e:
+                # Als users tabel niet bestaat, probeer subscriber_preferences
+                logger.warning(f"Could not query users table: {str(e)}")
+                users = await self.execute_query("SELECT DISTINCT user_id FROM subscriber_preferences")
+                
+                # Als dat ook niet werkt, gebruik een hardcoded test gebruiker
+                if not users:
+                    logger.warning("No users found in subscriber_preferences, using test user")
+                    return [{'user_id': 2004519703}]  # Vervang met je eigen user ID
             
-            # Als er geen users tabel is, probeer dan de subscriber_preferences tabel
-            if not users.data:
-                users = self.supabase.table('subscriber_preferences').select('user_id').execute()
-                # Converteer naar het juiste formaat
-                return [{'user_id': user['user_id']} for user in users.data]
-            
-            return users.data
+            return users
         except Exception as e:
-            logger.error(f"Error getting all users: {str(e)}")
-            logger.exception(e)
-            # Fallback naar hardcoded test gebruiker
-            return [{'user_id': 2004519703}]  # Vervang dit door je eigen user ID 
+            logger.error(f"Error getting users: {str(e)}")
+            # Fallback naar test gebruiker
+            return [{'user_id': 2004519703}]  # Vervang met je eigen user ID 
