@@ -1707,144 +1707,90 @@ class TelegramService:
             logger.exception(e)
             return MENU
 
-    async def show_technical_analysis(self, update: Update, context: ContextTypes.DEFAULT_TYPE, instrument: str = None, from_signal: bool = False) -> int:
+    async def show_technical_analysis(self, update: Update, context=None, instrument=None):
         """Show technical analysis for an instrument"""
         query = update.callback_query
         
-        if not instrument:
-            # Get instrument from user_data if not provided
-            instrument = context.user_data.get('instrument', 'EURUSD')
-        
-        # Show loading message
-        await query.edit_message_text(
-            text=f"Generating technical analysis for {instrument}...",
-            reply_markup=None
-        )
-        
         try:
-            # Get chart image
-            chart_image = await self.chart.get_chart(instrument)
+            # Toon een laadmelding (dit is al gedaan in de instrument_callback)
             
-            if not chart_image:
-                # Create appropriate back button based on source
-                back_button = InlineKeyboardButton("⬅️ Back to Analysis", callback_data=f"analyze_market_{instrument}") if from_signal else InlineKeyboardButton("⬅️ Back", callback_data="back_menu")
+            # Haal de chart op
+            chart_image = await self.chart.get_chart(instrument, timeframe="1h")
+            
+            if chart_image:
+                # Stuur de chart als foto
+                await query.message.reply_photo(
+                    photo=chart_image,
+                    caption=f"📊 {instrument} Technical Analysis",
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("⬅️ Back", callback_data="back_market")
+                    ]])
+                )
                 
+                # Verwijder het laadmelding bericht
+                try:
+                    await query.edit_message_text(
+                        text=f"Chart for {instrument} generated successfully.",
+                        reply_markup=None
+                    )
+                except Exception as edit_error:
+                    logger.warning(f"Could not edit loading message: {str(edit_error)}")
+                    # Als het bericht niet kan worden bewerkt, verwijder het dan
+                    try:
+                        await query.message.delete()
+                    except:
+                        pass
+            else:
+                # Toon een foutmelding
                 await query.edit_message_text(
                     text=f"❌ Could not generate chart for {instrument}. Please try again later.",
-                    reply_markup=InlineKeyboardMarkup([[back_button]])
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("⬅️ Back", callback_data="back_market")
+                    ]])
                 )
-                return MENU
-            
-            # Create appropriate back button based on source
-            back_button = InlineKeyboardButton("⬅️ Back to Analysis", callback_data=f"analyze_market_{instrument}") if from_signal else InlineKeyboardButton("⬅️ Back", callback_data="back_menu")
-            
-            # Send chart image
-            await query.message.reply_photo(
-                photo=chart_image,
-                caption=f"Technical Analysis for {instrument}",
-                reply_markup=InlineKeyboardMarkup([[back_button]])
-            )
-            
-            # Delete the loading message
-            await query.delete_message()
-            
-            return MENU
-        
         except Exception as e:
-            logger.error(f"Error showing technical analysis: {str(e)}")
-            
-            # Create appropriate back button based on source
-            back_button = InlineKeyboardButton("⬅️ Back to Analysis", callback_data=f"analyze_market_{instrument}") if from_signal else InlineKeyboardButton("⬅️ Back", callback_data="back_menu")
-            
-            await query.edit_message_text(
-                text=f"❌ Error generating analysis for {instrument}. Please try again later.",
-                reply_markup=InlineKeyboardMarkup([[back_button]])
-            )
-            return MENU
+            logger.error(f"Error in show_technical_analysis: {str(e)}")
+            raise
 
-    async def show_sentiment_analysis(self, update: Update, context: ContextTypes.DEFAULT_TYPE, instrument: str = None, from_signal: bool = False) -> int:
+    async def show_sentiment_analysis(self, update: Update, context=None, instrument=None):
         """Show sentiment analysis for an instrument"""
         query = update.callback_query
         
-        if not instrument:
-            # Get instrument from user_data if not provided
-            instrument = context.user_data.get('instrument', 'EURUSD')
-        
-        # Show loading message
-        await query.edit_message_text(
-            text=f"Getting market sentiment for {instrument}...",
-            reply_markup=None
-        )
-        
         try:
-            # Get sentiment analysis
+            # Haal sentiment analyse op
             sentiment = await self.sentiment.get_market_sentiment(instrument)
             
-            # Create appropriate back button based on source
-            back_button = InlineKeyboardButton("⬅️ Back to Analysis", callback_data=f"analyze_market_{instrument}") if from_signal else InlineKeyboardButton("⬅️ Back", callback_data="back_menu")
-            
-            # Show sentiment analysis
+            # Toon sentiment analyse
             await query.edit_message_text(
                 text=sentiment,
-                reply_markup=InlineKeyboardMarkup([[back_button]]),
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("⬅️ Back", callback_data="back_market")
+                ]]),
                 parse_mode=ParseMode.HTML
             )
-            
-            return MENU
-        
         except Exception as e:
-            logger.error(f"Error showing sentiment analysis: {str(e)}")
-            
-            # Create appropriate back button based on source
-            back_button = InlineKeyboardButton("⬅️ Back to Analysis", callback_data=f"analyze_market_{instrument}") if from_signal else InlineKeyboardButton("⬅️ Back", callback_data="back_menu")
-            
-            await query.edit_message_text(
-                text=f"❌ Error getting sentiment for {instrument}. Please try again later.",
-                reply_markup=InlineKeyboardMarkup([[back_button]])
-            )
-            return MENU
+            logger.error(f"Error in show_sentiment_analysis: {str(e)}")
+            raise
 
-    async def show_economic_calendar(self, update: Update, context: ContextTypes.DEFAULT_TYPE, instrument: str = None, from_signal: bool = False) -> int:
+    async def show_economic_calendar(self, update: Update, context=None, instrument=None):
         """Show economic calendar for an instrument"""
         query = update.callback_query
         
-        if not instrument:
-            # Get instrument from user_data if not provided
-            instrument = context.user_data.get('instrument', 'EURUSD')
-        
-        # Show loading message
-        await query.edit_message_text(
-            text=f"Getting economic calendar for {instrument}...",
-            reply_markup=None
-        )
-        
         try:
-            # Get economic calendar
+            # Haal economische kalender op
             calendar = await self.calendar.get_economic_calendar(instrument)
             
-            # Create appropriate back button based on source
-            back_button = InlineKeyboardButton("⬅️ Back to Analysis", callback_data=f"analyze_market_{instrument}") if from_signal else InlineKeyboardButton("⬅️ Back", callback_data="back_menu")
-            
-            # Show economic calendar
+            # Toon economische kalender
             await query.edit_message_text(
                 text=calendar,
-                reply_markup=InlineKeyboardMarkup([[back_button]]),
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("⬅️ Back", callback_data="back_market")
+                ]]),
                 parse_mode=ParseMode.HTML
             )
-            
-            return MENU
-        
         except Exception as e:
-            logger.error(f"Error showing economic calendar: {str(e)}")
-            
-            # Create appropriate back button based on source
-            back_button = InlineKeyboardButton("⬅️ Back to Analysis", callback_data=f"analyze_market_{instrument}") if from_signal else InlineKeyboardButton("⬅️ Back", callback_data="back_menu")
-            
-            await query.edit_message_text(
-                text=f"❌ Error getting economic calendar for {instrument}. Please try again later.",
-                reply_markup=InlineKeyboardMarkup([[back_button]])
-            )
-            return MENU
+            logger.error(f"Error in show_economic_calendar: {str(e)}")
+            raise
 
     async def cancel_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """Cancel the conversation."""
