@@ -4,7 +4,6 @@ from fastapi import FastAPI, HTTPException, Request, Depends
 import os
 from typing import Dict, Any
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
-from telegram.ext import ContextTypes
 import asyncio
 import time
 import base64
@@ -35,7 +34,6 @@ port = int(os.getenv("PORT", 8080))
 # Initialize services once
 db = Database()
 telegram = TelegramService(db)
-asyncio.create_task(telegram.initialize(use_webhook=True))
 chart = ChartService()
 
 # Redis configuratie
@@ -131,46 +129,22 @@ async def health_check():
     return {"status": "ok"}
 
 @app.post("/webhook")
-async def webhook(request: Request):
-    """Webhook endpoint voor Telegram"""
+async def telegram_webhook(request: Request):
+    """Handle Telegram webhook"""
     try:
+        # Log dat de webhook is aangeroepen
         logger.info("Webhook aangeroepen")
         
         # Haal de update data op
         update_data = await request.json()
-        
-        # Log de update data
         logger.info(f"Webhook data: {update_data}")
         
-        # Controleer of het een callback query is
-        if 'callback_query' in update_data:
-            callback_data = update_data['callback_query']['data']
-            logger.info(f"Callback data: {callback_data}")
-            
-            # Als het een analyze_market callback is, verwerk deze direct
-            if callback_data.startswith('analyze_market_'):
-                logger.info(f"Verwerking analyze_market callback: {callback_data}")
-                
-                # Maak een Update object
-                update = Update.de_json(data=update_data, bot=telegram.bot)
-                
-                # Stuur de update naar de telegram service voor verwerking
-                # Laat de application de context aanmaken
-                await telegram.process_update(update_data)
-                
-                return {"status": "success"}
+        # Verwerk de update via de TelegramService
+        await telegram.process_update(update_data)
         
-        # Stuur de update naar de telegram service
-        success = await telegram.process_update(update_data)
-        
-        if success:
-            return {"status": "success"}
-        else:
-            return {"status": "error", "message": "Failed to process update"}
-    
+        return {"status": "ok"}
     except Exception as e:
         logger.error(f"Error in webhook: {str(e)}")
-        logger.exception(e)
         return {"status": "error", "message": str(e)}
 
 def _detect_market(symbol: str) -> str:
@@ -208,34 +182,38 @@ def _detect_market(symbol: str) -> str:
     logger.info(f"Detected {symbol} as forex")
     return "forex"
 
-@app.post("/webhook/signal")
+@app.post("/signal")
 async def signal_webhook(request: Request):
     """Handle trading signal webhook"""
     try:
         # Haal de signal data op uit de request
         signal_data = await request.json()
+        logger.info(f"Received TradingView signal: {signal_data}")
+        
+        # Detecteer de markt op basis van het instrument
+        instrument = signal_data.get('instrument', '')
+        if 'BTC' in instrument or 'ETH' in instrument:
+            signal_data['market'] = 'crypto'
+            logger.info(f"Detected {instrument} as crypto")
+        elif 'XAU' in instrument or 'XAG' in instrument:
+            signal_data['market'] = 'commodities'
+            logger.info(f"Detected {instrument} as commodities")
+        elif 'US30' in instrument or 'US500' in instrument:
+            signal_data['market'] = 'indices'
+            logger.info(f"Detected {instrument} as indices")
+        else:
+            signal_data['market'] = 'forex'
+            logger.info(f"Detected {instrument} as forex")
+        
         logger.info(f"Received signal data: {signal_data}")
         
         # Valideer de signal data
-        required_fields = ['instrument', 'direction', 'price']
+        required_fields = ['instrument', 'signal', 'price']  # Verander 'direction' naar 'signal'
         missing_fields = [field for field in required_fields if field not in signal_data]
         
         if missing_fields:
             logger.error(f"Missing required fields in signal data: {missing_fields}")
             return {"status": "error", "message": f"Missing required fields: {', '.join(missing_fields)}"}
-        
-        # Gebruik DeepSeek om het signaal te verwerken en te formatteren
-        try:
-            formatted_signal = await process_signal_with_deepseek(signal_data)
-            if formatted_signal:
-                signal_data = formatted_signal
-        except Exception as deepseek_error:
-            logger.error(f"Error processing signal with DeepSeek: {str(deepseek_error)}")
-            # Ga door met het originele signaal als DeepSeek faalt
-        
-        # Detecteer de markt op basis van het instrument
-        market = _detect_market(signal_data['instrument'])
-        signal_data['market'] = market
         
         # Verwerk het signaal
         if hasattr(telegram, 'process_signal'):
@@ -245,25 +223,6 @@ async def signal_webhook(request: Request):
             logger.error("process_signal method not found on telegram service")
             success = False
         
-        # Stuur een test bericht met knoppen
-        try:
-            from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-            
-            keyboard = [
-                [InlineKeyboardButton("Test Button", callback_data="test_button")]
-            ]
-            
-            await telegram.bot.send_message(
-                chat_id="YOUR_TEST_CHAT_ID",  # Vervang dit door je eigen chat ID
-                text="Test button:",
-                reply_markup=InlineKeyboardMarkup(keyboard)
-            )
-            
-            logger.info("Sent test button directly from webhook")
-        except Exception as button_error:
-            logger.error(f"Error sending test button: {str(button_error)}")
-            logger.exception(button_error)
-        
         if success:
             return {"status": "success", "message": "Signal processed successfully"}
         else:
@@ -272,143 +231,12 @@ async def signal_webhook(request: Request):
         logger.error(f"Error in signal webhook: {str(e)}")
         return {"status": "error", "message": str(e)}
 
-async def process_signal_with_deepseek(signal_data: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Gebruik DeepSeek AI om het signaal te verwerken en te formatteren.
-    
-    Args:
-        signal_data: Het ruwe signaal dat is ontvangen
-        
-    Returns:
-        Dict: Het geformatteerde signaal
-    """
-    try:
-        import aiohttp
-        
-        # DeepSeek API configuratie
-        api_key = "sk-274ea5952e7e4b87aba4b14de3990c7d"
-        api_url = "https://api.deepseek.com/v1/chat/completions"
-        
-        # Maak een prompt voor DeepSeek
-        prompt = f"""
-        You are an expert trading signal processor. Your task is to analyze the following raw trading signal and format it into a structured format.
-
-        Raw signal data:
-        {json.dumps(signal_data, indent=2)}
-        
-        Process this signal and provide a structured JSON output with the following fields:
-        - instrument: The trading instrument (e.g., EURUSD, BTCUSD)
-        - direction: The direction of the trade (buy or sell)
-        - price: The entry price
-        - stop_loss: The stop loss level (if available)
-        - take_profit: The take profit level (if available)
-        - timeframe: The timeframe of the trade (e.g., 1m, 15m, 1h, 4h)
-        - strategy: A short name for the strategy (e.g., "Trend Following", "Breakout", "Support/Resistance")
-        - risk_management: A list of risk management tips (e.g., ["Position size: 1-2% max", "Use proper stop loss"])
-        - message: A detailed analysis of the trade
-        - verdict: A short conclusion about the trade setup
-        
-        If fields are missing in the raw signal, try to extract them from the available text or fill them in based on your expertise.
-        All content must be in English.
-        Only return the JSON output, no additional text.
-        """
-        
-        # Maak de request naar DeepSeek
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {api_key}"
-        }
-        
-        payload = {
-            "model": "deepseek-chat",
-            "messages": [
-                {"role": "system", "content": "You are an expert trading signal processor."},
-                {"role": "user", "content": prompt}
-            ],
-            "temperature": 0.2,
-            "max_tokens": 1000
-        }
-        
-        async with aiohttp.ClientSession() as session:
-            async with session.post(api_url, headers=headers, json=payload) as response:
-                if response.status == 200:
-                    result = await response.json()
-                    ai_response = result.get("choices", [{}])[0].get("message", {}).get("content", "")
-                    
-                    # Probeer de JSON uit de response te extraheren
-                    try:
-                        # Zoek naar JSON in de response
-                        import re
-                        json_match = re.search(r'```json\n(.*?)\n```', ai_response, re.DOTALL)
-                        
-                        if json_match:
-                            json_str = json_match.group(1)
-                        else:
-                            # Als er geen code block is, probeer de hele tekst als JSON te parsen
-                            json_str = ai_response
-                        
-                        formatted_signal = json.loads(json_str)
-                        logger.info(f"DeepSeek formatted signal: {formatted_signal}")
-                        return formatted_signal
-                    except json.JSONDecodeError as json_error:
-                        logger.error(f"Error parsing DeepSeek response as JSON: {str(json_error)}")
-                        logger.error(f"DeepSeek response: {ai_response}")
-                        return None
-                else:
-                    logger.error(f"DeepSeek API error: {response.status} - {await response.text()}")
-                    return None
-    except Exception as e:
-        logger.error(f"Error in process_signal_with_deepseek: {str(e)}")
-        return None
-
-@app.post("/signal")
-async def receive_signal(signal: Dict[str, Any]):
-    """Receive and process trading signal"""
-    try:
-        logger.info(f"Received TradingView signal: {signal}")
-        
-        # Detect market type
-        market_type = _detect_market(signal.get('instrument', ''))
-        signal['market'] = market_type
-        
-        # Maak een mock request object
-        class MockRequest:
-            async def json(self):
-                return signal
-        
-        # Stuur het signaal naar de webhook
-        mock_request = MockRequest()
-        return await signal_webhook(mock_request)
-        
-    except Exception as e:
-        logger.error(f"Error processing signal: {str(e)}")
-        logger.exception(e)  # Log de volledige stacktrace
-        return {"status": "error", "message": str(e)}
-
 @app.post("/test-signal")
 async def send_test_signal():
     """Endpoint om een test signaal te versturen"""
     try:
-        # Maak een test signaal
-        test_signal = {
-            "instrument": "EURUSD",
-            "direction": "buy",
-            "price": 1.0850,
-            "stop_loss": 1.0800,
-            "take_profit": 1.0950,
-            "timeframe": "1h",
-            "message": "Strong bullish momentum detected on EURUSD. Entry at 1.0850 with stop loss at 1.0800 and take profit at 1.0950."
-        }
-        
-        # Maak een mock request object
-        class MockRequest:
-            async def json(self):
-                return test_signal
-        
-        # Stuur het test signaal naar de webhook
-        response = await signal_webhook(MockRequest())
-        
-        return {"status": "success", "message": "Test signal sent", "response": response}
+        await telegram.send_test_signal()
+        return {"status": "success", "message": "Test signal sent"}
     except Exception as e:
         logger.error(f"Error sending test signal: {str(e)}")
         return {"status": "error", "message": str(e)}
@@ -457,84 +285,130 @@ async def test_chart(instrument: str):
         logger.error(f"Error in test chart endpoint: {str(e)}")
         return {"status": "error", "message": str(e)}
 
-@app.get("/test-button")
-async def test_button():
-    """Test endpoint voor knoppen"""
+@app.get("/test-tradingview/{instrument}")
+async def test_tradingview(instrument: str):
+    """Test endpoint voor de TradingView integratie"""
     try:
-        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+        logger.info(f"Test TradingView endpoint aangeroepen voor instrument: {instrument}")
         
-        keyboard = [[InlineKeyboardButton("Test Button", callback_data="test_button")]]
+        # Normaliseer instrument
+        instrument = instrument.upper().replace("/", "")
         
-        # Stuur een bericht naar een specifieke gebruiker (vervang dit door een echte gebruikers-ID)
-        user_id = 123456789  # Vervang dit door een echte gebruikers-ID
-        
-        await telegram.bot.send_message(
-            chat_id=user_id,
-            text="Test button:",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-        
-        return {"status": "success", "message": "Test button sent"}
+        # Controleer of we een link hebben voor dit instrument
+        if instrument in chart.chart_links:
+            chart_url = chart.chart_links[instrument]
+            
+            # Haal screenshot op
+            if chart.tradingview and chart.tradingview.is_logged_in:
+                screenshot = await chart.tradingview.get_chart_screenshot(chart_url)
+                
+                if screenshot:
+                    logger.info(f"Successfully got TradingView screenshot for {instrument}")
+                    
+                    # Converteer de bytes naar base64 voor weergave in de browser
+                    screenshot_base64 = base64.b64encode(screenshot).decode('utf-8')
+                    
+                    # Retourneer een HTML-pagina met de afbeelding
+                    html_content = f"""
+                    <!DOCTYPE html>
+                    <html>
+                    <head>
+                        <title>TradingView Test</title>
+                    </head>
+                    <body>
+                        <h1>TradingView Screenshot for {instrument}</h1>
+                        <img src="data:image/png;base64,{screenshot_base64}" alt="TradingView Screenshot for {instrument}" />
+                    </body>
+                    </html>
+                    """
+                    
+                    from fastapi.responses import HTMLResponse
+                    return HTMLResponse(content=html_content)
+                else:
+                    return {"status": "error", "message": f"Failed to get TradingView screenshot for {instrument}"}
+            else:
+                return {"status": "error", "message": "TradingView service not initialized or not logged in"}
+        else:
+            return {"status": "error", "message": f"No chart link found for instrument: {instrument}"}
     except Exception as e:
-        logger.error(f"Error sending test button: {str(e)}")
-        logger.exception(e)
+        logger.error(f"Error in test TradingView endpoint: {str(e)}")
         return {"status": "error", "message": str(e)}
 
-@app.get("/test-callback/{instrument}")
-async def test_callback(instrument: str):
-    """Test endpoint voor callbacks"""
+@app.get("/health-tradingview")
+async def health_tradingview():
+    """Controleer de gezondheid van de TradingView service"""
     try:
-        # Maak een mock update
-        update_data = {
-            "update_id": 123456789,
-            "callback_query": {
-                "id": "123456789",
-                "from": {
-                    "id": 2004519703,
-                    "is_bot": False,
-                    "first_name": "Test",
-                    "username": "test_user"
-                },
-                "message": {
-                    "message_id": 123,
-                    "from": {
-                        "id": 7328581013,
-                        "is_bot": True,
-                        "first_name": "SigmapipsAI",
-                        "username": "SignapipsAI_bot"
-                    },
-                    "chat": {
-                        "id": 2004519703,
-                        "first_name": "Test",
-                        "username": "test_user",
-                        "type": "private"
-                    },
-                    "date": int(time.time()),
-                    "text": "Test message"
-                },
-                "chat_instance": "123456789",
-                "data": f"analyze_market_{instrument}"
+        if chart.tradingview and chart.tradingview.is_logged_in:
+            return {
+                "status": "healthy",
+                "tradingview": "logged_in",
+                "message": "TradingView service is running and logged in"
             }
-        }
-        
-        # Maak een Update object
-        update = Update.de_json(data=update_data, bot=telegram.bot)
-        
-        # Maak een context object
-        context = ContextTypes.DEFAULT_TYPE.context
-        context.user_data = {}
-        
-        # Verwerk de callback direct
-        await telegram.callback_query_handler(update, context)
-        
-        return {"status": "success", "message": f"Test callback for {instrument} processed"}
+        elif chart.tradingview:
+            return {
+                "status": "warning",
+                "tradingview": "initialized_not_logged_in",
+                "message": "TradingView service is running but not logged in"
+            }
+        else:
+            return {
+                "status": "warning",
+                "tradingview": "not_initialized",
+                "message": "TradingView service is not initialized"
+            }
     except Exception as e:
-        logger.error(f"Error in test callback: {str(e)}")
-        logger.exception(e)
-        return {"status": "error", "message": str(e)}
+        return {
+            "status": "error",
+            "tradingview": "error",
+            "message": f"Error checking TradingView service: {str(e)}"
+        }
 
-# Rest van de code blijft hetzelfde...
+@app.get("/login-tradingview")
+async def login_tradingview():
+    """Handmatig inloggen op TradingView"""
+    try:
+        if not chart.tradingview:
+            # We gebruiken nu de ChartService die intern Puppeteer gebruikt
+            pass
+        
+        if chart.tradingview.is_logged_in:
+            return {
+                "status": "success",
+                "message": "Already logged in to TradingView"
+            }
+        
+        success = await chart.tradingview.login()
+        if success:
+            return {
+                "status": "success",
+                "message": "Successfully logged in to TradingView"
+            }
+        else:
+            return {
+                "status": "error",
+                "message": "Failed to log in to TradingView"
+            }
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": f"Error logging in to TradingView: {str(e)}"
+        }
 
+def initialize_services():
+    """Initialize all services"""
+    return {
+        "db": db,
+        "telegram": telegram,
+        "chart": chart
+    }
+
+def main():
+    """Main function"""
+    # Verwijder de await code die we eerder hebben toegevoegd
+    logger.info("Main function called")
+    # Andere code...
+
+# Voeg een nieuwe async functie toe voor de startup
 async def initialize_chart_service_background():
     """Initialize chart service in the background"""
     try:
@@ -553,6 +427,64 @@ async def initialize_chart_service_background():
         import traceback
         logger.error(traceback.format_exc())
 
+@app.get("/batch-screenshots")
+async def batch_screenshots(symbols: str = None, timeframes: str = None):
+    """Verbeterde API endpoint voor screenshots met betere error handling"""
+    try:
+        # Log de request
+        logger.info(f"Batch screenshots request with symbols={symbols}, timeframes={timeframes}")
+        
+        # Converteer comma-gescheiden strings naar lijsten
+        symbol_list = symbols.split(",") if symbols else ["EURUSD", "GBPUSD", "BTCUSD", "ETHUSD"]
+        timeframe_list = timeframes.split(",") if timeframes else ["1h", "4h", "1d"]
+        
+        # Gebruik fallback methode als TradingView niet beschikbaar is
+        if not hasattr(chart, 'tradingview') or not chart.tradingview:
+            logger.info("Using fallback method for batch screenshots")
+            results = {}
+            for symbol in symbol_list:
+                results[symbol] = {}
+                for timeframe in timeframe_list:
+                    try:
+                        screenshot = await chart.get_chart(symbol, timeframe)
+                        if screenshot:
+                            results[symbol][timeframe] = screenshot
+                    except Exception as e:
+                        logger.error(f"Error getting chart for {symbol} {timeframe}: {str(e)}")
+                        results[symbol][timeframe] = None
+        else:
+            # Gebruik TradingView service als die beschikbaar is
+            results = await chart.tradingview.batch_capture_charts(
+                symbols=symbol_list,
+                timeframes=timeframe_list
+            )
+        
+        if not results:
+            logger.error("Batch capture returned no results")
+            return {
+                "status": "error",
+                "message": "Geen screenshots gemaakt"
+            }
+        
+        # Converteer resultaten naar base64 voor de response
+        response_data = {}
+        for symbol, timeframe_data in results.items():
+            response_data[symbol] = {}
+            for timeframe, screenshot in timeframe_data.items():
+                if screenshot is not None:
+                    response_data[symbol][timeframe] = base64.b64encode(screenshot).decode('utf-8')
+        
+        logger.info(f"Successfully generated {sum(len(tf) for tf in response_data.values())} screenshots")
+        
+        return {
+            "status": "success",
+            "data": response_data
+        }
+        
+    except Exception as e:
+        logger.error(f"Error in batch screenshots endpoint: {str(e)}")
+        return {"status": "error", "message": str(e)}
+
 async def periodic_health_check():
     """Periodieke health check om te controleren of de applicatie nog draait"""
     while True:
@@ -562,24 +494,197 @@ async def periodic_health_check():
         except Exception as e:
             logger.error(f"Error in periodic health check: {str(e)}")
 
-# Verplaats deze code naar het einde van het bestand
-if __name__ == "__main__":
-    # Controleer of de bot correct is geïnitialiseerd
-    if telegram:
-        logger.info(f"Bot instance: {telegram.bot}")
-
-@app.get("/")
-async def root():
-    return {"message": "Hello World"}
-
-@app.get("/debug/subscribers")
-async def debug_subscribers():
-    """Debug endpoint om alle abonnees te bekijken"""
+@app.get("/tradingview-status")
+async def tradingview_status():
+    """Controleer de status van de TradingView service"""
     try:
-        # Haal alle abonnees op
-        subscribers = await db.execute_query("SELECT * FROM subscriber_preferences")
+        if not hasattr(chart, 'tradingview') or not chart.tradingview:
+            return {
+                "status": "error",
+                "message": "TradingView service not initialized"
+            }
         
-        return {"status": "success", "subscribers": subscribers}
+        service_type = type(chart.tradingview).__name__
+        
+        return {
+            "status": "success",
+            "service_type": service_type,
+            "is_logged_in": getattr(chart.tradingview, 'is_logged_in', False),
+            "is_initialized": getattr(chart.tradingview, 'is_initialized', False)
+        }
     except Exception as e:
-        logger.error(f"Error getting subscribers: {str(e)}")
-        return {"status": "error", "message": str(e)} 
+        return {
+            "status": "error",
+            "message": f"Error checking TradingView service: {str(e)}"
+        }
+
+@app.get("/reinitialize-tradingview")
+async def reinitialize_tradingview():
+    """Herinitialiseer de TradingView service"""
+    try:
+        # Maak een nieuwe ChartService
+        global chart
+        
+        # Log de huidige status
+        logger.info(f"Current chart service: {type(chart).__name__}")
+        logger.info(f"Current TradingView service: {type(chart.tradingview).__name__ if chart.tradingview else 'None'}")
+        
+        # Maak een nieuwe ChartService
+        chart = ChartService()
+        
+        # Initialiseer de service
+        logger.info("Initializing new chart service...")
+        success = await chart.initialize()
+        
+        if success and chart.tradingview:
+            logger.info(f"TradingView service reinitialized: {type(chart.tradingview).__name__}")
+            return {
+                "status": "success",
+                "message": "TradingView service reinitialized",
+                "service_type": type(chart.tradingview).__name__,
+                "is_logged_in": getattr(chart.tradingview, 'is_logged_in', False)
+            }
+        else:
+            logger.error("Failed to reinitialize TradingView service")
+            return {
+                "status": "error",
+                "message": "Failed to reinitialize TradingView service"
+            }
+    except Exception as e:
+        logger.error(f"Error reinitializing TradingView service: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return {
+            "status": "error",
+            "message": f"Error reinitializing TradingView service: {str(e)}"
+        }
+
+@app.get("/tradingview-status-detailed")
+async def tradingview_status_detailed():
+    """Gedetailleerde status van de TradingView service"""
+    try:
+        if not hasattr(chart, 'tradingview') or not chart.tradingview:
+            return {
+                "status": "error",
+                "message": "TradingView service not initialized"
+            }
+        
+        service_type = type(chart.tradingview).__name__
+        
+        # Controleer of het een Selenium service is
+        if service_type == "TradingViewSeleniumService":
+            # Neem een screenshot van de TradingView homepage om te controleren of we zijn ingelogd
+            try:
+                # Ga naar de TradingView homepage
+                chart.tradingview.driver.get("https://www.tradingview.com/")
+                
+                # Wacht even om de pagina te laden
+                import time
+                time.sleep(5)
+                
+                # Neem een screenshot
+                screenshot_path = "/tmp/tradingview_homepage.png"
+                chart.tradingview.driver.save_screenshot(screenshot_path)
+                
+                # Controleer of we zijn ingelogd door te zoeken naar elementen die alleen zichtbaar zijn als je bent ingelogd
+                page_source = chart.tradingview.driver.page_source
+                
+                # Zoek naar tekenen van ingelogd zijn
+                logged_in_indicators = [
+                    "Sign Out",
+                    "Account",
+                    "Profile",
+                    "My Profile",
+                    "user-menu-button"
+                ]
+                
+                is_logged_in = any(indicator in page_source for indicator in logged_in_indicators)
+                
+                # Controleer cookies
+                cookies = chart.tradingview.driver.get_cookies()
+                session_cookie = next((c for c in cookies if c['name'] == 'sessionid'), None)
+                
+                return {
+                    "status": "success",
+                    "service_type": service_type,
+                    "is_logged_in": is_logged_in,
+                    "session_cookie_present": session_cookie is not None,
+                    "session_cookie_value": session_cookie['value'][:5] + "..." if session_cookie else None,
+                    "cookies_count": len(cookies),
+                    "screenshot_path": screenshot_path,
+                    "page_title": chart.tradingview.driver.title
+                }
+            except Exception as e:
+                return {
+                    "status": "error",
+                    "service_type": service_type,
+                    "message": f"Error checking login status: {str(e)}"
+                }
+        
+        # Voor andere service types
+        return {
+            "status": "success",
+            "service_type": service_type,
+            "is_logged_in": getattr(chart.tradingview, 'is_logged_in', False)
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": f"Error checking TradingView service: {str(e)}"
+        }
+
+@app.get("/test-chart-screenshot")
+async def test_chart_screenshot():
+    """Test het maken van een screenshot van een chart"""
+    try:
+        if not hasattr(chart, 'tradingview') or not chart.tradingview:
+            return {
+                "status": "error",
+                "message": "TradingView service not initialized"
+            }
+        
+        # Probeer een screenshot te maken van EURUSD
+        screenshot = await chart.get_chart("EURUSD")
+        
+        if screenshot:
+            # Sla de screenshot op
+            import base64
+            screenshot_base64 = base64.b64encode(screenshot).decode('utf-8')
+            
+            return {
+                "status": "success",
+                "message": "Screenshot successfully created",
+                "screenshot_size": len(screenshot),
+                "screenshot_base64": screenshot_base64
+            }
+        else:
+            return {
+                "status": "error",
+                "message": "Failed to create screenshot"
+            }
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": f"Error creating screenshot: {str(e)}"
+        }
+
+@app.get("/check-env")
+async def check_env():
+    """Controleer de omgevingsvariabelen"""
+    try:
+        import os
+        
+        # Haal de session ID op uit de omgevingsvariabelen
+        session_id = os.getenv("TRADINGVIEW_SESSION_ID")
+        
+        return {
+            "status": "success",
+            "session_id_present": bool(session_id),
+            "session_id_prefix": session_id[:5] + "..." if session_id else None,
+            "env_vars": {k: v[:5] + "..." if k.lower().endswith("id") or k.lower().endswith("key") or k.lower().endswith("secret") or k.lower().endswith("token") else v for k, v in os.environ.items() if not k.startswith("PATH") and not k.startswith("PYTHON")}
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": f"Error checking environment variables: {str(e)}"
+        }
