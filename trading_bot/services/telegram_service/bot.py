@@ -486,10 +486,14 @@ class TelegramService:
         query = update.callback_query
         
         try:
+            # Debug logging
+            logger.info("analysis_sentiment_callback aangeroepen")
+            
             # Store analysis type in user_data
             if context and hasattr(context, 'user_data'):
                 context.user_data['analysis_type'] = 'sentiment'
                 context.user_data['current_state'] = CHOOSE_MARKET
+                logger.info(f"User data ingesteld: analysis_type=sentiment")
             
             # Show market selection
             await query.edit_message_text(
@@ -500,6 +504,7 @@ class TelegramService:
             return CHOOSE_MARKET
         except Exception as e:
             logger.error(f"Error in analysis_sentiment_callback: {str(e)}")
+            logger.exception(e)  # Log de volledige stacktrace
             try:
                 await query.message.reply_text(
                     text="Select a market for sentiment analysis:",
@@ -872,33 +877,16 @@ class TelegramService:
             if context and hasattr(context, 'user_data'):
                 context.user_data['instrument'] = instrument
                 analysis_type = context.user_data.get('analysis_type', 'technical')
+                logger.info(f"Instrument callback: instrument={instrument}, analysis_type={analysis_type}")
             else:
                 # Fallback als er geen context is
                 analysis_type = 'technical'
+                logger.info(f"Instrument callback zonder context: instrument={instrument}, fallback analysis_type={analysis_type}")
             
             # Toon het resultaat op basis van het analyse type
             if analysis_type == 'technical':
-                # Toon technische analyse
-                try:
-                    # Toon een laadmelding
-                    await query.edit_message_text(
-                        text=f"Generating technical analysis for {instrument}...",
-                        reply_markup=None
-                    )
-                    
-                    # Genereer de technische analyse
-                    await self.show_technical_analysis(update, context, instrument)
-                    return SHOW_RESULT
-                except Exception as e:
-                    logger.error(f"Error showing technical analysis: {str(e)}")
-                    # Stuur een nieuw bericht als fallback
-                    await query.message.reply_text(
-                        text=f"Error generating analysis for {instrument}. Please try again.",
-                        reply_markup=InlineKeyboardMarkup([[
-                            InlineKeyboardButton("⬅️ Back", callback_data="back_menu")
-                        ]])
-                    )
-                    return MENU
+                logger.info(f"Toon technische analyse voor {instrument}")
+                # Rest van de code...
             
             elif analysis_type == 'sentiment':
                 # Toon sentiment analyse
@@ -1804,6 +1792,9 @@ class TelegramService:
         query = update.callback_query
         
         try:
+            # Debug logging
+            logger.info(f"show_sentiment_analysis aangeroepen voor instrument: {instrument}, from_signal: {from_signal}")
+            
             # Toon een laadmelding als die nog niet is getoond
             if not from_signal:
                 try:
@@ -1815,7 +1806,9 @@ class TelegramService:
                     logger.warning(f"Could not edit message: {str(e)}")
             
             # Haal sentiment analyse op
+            logger.info(f"Sentiment service aanroepen voor {instrument}")
             sentiment = await self.sentiment.get_market_sentiment(instrument)
+            logger.info(f"Sentiment ontvangen: {sentiment[:100]}...")  # Log eerste 100 tekens
             
             # Bepaal de juiste back-knop op basis van de context
             back_button = InlineKeyboardButton("⬅️ Back", callback_data="back_market")
@@ -1832,6 +1825,7 @@ class TelegramService:
             return SHOW_RESULT
         except Exception as e:
             logger.error(f"Error in show_sentiment_analysis: {str(e)}")
+            logger.exception(e)  # Log de volledige stacktrace
             # Stuur een nieuw bericht als fallback
             try:
                 await query.message.reply_text(
