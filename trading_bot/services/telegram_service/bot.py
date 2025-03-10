@@ -2084,6 +2084,21 @@ class TelegramService:
                 elif callback_data == "menu_signals":
                     await self.menu_signals_callback(update, None)
                     return True
+                elif callback_data == "analysis_sentiment":
+                    await self.analysis_sentiment_callback(update, None)
+                    return True
+                elif callback_data == "analysis_technical":
+                    await self.analysis_technical_callback(update, None)
+                    return True
+                elif callback_data == "analysis_calendar":
+                    await self.analysis_calendar_callback(update, None)
+                    return True
+                elif callback_data == "back_analysis":
+                    await self.back_to_analysis_callback(update, None)
+                    return True
+                elif callback_data == "back_menu":
+                    await self.back_to_menu_callback(update, None)
+                    return True
             
             # Stuur de update naar de application
             await self.application.process_update(update)
