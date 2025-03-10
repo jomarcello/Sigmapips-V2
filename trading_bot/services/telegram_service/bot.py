@@ -1275,29 +1275,31 @@ class TelegramService:
             # Log het ontvangen signaal
             logger.info(f"Processing signal: {signal_data}")
             
-            # Zorg ervoor dat we een market hebben
-            if 'market' not in signal_data:
-                # Detecteer de markt op basis van het instrument
-                instrument = signal_data.get('instrument', '')
-                if 'BTC' in instrument or 'ETH' in instrument:
-                    signal_data['market'] = 'crypto'
-                elif 'XAU' in instrument or 'XAG' in instrument:
-                    signal_data['market'] = 'commodities'
-                elif 'US30' in instrument or 'US500' in instrument:
-                    signal_data['market'] = 'indices'
-                else:
-                    signal_data['market'] = 'forex'
-                
-                logger.info(f"Detected market: {signal_data['market']} for instrument {instrument}")
-            
-            # Haal de relevante informatie uit het signaal
+            # Haal de relevante informatie uit het signaal (aangepast voor nieuw formaat)
             instrument = signal_data.get('instrument')
             timeframe = signal_data.get('timeframe', '1h')
-            direction = signal_data.get('direction')
+            
+            # Gebruik 'signal' in plaats van 'direction'
+            direction = signal_data.get('signal')
+            if not direction:
+                direction = signal_data.get('direction', 'buy')  # Fallback voor oude formaat
+            
+            # Haal prijs, stop loss en take profit op
             price = signal_data.get('price')
-            stop_loss = signal_data.get('stop_loss')
-            take_profit = signal_data.get('take_profit')
-            message = signal_data.get('message')
+            stop_loss = signal_data.get('sl')  # Nieuw formaat gebruikt 'sl'
+            if not stop_loss:
+                stop_loss = signal_data.get('stop_loss')  # Fallback voor oude formaat
+            
+            # Gebruik tp1 als primaire take profit
+            take_profit = signal_data.get('tp1')
+            if not take_profit:
+                take_profit = signal_data.get('take_profit')  # Fallback voor oude formaat
+            
+            # Extra take profit niveaus
+            tp2 = signal_data.get('tp2')
+            tp3 = signal_data.get('tp3')
+            
+            message = signal_data.get('message', '')
             market = signal_data.get('market', 'forex')
             strategy = signal_data.get('strategy', 'Test Strategy')
             risk_management = signal_data.get('risk_management', ["Position size: 1-2% max", "Use proper stop loss", "Follow your trading plan"])
@@ -1323,10 +1325,21 @@ class TelegramService:
             
             logger.info(f"Found {len(matched_subscribers)} subscribers for {instrument} {timeframe}")
             
-            # Als er geen matches zijn, log dit en stop de verwerking
+            # TIJDELIJKE OPLOSSING: Haal alle gebruikers op als er geen matches zijn
             if not matched_subscribers:
-                logger.info(f"No subscribers found for {instrument} {timeframe}. Signal will not be sent.")
-                return False
+                logger.info(f"No users subscribed to {instrument} {timeframe}, getting all users")
+                # Haal alle gebruikers op
+                all_users = await self.db.get_all_users()
+                logger.info(f"Found {len(all_users)} total users")
+                
+                # Gebruik de eerste gebruiker als test
+                if all_users:
+                    matched_subscribers = [all_users[0]]
+                    logger.info(f"Using first user as test: {matched_subscribers[0]}")
+                else:
+                    # Als er geen gebruikers zijn, gebruik een hardgecodeerde test gebruiker
+                    matched_subscribers = [{'user_id': 2004519703}]  # Vervang dit door je eigen user ID
+                    logger.info(f"No users found, using hardcoded test user: {matched_subscribers[0]}")
             
             # Maak het signaal bericht
             signal_message = f"🎯 <b>New Trading Signal</b> 🎯\n\n"
@@ -1339,7 +1352,16 @@ class TelegramService:
                 signal_message += f"Stop Loss: {stop_loss} {'🔴' if stop_loss else ''}\n"
             
             if take_profit:
-                signal_message += f"Take Profit: {take_profit} {'🎯' if take_profit else ''}\n\n"
+                signal_message += f"Take Profit 1: {take_profit} {'🎯' if take_profit else ''}\n"
+            
+            # Voeg extra take profit niveaus toe als ze beschikbaar zijn
+            if tp2:
+                signal_message += f"Take Profit 2: {tp2} 🎯\n"
+            
+            if tp3:
+                signal_message += f"Take Profit 3: {tp3} 🎯\n\n"
+            else:
+                signal_message += "\n"
             
             signal_message += f"Timeframe: {timeframe}\n"
             signal_message += f"Strategy: {strategy}\n\n"
@@ -1358,50 +1380,38 @@ class TelegramService:
             else:
                 signal_message += f"The {instrument} {direction.lower()} signal shows a promising setup with a favorable risk/reward ratio. Entry at {price} with defined risk parameters offers a good trading opportunity.\n"
             
-            # Sla het signaal op in de gebruikerscontext
-            for subscriber in matched_subscribers:
-                try:
-                    user_id = subscriber['user_id']
-                    # Sla het signaal op in de gebruikerscontext
-                    self.user_signals[user_id] = {
-                        'instrument': instrument,
-                        'message': signal_message,
-                        'timestamp': int(time.time())
-                    }
-                    logger.info(f"Stored signal for user {user_id}, instrument {instrument} in user_signals")
-                    
-                    # Debug: print alle user_signals na opslaan
-                    logger.info(f"All user_signals after storing: {self.user_signals}")
-                except Exception as e:
-                    logger.error(f"Error storing signal in user context: {str(e)}")
-                    logger.exception(e)
-            
             # Stuur het signaal naar alle geabonneerde gebruikers
-            success_count = 0
             for subscriber in matched_subscribers:
                 try:
                     user_id = subscriber['user_id']
                     logger.info(f"Sending signal to user {user_id}")
                     
-                    # Stuur het signaal met de analyse-knop direct eronder
+                    # Stuur eerst het signaal
+                    await self.bot.send_message(
+                        chat_id=user_id,
+                        text=signal_message,
+                        parse_mode='HTML'
+                    )
+                    
+                    # Stuur daarna de knoppen in een apart bericht
                     keyboard = [
-                        [InlineKeyboardButton("🔍 Analyze Market", callback_data=f"analyze_market_{instrument}")]
+                        [InlineKeyboardButton("📊 Technical Analysis", callback_data=f"analysis_technical_{instrument}_signal")],
+                        [InlineKeyboardButton("🧠 Market Sentiment", callback_data=f"analysis_sentiment_{instrument}_signal")],
+                        [InlineKeyboardButton("📅 Economic Calendar", callback_data=f"analysis_calendar_{instrument}_signal")]
                     ]
                     
                     await self.bot.send_message(
                         chat_id=user_id,
-                        text=signal_message,
-                        parse_mode='HTML',
+                        text="Analysis options:",
                         reply_markup=InlineKeyboardMarkup(keyboard)
                     )
-            
-                    logger.info(f"Successfully sent signal with analyze button to user {user_id}")
-                    success_count += 1
+                    
+                    logger.info(f"Successfully sent signal and buttons to user {user_id}")
                 except Exception as user_error:
                     logger.error(f"Error sending signal to user {subscriber['user_id']}: {str(user_error)}")
                     logger.exception(user_error)
             
-            return success_count > 0
+            return True
         except Exception as e:
             logger.error(f"Error processing signal: {str(e)}")
             logger.exception(e)
