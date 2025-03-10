@@ -1170,57 +1170,35 @@ class TelegramService:
                 logger.error(f"Failed to recover from error: {str(inner_e)}")
                 return MENU
 
-    async def back_to_analysis_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-        """Handle back to analysis menu"""
+    async def back_to_analysis_callback(self, update: Update, context=None) -> int:
+        """Handle back to analysis menu callback"""
         query = update.callback_query
-        await query.answer()
         
         try:
-            logger.info("Handling back_to_analysis_callback - start")
+            # Beantwoord de callback query om de "wachtende" status te verwijderen
+            await query.answer()
             
-            # Log message details for debugging
-            message_id = query.message.message_id if query.message else "unknown"
-            chat_id = query.message.chat.id if query.message and query.message.chat else "unknown"
-            logger.info(f"Message ID: {message_id}, Chat ID: {chat_id}")
+            # Toon het analyse menu
+            await query.edit_message_text(
+                text="Select your analysis type:",
+                reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
+            )
             
-            # Show analysis menu with a completely new message to avoid any issues
-            try:
-                # First try to edit the existing message
-                await query.edit_message_text(
-                    text="Select your analysis type:",
-                    reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
-                )
-                logger.info("Successfully edited message")
-            except Exception as edit_error:
-                logger.error(f"Error editing message: {str(edit_error)}")
-                # If editing fails, try to send a new message
-                await query.message.reply_text(
-                    text="Select your analysis type:",
-                    reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
-                )
-                logger.info("Sent new message as fallback")
-            
-            # Update state in user_data
-            context.user_data['current_state'] = CHOOSE_ANALYSIS
-            logger.info("Updated user_data state to CHOOSE_ANALYSIS")
-            
-            logger.info("Handling back_to_analysis_callback - end")
             return CHOOSE_ANALYSIS
-        
         except Exception as e:
             logger.error(f"Error in back_to_analysis_callback: {str(e)}")
-            # If there's an error, try to recover by showing the main menu
+            logger.exception(e)
+            
+            # Stuur een nieuw bericht als fallback
             try:
                 await query.message.reply_text(
-                    text=WELCOME_MESSAGE,
-                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
-                    parse_mode=ParseMode.HTML
+                    text="Select your analysis type:",
+                    reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
                 )
-                context.user_data['current_state'] = MENU
-                return MENU
-            except Exception as inner_e:
-                logger.error(f"Failed to recover from error: {str(inner_e)}")
-                return ConversationHandler.END
+            except:
+                pass
+            
+            return CHOOSE_ANALYSIS
 
     async def back_to_signals(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """Handle back to signals menu"""
