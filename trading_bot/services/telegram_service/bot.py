@@ -1562,6 +1562,10 @@ class TelegramService:
                 matched_subscribers = [{'user_id': 2004519703}]  # Vervang met je eigen user ID
                 logger.info("Using test user due to database error")
 
+            # Initialiseer de user_signals dictionary als die nog niet bestaat
+            if not hasattr(self, 'user_signals'):
+                self.user_signals = {}
+
             # Stuur het signaal naar alle geabonneerde gebruikers
             for subscriber in matched_subscribers:
                 try:
@@ -1581,18 +1585,18 @@ class TelegramService:
                         parse_mode='HTML'
                     )
                     
-                    # Sla het signaal op in de gebruikerscontext voor later gebruik
-                    if not hasattr(self, 'user_signals'):
-                        self.user_signals = {}
-                    
+                    # Sla het signaal op in de user_signals dictionary
                     self.user_signals[user_id] = {
                         'instrument': instrument,
                         'message': signal_message,
                         'direction': direction,
-                        'price': price
+                        'price': price,
+                        'timestamp': time.time()  # Voeg een timestamp toe
                     }
                     
-                    logger.info(f"Successfully sent signal to user {user_id}")
+                    logger.info(f"Saved signal for user {user_id} in user_signals")
+                    logger.debug(f"Current user_signals: {self.user_signals}")
+                    
                 except Exception as user_error:
                     logger.error(f"Error sending signal to user {subscriber['user_id']}: {str(user_error)}")
                     logger.exception(user_error)
