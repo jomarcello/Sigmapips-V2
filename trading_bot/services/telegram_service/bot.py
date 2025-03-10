@@ -305,7 +305,10 @@ class TelegramService:
             # Initialiseer de dictionary voor gebruikerssignalen
             self.user_signals = {}
             
-            # Laad opgeslagen signalen
+            # Maak de data directory als die niet bestaat
+            os.makedirs('data', exist_ok=True)
+            
+            # Laad bestaande signalen
             self._load_signals()
             
             # Registreer de handlers
@@ -321,38 +324,27 @@ class TelegramService:
             raise
 
     def _load_signals(self):
-        """Laad opgeslagen signalen uit bestand"""
+        """Laad signalen uit het JSON bestand"""
         try:
-            # Maak de map aan als die niet bestaat
-            os.makedirs('data', exist_ok=True)
-            
-            # Probeer het bestand te openen en de signalen te laden
             if os.path.exists('data/signals.json'):
                 with open('data/signals.json', 'r') as f:
-                    self.user_signals = json.load(f)
+                    data = json.load(f)
+                    # Converteer keys terug naar integers voor user_ids
+                    self.user_signals = {int(k): v for k, v in data.items()}
                     logger.info(f"Loaded {len(self.user_signals)} saved signals")
             else:
                 logger.info("No saved signals found")
         except Exception as e:
             logger.error(f"Error loading signals: {str(e)}")
-            # Veilig doorgaan met een lege dictionary
             self.user_signals = {}
 
     def _save_signals(self):
-        """Sla signalen op naar bestand"""
+        """Sla signalen op naar het JSON bestand"""
         try:
-            # Maak de map aan als die niet bestaat
-            os.makedirs('data', exist_ok=True)
-            
-            # Converteer user_id's naar strings (ze zijn opgeslagen als integers)
-            signals_to_save = {}
-            for user_id, signal in self.user_signals.items():
-                signals_to_save[str(user_id)] = signal
-            
-            # Sla de signalen op
+            # Converteer user_ids naar strings voor JSON serialisatie
+            signals_to_save = {str(k): v for k, v in self.user_signals.items()}
             with open('data/signals.json', 'w') as f:
                 json.dump(signals_to_save, f)
-                
             logger.info(f"Saved {len(self.user_signals)} signals to file")
         except Exception as e:
             logger.error(f"Error saving signals: {str(e)}")
@@ -1626,18 +1618,18 @@ class TelegramService:
                     )
                     
                     # Sla het signaal op in de user_signals dictionary
-                    self.user_signals[str(user_id)] = {  # Converteer naar string
+                    self.user_signals[int(user_id)] = {  # Zorg ervoor dat user_id een integer is
                         'instrument': instrument,
                         'message': signal_message,
                         'direction': direction,
                         'price': price,
-                        'timestamp': time.time()  # Voeg een timestamp toe
+                        'timestamp': time.time()
                     }
                     
-                    logger.info(f"Saved signal for user {user_id} in user_signals")
-                    
-                    # Sla alle signalen op naar bestand
+                    # Sla de signalen op naar bestand
                     self._save_signals()
+                    
+                    logger.info(f"Saved signal for user {user_id} in user_signals")
                     
                 except Exception as user_error:
                     logger.error(f"Error sending signal to user {subscriber['user_id']}: {str(user_error)}")
@@ -1718,14 +1710,14 @@ class TelegramService:
                     
                     # Probeer het signaal uit de gebruikerscontext te halen
                     original_signal = None
-                    user_id = str(update.effective_user.id)  # Converteer naar string
+                    user_id = update.effective_user.id
                     logger.info(f"Looking for signal in user_signals for user_id: {user_id}")
                     
                     # Debug: print alle user_signals
                     logger.info(f"All user_signals: {self.user_signals}")
                     
                     if user_id in self.user_signals:
-                        user_signal = self.user_signals.get(user_id)
+                        user_signal = self.user_signals[user_id]
                         logger.info(f"Found user signal: {user_signal}")
                         
                         if user_signal and user_signal.get('instrument') == instrument:
@@ -2456,9 +2448,8 @@ class TelegramService:
             # Debug: print alle user_signals
             logger.info(f"All user_signals: {self.user_signals}")
             
-            # Controleer of we een globale variable voor signalen hebben
-            if hasattr(self, 'user_signals') and user_id in self.user_signals:
-                user_signal = self.user_signals.get(user_id)
+            if user_id in self.user_signals:
+                user_signal = self.user_signals[user_id]
                 logger.info(f"Found user signal: {user_signal}")
                 
                 if user_signal and user_signal.get('instrument') == instrument:
