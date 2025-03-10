@@ -637,10 +637,11 @@ class TelegramService:
         query = update.callback_query
         
         try:
-            # Beantwoord de callback query om de "wachtende" status te verwijderen
-            await query.answer()
+            # Markeer dat we in de signals flow zitten
+            if context and hasattr(context, 'user_data'):
+                context.user_data['in_signals_flow'] = True
             
-            # Toon het markt selectie menu voor signalen
+            # Toon het market keyboard voor signals
             await query.edit_message_text(
                 text="Select a market for trading signals:",
                 reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD_SIGNALS)
@@ -649,22 +650,7 @@ class TelegramService:
             return CHOOSE_MARKET
         except Exception as e:
             logger.error(f"Error in signals_add_callback: {str(e)}")
-            logger.exception(e)
-            
-            # Stuur een nieuw bericht als fallback
-            try:
-                await query.message.reply_text(
-                    text="What would you like to do with trading signals?",
-                    reply_markup=InlineKeyboardMarkup([
-                        [InlineKeyboardButton("➕ Add New Pairs", callback_data="signals_add")],
-                        [InlineKeyboardButton("⚙️ Manage Preferences", callback_data="signals_manage")],
-                        [InlineKeyboardButton("⬅️ Back", callback_data="back_menu")]
-                    ])
-                )
-                return CHOOSE_SIGNALS
-            except Exception as inner_e:
-                logger.error(f"Failed to recover from error: {str(inner_e)}")
-                return MENU
+            return MENU
 
     async def signals_manage_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """Handle signals_manage callback"""
@@ -908,87 +894,45 @@ class TelegramService:
             logger.error(f"Error in market_callback: {str(e)}")
             return MENU
 
-    async def market_signals_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
+    async def market_signals_callback(self, update: Update, context=None) -> int:
         """Handle market selection for signals"""
         query = update.callback_query
-        await query.answer()
         
-        # Get market from callback data
-        market = query.data.split('_')[1]  # market_forex_signals -> forex
-        
-        # Save market in user_data
-        if context and hasattr(context, 'user_data'):
-            context.user_data['market'] = market
-            context.user_data['analysis_type'] = 'signals'
-        else:
-            # Als er geen context is, sla de data op in een tijdelijke opslag
-            user_id = update.effective_user.id
-            if not hasattr(self, 'temp_user_data'):
-                self.temp_user_data = {}
-            if user_id not in self.temp_user_data:
-                self.temp_user_data[user_id] = {}
-            self.temp_user_data[user_id]['market'] = market
-            self.temp_user_data[user_id]['analysis_type'] = 'signals'
-        
-        # Maak een nieuwe keyboard op basis van de markt
-        if market == 'forex':
-            keyboard = [
-                [
-                    InlineKeyboardButton("EURUSD", callback_data="instrument_EURUSD_signals"),
-                    InlineKeyboardButton("GBPUSD", callback_data="instrument_GBPUSD_signals"),
-                    InlineKeyboardButton("USDJPY", callback_data="instrument_USDJPY_signals")
-                ],
-                [
-                    InlineKeyboardButton("AUDUSD", callback_data="instrument_AUDUSD_signals"),
-                    InlineKeyboardButton("USDCAD", callback_data="instrument_USDCAD_signals"),
-                    InlineKeyboardButton("EURGBP", callback_data="instrument_EURGBP_signals")
-                ],
-                [InlineKeyboardButton("⬅️ Back", callback_data="back_signals")]
-            ]
-        elif market == 'crypto':
-            keyboard = [
-                [
-                    InlineKeyboardButton("BTCUSD", callback_data="instrument_BTCUSD_signals"),
-                    InlineKeyboardButton("ETHUSD", callback_data="instrument_ETHUSD_signals"),
-                    InlineKeyboardButton("XRPUSD", callback_data="instrument_XRPUSD_signals")
-                ],
-                [InlineKeyboardButton("⬅️ Back", callback_data="back_signals")]
-            ]
-        elif market == 'commodities':
-            keyboard = [
-                [
-                    InlineKeyboardButton("XAUUSD", callback_data="instrument_XAUUSD_signals"),
-                    InlineKeyboardButton("XAGUSD", callback_data="instrument_XAGUSD_signals"),
-                    InlineKeyboardButton("USOIL", callback_data="instrument_USOIL_signals")
-                ],
-                [InlineKeyboardButton("⬅️ Back", callback_data="back_signals")]
-            ]
-        elif market == 'indices':
-            keyboard = [
-                [
-                    InlineKeyboardButton("US30", callback_data="instrument_US30_signals"),
-                    InlineKeyboardButton("US500", callback_data="instrument_US500_signals"),
-                    InlineKeyboardButton("US100", callback_data="instrument_US100_signals")
-                ],
-                [InlineKeyboardButton("⬅️ Back", callback_data="back_signals")]
-            ]
-        else:
-            # Fallback naar forex als de markt niet wordt herkend
-            keyboard = [
-                [
-                    InlineKeyboardButton("EURUSD", callback_data="instrument_EURUSD_signals"),
-                    InlineKeyboardButton("GBPUSD", callback_data="instrument_GBPUSD_signals"),
-                    InlineKeyboardButton("USDJPY", callback_data="instrument_USDJPY_signals")
-                ],
-                [InlineKeyboardButton("⬅️ Back", callback_data="back_signals")]
-            ]
-        
-        await query.edit_message_text(
-            text=f"Select an instrument from {market.capitalize()}:",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-        
-        return CHOOSE_INSTRUMENT
+        try:
+            # Extract market from callback data
+            market = query.data.replace('market_', '').replace('_signals', '')
+            
+            # Markeer dat we in de signals flow zitten
+            if context and hasattr(context, 'user_data'):
+                context.user_data['in_signals_flow'] = True
+                context.user_data['market'] = market
+            
+            # Toon het juiste keyboard op basis van de markt
+            if market == 'forex':
+                await query.edit_message_text(
+                    text="Select a forex pair for trading signals:",
+                    reply_markup=InlineKeyboardMarkup(FOREX_KEYBOARD_SIGNALS)
+                )
+            elif market == 'crypto':
+                await query.edit_message_text(
+                    text="Select a crypto pair for trading signals:",
+                    reply_markup=InlineKeyboardMarkup(CRYPTO_KEYBOARD_SIGNALS)
+                )
+            elif market == 'indices':
+                await query.edit_message_text(
+                    text="Select an index for trading signals:",
+                    reply_markup=InlineKeyboardMarkup(INDICES_KEYBOARD_SIGNALS)
+                )
+            elif market == 'commodities':
+                await query.edit_message_text(
+                    text="Select a commodity for trading signals:",
+                    reply_markup=InlineKeyboardMarkup(COMMODITIES_KEYBOARD_SIGNALS)
+                )
+            
+            return CHOOSE_INSTRUMENT
+        except Exception as e:
+            logger.error(f"Error in market_signals_callback: {str(e)}")
+            return MENU
 
     async def instrument_callback(self, update: Update, context=None) -> int:
         """Handle instrument selection for analysis"""
@@ -1106,34 +1050,29 @@ class TelegramService:
                 pass
             return MENU
 
-    async def instrument_signals_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
+    async def instrument_signals_callback(self, update: Update, context=None) -> int:
         """Handle instrument selection for signals"""
         query = update.callback_query
-        await query.answer()
         
-        # Get instrument from callback data
-        parts = query.data.split('_')
-        instrument = parts[1]  # instrument_EURUSD_signals -> EURUSD
-        
-        # Save instrument in user_data
-        if context and hasattr(context, 'user_data'):
-            context.user_data['instrument'] = instrument
-        else:
-            # Als er geen context is, sla de data op in een tijdelijke opslag
-            user_id = update.effective_user.id
-            if not hasattr(self, 'temp_user_data'):
-                self.temp_user_data = {}
-            if user_id not in self.temp_user_data:
-                self.temp_user_data[user_id] = {}
-            self.temp_user_data[user_id]['instrument'] = instrument
-        
-        # Show style selection
-        await query.edit_message_text(
-            text=f"Select your trading style for {instrument}:",
-            reply_markup=InlineKeyboardMarkup(STYLE_KEYBOARD)
-        )
-        
-        return CHOOSE_STYLE
+        try:
+            # Extract instrument from callback data
+            instrument = query.data.replace('instrument_', '').replace('_signals', '')
+            
+            # Markeer dat we in de signals flow zitten en sla het instrument op
+            if context and hasattr(context, 'user_data'):
+                context.user_data['in_signals_flow'] = True
+                context.user_data['instrument'] = instrument
+            
+            # Toon de stijl keuze
+            await query.edit_message_text(
+                text=f"Choose trading style for {instrument}:",
+                reply_markup=InlineKeyboardMarkup(STYLE_KEYBOARD)
+            )
+            
+            return CHOOSE_STYLE
+        except Exception as e:
+            logger.error(f"Error in instrument_signals_callback: {str(e)}")
+            return MENU
 
     async def style_choice(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
         """Handle style selection"""
@@ -1334,47 +1273,46 @@ class TelegramService:
                 logger.error(f"Failed to recover from error: {str(inner_e)}")
                 return ConversationHandler.END
 
-    async def back_to_market_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-        """Handle back to market selection"""
+    async def back_to_market_callback(self, update: Update, context=None) -> int:
+        """Handle back_market callback"""
         query = update.callback_query
-        await query.answer()
         
         try:
-            # Determine which keyboard to show based on the current state
-            analysis_type = context.user_data.get('analysis_type', 'technical')
+            # Bepaal of we in de signals flow zitten of in de analyse flow
+            callback_data = query.data
+            in_signals_flow = False
             
-            logger.info(f"Back to market: analysis_type={analysis_type}")
+            # Check user_data first
+            if context and hasattr(context, 'user_data') and 'in_signals_flow' in context.user_data:
+                in_signals_flow = context.user_data.get('in_signals_flow', False)
+            else:
+                # Als er geen context is, probeer te bepalen op basis van de callback data
+                # of de vorige pagina die we hebben getoond
+                in_signals_flow = '_signals' in callback_data or (
+                    hasattr(query.message, 'text') and 
+                    'Trading Signals' in query.message.text
+                )
             
-            # Always try to edit the existing message
-            if analysis_type == 'signals':
+            logger.info(f"Back to market callback, in_signals_flow: {in_signals_flow}")
+            
+            if in_signals_flow:
+                # Toon het market keyboard voor signals
                 await query.edit_message_text(
-                    text="Select a market for your trading signals:",
+                    text="Select a market for trading signals:",
                     reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD_SIGNALS)
                 )
             else:
+                # Toon het market keyboard voor analyse
                 await query.edit_message_text(
-                    text=f"Select a market for {analysis_type} analysis:",
+                    text="Select a market for analysis:",
                     reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
                 )
-            
-            # Store the current state for future reference
-            context.user_data['current_state'] = CHOOSE_MARKET
             
             return CHOOSE_MARKET
-        
         except Exception as e:
             logger.error(f"Error in back_to_market_callback: {str(e)}")
-            # If there's an error, try to recover by showing the main menu
-            try:
-                await query.message.reply_text(
-                    text="Select a market:",
-                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
-                )
-                context.user_data['current_state'] = CHOOSE_MARKET
-                return CHOOSE_MARKET
-            except Exception as inner_e:
-                logger.error(f"Failed to recover from error: {str(inner_e)}")
-                return ConversationHandler.END
+            logger.exception(e)
+            return MENU
 
     async def back_to_instrument(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """Handle back to instrument selection"""
