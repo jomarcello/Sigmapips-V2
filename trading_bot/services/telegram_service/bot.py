@@ -1730,24 +1730,35 @@ class TelegramService:
             logger.exception(e)
             return MENU
 
-    async def show_technical_analysis(self, update: Update, context=None, instrument=None):
+    async def show_technical_analysis(self, update: Update, context=None, instrument=None, from_signal=False):
         """Show technical analysis for an instrument"""
         query = update.callback_query
         
         try:
-            # Toon een laadmelding (dit is al gedaan in de instrument_callback)
+            # Toon een laadmelding als die nog niet is getoond
+            if not from_signal:
+                try:
+                    await query.edit_message_text(
+                        text=f"Generating technical analysis for {instrument}...",
+                        reply_markup=None
+                    )
+                except Exception as e:
+                    logger.warning(f"Could not edit message: {str(e)}")
             
             # Haal de chart op
             chart_image = await self.chart.get_chart(instrument, timeframe="1h")
             
             if chart_image:
+                # Bepaal de juiste back-knop op basis van de context
+                back_button = InlineKeyboardButton("⬅️ Back", callback_data="back_market")
+                if from_signal:
+                    back_button = InlineKeyboardButton("⬅️ Back to Signal", callback_data=f"back_to_signal_{instrument}")
+                
                 # Stuur de chart als foto
                 await query.message.reply_photo(
                     photo=chart_image,
                     caption=f"📊 {instrument} Technical Analysis",
-                    reply_markup=InlineKeyboardMarkup([[
-                        InlineKeyboardButton("⬅️ Back", callback_data="back_market")
-                    ]])
+                    reply_markup=InlineKeyboardMarkup([[back_button]])
                 )
                 
                 # Verwijder het laadmelding bericht
@@ -1763,6 +1774,8 @@ class TelegramService:
                         await query.message.delete()
                     except:
                         pass
+                
+                return SHOW_RESULT
             else:
                 # Toon een foutmelding
                 await query.edit_message_text(
@@ -1771,49 +1784,110 @@ class TelegramService:
                         InlineKeyboardButton("⬅️ Back", callback_data="back_market")
                     ]])
                 )
+                return MENU
         except Exception as e:
             logger.error(f"Error in show_technical_analysis: {str(e)}")
-            raise
+            # Stuur een nieuw bericht als fallback
+            try:
+                await query.message.reply_text(
+                    text=f"Error generating chart for {instrument}. Please try again.",
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("⬅️ Back", callback_data="back_menu")
+                    ]])
+                )
+            except:
+                pass
+            return MENU
 
-    async def show_sentiment_analysis(self, update: Update, context=None, instrument=None):
+    async def show_sentiment_analysis(self, update: Update, context=None, instrument=None, from_signal=False):
         """Show sentiment analysis for an instrument"""
         query = update.callback_query
         
         try:
+            # Toon een laadmelding als die nog niet is getoond
+            if not from_signal:
+                try:
+                    await query.edit_message_text(
+                        text=f"Getting market sentiment for {instrument}...",
+                        reply_markup=None
+                    )
+                except Exception as e:
+                    logger.warning(f"Could not edit message: {str(e)}")
+            
             # Haal sentiment analyse op
             sentiment = await self.sentiment.get_market_sentiment(instrument)
+            
+            # Bepaal de juiste back-knop op basis van de context
+            back_button = InlineKeyboardButton("⬅️ Back", callback_data="back_market")
+            if from_signal:
+                back_button = InlineKeyboardButton("⬅️ Back to Signal", callback_data=f"back_to_signal_{instrument}")
             
             # Toon sentiment analyse
             await query.edit_message_text(
                 text=sentiment,
-                reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("⬅️ Back", callback_data="back_market")
-                ]]),
+                reply_markup=InlineKeyboardMarkup([[back_button]]),
                 parse_mode=ParseMode.HTML
             )
+            
+            return SHOW_RESULT
         except Exception as e:
             logger.error(f"Error in show_sentiment_analysis: {str(e)}")
-            raise
+            # Stuur een nieuw bericht als fallback
+            try:
+                await query.message.reply_text(
+                    text=f"Error getting sentiment for {instrument}. Please try again.",
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("⬅️ Back", callback_data="back_menu")
+                    ]])
+                )
+            except:
+                pass
+            return MENU
 
-    async def show_economic_calendar(self, update: Update, context=None, instrument=None):
+    async def show_economic_calendar(self, update: Update, context=None, instrument=None, from_signal=False):
         """Show economic calendar for an instrument"""
         query = update.callback_query
         
         try:
+            # Toon een laadmelding als die nog niet is getoond
+            if not from_signal:
+                try:
+                    await query.edit_message_text(
+                        text=f"Getting economic calendar for {instrument}...",
+                        reply_markup=None
+                    )
+                except Exception as e:
+                    logger.warning(f"Could not edit message: {str(e)}")
+            
             # Haal economische kalender op
             calendar = await self.calendar.get_economic_calendar(instrument)
+            
+            # Bepaal de juiste back-knop op basis van de context
+            back_button = InlineKeyboardButton("⬅️ Back", callback_data="back_market")
+            if from_signal:
+                back_button = InlineKeyboardButton("⬅️ Back to Signal", callback_data=f"back_to_signal_{instrument}")
             
             # Toon economische kalender
             await query.edit_message_text(
                 text=calendar,
-                reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("⬅️ Back", callback_data="back_market")
-                ]]),
+                reply_markup=InlineKeyboardMarkup([[back_button]]),
                 parse_mode=ParseMode.HTML
             )
+            
+            return SHOW_RESULT
         except Exception as e:
             logger.error(f"Error in show_economic_calendar: {str(e)}")
-            raise
+            # Stuur een nieuw bericht als fallback
+            try:
+                await query.message.reply_text(
+                    text=f"Error getting economic calendar for {instrument}. Please try again.",
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("⬅️ Back", callback_data="back_menu")
+                    ]])
+                )
+            except:
+                pass
+            return MENU
 
     async def cancel_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """Cancel the conversation."""
@@ -1993,4 +2067,3 @@ class TelegramService:
             logger.error(f"Error processing update: {str(e)}")
             logger.exception(e)
             return False
-            
