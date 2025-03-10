@@ -2297,3 +2297,86 @@ class TelegramService:
                 return CHOOSE_SIGNALS
             except:
                 return MENU
+
+    async def analysis_choice(self, update: Update, context=None) -> int:
+        """Handle analysis type selection"""
+        query = update.callback_query
+        
+        try:
+            # Beantwoord de callback query
+            await query.answer()
+            
+            # Bepaal welk type analyse is gekozen
+            analysis_type = query.data.replace('analysis_', '')
+            
+            if analysis_type == 'calendar':
+                # Toon direct de economische kalender zonder market selectie
+                try:
+                    # Toon laadmelding
+                    await query.edit_message_text(
+                        text="Even geduld, economische kalender wordt opgehaald...",
+                        reply_markup=None
+                    )
+                    
+                    # Haal kalender data op
+                    calendar_data = await self.calendar.get_economic_calendar()
+                    
+                    # Toon de kalender met een terug knop
+                    await query.edit_message_text(
+                        text=calendar_data,
+                        reply_markup=InlineKeyboardMarkup([[
+                            InlineKeyboardButton("⬅️ Terug", callback_data="back_analysis")
+                        ]]),
+                        parse_mode=ParseMode.HTML
+                    )
+                    
+                    return SHOW_RESULT
+                    
+                except Exception as e:
+                    logger.error(f"Error showing calendar: {str(e)}")
+                    await query.edit_message_text(
+                        text="Er is een fout opgetreden bij het ophalen van de kalender. Probeer het later opnieuw.",
+                        reply_markup=InlineKeyboardMarkup([[
+                            InlineKeyboardButton("⬅️ Terug", callback_data="back_analysis")
+                        ]])
+                    )
+                    return MENU
+            
+            elif analysis_type == 'technical':
+                # Toon market selectie voor technische analyse
+                await query.edit_message_text(
+                    text="Selecteer een markt voor technische analyse:",
+                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
+                )
+                return CHOOSE_MARKET
+                
+            elif analysis_type == 'sentiment':
+                # Toon market selectie voor sentiment analyse
+                await query.edit_message_text(
+                    text="Selecteer een markt voor sentiment analyse:",
+                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
+                )
+                return CHOOSE_MARKET
+                
+            else:
+                logger.warning(f"Unknown analysis type: {analysis_type}")
+                await query.edit_message_text(
+                    text="Onbekend analyse type. Probeer het opnieuw.",
+                    reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
+                )
+                return CHOOSE_ANALYSIS
+                
+        except Exception as e:
+            logger.error(f"Error in analysis_choice: {str(e)}")
+            logger.exception(e)
+            
+            # Stuur een nieuw bericht als fallback
+            try:
+                await query.message.reply_text(
+                    text="Er is een fout opgetreden. Probeer het opnieuw.",
+                    reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
+                )
+            except:
+                pass
+            
+            return CHOOSE_ANALYSIS
