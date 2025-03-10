@@ -392,10 +392,9 @@ class TelegramService:
         
         return CHOOSE_ANALYSIS
 
-    async def signals_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    async def signals_callback(self, update: Update, context=None) -> int:
         """Handle signals callback"""
         query = update.callback_query
-        await query.answer()
         
         # Toon het signals menu
         await query.edit_message_text(
@@ -711,16 +710,16 @@ class TelegramService:
             )
             return CHOOSE_SIGNALS
 
-    async def market_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    async def market_callback(self, update: Update, context=None) -> int:
         """Handle market selection for analysis"""
         query = update.callback_query
-        await query.answer()
         
         # Get market from callback data
         market = query.data.replace('market_', '')
         
         # Save market in user_data
-        context.user_data['market'] = market
+        if context and hasattr(context, 'user_data'):
+            context.user_data['market'] = market
         
         # Determine which keyboard to show based on market
         keyboard_map = {
@@ -1022,22 +1021,36 @@ class TelegramService:
             )
             return CHOOSE_SIGNALS
 
-    async def back_to_menu_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    async def back_to_menu_callback(self, update: Update, context=None) -> int:
         """Handle back to menu"""
         query = update.callback_query
-        await query.answer()
         
-        # Reset user_data
-        context.user_data.clear()
+        # Reset user_data (alleen als context niet None is)
+        if context and hasattr(context, 'user_data'):
+            context.user_data.clear()
         
         # Show main menu
-        await query.edit_message_text(
-            text=WELCOME_MESSAGE,
-            reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
-            parse_mode=ParseMode.HTML
-        )
-        
-        return MENU
+        try:
+            await query.edit_message_text(
+                text=WELCOME_MESSAGE,
+                reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
+                parse_mode=ParseMode.HTML
+            )
+            
+            return MENU
+        except Exception as e:
+            logger.error(f"Error in back_to_menu_callback: {str(e)}")
+            # Als er een fout optreedt, probeer een nieuw bericht te sturen
+            try:
+                await query.message.reply_text(
+                    text=WELCOME_MESSAGE,
+                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
+                    parse_mode=ParseMode.HTML
+                )
+                return MENU
+            except Exception as inner_e:
+                logger.error(f"Failed to recover from error: {str(inner_e)}")
+                return MENU
 
     async def back_to_analysis_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """Handle back to analysis menu"""
@@ -1876,62 +1889,79 @@ class TelegramService:
                 command = update.message.text.split()[0].lower()
                 logger.info(f"Received command: {command}")
                 
-                if command == '/start':
-                    await self.start_command(update, None)
-                    return True
-                elif command == '/menu':
-                    await self.menu_command(update, None)
-                    return True
-                elif command == '/help':
-                    await self.help_command(update, None)
-                    return True
+                try:
+                    if command == '/start':
+                        await self.start_command(update, None)
+                        return True
+                    elif command == '/menu':
+                        await self.menu_command(update, None)
+                        return True
+                    elif command == '/help':
+                        await self.help_command(update, None)
+                        return True
+                except Exception as cmd_error:
+                    logger.error(f"Error processing command {command}: {str(cmd_error)}")
+                    await update.message.reply_text("Sorry, er is een fout opgetreden bij het verwerken van dit commando.")
+                    return False
             
             # Controleer of het een callback query is en verwerk het direct
             if update.callback_query:
                 callback_data = update.callback_query.data
                 logger.info(f"Received callback: {callback_data}")
                 
-                # Beantwoord de callback query om de "wachtende" status te verwijderen
-                await update.callback_query.answer()
-                
-                # Verwerk de callback data
-                if callback_data == "menu_analyse":
-                    await self.menu_analyse_callback(update, None)
-                    return True
-                elif callback_data == "menu_signals":
-                    await self.menu_signals_callback(update, None)
-                    return True
-                elif callback_data == "back_menu":
-                    await self.back_to_menu_callback(update, None)
-                    return True
-                elif callback_data.startswith("analysis_"):
-                    await self.analysis_callback(update, None)
-                    return True
-                elif callback_data.startswith("signals_"):
-                    await self.signals_callback(update, None)
-                    return True
-                elif callback_data.startswith("market_"):
-                    if "_signals" in callback_data:
-                        await self.market_signals_callback(update, None)
+                try:
+                    # Beantwoord de callback query om de "wachtende" status te verwijderen
+                    # Vang fouten op als de query te oud is
+                    try:
+                        await update.callback_query.answer()
+                    except Exception as answer_error:
+                        logger.warning(f"Could not answer callback query: {str(answer_error)}")
+                    
+                    # Verwerk de callback data
+                    if callback_data == "menu_analyse":
+                        await self.menu_analyse_callback(update, None)
+                        return True
+                    elif callback_data == "menu_signals":
+                        await self.menu_signals_callback(update, None)
+                        return True
+                    elif callback_data == "back_menu":
+                        await self.back_to_menu_callback(update, None)
+                        return True
+                    elif callback_data.startswith("analysis_"):
+                        await self.analysis_callback(update, None)
+                        return True
+                    elif callback_data.startswith("signals_"):
+                        await self.signals_callback(update, None)
+                        return True
+                    elif callback_data.startswith("market_"):
+                        if "_signals" in callback_data:
+                            await self.market_signals_callback(update, None)
+                        else:
+                            await self.market_callback(update, None)
+                        return True
+                    elif callback_data.startswith("instrument_"):
+                        if "_signals" in callback_data:
+                            await self.instrument_signals_callback(update, None)
+                        else:
+                            await self.instrument_callback(update, None)
+                        return True
+                    elif callback_data.startswith("style_"):
+                        await self.style_choice(update, None)
+                        return True
+                    elif callback_data.startswith("analyze_market_"):
+                        await self.callback_query_handler(update, None)
+                        return True
                     else:
-                        await self.market_callback(update, None)
-                    return True
-                elif callback_data.startswith("instrument_"):
-                    if "_signals" in callback_data:
-                        await self.instrument_signals_callback(update, None)
-                    else:
-                        await self.instrument_callback(update, None)
-                    return True
-                elif callback_data.startswith("style_"):
-                    await self.style_choice(update, None)
-                    return True
-                elif callback_data.startswith("analyze_market_"):
-                    await self.callback_query_handler(update, None)
-                    return True
-                else:
-                    # Fallback naar de algemene callback handler
-                    await self.callback_query_handler(update, None)
-                    return True
+                        # Fallback naar de algemene callback handler
+                        await self.callback_query_handler(update, None)
+                        return True
+                except Exception as callback_error:
+                    logger.error(f"Error processing callback {callback_data}: {str(callback_error)}")
+                    try:
+                        await update.callback_query.message.reply_text("Sorry, er is een fout opgetreden bij het verwerken van deze actie.")
+                    except:
+                        pass
+                    return False
             
             # Stuur de update naar de application
             await self.application.process_update(update)
