@@ -471,19 +471,20 @@ class TelegramService:
                 return MENU
 
     async def analysis_sentiment_callback(self, update: Update, context=None) -> int:
-        """Handle analysis_sentiment callback"""
+        """Handle sentiment analysis selection"""
         query = update.callback_query
         
         try:
-            # Show market selection for sentiment analysis
+            # Store analysis type in user_data
+            if context and hasattr(context, 'user_data'):
+                context.user_data['analysis_type'] = 'sentiment'
+                context.user_data['current_state'] = CHOOSE_MARKET
+            
+            # Show market selection
             await query.edit_message_text(
                 text="Select a market for sentiment analysis:",
                 reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
             )
-            
-            # Save analysis type in user_data
-            if context and hasattr(context, 'user_data'):
-                context.user_data['analysis_type'] = 'sentiment'
             
             return CHOOSE_MARKET
         except Exception as e:
@@ -498,47 +499,34 @@ class TelegramService:
                 logger.error(f"Failed to recover from error: {str(inner_e)}")
                 return MENU
 
-    async def analysis_calendar_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-        """Handle economic calendar selection"""
+    async def analysis_calendar_callback(self, update: Update, context=None) -> int:
+        """Handle calendar analysis selection"""
         query = update.callback_query
-        await query.answer()
-        
-        # Store analysis type in user_data
-        context.user_data['analysis_type'] = 'calendar'
-        context.user_data['current_state'] = CHOOSE_ANALYSIS
         
         try:
-            # Show loading message
+            # Store analysis type in user_data
+            if context and hasattr(context, 'user_data'):
+                context.user_data['analysis_type'] = 'calendar'
+                context.user_data['current_state'] = CHOOSE_MARKET
+            
+            # Show market selection
             await query.edit_message_text(
-                text="Retrieving economic calendar data...",
-                reply_markup=None
+                text="Select a market for economic calendar:",
+                reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
             )
             
-            # Get calendar data
-            calendar_data = await self.calendar.get_economic_calendar()
-            
-            # Use a unique callback data for the back button
-            back_button = InlineKeyboardButton("⬅️ Back to Menu", callback_data="calendar_back")
-            
-            # Show calendar data
-            await query.edit_message_text(
-                text=calendar_data,
-                reply_markup=InlineKeyboardMarkup([[back_button]]),
-                parse_mode=ParseMode.HTML
-            )
-            
-            return CHOOSE_ANALYSIS
-        
+            return CHOOSE_MARKET
         except Exception as e:
-            logger.error(f"Error getting calendar data: {str(e)}")
-            await query.edit_message_text(
-                text="An error occurred while retrieving the economic calendar. Please try again later.",
-                reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("⬅️ Back to Menu", callback_data="calendar_back")
-                ]]),
-                parse_mode=ParseMode.HTML
-            )
-            return CHOOSE_ANALYSIS
+            logger.error(f"Error in analysis_calendar_callback: {str(e)}")
+            try:
+                await query.message.reply_text(
+                    text="Select a market for economic calendar:",
+                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
+                )
+                return CHOOSE_MARKET
+            except Exception as inner_e:
+                logger.error(f"Failed to recover from error: {str(inner_e)}")
+                return MENU
 
     async def calendar_back_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """Handle back from calendar to analysis menu"""
