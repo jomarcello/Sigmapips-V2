@@ -2066,27 +2066,24 @@ class TelegramService:
             # Maak een Update object van de update data
             update = Update.de_json(data=update_data, bot=self.bot)
             
-            # Maak een context object
-            context = ContextTypes.DEFAULT_TYPE.context
-            context.user_data = {}
+            # Verwerk de update direct zonder context
+            # We kunnen geen context maken zonder de application
             
-            # Controleer of het een callback query is en verwerk het direct
+            # Controleer of het een callback query is
             if update.callback_query:
                 callback_data = update.callback_query.data
                 logger.info(f"Received callback: {callback_data}")
                 
-                # Sla het analyse type op in de user_data als het een analyse callback is
-                if callback_data == "analysis_technical":
-                    context.user_data['analysis_type'] = 'technical'
-                    logger.info("Analysis type set to technical")
-                elif callback_data == "analysis_sentiment":
-                    context.user_data['analysis_type'] = 'sentiment'
-                    logger.info("Analysis type set to sentiment")
-                elif callback_data == "analysis_calendar":
-                    context.user_data['analysis_type'] = 'calendar'
-                    logger.info("Analysis type set to calendar")
-                
-                # Rest van de code...
+                # Verwerk specifieke callbacks direct
+                if callback_data.startswith("direct_sentiment_"):
+                    await self.direct_sentiment_callback(update, None)
+                    return True
+                elif callback_data == "menu_analyse":
+                    await self.menu_analyse_callback(update, None)
+                    return True
+                elif callback_data == "menu_signals":
+                    await self.menu_signals_callback(update, None)
+                    return True
             
             # Stuur de update naar de application
             await self.application.process_update(update)
@@ -2098,12 +2095,14 @@ class TelegramService:
             return False
 
     # Nieuwe methode voor directe sentiment analyse
-    async def direct_sentiment_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    async def direct_sentiment_callback(self, update: Update, context=None) -> int:
         """Direct handler for sentiment analysis"""
         query = update.callback_query
-        await query.answer()
         
         try:
+            # Beantwoord de callback query om de "wachtende" status te verwijderen
+            await query.answer()
+            
             # Extract instrument from callback data
             instrument = query.data.replace('direct_sentiment_', '')
             logger.info(f"Direct sentiment callback voor instrument: {instrument}")
