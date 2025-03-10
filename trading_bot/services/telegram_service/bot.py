@@ -1489,7 +1489,7 @@ class TelegramService:
         """Process a trading signal and send it to subscribed users."""
         try:
             # Log het ontvangen signaal
-            logger.info(f"Processing signal: {signal_data}")
+            logger.info(f"Processing signal (raw): {signal_data}")
             
             # Controleer of het signaal alle benodigde velden heeft
             required_fields = ['instrument', 'signal', 'price']
@@ -1498,6 +1498,40 @@ class TelegramService:
             if missing_fields:
                 logger.error(f"Signal is missing required fields: {missing_fields}")
                 return False
+            
+            # Controleer op onverwerkte TradingView placeholders
+            contains_placeholders = False
+            for key, value in signal_data.items():
+                if isinstance(value, str) and '{{' in value and '}}' in value:
+                    contains_placeholders = True
+                    logger.warning(f"Signal contains unprocessed TradingView placeholder: {key}={value}")
+            
+            if contains_placeholders:
+                logger.warning("Signal contains unprocessed TradingView placeholders. Using test values instead.")
+                # Vervang placeholders met test waarden
+                if '{{strategy.order.action}}' in str(signal_data.get('signal', '')):
+                    signal_data['signal'] = 'buy'  # of 'sell' afhankelijk van wat je wilt testen
+                
+                if '{{strategy.order.price}}' in str(signal_data.get('price', '')):
+                    # Gebruik een test waarde
+                    signal_data['price'] = '65000'  # Voorbeeld voor BTC
+                
+                # Vervang andere placeholders
+                for key in ['tp1', 'tp2', 'tp3', 'sl']:
+                    if key in signal_data and '{{' in str(signal_data.get(key, '')):
+                        # Genereer test waarden op basis van de prijs
+                        price = float(signal_data['price']) if not isinstance(signal_data['price'], str) or signal_data['price'].isdigit() else 65000
+                        if key == 'sl':
+                            signal_data[key] = str(round(price * 0.95, 2))  # 5% onder de prijs
+                        elif key == 'tp1':
+                            signal_data[key] = str(round(price * 1.05, 2))  # 5% boven de prijs
+                        elif key == 'tp2':
+                            signal_data[key] = str(round(price * 1.10, 2))  # 10% boven de prijs
+                        elif key == 'tp3':
+                            signal_data[key] = str(round(price * 1.15, 2))  # 15% boven de prijs
+            
+            # Log het verwerkte signaal
+            logger.info(f"Processed signal: {signal_data}")
             
             # Haal de relevante informatie uit het signaal
             instrument = signal_data.get('instrument')
