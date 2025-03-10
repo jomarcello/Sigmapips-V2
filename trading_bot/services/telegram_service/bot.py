@@ -342,7 +342,7 @@ class TelegramService:
                         CallbackQueryHandler(self.analysis_technical_callback, pattern="^analysis_technical$"),
                         CallbackQueryHandler(self.analysis_sentiment_callback, pattern="^analysis_sentiment$"),
                         CallbackQueryHandler(self.analysis_calendar_callback, pattern="^analysis_calendar$"),
-                        CallbackQueryHandler(self.calendar_back_callback, pattern="^calendar_back$"),
+                        CallbackQueryHandler(self.back_to_analysis_callback, pattern="^back_to_analysis$"),
                         CallbackQueryHandler(self.back_to_menu_callback, pattern="^back_menu$"),
                     ],
                     CHOOSE_SIGNALS: [
@@ -2128,8 +2128,8 @@ class TelegramService:
                 elif callback_data == "back_menu":
                     await self.back_menu_callback(update, None)
                     return True
-                elif callback_data == "back_analysis":
-                    await self.back_analysis_callback(update, None)
+                elif callback_data == "back_to_analysis":
+                    await self.back_to_analysis_callback(update, None)
                     return True
                 elif callback_data == "back_signals":
                     await self.back_signals_callback(update, None)
@@ -2325,7 +2325,7 @@ class TelegramService:
                     await query.edit_message_text(
                         text=calendar_data,
                         reply_markup=InlineKeyboardMarkup([[
-                            InlineKeyboardButton("⬅️ Back", callback_data="back_analysis")
+                            InlineKeyboardButton("⬅️ Back", callback_data="back_to_analysis")  # Change from back_analysis to back_to_analysis
                         ]]),
                         parse_mode=ParseMode.HTML
                     )
@@ -2337,7 +2337,7 @@ class TelegramService:
                     await query.edit_message_text(
                         text="An error occurred while fetching the calendar. Please try again later.",
                         reply_markup=InlineKeyboardMarkup([[
-                            InlineKeyboardButton("⬅️ Back", callback_data="back_analysis")
+                            InlineKeyboardButton("⬅️ Back", callback_data="back_to_analysis")  # Change from back_analysis to back_to_analysis
                         ]])
                     )
                     return MENU
