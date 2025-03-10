@@ -1389,33 +1389,51 @@ class TelegramService:
             else:
                 signal_message += f"The {instrument} {direction.lower()} signal shows a promising setup with a favorable risk/reward ratio. Entry at {price} with defined risk parameters offers a good trading opportunity.\n"
             
+            # Sla het signaal op in Redis voor later gebruik
+            if self.db.redis:
+                try:
+                    signal_key = f"signal:{instrument}"
+                    self.db.redis.set(signal_key, json.dumps({
+                        'message': signal_message,
+                        'instrument': instrument,
+                        'direction': direction,
+                        'price': price
+                    }), ex=3600)  # Bewaar 1 uur
+                    logger.info(f"Saved signal to Redis with key: {signal_key}")
+                except Exception as redis_error:
+                    logger.error(f"Error saving signal to Redis: {str(redis_error)}")
+            
             # Stuur het signaal naar alle geabonneerde gebruikers
             for subscriber in matched_subscribers:
                 try:
                     user_id = subscriber['user_id']
                     logger.info(f"Sending signal to user {user_id}")
                     
-                    # Stuur eerst het signaal
+                    # Maak de keyboard met één knop voor analyse
+                    keyboard = [
+                        [InlineKeyboardButton("🔍 Analyze Market", callback_data=f"analyze_market_{instrument}")]
+                    ]
+                    
+                    # Stuur het signaal met de analyse knop
                     await self.bot.send_message(
                         chat_id=user_id,
                         text=signal_message,
+                        reply_markup=InlineKeyboardMarkup(keyboard),
                         parse_mode='HTML'
                     )
                     
-                    # Stuur daarna de knoppen in een apart bericht
-                    keyboard = [
-                        [InlineKeyboardButton("📊 Technical Analysis", callback_data=f"analysis_technical_{instrument}_signal")],
-                        [InlineKeyboardButton("🧠 Market Sentiment", callback_data=f"analysis_sentiment_{instrument}_signal")],
-                        [InlineKeyboardButton("📅 Economic Calendar", callback_data=f"analysis_calendar_{instrument}_signal")]
-                    ]
+                    # Sla het signaal op in de gebruikerscontext voor later gebruik
+                    if not hasattr(self, 'user_signals'):
+                        self.user_signals = {}
                     
-                    await self.bot.send_message(
-                        chat_id=user_id,
-                        text="Analysis options:",
-                        reply_markup=InlineKeyboardMarkup(keyboard)
-                    )
+                    self.user_signals[user_id] = {
+                        'instrument': instrument,
+                        'message': signal_message,
+                        'direction': direction,
+                        'price': price
+                    }
                     
-                    logger.info(f"Successfully sent signal and buttons to user {user_id}")
+                    logger.info(f"Successfully sent signal to user {user_id}")
                 except Exception as user_error:
                     logger.error(f"Error sending signal to user {subscriber['user_id']}: {str(user_error)}")
                     logger.exception(user_error)
