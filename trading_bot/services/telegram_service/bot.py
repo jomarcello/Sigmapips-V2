@@ -358,18 +358,29 @@ class TelegramService:
             )
             return ConversationHandler.END
 
-    async def menu_analyse_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    async def menu_analyse_callback(self, update: Update, context=None) -> int:
         """Handle menu_analyse callback"""
         query = update.callback_query
-        await query.answer()
         
-        # Show the analysis menu
-        await query.edit_message_text(
-            text="Select your analysis type:",
-            reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
-        )
-        
-        return CHOOSE_ANALYSIS
+        try:
+            # Show the analysis menu
+            await query.edit_message_text(
+                text="Select your analysis type:",
+                reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
+            )
+            
+            return CHOOSE_ANALYSIS
+        except Exception as e:
+            logger.error(f"Error in menu_analyse_callback: {str(e)}")
+            try:
+                await query.message.reply_text(
+                    text="Select your analysis type:",
+                    reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
+                )
+                return CHOOSE_ANALYSIS
+            except Exception as inner_e:
+                logger.error(f"Failed to recover from error: {str(inner_e)}")
+                return MENU
 
     async def menu_signals_callback(self, update: Update, context=None) -> int:
         """Handle menu_signals callback"""
@@ -459,22 +470,33 @@ class TelegramService:
                 logger.error(f"Failed to recover from error: {str(inner_e)}")
                 return MENU
 
-    async def analysis_sentiment_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-        """Handle sentiment analysis selection"""
+    async def analysis_sentiment_callback(self, update: Update, context=None) -> int:
+        """Handle analysis_sentiment callback"""
         query = update.callback_query
-        await query.answer()
         
-        # Store analysis type in user_data
-        context.user_data['analysis_type'] = 'sentiment'
-        context.user_data['current_state'] = CHOOSE_MARKET
-        
-        # Show market selection
-        await query.edit_message_text(
-            text="Select a market for sentiment analysis:",
-            reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
-        )
-        
-        return CHOOSE_MARKET
+        try:
+            # Show market selection for sentiment analysis
+            await query.edit_message_text(
+                text="Select a market for sentiment analysis:",
+                reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
+            )
+            
+            # Save analysis type in user_data
+            if context and hasattr(context, 'user_data'):
+                context.user_data['analysis_type'] = 'sentiment'
+            
+            return CHOOSE_MARKET
+        except Exception as e:
+            logger.error(f"Error in analysis_sentiment_callback: {str(e)}")
+            try:
+                await query.message.reply_text(
+                    text="Select a market for sentiment analysis:",
+                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
+                )
+                return CHOOSE_MARKET
+            except Exception as inner_e:
+                logger.error(f"Failed to recover from error: {str(inner_e)}")
+                return MENU
 
     async def analysis_calendar_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """Handle economic calendar selection"""
