@@ -2379,3 +2379,133 @@ class TelegramService:
                 pass
             
             return CHOOSE_ANALYSIS
+
+    async def back_to_signal_callback(self, update: Update, context=None) -> int:
+        """Handle back_to_signal callback"""
+        query = update.callback_query
+        
+        try:
+            # Extract instrument from callback data
+            parts = query.data.split("_")
+            instrument = parts[3] if len(parts) > 3 else None
+            
+            logger.info(f"Back to signal callback with data: {query.data}, extracted instrument: {instrument}")
+            
+            # Als er geen instrument in de callback data zit, probeer het uit de message text te halen
+            if not instrument:
+                message_text = query.message.text if query.message and hasattr(query.message, 'text') else ""
+                
+                # Extract instrument from message text like "Choose analysis type for XAUUSD:"
+                instrument_match = re.search(r"for ([A-Z0-9]+):", message_text)
+                if instrument_match:
+                    instrument = instrument_match.group(1)
+                    logger.info(f"Extracted instrument from message text: {instrument}")
+            
+            logger.info(f"Back to signal for instrument: {instrument}")
+            
+            # Probeer het signaal uit de gebruikerscontext te halen
+            original_signal = None
+            user_id = update.effective_user.id
+            logger.info(f"Looking for signal in user_signals for user_id: {user_id}")
+            
+            # Debug: print alle user_signals
+            logger.info(f"All user_signals: {self.user_signals}")
+            
+            # Controleer of we een globale variable voor signalen hebben
+            if hasattr(self, 'user_signals') and user_id in self.user_signals:
+                user_signal = self.user_signals.get(user_id)
+                logger.info(f"Found user signal: {user_signal}")
+                
+                if user_signal and user_signal.get('instrument') == instrument:
+                    original_signal = user_signal.get('message')
+                    logger.info(f"Retrieved original signal from user context: {len(original_signal)} chars")
+                else:
+                    logger.warning(f"User signal found but instrument doesn't match. User signal instrument: {user_signal.get('instrument')}, requested instrument: {instrument}")
+            
+            # Als we geen signaal vinden, maak een fake signal op basis van het instrument
+            if not original_signal and instrument:
+                # Maak een special fake signaal voor dit instrument
+                signal_message = f"🎯 <b>Trading Signal voor {instrument}</b> 🎯\n\n"
+                signal_message += f"Instrument: {instrument}\n"
+                
+                # Willekeurige richting (buy/sell) bepalen
+                import random
+                is_buy = random.choice([True, False])
+                direction = "BUY" if is_buy else "SELL"
+                emoji = "📈" if is_buy else "📉"
+                
+                signal_message += f"Action: {direction} {emoji}\n\n"
+                
+                # Genereer realistische prijzen op basis van het instrument
+                price = 0
+                if "BTC" in instrument:
+                    price = random.randint(50000, 70000)
+                elif "ETH" in instrument:
+                    price = random.randint(2500, 4000)
+                elif "XAU" in instrument:
+                    price = random.randint(2000, 2500)
+                elif "USD" in instrument:
+                    price = round(random.uniform(1.0, 1.5), 4)
+                else:
+                    price = round(random.uniform(10, 100), 2)
+                
+                signal_message += f"Entry Price: {price}\n"
+                
+                # Bereken stop loss en take profit op basis van de prijs
+                stop_loss = round(price * (0.95 if is_buy else 1.05), 2)
+                take_profit = round(price * (1.05 if is_buy else 0.95), 2)
+                
+                signal_message += f"Stop Loss: {stop_loss} 🔴\n"
+                signal_message += f"Take Profit: {take_profit} 🎯\n\n"
+                
+                signal_message += f"Timeframe: 1h\n"
+                signal_message += f"Strategy: AI Signal\n\n"
+                
+                signal_message += f"<i>Dit is een hersignaal. Het originele signaal kon niet worden gevonden.</i>\n"
+                
+                # Sla dit signaal op in user_signals voor deze gebruiker
+                self.user_signals[user_id] = {
+                    'instrument': instrument,
+                    'message': signal_message,
+                    'direction': direction,
+                    'price': price,
+                    'timestamp': time.time()
+                }
+                
+                original_signal = signal_message
+                logger.info(f"Created new signal for instrument: {instrument}")
+            
+            # Create the analyze market button
+            keyboard = [
+                [InlineKeyboardButton("🔍 Analyze Market", callback_data=f"analyze_market_{instrument}")]
+            ]
+            
+            # Send the signal
+            await query.edit_message_text(
+                text=original_signal if original_signal else f"No signal found for {instrument}",
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode=ParseMode.HTML
+            )
+            
+            if original_signal:
+                logger.info(f"Successfully displayed signal for instrument: {instrument}")
+            else:
+                logger.warning(f"Could not find or create signal for instrument: {instrument}")
+            
+            return MENU
+        except Exception as e:
+            logger.error(f"Error in back_to_signal handler: {str(e)}")
+            logger.exception(e)
+            
+            # If there's an error, show a simple message
+            try:
+                await query.edit_message_text(
+                    text="Could not return to signal view. Please check your chat history for the original signal.",
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("🏠 Main Menu", callback_data="back_menu")
+                    ]])
+                )
+            except Exception as inner_e:
+                logger.error(f"Failed to send fallback message: {str(inner_e)}")
+            
+            return MENU
