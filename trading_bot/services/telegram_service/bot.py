@@ -88,10 +88,10 @@ START_KEYBOARD = [
 
 # Analysis menu keyboard
 ANALYSIS_KEYBOARD = [
-    [InlineKeyboardButton("📈 Technical Analysis", callback_data="analysis_technical")],
-    [InlineKeyboardButton("🧠 Market Sentiment", callback_data="analysis_sentiment")],
-    [InlineKeyboardButton("📅 Economic Calendar", callback_data="analysis_calendar")],
-    [InlineKeyboardButton("⬅️ Back", callback_data="back_menu")]
+    [InlineKeyboardButton("📈 Technical Analysis", callback_data=CALLBACK_ANALYSIS_TECHNICAL)],
+    [InlineKeyboardButton("🧠 Market Sentiment", callback_data=CALLBACK_ANALYSIS_SENTIMENT)],
+    [InlineKeyboardButton("📅 Economic Calendar", callback_data=CALLBACK_ANALYSIS_CALENDAR)],
+    [InlineKeyboardButton("⬅️ Back", callback_data=CALLBACK_BACK_MENU)]
 ]
 
 # Signals menu keyboard
@@ -336,14 +336,14 @@ class TelegramService:
                         CallbackQueryHandler(self.analysis_callback, pattern="^analysis"),
                         CallbackQueryHandler(self.signals_callback, pattern="^signals"),
                         CallbackQueryHandler(self.help_callback, pattern="^help"),
-                        CallbackQueryHandler(self.back_to_menu_callback, pattern="^back_menu"),
+                        CallbackQueryHandler(self.back_to_menu_callback, pattern="^back_menu$"),
                     ],
                     CHOOSE_ANALYSIS: [
-                        CallbackQueryHandler(self.analysis_technical_callback, pattern="^analysis_technical$"),
-                        CallbackQueryHandler(self.analysis_sentiment_callback, pattern="^analysis_sentiment$"),
-                        CallbackQueryHandler(self.analysis_calendar_callback, pattern="^analysis_calendar$"),
-                        CallbackQueryHandler(self.back_to_analysis_callback, pattern="^back_to_analysis$"),
-                        CallbackQueryHandler(self.back_to_menu_callback, pattern="^back_menu$"),
+                        CallbackQueryHandler(self.analysis_technical_callback, pattern=f"^{CALLBACK_ANALYSIS_TECHNICAL}$"),
+                        CallbackQueryHandler(self.analysis_sentiment_callback, pattern=f"^{CALLBACK_ANALYSIS_SENTIMENT}$"),
+                        CallbackQueryHandler(self.analysis_calendar_callback, pattern=f"^{CALLBACK_ANALYSIS_CALENDAR}$"),
+                        CallbackQueryHandler(self.back_to_analysis_callback, pattern=f"^{CALLBACK_BACK_ANALYSIS}$"),
+                        CallbackQueryHandler(self.back_to_menu_callback, pattern=f"^{CALLBACK_BACK_MENU}$"),
                     ],
                     CHOOSE_SIGNALS: [
                         CallbackQueryHandler(self.signals_add_callback, pattern="^signals_add$"),
@@ -1448,6 +1448,17 @@ class TelegramService:
             # Log het ontvangen signaal
             logger.info(f"Processing signal (raw): {signal_data}")
             
+            # Controleer op onverwerkte TradingView placeholders
+            contains_placeholders = False
+            for key, value in signal_data.items():
+                if isinstance(value, str) and ('{{' in value or '}}' in value):
+                    contains_placeholders = True
+                    logger.warning(f"Signal contains unprocessed placeholder: {key}={value}")
+            
+            if contains_placeholders:
+                logger.error("Signal contains unprocessed TradingView placeholders")
+                return False
+            
             # Controleer of het signaal alle benodigde velden heeft
             required_fields = ['instrument', 'signal', 'price']
             missing_fields = [field for field in required_fields if field not in signal_data]
@@ -1455,37 +1466,6 @@ class TelegramService:
             if missing_fields:
                 logger.error(f"Signal is missing required fields: {missing_fields}")
                 return False
-            
-            # Controleer op onverwerkte TradingView placeholders
-            contains_placeholders = False
-            for key, value in signal_data.items():
-                if isinstance(value, str) and '{{' in value and '}}' in value:
-                    contains_placeholders = True
-                    logger.warning(f"Signal contains unprocessed TradingView placeholder: {key}={value}")
-            
-            if contains_placeholders:
-                logger.warning("Signal contains unprocessed TradingView placeholders. Using test values instead.")
-                # Vervang placeholders met test waarden
-                if '{{strategy.order.action}}' in str(signal_data.get('signal', '')):
-                    signal_data['signal'] = 'buy'  # of 'sell' afhankelijk van wat je wilt testen
-                
-                if '{{strategy.order.price}}' in str(signal_data.get('price', '')):
-                    # Gebruik een test waarde
-                    signal_data['price'] = '65000'  # Voorbeeld voor BTC
-                
-                # Vervang andere placeholders
-                for key in ['tp1', 'tp2', 'tp3', 'sl']:
-                    if key in signal_data and '{{' in str(signal_data.get(key, '')):
-                        # Genereer test waarden op basis van de prijs
-                        price = float(signal_data['price']) if not isinstance(signal_data['price'], str) or signal_data['price'].isdigit() else 65000
-                        if key == 'sl':
-                            signal_data[key] = str(round(price * 0.95, 2))  # 5% onder de prijs
-                        elif key == 'tp1':
-                            signal_data[key] = str(round(price * 1.05, 2))  # 5% boven de prijs
-                        elif key == 'tp2':
-                            signal_data[key] = str(round(price * 1.10, 2))  # 10% boven de prijs
-                        elif key == 'tp3':
-                            signal_data[key] = str(round(price * 1.15, 2))  # 15% boven de prijs
             
             # Log het verwerkte signaal
             logger.info(f"Processed signal: {signal_data}")
@@ -2126,7 +2106,7 @@ class TelegramService:
                     await self.menu_signals_callback(update, None)
                     return True
                 elif callback_data == "back_menu":
-                    await self.back_menu_callback(update, None)
+                    await self.back_to_menu_callback(update, None)
                     return True
                 elif callback_data == "back_to_analysis":
                     await self.back_to_analysis_callback(update, None)
