@@ -40,57 +40,41 @@ async def startup_event():
         logger.error(f"Error initializing Telegram service: {str(e)}")
         raise
 
-@app.post("/webhook/tradingview")
-async def tradingview_webhook(request: Request):
+@app.post("/webhook")
+async def webhook(request: Request):
     try:
         # Log de binnenkomende request
         body = await request.body()
-        logger.info(f"Received TradingView webhook: {body.decode('utf-8')}")
-        
-        # Parse de JSON data
-        data = await request.json()
-        logger.info(f"Parsed TradingView data: {data}")
-        
-        # Verwerk het signaal
-        if telegram_service:
-            success = await telegram_service.process_signal(data)
-            if success:
-                return JSONResponse(content={"status": "success", "message": "Signal processed"})
-            else:
-                raise HTTPException(status_code=500, detail="Failed to process signal")
-        else:
-            raise HTTPException(status_code=503, detail="Telegram service not initialized")
-    except json.JSONDecodeError:
-        logger.error("Invalid JSON in request body")
-        raise HTTPException(status_code=400, detail="Invalid JSON")
-    except Exception as e:
-        logger.error(f"Error processing TradingView webhook: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/webhook/telegram")
-async def telegram_webhook(request: Request):
-    try:
-        # Log de binnenkomende request
-        body = await request.body()
-        logger.debug(f"Received Telegram webhook: {body.decode('utf-8')}")
+        logger.info(f"Received webhook: {body.decode('utf-8')}")
         
         # Parse de JSON data
         data = await request.json()
         
-        # Verwerk de update
-        if telegram_service:
-            success = await telegram_service.process_update(data)
-            if success:
-                return JSONResponse(content={"status": "success", "message": "Update processed"})
-            else:
-                raise HTTPException(status_code=500, detail="Failed to process update")
+        # Controleer of het een Telegram update is (heeft 'update_id')
+        if 'update_id' in data:
+            # Verwerk als Telegram update
+            if telegram_service:
+                success = await telegram_service.process_update(data)
+                if success:
+                    return JSONResponse(content={"status": "success", "message": "Telegram update processed"})
+                else:
+                    raise HTTPException(status_code=500, detail="Failed to process Telegram update")
         else:
-            raise HTTPException(status_code=503, detail="Telegram service not initialized")
+            # Verwerk als TradingView signaal
+            if telegram_service:
+                success = await telegram_service.process_signal(data)
+                if success:
+                    return JSONResponse(content={"status": "success", "message": "Signal processed"})
+                else:
+                    raise HTTPException(status_code=500, detail="Failed to process signal")
+        
+        # Als we hier komen, konden we het verzoek niet verwerken
+        raise HTTPException(status_code=400, detail="Unknown webhook format")
     except json.JSONDecodeError:
         logger.error("Invalid JSON in request body")
         raise HTTPException(status_code=400, detail="Invalid JSON")
     except Exception as e:
-        logger.error(f"Error processing Telegram webhook: {str(e)}")
+        logger.error(f"Error processing webhook: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/health")
