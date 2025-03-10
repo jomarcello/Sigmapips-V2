@@ -134,7 +134,7 @@ FOREX_KEYBOARD = [
     [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
 ]
 
-# Forex keyboard voor signals
+# Forex keyboard voor signals - Fix de "Terug" knop naar "Back"
 FOREX_KEYBOARD_SIGNALS = [
     [
         InlineKeyboardButton("EURUSD", callback_data="instrument_EURUSD_signals"),
@@ -146,7 +146,7 @@ FOREX_KEYBOARD_SIGNALS = [
         InlineKeyboardButton("USDCAD", callback_data="instrument_USDCAD_signals"),
         InlineKeyboardButton("EURGBP", callback_data="instrument_EURGBP_signals")
     ],
-    [InlineKeyboardButton("⬅️ Terug", callback_data="back_market")]
+    [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
 ]
 
 # Crypto keyboard voor analyse
@@ -159,14 +159,14 @@ CRYPTO_KEYBOARD = [
     [InlineKeyboardButton("⬅️ Terug", callback_data="back_market")]
 ]
 
-# Crypto keyboard voor signals
+# Crypto keyboard voor signals - Fix de "Terug" knop naar "Back"
 CRYPTO_KEYBOARD_SIGNALS = [
     [
         InlineKeyboardButton("BTCUSD", callback_data="instrument_BTCUSD_signals"),
         InlineKeyboardButton("ETHUSD", callback_data="instrument_ETHUSD_signals"),
         InlineKeyboardButton("XRPUSD", callback_data="instrument_XRPUSD_signals")
     ],
-    [InlineKeyboardButton("⬅️ Terug", callback_data="back_market")]
+    [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
 ]
 
 # Indices keyboard voor analyse
@@ -179,14 +179,14 @@ INDICES_KEYBOARD = [
     [InlineKeyboardButton("⬅️ Terug", callback_data="back_market")]
 ]
 
-# Indices keyboard voor signals
+# Indices keyboard voor signals - Fix de "Terug" knop naar "Back"
 INDICES_KEYBOARD_SIGNALS = [
     [
         InlineKeyboardButton("US30", callback_data="instrument_US30_signals"),
         InlineKeyboardButton("US500", callback_data="instrument_US500_signals"),
         InlineKeyboardButton("US100", callback_data="instrument_US100_signals")
     ],
-    [InlineKeyboardButton("⬅️ Terug", callback_data="back_market")]
+    [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
 ]
 
 # Commodities keyboard voor analyse
@@ -199,14 +199,14 @@ COMMODITIES_KEYBOARD = [
     [InlineKeyboardButton("⬅️ Terug", callback_data="back_market")]
 ]
 
-# Commodities keyboard voor signals
+# Commodities keyboard voor signals - Fix de "Terug" knop naar "Back"
 COMMODITIES_KEYBOARD_SIGNALS = [
     [
         InlineKeyboardButton("XAUUSD", callback_data="instrument_XAUUSD_signals"),
         InlineKeyboardButton("XAGUSD", callback_data="instrument_XAGUSD_signals"),
         InlineKeyboardButton("USOIL", callback_data="instrument_USOIL_signals")
     ],
-    [InlineKeyboardButton("⬅️ Terug", callback_data="back_market")]
+    [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
 ]
 
 # Style keyboard
@@ -1278,20 +1278,30 @@ class TelegramService:
         query = update.callback_query
         
         try:
+            # Beantwoord de callback query om de "wachtende" status te verwijderen
+            await query.answer()
+            
             # Bepaal of we in de signals flow zitten of in de analyse flow
             callback_data = query.data
             in_signals_flow = False
             
-            # Check user_data first
-            if context and hasattr(context, 'user_data') and 'in_signals_flow' in context.user_data:
+            # Check message text first (most reliable)
+            if hasattr(query.message, 'text'):
+                message_text = query.message.text
+                logger.info(f"Message text for back_market: {message_text}")
+                if "trading signals" in message_text.lower():
+                    in_signals_flow = True
+                    logger.info("Detected signals flow from message text")
+            
+            # Check user_data if available
+            if not in_signals_flow and context and hasattr(context, 'user_data') and 'in_signals_flow' in context.user_data:
                 in_signals_flow = context.user_data.get('in_signals_flow', False)
-            else:
-                # Als er geen context is, probeer te bepalen op basis van de callback data
-                # of de vorige pagina die we hebben getoond
-                in_signals_flow = '_signals' in callback_data or (
-                    hasattr(query.message, 'text') and 
-                    'Trading Signals' in query.message.text
-                )
+                logger.info(f"Detected signals flow from user_data: {in_signals_flow}")
+            
+            # Check callback data as last resort
+            if not in_signals_flow and '_signals' in str(query.message.reply_markup):
+                in_signals_flow = True
+                logger.info("Detected signals flow from reply markup")
             
             logger.info(f"Back to market callback, in_signals_flow: {in_signals_flow}")
             
@@ -1312,7 +1322,16 @@ class TelegramService:
         except Exception as e:
             logger.error(f"Error in back_to_market_callback: {str(e)}")
             logger.exception(e)
-            return MENU
+            
+            # Fallback: stuur een nieuw bericht met het market menu
+            try:
+                await query.message.reply_text(
+                    text="Select a market:",
+                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
+                )
+                return CHOOSE_MARKET
+            except:
+                return MENU
 
     async def back_to_instrument(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """Handle back to instrument selection"""
