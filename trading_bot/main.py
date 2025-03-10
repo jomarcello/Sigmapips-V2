@@ -351,11 +351,46 @@ async def process_signal_with_deepseek(signal_data: Dict[str, Any]) -> Dict[str,
 async def receive_signal(signal: Dict[str, Any]):
     """Receive and process trading signal"""
     try:
-        logger.info(f"Received TradingView signal: {signal}")
+        # Verbeterde logging
+        logger.info(f"Received TradingView signal (raw): {signal}")
+        
+        # Controleer of de variabelen zijn vervangen of nog TradingView placeholders zijn
+        contains_placeholders = False
+        for key, value in signal.items():
+            if isinstance(value, str) and '{{' in value and '}}' in value:
+                contains_placeholders = True
+                logger.warning(f"Signal contains unprocessed TradingView placeholder: {key}={value}")
+        
+        if contains_placeholders:
+            logger.warning("Signal contains unprocessed TradingView placeholders. Using test values instead.")
+            # Vervang placeholders met test waarden
+            if '{{strategy.order.action}}' in str(signal.get('signal', '')):
+                signal['signal'] = 'buy'  # of 'sell' afhankelijk van wat je wilt testen
+            
+            if '{{strategy.order.price}}' in str(signal.get('price', '')):
+                # Haal actuele prijs op of gebruik een test waarde
+                signal['price'] = '65000'  # Voorbeeld voor BTC
+            
+            # Vervang andere placeholders
+            for key in ['tp1', 'tp2', 'tp3', 'sl']:
+                if key in signal and '{{' in str(signal.get(key, '')):
+                    # Genereer test waarden op basis van de prijs
+                    price = float(signal['price']) if isinstance(signal['price'], (int, float)) else 65000
+                    if key == 'sl':
+                        signal[key] = str(round(price * 0.95, 2))  # 5% onder de prijs
+                    elif key == 'tp1':
+                        signal[key] = str(round(price * 1.05, 2))  # 5% boven de prijs
+                    elif key == 'tp2':
+                        signal[key] = str(round(price * 1.10, 2))  # 10% boven de prijs
+                    elif key == 'tp3':
+                        signal[key] = str(round(price * 1.15, 2))  # 15% boven de prijs
         
         # Detect market type
         market_type = _detect_market(signal.get('instrument', ''))
         signal['market'] = market_type
+        
+        # Log het verwerkte signaal
+        logger.info(f"Processed signal: {signal}")
         
         # Maak een mock request object
         class MockRequest:
