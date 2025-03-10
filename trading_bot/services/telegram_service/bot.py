@@ -2087,61 +2087,62 @@ class TelegramService:
         
         return MENU
 
-    async def process_update(self, update_data):
+    async def process_update(self, update_data: Dict[str, Any]) -> bool:
         """Process an update from the webhook"""
         try:
-            logger.info(f"Processing update: {update_data}")
+            # Converteer de update data naar een Update object
+            update = Update.de_json(data=update_data, bot=self.bot)
             
-            # Controleer of deze update al is verwerkt
-            update_id = update_data.get('update_id')
+            # Controleer of we deze update al hebben verwerkt
+            update_id = update.update_id
             if update_id in self.processed_updates:
-                logger.info(f"Update {update_id} already processed, skipping")
+                logger.info(f"Skipping already processed update: {update_id}")
                 return True
             
             # Voeg de update toe aan de verwerkte updates
             self.processed_updates.add(update_id)
             
-            # Beperk de grootte van de set (houd alleen de laatste 100 updates bij)
-            if len(self.processed_updates) > 100:
-                self.processed_updates = set(sorted(self.processed_updates)[-100:])
+            # Houd de grootte van de set beperkt
+            if len(self.processed_updates) > 1000:
+                self.processed_updates = set(list(self.processed_updates)[-500:])
             
-            # Maak een Update object van de update data
-            update = Update.de_json(data=update_data, bot=self.bot)
-            
-            # Verwerk de update direct zonder context
-            # We kunnen geen context maken zonder de application
+            # Log de update
+            logger.info(f"Processing update: {update_data}")
             
             # Controleer of het een callback query is
             if update.callback_query:
+                # Log de callback data
                 callback_data = update.callback_query.data
                 logger.info(f"Received callback: {callback_data}")
                 
-                # Verwerk specifieke callbacks direct
-                if callback_data.startswith("direct_sentiment_"):
-                    await self.direct_sentiment_callback(update, None)
-                    return True
-                elif callback_data == "menu_analyse":
+                # Beantwoord de callback query om de "wachtende" status te verwijderen
+                await update.callback_query.answer()
+                
+                # Verwerk de callback op basis van de data
+                if callback_data == "menu_analyse":
                     await self.menu_analyse_callback(update, None)
                     return True
                 elif callback_data == "menu_signals":
                     await self.menu_signals_callback(update, None)
                     return True
-                elif callback_data == "analysis_sentiment":
-                    await self.analysis_sentiment_callback(update, None)
-                    return True
-                elif callback_data == "analysis_technical":
-                    await self.analysis_technical_callback(update, None)
-                    return True
-                elif callback_data == "analysis_calendar":
-                    await self.analysis_calendar_callback(update, None)
+                elif callback_data == "back_menu":
+                    await self.back_menu_callback(update, None)
                     return True
                 elif callback_data == "back_analysis":
-                    await self.back_to_analysis_callback(update, None)
+                    await self.back_analysis_callback(update, None)
                     return True
-                elif callback_data == "back_menu":
-                    await self.back_to_menu_callback(update, None)
+                elif callback_data == "back_signals":
+                    await self.back_signals_callback(update, None)
                     return True
-                # Trading Signals callbacks
+                elif callback_data == "back_market":
+                    await self.back_to_market_callback(update, None)
+                    return True
+                elif callback_data == "back_instrument":
+                    await self.back_to_instrument(update, None)
+                    return True
+                elif callback_data.startswith("analysis_"):
+                    await self.analysis_choice(update, None)
+                    return True
                 elif callback_data == "signals_add":
                     await self.signals_add_callback(update, None)
                     return True
@@ -2267,3 +2268,32 @@ class TelegramService:
                 pass
             
             return MENU
+
+    async def back_signals_callback(self, update: Update, context=None) -> int:
+        """Handle back_signals callback"""
+        query = update.callback_query
+        
+        try:
+            # Beantwoord de callback query
+            await query.answer()
+            
+            # Toon het signals menu
+            await query.edit_message_text(
+                text="What would you like to do with trading signals?",
+                reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD)
+            )
+            
+            return CHOOSE_SIGNALS
+        except Exception as e:
+            logger.error(f"Error in back_signals_callback: {str(e)}")
+            logger.exception(e)
+            
+            # Fallback: stuur een nieuw bericht met het signals menu
+            try:
+                await query.message.reply_text(
+                    text="What would you like to do with trading signals?",
+                    reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD)
+                )
+                return CHOOSE_SIGNALS
+            except:
+                return MENU
