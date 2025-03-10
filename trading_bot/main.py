@@ -230,22 +230,13 @@ async def signal_webhook(request: Request):
         signal_data = await request.json()
         logger.info(f"Received signal data: {signal_data}")
         
-        # Valideer de signal data
-        required_fields = ['instrument', 'direction', 'price']
+        # Valideer de signal data volgens TradingView format
+        required_fields = ['instrument', 'signal', 'price']
         missing_fields = [field for field in required_fields if field not in signal_data]
         
         if missing_fields:
             logger.error(f"Missing required fields in signal data: {missing_fields}")
             return {"status": "error", "message": f"Missing required fields: {', '.join(missing_fields)}"}
-        
-        # Gebruik DeepSeek om het signaal te verwerken en te formatteren
-        try:
-            formatted_signal = await process_signal_with_deepseek(signal_data)
-            if formatted_signal:
-                signal_data = formatted_signal
-        except Exception as deepseek_error:
-            logger.error(f"Error processing signal with DeepSeek: {str(deepseek_error)}")
-            # Ga door met het originele signaal als DeepSeek faalt
         
         # Detecteer de markt op basis van het instrument
         market = _detect_market(signal_data['instrument'])
@@ -253,35 +244,16 @@ async def signal_webhook(request: Request):
         
         # Verwerk het signaal
         if hasattr(telegram, 'process_signal'):
-            # Roep de methode aan met de juiste parameters
             success = await telegram.process_signal(signal_data)
+            
+            if success:
+                return {"status": "success", "message": "Signal processed successfully"}
+            else:
+                return {"status": "error", "message": "Failed to process signal"}
         else:
             logger.error("process_signal method not found on telegram service")
-            success = False
-        
-        # Stuur een test bericht met knoppen
-        try:
-            from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+            return {"status": "error", "message": "Signal processing not available"}
             
-            keyboard = [
-                [InlineKeyboardButton("Test Button", callback_data="test_button")]
-            ]
-            
-            await telegram.bot.send_message(
-                chat_id="YOUR_TEST_CHAT_ID",  # Vervang dit door je eigen chat ID
-                text="Test button:",
-                reply_markup=InlineKeyboardMarkup(keyboard)
-            )
-            
-            logger.info("Sent test button directly from webhook")
-        except Exception as button_error:
-            logger.error(f"Error sending test button: {str(button_error)}")
-            logger.exception(button_error)
-        
-        if success:
-            return {"status": "success", "message": "Signal processed successfully"}
-        else:
-            return {"status": "error", "message": "Failed to process signal"}
     except Exception as e:
         logger.error(f"Error in signal webhook: {str(e)}")
         return {"status": "error", "message": str(e)}
