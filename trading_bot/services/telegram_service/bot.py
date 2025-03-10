@@ -107,7 +107,7 @@ MARKET_KEYBOARD_SIGNALS = [
     [InlineKeyboardButton("Crypto", callback_data="market_crypto_signals")],
     [InlineKeyboardButton("Commodities", callback_data="market_commodities_signals")],
     [InlineKeyboardButton("Indices", callback_data="market_indices_signals")],
-    [InlineKeyboardButton("⬅️ Terug", callback_data="back_signals")]
+    [InlineKeyboardButton("⬅️ Back", callback_data="back_signals")]
 ]
 
 # Market keyboard voor analyse
@@ -853,7 +853,7 @@ class TelegramService:
             logger.error(f"Error in market_callback: {str(e)}")
             return MENU
 
-    async def market_signals_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    async def market_signals_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
         """Handle market selection for signals"""
         query = update.callback_query
         await query.answer()
@@ -862,8 +862,18 @@ class TelegramService:
         market = query.data.split('_')[1]  # market_forex_signals -> forex
         
         # Save market in user_data
-        context.user_data['market'] = market
-        context.user_data['analysis_type'] = 'signals'
+        if context and hasattr(context, 'user_data'):
+            context.user_data['market'] = market
+            context.user_data['analysis_type'] = 'signals'
+        else:
+            # Als er geen context is, sla de data op in een tijdelijke opslag
+            user_id = update.effective_user.id
+            if not hasattr(self, 'temp_user_data'):
+                self.temp_user_data = {}
+            if user_id not in self.temp_user_data:
+                self.temp_user_data[user_id] = {}
+            self.temp_user_data[user_id]['market'] = market
+            self.temp_user_data[user_id]['analysis_type'] = 'signals'
         
         # Maak een nieuwe keyboard op basis van de markt
         if market == 'forex':
@@ -878,7 +888,7 @@ class TelegramService:
                     InlineKeyboardButton("USDCAD", callback_data="instrument_USDCAD_signals"),
                     InlineKeyboardButton("EURGBP", callback_data="instrument_EURGBP_signals")
                 ],
-                [InlineKeyboardButton("⬅️ Terug", callback_data="back_signals")]
+                [InlineKeyboardButton("⬅️ Back", callback_data="back_signals")]
             ]
         elif market == 'crypto':
             keyboard = [
@@ -887,7 +897,7 @@ class TelegramService:
                     InlineKeyboardButton("ETHUSD", callback_data="instrument_ETHUSD_signals"),
                     InlineKeyboardButton("XRPUSD", callback_data="instrument_XRPUSD_signals")
                 ],
-                [InlineKeyboardButton("⬅️ Terug", callback_data="back_signals")]
+                [InlineKeyboardButton("⬅️ Back", callback_data="back_signals")]
             ]
         elif market == 'commodities':
             keyboard = [
@@ -896,7 +906,7 @@ class TelegramService:
                     InlineKeyboardButton("XAGUSD", callback_data="instrument_XAGUSD_signals"),
                     InlineKeyboardButton("USOIL", callback_data="instrument_USOIL_signals")
                 ],
-                [InlineKeyboardButton("⬅️ Terug", callback_data="back_signals")]
+                [InlineKeyboardButton("⬅️ Back", callback_data="back_signals")]
             ]
         elif market == 'indices':
             keyboard = [
@@ -905,7 +915,7 @@ class TelegramService:
                     InlineKeyboardButton("US500", callback_data="instrument_US500_signals"),
                     InlineKeyboardButton("US100", callback_data="instrument_US100_signals")
                 ],
-                [InlineKeyboardButton("⬅️ Terug", callback_data="back_signals")]
+                [InlineKeyboardButton("⬅️ Back", callback_data="back_signals")]
             ]
         else:
             # Fallback naar forex als de markt niet wordt herkend
@@ -915,7 +925,7 @@ class TelegramService:
                     InlineKeyboardButton("GBPUSD", callback_data="instrument_GBPUSD_signals"),
                     InlineKeyboardButton("USDJPY", callback_data="instrument_USDJPY_signals")
                 ],
-                [InlineKeyboardButton("⬅️ Terug", callback_data="back_signals")]
+                [InlineKeyboardButton("⬅️ Back", callback_data="back_signals")]
             ]
         
         await query.edit_message_text(
@@ -1041,7 +1051,7 @@ class TelegramService:
                 pass
             return MENU
 
-    async def instrument_signals_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    async def instrument_signals_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
         """Handle instrument selection for signals"""
         query = update.callback_query
         await query.answer()
@@ -1051,7 +1061,16 @@ class TelegramService:
         instrument = parts[1]  # instrument_EURUSD_signals -> EURUSD
         
         # Save instrument in user_data
-        context.user_data['instrument'] = instrument
+        if context and hasattr(context, 'user_data'):
+            context.user_data['instrument'] = instrument
+        else:
+            # Als er geen context is, sla de data op in een tijdelijke opslag
+            user_id = update.effective_user.id
+            if not hasattr(self, 'temp_user_data'):
+                self.temp_user_data = {}
+            if user_id not in self.temp_user_data:
+                self.temp_user_data[user_id] = {}
+            self.temp_user_data[user_id]['instrument'] = instrument
         
         # Show style selection
         await query.edit_message_text(
@@ -1061,14 +1080,24 @@ class TelegramService:
         
         return CHOOSE_STYLE
 
-    async def style_choice(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    async def style_choice(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
         """Handle style selection"""
         query = update.callback_query
         await query.answer()
         
         if query.data == "back_instrument":
             # Back to instrument selection
-            market = context.user_data.get('market', 'forex')
+            market = None
+            if context and hasattr(context, 'user_data'):
+                market = context.user_data.get('market', 'forex')
+            else:
+                # Haal market uit tijdelijke opslag
+                user_id = update.effective_user.id
+                if hasattr(self, 'temp_user_data') and user_id in self.temp_user_data:
+                    market = self.temp_user_data[user_id].get('market', 'forex')
+                else:
+                    market = 'forex'  # Fallback
+            
             keyboard_map = {
                 'forex': FOREX_KEYBOARD,
                 'crypto': CRYPTO_KEYBOARD,
@@ -1084,15 +1113,29 @@ class TelegramService:
             return CHOOSE_INSTRUMENT
         
         style = query.data.replace('style_', '')
-        context.user_data['style'] = style
-        context.user_data['timeframe'] = STYLE_TIMEFRAME_MAP[style]
         
-        try:
-            # Save preferences
+        # Sla style op in user_data of tijdelijke opslag
+        if context and hasattr(context, 'user_data'):
+            context.user_data['style'] = style
+            context.user_data['timeframe'] = STYLE_TIMEFRAME_MAP[style]
             user_id = update.effective_user.id
             market = context.user_data.get('market', 'forex')
             instrument = context.user_data.get('instrument', 'EURUSD')
+        else:
+            # Haal data uit tijdelijke opslag
+            user_id = update.effective_user.id
+            if not hasattr(self, 'temp_user_data'):
+                self.temp_user_data = {}
+            if user_id not in self.temp_user_data:
+                self.temp_user_data[user_id] = {}
             
+            self.temp_user_data[user_id]['style'] = style
+            self.temp_user_data[user_id]['timeframe'] = STYLE_TIMEFRAME_MAP[style]
+            
+            market = self.temp_user_data[user_id].get('market', 'forex')
+            instrument = self.temp_user_data[user_id].get('instrument', 'EURUSD')
+        
+        try:
             # Check if this combination already exists
             preferences = await self.db.get_user_preferences(user_id)
             
