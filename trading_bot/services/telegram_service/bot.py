@@ -379,18 +379,28 @@ class TelegramService:
         
         return CHOOSE_SIGNALS
 
-    async def analysis_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    async def analysis_callback(self, update: Update, context=None) -> int:
         """Handle analysis callback"""
         query = update.callback_query
-        await query.answer()
         
         # Toon het analyse menu
-        await query.edit_message_text(
-            text="Select your analysis type:",
-            reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
-        )
-        
-        return CHOOSE_ANALYSIS
+        try:
+            await query.edit_message_text(
+                text="Select your analysis type:",
+                reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
+            )
+            return CHOOSE_ANALYSIS
+        except Exception as e:
+            logger.error(f"Error in analysis_callback: {str(e)}")
+            try:
+                await query.message.reply_text(
+                    text="Select your analysis type:",
+                    reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
+                )
+                return CHOOSE_ANALYSIS
+            except Exception as inner_e:
+                logger.error(f"Failed to recover from error: {str(inner_e)}")
+                return MENU
 
     async def signals_callback(self, update: Update, context=None) -> int:
         """Handle signals callback"""
@@ -417,21 +427,33 @@ class TelegramService:
         
         return MENU
 
-    async def analysis_technical_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    async def analysis_technical_callback(self, update: Update, context=None) -> int:
         """Handle analysis_technical callback"""
         query = update.callback_query
-        await query.answer()
         
-        # Show market selection for technical analysis
-        await query.edit_message_text(
-            text="Select a market for technical analysis:",
-            reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
-        )
-        
-        # Save analysis type in user_data
-        context.user_data['analysis_type'] = 'technical'
-        
-        return CHOOSE_MARKET
+        try:
+            # Show market selection for technical analysis
+            await query.edit_message_text(
+                text="Select a market for technical analysis:",
+                reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
+            )
+            
+            # Save analysis type in user_data
+            if context and hasattr(context, 'user_data'):
+                context.user_data['analysis_type'] = 'technical'
+            
+            return CHOOSE_MARKET
+        except Exception as e:
+            logger.error(f"Error in analysis_technical_callback: {str(e)}")
+            try:
+                await query.message.reply_text(
+                    text="Select a market for technical analysis:",
+                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
+                )
+                return CHOOSE_MARKET
+            except Exception as inner_e:
+                logger.error(f"Failed to recover from error: {str(inner_e)}")
+                return MENU
 
     async def analysis_sentiment_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """Handle sentiment analysis selection"""
@@ -1927,7 +1949,20 @@ class TelegramService:
                     elif callback_data == "back_menu":
                         await self.back_to_menu_callback(update, None)
                         return True
-                    elif callback_data.startswith("analysis_"):
+                    elif callback_data == "analysis_technical":
+                        await self.analysis_technical_callback(update, None)
+                        return True
+                    elif callback_data == "analysis_sentiment":
+                        await self.analysis_sentiment_callback(update, None)
+                        return True
+                    elif callback_data == "analysis_calendar":
+                        await self.analysis_calendar_callback(update, None)
+                        return True
+                    elif callback_data.startswith("analysis_") and not (
+                        callback_data == "analysis_technical" or 
+                        callback_data == "analysis_sentiment" or 
+                        callback_data == "analysis_calendar"
+                    ):
                         await self.analysis_callback(update, None)
                         return True
                     elif callback_data.startswith("signals_"):
