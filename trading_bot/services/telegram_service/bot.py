@@ -32,6 +32,20 @@ from trading_bot.services.calendar_service.calendar import EconomicCalendarServi
 
 logger = logging.getLogger(__name__)
 
+# Callback data constants
+CALLBACK_ANALYSIS_TECHNICAL = "analysis_technical"
+CALLBACK_ANALYSIS_SENTIMENT = "analysis_sentiment"
+CALLBACK_ANALYSIS_CALENDAR = "analysis_calendar"
+CALLBACK_BACK_MENU = "back_menu"
+CALLBACK_BACK_ANALYSIS = "back_to_analysis"
+CALLBACK_BACK_MARKET = "back_market"
+CALLBACK_BACK_INSTRUMENT = "back_instrument"
+CALLBACK_BACK_SIGNALS = "back_signals"
+CALLBACK_SIGNALS_ADD = "signals_add"
+CALLBACK_SIGNALS_MANAGE = "signals_manage"
+CALLBACK_MENU_ANALYSE = "menu_analyse"
+CALLBACK_MENU_SIGNALS = "menu_signals"
+
 # States
 MENU = 0
 CHOOSE_ANALYSIS = 1
@@ -82,8 +96,8 @@ Available commands:
 
 # Start menu keyboard
 START_KEYBOARD = [
-    [InlineKeyboardButton("🔍 Analyze Market", callback_data="menu_analyse")],
-    [InlineKeyboardButton("📊 Trading Signals", callback_data="menu_signals")]
+    [InlineKeyboardButton("🔍 Analyze Market", callback_data=CALLBACK_MENU_ANALYSE)],
+    [InlineKeyboardButton("📊 Trading Signals", callback_data=CALLBACK_MENU_SIGNALS)]
 ]
 
 # Analysis menu keyboard
@@ -96,9 +110,9 @@ ANALYSIS_KEYBOARD = [
 
 # Signals menu keyboard
 SIGNALS_KEYBOARD = [
-    [InlineKeyboardButton("➕ Add New Pairs", callback_data="signals_add")],
-    [InlineKeyboardButton("⚙️ Manage Preferences", callback_data="signals_manage")],
-    [InlineKeyboardButton("⬅️ Back", callback_data="back_menu")]
+    [InlineKeyboardButton("➕ Add New Pairs", callback_data=CALLBACK_SIGNALS_ADD)],
+    [InlineKeyboardButton("⚙️ Manage Preferences", callback_data=CALLBACK_SIGNALS_MANAGE)],
+    [InlineKeyboardButton("⬅️ Back", callback_data=CALLBACK_BACK_MENU)]
 ]
 
 # Market keyboard voor signals
