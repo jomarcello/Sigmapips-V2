@@ -270,6 +270,14 @@ class TelegramService:
     def _register_handlers(self):
         """Register all handlers"""
         try:
+            # Voeg een speciale handler toe voor sentiment analyse
+            self.application.add_handler(
+                CallbackQueryHandler(
+                    self.direct_sentiment_callback, 
+                    pattern="^sentiment_instrument_[A-Z0-9]+"
+                )
+            )
+            
             # Registreer de conversation handler
             conv_handler = ConversationHandler(
                 entry_points=[
@@ -500,31 +508,32 @@ class TelegramService:
             # Debug logging
             logger.info("analysis_sentiment_callback aangeroepen")
             
-            # Store analysis type in user_data
-            if context and hasattr(context, 'user_data'):
-                context.user_data['analysis_type'] = 'sentiment'
-                context.user_data['current_state'] = CHOOSE_MARKET
-                logger.info(f"User data ingesteld: analysis_type=sentiment")
+            # Maak speciale keyboards voor sentiment analyse
+            FOREX_SENTIMENT_KEYBOARD = [
+                [
+                    InlineKeyboardButton("EURUSD", callback_data="sentiment_instrument_EURUSD"),
+                    InlineKeyboardButton("GBPUSD", callback_data="sentiment_instrument_GBPUSD"),
+                    InlineKeyboardButton("USDJPY", callback_data="sentiment_instrument_USDJPY")
+                ],
+                [
+                    InlineKeyboardButton("AUDUSD", callback_data="sentiment_instrument_AUDUSD"),
+                    InlineKeyboardButton("USDCAD", callback_data="sentiment_instrument_USDCAD"),
+                    InlineKeyboardButton("EURGBP", callback_data="sentiment_instrument_EURGBP")
+                ],
+                [InlineKeyboardButton("⬅️ Terug", callback_data="back_analysis")]
+            ]
             
-            # Show market selection
+            # Toon direct de forex instrumenten voor sentiment analyse
             await query.edit_message_text(
-                text="Select a market for sentiment analysis:",
-                reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
+                text="Select a forex pair for sentiment analysis:",
+                reply_markup=InlineKeyboardMarkup(FOREX_SENTIMENT_KEYBOARD)
             )
             
-            return CHOOSE_MARKET
+            return CHOOSE_INSTRUMENT
         except Exception as e:
             logger.error(f"Error in analysis_sentiment_callback: {str(e)}")
-            logger.exception(e)  # Log de volledige stacktrace
-            try:
-                await query.message.reply_text(
-                    text="Select a market for sentiment analysis:",
-                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
-                )
-                return CHOOSE_MARKET
-            except Exception as inner_e:
-                logger.error(f"Failed to recover from error: {str(inner_e)}")
-                return MENU
+            logger.exception(e)
+            return MENU
 
     async def analysis_calendar_callback(self, update: Update, context=None) -> int:
         """Handle calendar analysis selection"""
@@ -779,30 +788,52 @@ class TelegramService:
         """Handle market selection for analysis"""
         query = update.callback_query
         
-        # Get market from callback data
-        market = query.data.replace('market_', '')
-        
-        # Save market in user_data
-        if context and hasattr(context, 'user_data'):
-            context.user_data['market'] = market
-        
-        # Determine which keyboard to show based on market
-        keyboard_map = {
-            'forex': FOREX_KEYBOARD,
-            'crypto': CRYPTO_KEYBOARD,
-            'indices': INDICES_KEYBOARD,
-            'commodities': COMMODITIES_KEYBOARD
-        }
-        
-        keyboard = keyboard_map.get(market, FOREX_KEYBOARD)
-        
-        # Show instruments for the selected market
-        await query.edit_message_text(
-            text=f"Select an instrument from {market.capitalize()}:",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-        
-        return CHOOSE_INSTRUMENT
+        try:
+            # Get market from callback data
+            market = query.data.replace('market_', '')
+            
+            # Save market in user_data
+            if context and hasattr(context, 'user_data'):
+                context.user_data['market'] = market
+                analysis_type = context.user_data.get('analysis_type', 'technical')
+                logger.info(f"Market callback: market={market}, analysis_type={analysis_type}")
+            else:
+                # Fallback als er geen context is
+                analysis_type = 'technical'
+                logger.info(f"Market callback zonder context: market={market}, fallback analysis_type={analysis_type}")
+            
+            # Toon het juiste instrument keyboard op basis van de markt
+            if market == 'forex':
+                await query.edit_message_text(
+                    text=f"Select a forex pair for {analysis_type} analysis:",
+                    reply_markup=InlineKeyboardMarkup(FOREX_KEYBOARD)
+                )
+            elif market == 'crypto':
+                await query.edit_message_text(
+                    text=f"Select a cryptocurrency for {analysis_type} analysis:",
+                    reply_markup=InlineKeyboardMarkup(CRYPTO_KEYBOARD)
+                )
+            elif market == 'indices':
+                await query.edit_message_text(
+                    text=f"Select an index for {analysis_type} analysis:",
+                    reply_markup=InlineKeyboardMarkup(INDICES_KEYBOARD)
+                )
+            elif market == 'commodities':
+                await query.edit_message_text(
+                    text=f"Select a commodity for {analysis_type} analysis:",
+                    reply_markup=InlineKeyboardMarkup(COMMODITIES_KEYBOARD)
+                )
+            else:
+                # Fallback naar forex als de markt niet wordt herkend
+                await query.edit_message_text(
+                    text=f"Select a forex pair for {analysis_type} analysis:",
+                    reply_markup=InlineKeyboardMarkup(FOREX_KEYBOARD)
+                )
+            
+            return CHOOSE_INSTRUMENT
+        except Exception as e:
+            logger.error(f"Error in market_callback: {str(e)}")
+            return MENU
 
     async def market_signals_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """Handle market selection for signals"""
@@ -2027,97 +2058,27 @@ class TelegramService:
             # Maak een Update object van de update data
             update = Update.de_json(data=update_data, bot=self.bot)
             
-            # Controleer of het een commando is en verwerk het direct
-            if update.message and update.message.text and update.message.text.startswith('/'):
-                command = update.message.text.split()[0].lower()
-                logger.info(f"Received command: {command}")
-                
-                try:
-                    if command == '/start':
-                        await self.start_command(update, None)
-                        return True
-                    elif command == '/menu':
-                        await self.menu_command(update, None)
-                        return True
-                    elif command == '/help':
-                        await self.help_command(update, None)
-                        return True
-                except Exception as cmd_error:
-                    logger.error(f"Error processing command {command}: {str(cmd_error)}")
-                    await update.message.reply_text("Sorry, er is een fout opgetreden bij het verwerken van dit commando.")
-                    return False
+            # Maak een context object
+            context = ContextTypes.DEFAULT_TYPE.context
+            context.user_data = {}
             
             # Controleer of het een callback query is en verwerk het direct
             if update.callback_query:
                 callback_data = update.callback_query.data
                 logger.info(f"Received callback: {callback_data}")
                 
-                try:
-                    # Beantwoord de callback query om de "wachtende" status te verwijderen
-                    # Vang fouten op als de query te oud is
-                    try:
-                        await update.callback_query.answer()
-                    except Exception as answer_error:
-                        logger.warning(f"Could not answer callback query: {str(answer_error)}")
-                    
-                    # Verwerk de callback data
-                    if callback_data == "menu_analyse":
-                        await self.menu_analyse_callback(update, None)
-                        return True
-                    elif callback_data == "menu_signals":
-                        await self.menu_signals_callback(update, None)
-                        return True
-                    elif callback_data == "back_menu":
-                        await self.back_to_menu_callback(update, None)
-                        return True
-                    elif callback_data == "analysis_technical":
-                        await self.analysis_technical_callback(update, None)
-                        return True
-                    elif callback_data == "analysis_sentiment":
-                        await self.analysis_sentiment_callback(update, None)
-                        return True
-                    elif callback_data == "analysis_calendar":
-                        await self.analysis_calendar_callback(update, None)
-                        return True
-                    elif callback_data.startswith("analysis_") and not (
-                        callback_data == "analysis_technical" or 
-                        callback_data == "analysis_sentiment" or 
-                        callback_data == "analysis_calendar"
-                    ):
-                        await self.analysis_callback(update, None)
-                        return True
-                    elif callback_data.startswith("signals_"):
-                        await self.signals_callback(update, None)
-                        return True
-                    elif callback_data.startswith("market_"):
-                        if "_signals" in callback_data:
-                            await self.market_signals_callback(update, None)
-                        else:
-                            await self.market_callback(update, None)
-                        return True
-                    elif callback_data.startswith("instrument_"):
-                        if "_signals" in callback_data:
-                            await self.instrument_signals_callback(update, None)
-                        else:
-                            await self.instrument_callback(update, None)
-                        return True
-                    elif callback_data.startswith("style_"):
-                        await self.style_choice(update, None)
-                        return True
-                    elif callback_data.startswith("analyze_market_"):
-                        await self.callback_query_handler(update, None)
-                        return True
-                    else:
-                        # Fallback naar de algemene callback handler
-                        await self.callback_query_handler(update, None)
-                        return True
-                except Exception as callback_error:
-                    logger.error(f"Error processing callback {callback_data}: {str(callback_error)}")
-                    try:
-                        await update.callback_query.message.reply_text("Sorry, er is een fout opgetreden bij het verwerken van deze actie.")
-                    except:
-                        pass
-                    return False
+                # Sla het analyse type op in de user_data als het een analyse callback is
+                if callback_data == "analysis_technical":
+                    context.user_data['analysis_type'] = 'technical'
+                    logger.info("Analysis type set to technical")
+                elif callback_data == "analysis_sentiment":
+                    context.user_data['analysis_type'] = 'sentiment'
+                    logger.info("Analysis type set to sentiment")
+                elif callback_data == "analysis_calendar":
+                    context.user_data['analysis_type'] = 'calendar'
+                    logger.info("Analysis type set to calendar")
+                
+                # Rest van de code...
             
             # Stuur de update naar de application
             await self.application.process_update(update)
@@ -2127,3 +2088,38 @@ class TelegramService:
             logger.error(f"Error processing update: {str(e)}")
             logger.exception(e)
             return False
+
+    # Nieuwe methode voor directe sentiment analyse
+    async def direct_sentiment_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        """Direct handler for sentiment analysis"""
+        query = update.callback_query
+        await query.answer()
+        
+        try:
+            # Extract instrument from callback data
+            instrument = query.data.replace('sentiment_instrument_', '')
+            logger.info(f"Direct sentiment callback voor instrument: {instrument}")
+            
+            # Toon een laadmelding
+            await query.edit_message_text(
+                text=f"Getting market sentiment for {instrument}...",
+                reply_markup=None
+            )
+            
+            # Haal sentiment analyse op
+            sentiment = await self.sentiment.get_market_sentiment(instrument)
+            
+            # Toon sentiment analyse
+            await query.edit_message_text(
+                text=sentiment,
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("⬅️ Back", callback_data="back_market")
+                ]]),
+                parse_mode=ParseMode.HTML
+            )
+            
+            return SHOW_RESULT
+        except Exception as e:
+            logger.error(f"Error in direct_sentiment_callback: {str(e)}")
+            logger.exception(e)
+            return MENU
