@@ -226,6 +226,42 @@ STYLE_TIMEFRAME_MAP = {
     "swing": "4h"
 }
 
+# Voeg deze functie toe aan het begin van bot.py, na de imports
+def _detect_market(symbol: str) -> str:
+    """Detecteer market type gebaseerd op symbol"""
+    symbol = symbol.upper()
+    
+    # Commodities eerst checken
+    commodities = [
+        "XAUUSD",  # Gold
+        "XAGUSD",  # Silver
+        "WTIUSD",  # Oil WTI
+        "BCOUSD",  # Oil Brent
+    ]
+    if symbol in commodities:
+        logger.info(f"Detected {symbol} as commodity")
+        return "commodities"
+    
+    # Crypto pairs
+    crypto_base = ["BTC", "ETH", "XRP", "SOL", "BNB", "ADA", "DOT", "LINK"]
+    if any(c in symbol for c in crypto_base):
+        logger.info(f"Detected {symbol} as crypto")
+        return "crypto"
+    
+    # Major indices
+    indices = [
+        "US30", "US500", "US100",  # US indices
+        "UK100", "DE40", "FR40",   # European indices
+        "JP225", "AU200", "HK50"   # Asian indices
+    ]
+    if symbol in indices:
+        logger.info(f"Detected {symbol} as index")
+        return "indices"
+    
+    # Forex pairs als default
+    logger.info(f"Detected {symbol} as forex")
+    return "forex"
+
 class TelegramService:
     def __init__(self, db: Database):
         """Initialize telegram service"""
@@ -1473,7 +1509,7 @@ class TelegramService:
             tp3 = signal_data.get('tp3', '')
             
             # Detecteer de markt op basis van het instrument
-            market = _detect_market(instrument)
+            market = signal_data.get('market') or _detect_market(instrument)
             
             # Maak het signaal bericht
             signal_message = f"🎯 <b>New Trading Signal</b> 🎯\n\n"
