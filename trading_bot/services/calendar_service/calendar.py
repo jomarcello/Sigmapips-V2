@@ -2,7 +2,8 @@ import os
 import logging
 from typing import Dict, Any
 import aiohttp
-from datetime import datetime
+from datetime import datetime, timezone
+import pytz
 
 logger = logging.getLogger(__name__)
 
@@ -230,31 +231,44 @@ No confirmed events scheduled.
     async def _fetch_calendar_data(self) -> str:
         """Fetch economic calendar data from API"""
         try:
-            prompt = """Search and analyze today's economic calendar events from Investing.com.
+            # Krijg de huidige datum in EST timezone
+            est = pytz.timezone('US/Eastern')
+            current_date = datetime.now(est).strftime("%Y-%m-%d")
             
-            1. First, check today's economic events for these major currencies in order:
+            prompt = f"""Zoek en analyseer de economische kalender events voor vandaag ({current_date}) van Investing.com.
+
+            BELANGRIJK: 
+            - Gebruik ALLEEN events van vandaag ({current_date})
+            - Check de actuele tijden in EST timezone
+            - Vermeld ALLEEN bevestigde events
+            - Sorteer events chronologisch per valuta
+            
+            1. Check de volgende valuta's in deze volgorde:
             - EUR (Eurozone)
-            - USD (United States)
-            - GBP (United Kingdom)
+            - USD (Verenigde Staten) 
+            - GBP (Verenigd Koninkrijk)
             - JPY (Japan)
-            - CHF (Switzerland)
-            - AUD (Australia)
-            - NZD (New Zealand)
+            - CHF (Zwitserland)
+            - AUD (Australië)
+            - NZD (Nieuw-Zeeland)
 
-            2. Format each event exactly like this:
+            2. Formatteer elk event precies zo:
             🇪🇺 Eurozone (EUR):
-            ⏰ [TIME] EST - [EVENT NAME]
+            ⏰ [EXACTE TIJD] EST - [EVENT NAAM]
             [IMPACT EMOJI] [IMPACT LEVEL]
+            Actueel: [ACTUAL als beschikbaar]
+            Verwacht: [FORECAST als beschikbaar]
+            Vorig: [PREVIOUS als beschikbaar]
 
-            Use:
-            🔴 for High Impact (Rate decisions, NFP, GDP)
-            🟡 for Medium Impact (Trade balance, retail)
-            ⚪ for Low Impact (Minor indicators)
+            Gebruik deze impact levels:
+            🔴 voor High Impact (Rentebeslissingen, NFP, GDP)
+            🟡 voor Medium Impact (Handelsbalans, retail)
+            ⚪ voor Low Impact (Kleine indicatoren)
 
-            For currencies with no events today, show:
-            "No confirmed events scheduled."
+            Voor valuta's zonder events vandaag, toon:
+            "Geen bevestigde events gepland voor vandaag."
 
-            End with:
+            Eindig met:
             -------------------
             🔴 High Impact
             🟡 Medium Impact
@@ -264,13 +278,14 @@ No confirmed events scheduled.
                 "model": "sonar-pro",
                 "messages": [{
                     "role": "system",
-                    "content": """You are a real-time economic calendar analyst. Your task is to:
-                    1. Check Investing.com's Economic Calendar for TODAY's events
-                    2. Only include confirmed events
-                    3. Sort events chronologically within each currency
-                    4. Use exact times in EST timezone
-                    5. Include full event names with periods (Q1, Jan, etc)
-                    6. Mark impact levels accurately based on event type"""
+                    "content": f"""Je bent een real-time economische kalender analist. Je taak is:
+                    1. Check Investing.com's Economic Calendar voor events op {current_date}
+                    2. Gebruik ALLEEN bevestigde events voor vandaag
+                    3. Sorteer events chronologisch per valuta
+                    4. Gebruik exacte tijden in EST timezone
+                    5. Voeg actuele/verwachte/vorige waarden toe indien beschikbaar
+                    6. Markeer impact levels nauwkeurig op basis van event type
+                    7. Verifieer dat alle data up-to-date is voor vandaag"""
                 }, {
                     "role": "user",
                     "content": prompt
@@ -282,9 +297,15 @@ No confirmed events scheduled.
                 async with session.post(self.api_url, json=payload, headers=self.headers) as response:
                     if response.status == 200:
                         data = await response.json()
-                        return data['choices'][0]['message']['content']
+                        calendar_data = data['choices'][0]['message']['content']
+                        
+                        # Voeg timestamp toe aan de data
+                        current_time = datetime.now(est).strftime("%H:%M EST")
+                        calendar_data = f"Laatste update: {current_time}\n\n{calendar_data}"
+                        
+                        return calendar_data
                     else:
-                        logger.error(f"Perplexity API error: {response.status}")
+                        logger.error(f"API error: {response.status}")
                         return self._get_fallback_calendar()
 
         except Exception as e:
