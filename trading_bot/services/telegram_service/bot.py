@@ -336,7 +336,7 @@ class TelegramService:
             logger.error(f"Error registering handlers: {str(e)}")
             raise
 
-    async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    async def start_command(self, update: Update, context=None) -> int:
         """Start the conversation."""
         try:
             # Send welcome message with main menu
@@ -1871,6 +1871,21 @@ class TelegramService:
             
             # Maak een Update object van de update data
             update = Update.de_json(data=update_data, bot=self.bot)
+            
+            # Controleer of het een commando is en verwerk het direct
+            if update.message and update.message.text and update.message.text.startswith('/'):
+                command = update.message.text.split()[0].lower()
+                logger.info(f"Received command: {command}")
+                
+                if command == '/start':
+                    await self.start_command(update, None)
+                    return True
+                elif command == '/menu':
+                    await self.menu_command(update, None)
+                    return True
+                elif command == '/help':
+                    await self.help_command(update, None)
+                    return True
             
             # Stuur de update naar de application
             await self.application.process_update(update)
