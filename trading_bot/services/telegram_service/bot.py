@@ -601,7 +601,10 @@ class TelegramService:
         query = update.callback_query
         
         try:
-            # Show market selection for signals
+            # Beantwoord de callback query om de "wachtende" status te verwijderen
+            await query.answer()
+            
+            # Toon het markt selectie menu voor signalen
             await query.edit_message_text(
                 text="Select a market for trading signals:",
                 reply_markup=InlineKeyboardMarkup(MARKET_SIGNALS_KEYBOARD)
@@ -610,12 +613,19 @@ class TelegramService:
             return CHOOSE_MARKET
         except Exception as e:
             logger.error(f"Error in signals_add_callback: {str(e)}")
+            logger.exception(e)
+            
+            # Stuur een nieuw bericht als fallback
             try:
                 await query.message.reply_text(
-                    text="Select a market for trading signals:",
-                    reply_markup=InlineKeyboardMarkup(MARKET_SIGNALS_KEYBOARD)
+                    text="What would you like to do with trading signals?",
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("➕ Add New Pairs", callback_data="signals_add")],
+                        [InlineKeyboardButton("⚙️ Manage Preferences", callback_data="signals_manage")],
+                        [InlineKeyboardButton("⬅️ Back", callback_data="back_menu")]
+                    ])
                 )
-                return CHOOSE_MARKET
+                return CHOOSE_SIGNALS
             except Exception as inner_e:
                 logger.error(f"Failed to recover from error: {str(inner_e)}")
                 return MENU
