@@ -94,6 +94,65 @@ async def handle_signal(request: Request):
         if not all(field in signal_data for field in required_fields):
             logger.error(f"Missing required fields in signal: {signal_data}")
             return {"status": "error", "message": "Missing required fields"}
+            
+        # Converteer waardes naar float en rond af op 2 decimalen
+        try:
+            price = float(signal_data.get('price', 0))
+            
+            # SL en TP waarden ophalen en valideren
+            if 'sl' in signal_data:
+                sl = float(signal_data['sl'])
+                
+                # Validatie voor Buy/Sell signalen
+                if signal_data['signal'].lower() == 'buy' and sl > price:
+                    logger.warning(f"Correcting invalid stop loss for BUY signal: SL ({sl}) > Entry ({price})")
+                    # Correctie: bereken een SL 1.5% onder de entry prijs
+                    sl = round(price * 0.985, 2)  # 1.5% onder entry prijs
+                    signal_data['sl'] = sl
+                
+                elif signal_data['signal'].lower() == 'sell' and sl < price:
+                    logger.warning(f"Correcting invalid stop loss for SELL signal: SL ({sl}) < Entry ({price})")
+                    # Correctie: bereken een SL 1.5% boven de entry prijs
+                    sl = round(price * 1.015, 2)  # 1.5% boven entry prijs
+                    signal_data['sl'] = sl
+            
+            # Zorg dat TP waarden correct zijn
+            if signal_data['signal'].lower() == 'buy':
+                # Voor BUY: Entry < TP1 < TP2 < TP3
+                if 'tp1' in signal_data and float(signal_data['tp1']) <= price:
+                    logger.warning(f"Correcting invalid TP1 for BUY signal: TP1 <= Entry")
+                    signal_data['tp1'] = round(price * 1.01, 2)  # 1% boven entry
+                
+                if 'tp2' in signal_data and float(signal_data['tp2']) <= price:
+                    logger.warning(f"Correcting invalid TP2 for BUY signal: TP2 <= Entry")
+                    signal_data['tp2'] = round(price * 1.02, 2)  # 2% boven entry
+                
+                if 'tp3' in signal_data and float(signal_data['tp3']) <= price:
+                    logger.warning(f"Correcting invalid TP3 for BUY signal: TP3 <= Entry")
+                    signal_data['tp3'] = round(price * 1.03, 2)  # 3% boven entry
+            
+            elif signal_data['signal'].lower() == 'sell':
+                # Voor SELL: Entry > TP1 > TP2 > TP3
+                if 'tp1' in signal_data and float(signal_data['tp1']) >= price:
+                    logger.warning(f"Correcting invalid TP1 for SELL signal: TP1 >= Entry")
+                    signal_data['tp1'] = round(price * 0.99, 2)  # 1% onder entry
+                
+                if 'tp2' in signal_data and float(signal_data['tp2']) >= price:
+                    logger.warning(f"Correcting invalid TP2 for SELL signal: TP2 >= Entry")
+                    signal_data['tp2'] = round(price * 0.98, 2)  # 2% onder entry
+                
+                if 'tp3' in signal_data and float(signal_data['tp3']) >= price:
+                    logger.warning(f"Correcting invalid TP3 for SELL signal: TP3 >= Entry")
+                    signal_data['tp3'] = round(price * 0.97, 2)  # 3% onder entry
+            
+            # Rond alle prijswaarden af op 2 decimalen
+            for key in ['price', 'sl', 'tp1', 'tp2', 'tp3']:
+                if key in signal_data and signal_data[key] is not None:
+                    signal_data[key] = round(float(signal_data[key]), 2)
+                    
+        except ValueError as e:
+            logger.error(f"Invalid price values in signal: {str(e)}")
+            return {"status": "error", "message": "Invalid price values"}
         
         # Process the signal
         success = await telegram_service.process_signal(signal_data)
