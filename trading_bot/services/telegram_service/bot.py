@@ -1646,7 +1646,7 @@ class TelegramService:
         query = update.callback_query
         await query.answer()
         
-        logger.info(f"Received callback: {query.data}")
+        logger.info(f"Received callback in handler: {query.data}")  # Added debug logging
         
         try:
             if query.data.startswith("analyze_market_"):
@@ -1657,29 +1657,42 @@ class TelegramService:
                 # Check if the message is a photo (has caption) or text message
                 is_photo_message = hasattr(query.message, 'caption') and query.message.caption is not None
                 
-                # Create keyboard with analysis options
+                # Create keyboard with direct analysis options
                 keyboard = [
-                    [InlineKeyboardButton("📊 Technical Analysis", callback_data=f"analysis_technical_{instrument}_signal")],
-                    [InlineKeyboardButton("🧠 Market Sentiment", callback_data=f"analysis_sentiment_{instrument}_signal")],
-                    [InlineKeyboardButton("📅 Economic Calendar", callback_data=f"analysis_calendar_{instrument}_signal")],
-                    [InlineKeyboardButton("⬅️ Back to Signal", callback_data=f"back_to_signal_{instrument}")]  # Toegevoegde Back to Signal knop
+                    [InlineKeyboardButton("📊 Technical Analysis", callback_data=f"direct_technical_{instrument}")],
+                    [InlineKeyboardButton("🧠 Market Sentiment", callback_data=f"direct_sentiment_{instrument}")],
+                    [InlineKeyboardButton("📅 Economic Calendar", callback_data=f"direct_calendar_{instrument}")],
+                    [InlineKeyboardButton("⬅️ Back to Signal", callback_data=f"back_to_signal_{instrument}")]
                 ]
                 
                 if is_photo_message:
-                    # If it's a photo message, send a new message instead of editing
                     await query.message.reply_text(
                         text=f"Choose analysis type for {instrument}:",
                         reply_markup=InlineKeyboardMarkup(keyboard)
                     )
                 else:
-                    # If it's a text message, edit it
                     await query.edit_message_text(
                         text=f"Choose analysis type for {instrument}:",
                         reply_markup=InlineKeyboardMarkup(keyboard)
                     )
                 
                 return MENU
-            
+                
+            elif query.data.startswith("direct_technical_"):
+                instrument = query.data.replace("direct_technical_", "")
+                logger.info(f"Direct technical analysis for {instrument}")
+                return await self.show_technical_analysis(update, context, instrument, from_signal=True)
+                
+            elif query.data.startswith("direct_sentiment_"):
+                instrument = query.data.replace("direct_sentiment_", "")
+                logger.info(f"Direct sentiment analysis for {instrument}")
+                return await self.show_sentiment_analysis(update, context, instrument, from_signal=True)
+                
+            elif query.data.startswith("direct_calendar_"):
+                instrument = query.data.replace("direct_calendar_", "")
+                logger.info(f"Direct calendar analysis for {instrument}")
+                return await self.show_economic_calendar(update, context, instrument, from_signal=True)
+                
             elif query.data.startswith("back_to_signal"):
                 try:
                     # Extract instrument from callback data
@@ -1775,7 +1788,6 @@ class TelegramService:
                             'price': price,
                             'timestamp': time.time()
                         }
-                        self._save_signals()
                         
                         original_signal = signal_message
                         logger.info(f"Created new signal for instrument: {instrument}")
@@ -1815,7 +1827,7 @@ class TelegramService:
                     
                     return MENU
             
-            elif query.data.startswith("analysis_technical_"):
+            elif query.data.startswith("analysis_"):
                 # Extract instrument from callback data
                 parts = query.data.split("_")
                 instrument = parts[2]
