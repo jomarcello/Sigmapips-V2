@@ -1677,6 +1677,16 @@ class TelegramService:
                     )
                 
                 return MENU
+            
+            # VOEG DEZE HANDLER TOE VOOR back_analysis    
+            elif query.data == "back_analysis":
+                # Toon het analyse menu
+                logger.info("Handling back_analysis callback")
+                await query.edit_message_text(
+                    text="Select your analysis type:",
+                    reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
+                )
+                return CHOOSE_ANALYSIS
                 
             elif query.data.startswith("direct_technical_"):
                 instrument = query.data.replace("direct_technical_", "")
