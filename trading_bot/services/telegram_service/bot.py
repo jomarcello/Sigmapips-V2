@@ -1502,29 +1502,31 @@ class TelegramService:
         try:
             # Haal marktsentiment op
             logger.info(f"Getting sentiment for verdict on {instrument}")
-            sentiment_text = await self.sentiment.get_market_sentiment(instrument, raw_data=True)
+            sentiment_text = await self.sentiment.get_market_sentiment(instrument)
             
             # Extract overall sentiment (Bullish/Bearish/Neutral)
             overall_sentiment = "Neutral"  # Default
+            bullish_score = 50  # Default
             
-            if isinstance(sentiment_text, dict):
-                # Als we de raw data krijgen als dict
-                overall_sentiment = sentiment_text.get("overall", "Neutral")
-                bullish_score = sentiment_text.get("bullish_percentage", 50)
-            else:
-                # Als we een tekstuele respons krijgen, probeer sentiment te extraheren
-                bullish_match = re.search(r"Bullish:\s*(\d+)%", sentiment_text)
-                bullish_score = int(bullish_match.group(1)) if bullish_match else 50
+            # Als we een tekstuele respons krijgen, probeer sentiment te extraheren
+            bullish_match = re.search(r"Bullish:\s*(\d+)%", sentiment_text)
+            bearish_match = re.search(r"Bearish:\s*(\d+)%", sentiment_text)
+            
+            if bullish_match:
+                bullish_score = int(bullish_match.group(1))
                 
-                if bullish_score > 55:
-                    overall_sentiment = "Bullish"
-                elif bullish_score < 45:
-                    overall_sentiment = "Bearish"
+            # Bepaal sentiment op basis van bullish percentage
+            if bullish_score > 55:
+                overall_sentiment = "Bullish"
+            elif bullish_score < 45:
+                overall_sentiment = "Bearish"
             
             # Vergelijk signaal met sentiment
             signal_bullish = signal_direction.upper() == "BUY"
             sentiment_bullish = overall_sentiment.lower() == "bullish"
             sentiment_bearish = overall_sentiment.lower() == "bearish"
+            
+            logger.info(f"Signal direction: {signal_direction}, Sentiment: {overall_sentiment}, Bullish score: {bullish_score}")
             
             # Bepaal verdict
             if (signal_bullish and sentiment_bullish) or (not signal_bullish and sentiment_bearish):
@@ -1542,35 +1544,49 @@ class TelegramService:
     async def process_signal(self, signal_data: Dict[str, Any]) -> bool:
         """Process a trading signal and send it to subscribed users"""
         try:
-            # Extract signal data
+            # Log het ontvangen signaal
+            logger.info(f"Processing signal (raw): {signal_data}")
+            
+            # Haal de relevante informatie uit het signaal
             instrument = signal_data.get('instrument', '')
             direction = signal_data.get('signal', 'UNKNOWN')
             price = signal_data.get('price', 0)
-            stop_loss = signal_data.get('stop_loss', 0)
-            take_profit = signal_data.get('take_profit', 0)
+            stop_loss = signal_data.get('sl', '')  # Gebruik 'sl' voor stop loss
+            tp1 = signal_data.get('tp1', '')       # Gebruik 'tp1', 'tp2', 'tp3' voor take profits
+            tp2 = signal_data.get('tp2', '')
+            tp3 = signal_data.get('tp3', '')
             timeframe = signal_data.get('timeframe', '1h')
             strategy = signal_data.get('strategy', 'AI Signal')
+            
+            # Detecteer de markt op basis van het instrument
+            market = signal_data.get('market') or _detect_market(instrument)
             
             # Haal verdict op over of signaal in lijn is met sentiment
             verdict = await self.get_sentiment_verdict(instrument, direction)
             
-            # Create the message
-            emoji_direction = "📈" if direction == "BUY" else "📉"
-            message = f"🎯 <b>Trading Signal: {instrument}</b> 🎯\n\n"
-            message += f"<b>Action:</b> {direction} {emoji_direction}\n\n"
-            message += f"<b>Entry Price:</b> {price}\n"
+            # Maak het signaal bericht
+            signal_message = f"🎯 <b>New Trading Signal</b> 🎯\n\n"
+            signal_message += f"Instrument: {instrument}\n"
+            signal_message += f"Action: {direction.upper()} {'📈' if direction.lower() == 'buy' else '📉'}\n\n"
+            
+            signal_message += f"Entry Price: {price}\n"
             
             if stop_loss:
-                message += f"<b>Stop Loss:</b> {stop_loss} 🔴\n"
+                signal_message += f"Stop Loss: {stop_loss} 🔴\n"
             
-            if take_profit:
-                message += f"<b>Take Profit:</b> {take_profit} 🎯\n"
+            # Voeg alle take profit niveaus toe als ze beschikbaar zijn
+            if tp1:
+                signal_message += f"Take Profit 1: {tp1} 🎯\n"
+            if tp2:
+                signal_message += f"Take Profit 2: {tp2} 🎯\n"
+            if tp3:
+                signal_message += f"Take Profit 3: {tp3} 🎯\n"
             
-            message += f"\n<b>Timeframe:</b> {timeframe}\n"
-            message += f"<b>Strategy:</b> {strategy}\n\n"
+            signal_message += f"\nTimeframe: {timeframe}\n"
+            signal_message += f"Strategy: {strategy}\n\n"
             
             # Voeg SigmaPips AI Verdict toe
-            message += f"<b>SigmaPips AI Verdict:</b> {verdict}\n"
+            signal_message += f"<b>SigmaPips AI Verdict:</b> {verdict}\n"
             
             # Define the analyze button
             keyboard = [
