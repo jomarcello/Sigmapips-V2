@@ -89,6 +89,12 @@ async def handle_signal(request: Request):
         signal_data = await request.json()
         logger.info(f"Parsed signal data: {signal_data}")
         
+        # Controleer op template strings
+        for key, value in signal_data.items():
+            if isinstance(value, str) and '{{' in value and '}}' in value:
+                logger.error(f"Template string detected in {key}: {value}")
+                return {"status": "error", "message": f"Template strings not processed correctly by TradingView: {key}={value}"}
+        
         # Validate required fields
         required_fields = ['instrument', 'signal', 'price']
         if not all(field in signal_data for field in required_fields):
@@ -100,7 +106,7 @@ async def handle_signal(request: Request):
             price = float(signal_data.get('price', 0))
             
             # SL en TP waarden ophalen en valideren
-            if 'sl' in signal_data:
+            if 'sl' in signal_data and signal_data['sl'] is not None:
                 sl = float(signal_data['sl'])
                 
                 # Validatie voor Buy/Sell signalen
@@ -115,34 +121,58 @@ async def handle_signal(request: Request):
                     # Correctie: bereken een SL 1.5% boven de entry prijs
                     sl = round(price * 1.015, 2)  # 1.5% boven entry prijs
                     signal_data['sl'] = sl
+            else:
+                # Als SL ontbreekt, bereken deze automatisch
+                if signal_data['signal'].lower() == 'buy':
+                    signal_data['sl'] = round(price * 0.985, 2)  # 1.5% onder entry prijs
+                else:
+                    signal_data['sl'] = round(price * 1.015, 2)  # 1.5% boven entry prijs
             
             # Zorg dat TP waarden correct zijn
             if signal_data['signal'].lower() == 'buy':
                 # Voor BUY: Entry < TP1 < TP2 < TP3
-                if 'tp1' in signal_data and float(signal_data['tp1']) <= price:
-                    logger.warning(f"Correcting invalid TP1 for BUY signal: TP1 <= Entry")
+                if 'tp1' in signal_data and signal_data['tp1'] is not None:
+                    if float(signal_data['tp1']) <= price:
+                        logger.warning(f"Correcting invalid TP1 for BUY signal: TP1 <= Entry")
+                        signal_data['tp1'] = round(price * 1.01, 2)  # 1% boven entry
+                else:
                     signal_data['tp1'] = round(price * 1.01, 2)  # 1% boven entry
                 
-                if 'tp2' in signal_data and float(signal_data['tp2']) <= price:
-                    logger.warning(f"Correcting invalid TP2 for BUY signal: TP2 <= Entry")
+                if 'tp2' in signal_data and signal_data['tp2'] is not None:
+                    if float(signal_data['tp2']) <= price:
+                        logger.warning(f"Correcting invalid TP2 for BUY signal: TP2 <= Entry")
+                        signal_data['tp2'] = round(price * 1.02, 2)  # 2% boven entry
+                else:
                     signal_data['tp2'] = round(price * 1.02, 2)  # 2% boven entry
                 
-                if 'tp3' in signal_data and float(signal_data['tp3']) <= price:
-                    logger.warning(f"Correcting invalid TP3 for BUY signal: TP3 <= Entry")
+                if 'tp3' in signal_data and signal_data['tp3'] is not None:
+                    if float(signal_data['tp3']) <= price:
+                        logger.warning(f"Correcting invalid TP3 for BUY signal: TP3 <= Entry")
+                        signal_data['tp3'] = round(price * 1.03, 2)  # 3% boven entry
+                else:
                     signal_data['tp3'] = round(price * 1.03, 2)  # 3% boven entry
             
             elif signal_data['signal'].lower() == 'sell':
                 # Voor SELL: Entry > TP1 > TP2 > TP3
-                if 'tp1' in signal_data and float(signal_data['tp1']) >= price:
-                    logger.warning(f"Correcting invalid TP1 for SELL signal: TP1 >= Entry")
+                if 'tp1' in signal_data and signal_data['tp1'] is not None:
+                    if float(signal_data['tp1']) >= price:
+                        logger.warning(f"Correcting invalid TP1 for SELL signal: TP1 >= Entry")
+                        signal_data['tp1'] = round(price * 0.99, 2)  # 1% onder entry
+                else:
                     signal_data['tp1'] = round(price * 0.99, 2)  # 1% onder entry
                 
-                if 'tp2' in signal_data and float(signal_data['tp2']) >= price:
-                    logger.warning(f"Correcting invalid TP2 for SELL signal: TP2 >= Entry")
+                if 'tp2' in signal_data and signal_data['tp2'] is not None:
+                    if float(signal_data['tp2']) >= price:
+                        logger.warning(f"Correcting invalid TP2 for SELL signal: TP2 >= Entry")
+                        signal_data['tp2'] = round(price * 0.98, 2)  # 2% onder entry
+                else:
                     signal_data['tp2'] = round(price * 0.98, 2)  # 2% onder entry
                 
-                if 'tp3' in signal_data and float(signal_data['tp3']) >= price:
-                    logger.warning(f"Correcting invalid TP3 for SELL signal: TP3 >= Entry")
+                if 'tp3' in signal_data and signal_data['tp3'] is not None:
+                    if float(signal_data['tp3']) >= price:
+                        logger.warning(f"Correcting invalid TP3 for SELL signal: TP3 >= Entry")
+                        signal_data['tp3'] = round(price * 0.97, 2)  # 3% onder entry
+                else:
                     signal_data['tp3'] = round(price * 0.97, 2)  # 3% onder entry
             
             # Rond alle prijswaarden af op 2 decimalen
