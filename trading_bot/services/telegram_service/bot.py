@@ -1488,30 +1488,97 @@ class TelegramService:
             logger.error(f"Error during Telegram bot initialization: {str(e)}")
             raise
 
-    async def process_signal(self, signal_data):
-        """Process a trading signal and send it to subscribed users."""
+    async def get_sentiment_verdict(self, instrument, signal_direction):
+        """
+        Vergelijkt signaalrichting met marktsentiment en geeft een verdict terug
+        
+        Args:
+            instrument: Het instrument (bijv. "EURUSD")
+            signal_direction: De richting van het signaal ("BUY" of "SELL")
+        
+        Returns:
+            String met verdict en passende emoji
+        """
         try:
-            # Log het ontvangen signaal
-            logger.info(f"Processing signal (raw): {signal_data}")
+            # Haal marktsentiment op
+            logger.info(f"Getting sentiment for verdict on {instrument}")
+            sentiment_text = await self.sentiment.get_market_sentiment(instrument, raw_data=True)
             
-            # Controleer op onverwerkte TradingView placeholders
-            contains_placeholders = False
-            for key, value in signal_data.items():
-                if isinstance(value, str) and ('{{' in value or '}}' in value):
-                    contains_placeholders = True
-                    logger.warning(f"Signal contains unprocessed placeholder: {key}={value}")
+            # Extract overall sentiment (Bullish/Bearish/Neutral)
+            overall_sentiment = "Neutral"  # Default
             
-            if contains_placeholders:
-                logger.error("Signal contains unprocessed TradingView placeholders")
-                return False
+            if isinstance(sentiment_text, dict):
+                # Als we de raw data krijgen als dict
+                overall_sentiment = sentiment_text.get("overall", "Neutral")
+                bullish_score = sentiment_text.get("bullish_percentage", 50)
+            else:
+                # Als we een tekstuele respons krijgen, probeer sentiment te extraheren
+                bullish_match = re.search(r"Bullish:\s*(\d+)%", sentiment_text)
+                bullish_score = int(bullish_match.group(1)) if bullish_match else 50
+                
+                if bullish_score > 55:
+                    overall_sentiment = "Bullish"
+                elif bullish_score < 45:
+                    overall_sentiment = "Bearish"
             
-            # Controleer of het signaal alle benodigde velden heeft
-            required_fields = ['instrument', 'signal', 'price']
-            missing_fields = [field for field in required_fields if field not in signal_data]
+            # Vergelijk signaal met sentiment
+            signal_bullish = signal_direction.upper() == "BUY"
+            sentiment_bullish = overall_sentiment.lower() == "bullish"
+            sentiment_bearish = overall_sentiment.lower() == "bearish"
             
-            if missing_fields:
-                logger.error(f"Signal is missing required fields: {missing_fields}")
-                return False
+            # Bepaal verdict
+            if (signal_bullish and sentiment_bullish) or (not signal_bullish and sentiment_bearish):
+                return "✅ Trade is in line with market sentiment"
+            elif overall_sentiment.lower() == "neutral":
+                return "⚠️ Market sentiment is neutral"
+            else:
+                return "❌ Trade goes against market sentiment"
+        
+        except Exception as e:
+            logger.error(f"Error getting sentiment verdict: {str(e)}")
+            logger.exception(e)
+            return "⚠️ Unable to determine sentiment alignment"
+
+    async def process_signal(self, signal_data: Dict[str, Any]) -> bool:
+        """Process a trading signal and send it to subscribed users"""
+        try:
+            # Extract signal data
+            instrument = signal_data.get('instrument', '')
+            direction = signal_data.get('signal', 'UNKNOWN')
+            price = signal_data.get('price', 0)
+            stop_loss = signal_data.get('stop_loss', 0)
+            take_profit = signal_data.get('take_profit', 0)
+            timeframe = signal_data.get('timeframe', '1h')
+            strategy = signal_data.get('strategy', 'AI Signal')
+            
+            # Haal verdict op over of signaal in lijn is met sentiment
+            verdict = await self.get_sentiment_verdict(instrument, direction)
+            
+            # Create the message
+            emoji_direction = "📈" if direction == "BUY" else "📉"
+            message = f"🎯 <b>Trading Signal: {instrument}</b> 🎯\n\n"
+            message += f"<b>Action:</b> {direction} {emoji_direction}\n\n"
+            message += f"<b>Entry Price:</b> {price}\n"
+            
+            if stop_loss:
+                message += f"<b>Stop Loss:</b> {stop_loss} 🔴\n"
+            
+            if take_profit:
+                message += f"<b>Take Profit:</b> {take_profit} 🎯\n"
+            
+            message += f"\n<b>Timeframe:</b> {timeframe}\n"
+            message += f"<b>Strategy:</b> {strategy}\n\n"
+            
+            # Voeg SigmaPips AI Verdict toe
+            message += f"<b>SigmaPips AI Verdict:</b> {verdict}\n"
+            
+            # Define the analyze button
+            keyboard = [
+                [InlineKeyboardButton("🔍 Analyze Market", callback_data=f"analyze_market_{instrument}")]
+            ]
+            
+            # Send to all subscribed users
+            # ...rest van de functie blijft hetzelfde
             
             # Log het verwerkte signaal
             logger.info(f"Processed signal: {signal_data}")
