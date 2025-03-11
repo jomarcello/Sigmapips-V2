@@ -1891,23 +1891,27 @@ class TelegramService:
             logger.exception(e)
             return MENU
 
-    async def show_technical_analysis(self, update: Update, context=None, instrument=None, from_signal=False):
+    async def show_technical_analysis(self, update: Update, context=None, instrument=None, from_signal=False, style=None):
         """Show technical analysis for an instrument"""
         query = update.callback_query
         
         try:
-            # Toon een laadmelding als die nog niet is getoond
-            if not from_signal:
-                try:
-                    await query.edit_message_text(
-                        text=f"Generating technical analysis for {instrument}...",
-                        reply_markup=None
-                    )
-                except Exception as e:
-                    logger.warning(f"Could not edit message: {str(e)}")
+            # Als er geen stijl is gekozen, gebruik de 1h timeframe als default
+            timeframe = "1h"
+            if style and style in STYLE_TIMEFRAME_MAP:
+                timeframe = STYLE_TIMEFRAME_MAP[style]
             
-            # Haal de chart op
-            chart_image = await self.chart.get_chart(instrument, timeframe="1h")
+            # Toon een laadmelding als die nog niet is getoond
+            try:
+                await query.edit_message_text(
+                    text=f"Generating technical analysis for {instrument} ({timeframe})...",
+                    reply_markup=None
+                )
+            except Exception as e:
+                logger.warning(f"Could not edit message: {str(e)}")
+            
+            # Haal de chart op met de gekozen timeframe of de default (1h)
+            chart_image = await self.chart.get_chart(instrument, timeframe=timeframe)
             
             if chart_image:
                 # Bepaal de juiste back-knop op basis van de context
@@ -1918,7 +1922,7 @@ class TelegramService:
                 # Stuur de chart als foto
                 await query.message.reply_photo(
                     photo=chart_image,
-                    caption=f"📊 {instrument} Technical Analysis",
+                    caption=f"📊 {instrument} Technical Analysis ({timeframe})",
                     reply_markup=InlineKeyboardMarkup([[back_button]])
                 )
                 
@@ -1942,7 +1946,7 @@ class TelegramService:
                 await query.edit_message_text(
                     text=f"❌ Could not generate chart for {instrument}. Please try again later.",
                     reply_markup=InlineKeyboardMarkup([[
-                        InlineKeyboardButton("⬅️ Back", callback_data="back_market")
+                        InlineKeyboardButton("⬅️ Back", callback_data="back_market" if not from_signal else f"back_to_signal_{instrument}")
                     ]])
                 )
                 return MENU
