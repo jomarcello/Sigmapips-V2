@@ -1593,99 +1593,20 @@ class TelegramService:
                 [InlineKeyboardButton("🔍 Analyze Market", callback_data=f"analyze_market_{instrument}")]
             ]
             
-            # Send to all subscribed users
-            # ...rest van de functie blijft hetzelfde
+            # Haal abonnees op die dit signaal willen ontvangen
+            subscribers = await self.db.match_subscribers(signal_data)
             
-            # Log het verwerkte signaal
-            logger.info(f"Processed signal: {signal_data}")
+            # Verwijder dubbele gebruikers
+            unique_subscribers = {}
+            for sub in subscribers:
+                user_id = sub.get('user_id')
+                if user_id not in unique_subscribers:
+                    unique_subscribers[user_id] = sub
             
-            # Haal de relevante informatie uit het signaal
-            instrument = signal_data.get('instrument')
-            direction = signal_data.get('signal')  # Gebruik 'signal' in plaats van 'direction'
-            price = signal_data.get('price')
-            stop_loss = signal_data.get('sl', '')  # Gebruik 'sl' voor stop loss
-            tp1 = signal_data.get('tp1', '')  # Gebruik 'tp1', 'tp2', 'tp3' voor take profits
-            tp2 = signal_data.get('tp2', '')
-            tp3 = signal_data.get('tp3', '')
-            timeframe = signal_data.get('interval', '1h')  # Gebruik interval indien aanwezig
-            
-            # Detecteer de markt op basis van het instrument
-            market = signal_data.get('market') or _detect_market(instrument)
-            
-            # Maak het signaal bericht
-            signal_message = f"🎯 <b>New Trading Signal</b> 🎯\n\n"
-            signal_message += f"Instrument: {instrument}\n"
-            signal_message += f"Action: {direction.upper()} {'📈' if direction.lower() == 'buy' else '📉'}\n\n"
-            
-            signal_message += f"Entry Price: {price}\n"
-            
-            if stop_loss:
-                signal_message += f"Stop Loss: {stop_loss} 🔴\n"
-            
-            # Voeg alle take profit niveaus toe als ze beschikbaar zijn
-            if tp1:
-                signal_message += f"Take Profit 1: {tp1} 🎯\n"
-            if tp2:
-                signal_message += f"Take Profit 2: {tp2} 🎯\n"
-            if tp3:
-                signal_message += f"Take Profit 3: {tp3} 🎯\n"
-            
-            signal_message += "\n"
-            signal_message += f"Timeframe: {timeframe}\n"  # Gebruik interval waarde
-            signal_message += f"Strategy: TradingView Signal\n\n"
-            
-            signal_message += f"{'—'*20}\n\n"
-            
-            # Voeg standaard risk management tips toe
-            signal_message += f"<b>Risk Management:</b>\n"
-            signal_message += f"• Position size: 1-2% max\n"
-            signal_message += f"• Use proper stop loss\n"
-            signal_message += f"• Follow your trading plan\n"
-            
-            signal_message += f"\n{'—'*20}\n\n"
-            
-            # Voeg een standaard verdict toe
-            signal_message += f"🤖 <b>SigmaPips AI Verdict:</b>\n"
-            signal_message += f"The {instrument} {direction.lower()} signal shows a promising setup with defined entry at {price}"
-            if stop_loss:
-                signal_message += f" and stop loss at {stop_loss}"
-            signal_message += ". Multiple take profit levels provide opportunities for partial profit taking.\n"
-
-            # Sla het signaal op in Redis voor later gebruik
-            if hasattr(self.db, 'redis') and self.db.redis:
+            # Stuur het signaal naar elke unieke abonnee
+            sent_count = 0
+            for user_id, subscriber in unique_subscribers.items():
                 try:
-                    signal_key = f"signal:{instrument}"
-                    self.db.redis.set(signal_key, json.dumps({
-                        'message': signal_message,
-                        'instrument': instrument,
-                        'direction': direction,
-                        'price': price
-                    }), ex=3600)  # Bewaar 1 uur
-                    logger.info(f"Saved signal to Redis with key: {signal_key}")
-                except Exception as redis_error:
-                    logger.error(f"Error saving signal to Redis: {str(redis_error)}")
-            
-            # Haal alle gebruikers op of gebruik een test gebruiker
-            try:
-                matched_subscribers = await self.db.get_all_users()
-                if not matched_subscribers:
-                    # Als er geen gebruikers zijn, gebruik een test gebruiker
-                    matched_subscribers = [{'user_id': 2004519703}]  # Vervang met je eigen user ID
-                    logger.info("Using test user as no subscribers found")
-            except Exception as db_error:
-                logger.error(f"Error getting subscribers: {str(db_error)}")
-                # Fallback naar test gebruiker
-                matched_subscribers = [{'user_id': 2004519703}]  # Vervang met je eigen user ID
-                logger.info("Using test user due to database error")
-
-            # Initialiseer de user_signals dictionary als die nog niet bestaat
-            if not hasattr(self, 'user_signals'):
-                self.user_signals = {}
-
-            # Stuur het signaal naar alle geabonneerde gebruikers
-            for subscriber in matched_subscribers:
-                try:
-                    user_id = subscriber['user_id']
                     logger.info(f"Sending signal to user {user_id}")
                     
                     # Maak de keyboard met één knop voor analyse
@@ -1715,9 +1636,15 @@ class TelegramService:
                     
                     logger.info(f"Saved signal for user {user_id} in user_signals")
                     
+                    sent_count += 1
                 except Exception as user_error:
-                    logger.error(f"Error sending signal to user {subscriber['user_id']}: {str(user_error)}")
+                    logger.error(f"Error sending signal to user {user_id}: {str(user_error)}")
                     logger.exception(user_error)
+            
+            # ... rest van de code ...
+            
+            # Log het verwerkte signaal
+            logger.info(f"Processed signal: {signal_data}")
             
             return True
         except Exception as e:
