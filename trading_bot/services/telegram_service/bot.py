@@ -1555,7 +1555,7 @@ class TelegramService:
             tp1 = signal_data.get('tp1', '')       # Gebruik 'tp1', 'tp2', 'tp3' voor take profits
             tp2 = signal_data.get('tp2', '')
             tp3 = signal_data.get('tp3', '')
-            timeframe = signal_data.get('timeframe', '1h')
+            timeframe = signal_data.get('interval', '1h')  # Gebruik interval indien aanwezig, anders 1h
             strategy = signal_data.get('strategy', 'AI Signal')
             
             # Detecteer de markt op basis van het instrument
@@ -1607,6 +1607,7 @@ class TelegramService:
             tp1 = signal_data.get('tp1', '')  # Gebruik 'tp1', 'tp2', 'tp3' voor take profits
             tp2 = signal_data.get('tp2', '')
             tp3 = signal_data.get('tp3', '')
+            timeframe = signal_data.get('interval', '1h')  # Gebruik interval indien aanwezig
             
             # Detecteer de markt op basis van het instrument
             market = signal_data.get('market') or _detect_market(instrument)
@@ -1630,7 +1631,7 @@ class TelegramService:
                 signal_message += f"Take Profit 3: {tp3} 🎯\n"
             
             signal_message += "\n"
-            signal_message += f"Timeframe: 1h\n"  # Default timeframe
+            signal_message += f"Timeframe: {timeframe}\n"  # Gebruik interval waarde
             signal_message += f"Strategy: TradingView Signal\n\n"
             
             signal_message += f"{'—'*20}\n\n"
