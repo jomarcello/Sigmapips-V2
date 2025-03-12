@@ -1488,58 +1488,43 @@ class TelegramService:
             logger.error(f"Error during Telegram bot initialization: {str(e)}")
             raise
 
-    async def get_sentiment_verdict(self, instrument, signal_direction):
-        """
-        Vergelijkt signaalrichting met marktsentiment en geeft een verdict terug
-        
-        Args:
-            instrument: Het instrument (bijv. "EURUSD")
-            signal_direction: De richting van het signaal ("BUY" of "SELL")
-        
-        Returns:
-            String met verdict en passende emoji
-        """
+    async def get_sentiment_verdict(self, instrument, direction):
+        """Get a verdict based on market sentiment for the given instrument and direction"""
         try:
-            # Haal marktsentiment op
-            logger.info(f"Getting sentiment for verdict on {instrument}")
-            sentiment_text = await self.sentiment.get_market_sentiment(instrument)
+            # Gebruik de sentiment service om marktsentiment te analyseren
+            sentiment_service = MarketSentimentService()
+            sentiment_data = await sentiment_service.get_market_sentiment(instrument)
             
-            # Extract overall sentiment (Bullish/Bearish/Neutral)
-            overall_sentiment = "Neutral"  # Default
-            bullish_score = 50  # Default
+            # Log de sentiment data voor debugging
+            logger.info(f"Sentiment data for {instrument}: {sentiment_data}")
             
-            # Als we een tekstuele respons krijgen, probeer sentiment te extraheren
-            bullish_match = re.search(r"Bullish:\s*(\d+)%", sentiment_text)
-            bearish_match = re.search(r"Bearish:\s*(\d+)%", sentiment_text)
+            # Analyseer het sentiment (bullish/bearish)
+            overall_sentiment = sentiment_data.get('overall_sentiment', 'neutral')
+            sentiment_score = sentiment_data.get('sentiment_score', 0)
             
-            if bullish_match:
-                bullish_score = int(bullish_match.group(1))
-                
-            # Bepaal sentiment op basis van bullish percentage
-            if bullish_score > 55:
-                overall_sentiment = "Bullish"
-            elif bullish_score < 45:
-                overall_sentiment = "Bearish"
+            # Bepaal of het signaal in lijn is met het sentiment
+            is_aligned = (direction.lower() == 'buy' and overall_sentiment == 'bullish') or \
+                         (direction.lower() == 'sell' and overall_sentiment == 'bearish')
             
-            # Vergelijk signaal met sentiment
-            signal_bullish = signal_direction.upper() == "BUY"
-            sentiment_bullish = overall_sentiment.lower() == "bullish"
-            sentiment_bearish = overall_sentiment.lower() == "bearish"
-            
-            logger.info(f"Signal direction: {signal_direction}, Sentiment: {overall_sentiment}, Bullish score: {bullish_score}")
-            
-            # Bepaal verdict
-            if (signal_bullish and sentiment_bullish) or (not signal_bullish and sentiment_bearish):
-                return "✅ Trade is in line with market sentiment"
-            elif overall_sentiment.lower() == "neutral":
-                return "⚠️ Market sentiment is neutral"
+            # Genereer een verdict op basis van de alignment
+            if is_aligned:
+                verdict = f"This {direction.lower()} signal for {instrument} aligns with the current market sentiment ({overall_sentiment}). "
+                verdict += f"Technical indicators and market analysis suggest a favorable environment for this trade. "
+                verdict += f"The sentiment score of {sentiment_score} supports the {direction.lower()} direction."
             else:
-                return "❌ Trade goes against market sentiment"
-        
+                verdict = f"This {direction.lower()} signal for {instrument} is against the current market sentiment ({overall_sentiment}). "
+                verdict += f"Consider using tighter stop losses and smaller position sizes. "
+                verdict += f"The sentiment score of {sentiment_score} suggests caution for this {direction.lower()} trade."
+            
+            # Voeg extra advies toe
+            verdict += f" Monitor key support/resistance levels and be prepared to adjust your strategy if market conditions change."
+            
+            return verdict
         except Exception as e:
-            logger.error(f"Error getting sentiment verdict: {str(e)}")
+            logger.error(f"Error generating sentiment verdict: {str(e)}")
             logger.exception(e)
-            return "⚠️ Unable to determine sentiment alignment"
+            # Fallback naar een generiek verdict als er een fout optreedt
+            return f"The {instrument} {direction.lower()} signal shows a promising setup with defined entry and stop loss levels. Always follow your trading plan and risk management rules."
 
     async def process_signal(self, signal_data: Dict[str, Any]) -> bool:
         """Process a trading signal and send it to subscribed users"""
@@ -1563,6 +1548,7 @@ class TelegramService:
             
             # Haal verdict op over of signaal in lijn is met sentiment
             verdict = await self.get_sentiment_verdict(instrument, direction)
+            logger.info(f"Generated verdict for {instrument}: {verdict}")
             
             # Maak het signaal bericht
             signal_message = f"🎯 <b>New Trading Signal</b> 🎯\n\n"
@@ -1585,8 +1571,9 @@ class TelegramService:
             signal_message += f"\nTimeframe: {timeframe}\n"
             signal_message += f"Strategy: {strategy}\n\n"
             
-            # Voeg SigmaPips AI Verdict toe
-            signal_message += f"<b>SigmaPips AI Verdict:</b> {verdict}\n"
+            # Voeg het AI verdict toe
+            signal_message += f"🤖 <b>SigmaPips AI Verdict:</b>\n"
+            signal_message += verdict
             
             # Define the analyze button
             keyboard = [
