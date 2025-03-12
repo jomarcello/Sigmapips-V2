@@ -71,7 +71,7 @@ class Database:
         try:
             market = signal.get('market', 'forex')
             instrument = signal.get('symbol', '')
-            timeframe = signal.get('timeframe', '1h')
+            timeframe = signal.get('interval', '1h')  # Gebruik interval indien aanwezig
             
             logger.info(f"Matching subscribers for: market={market}, instrument={instrument}, timeframe={timeframe}")
             
