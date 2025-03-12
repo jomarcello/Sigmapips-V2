@@ -1,338 +1,215 @@
-from supabase import create_client, Client
-import redis
 import logging
 import os
-from typing import Dict, List, Any
-import re
+import json
+from fastapi import FastAPI, Request, HTTPException
+from fastapi.responses import JSONResponse
+from dotenv import load_dotenv
 
+# Configureer logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 logger = logging.getLogger(__name__)
 
-class Database:
-    def __init__(self):
-        """Initialize database connections"""
-        try:
-            # Supabase setup
-            supabase_url = os.getenv("SUPABASE_URL")
-            supabase_key = os.getenv("SUPABASE_KEY")
+# Laad omgevingsvariabelen
+load_dotenv()
+
+# Importeer de benodigde services
+from trading_bot.services.database.db import Database
+from trading_bot.services.telegram_service.bot import TelegramService
+
+# Initialiseer de FastAPI app
+app = FastAPI()
+
+# Initialiseer de database
+db = Database()
+
+# Initialiseer de Telegram service
+telegram_service = None
+
+@app.on_event("startup")
+async def startup_event():
+    global telegram_service
+    try:
+        # Initialiseer de Telegram service
+        telegram_service = TelegramService(db)
+        await telegram_service.initialize(use_webhook=True)
+        logger.info("Telegram service initialized")
+    except Exception as e:
+        logger.error(f"Error initializing Telegram service: {str(e)}")
+        raise
+
+@app.post("/webhook")
+async def webhook(request: Request):
+    try:
+        # Log de binnenkomende request
+        body = await request.body()
+        logger.info(f"Received webhook: {body.decode('utf-8')}")
+        
+        # Parse de JSON data
+        data = await request.json()
+        
+        # Controleer of het een Telegram update is (heeft 'update_id')
+        if 'update_id' in data:
+            # Verwerk als Telegram update
+            if telegram_service:
+                success = await telegram_service.process_update(data)
+                if success:
+                    return JSONResponse(content={"status": "success", "message": "Telegram update processed"})
+                else:
+                    raise HTTPException(status_code=500, detail="Failed to process Telegram update")
+        else:
+            # Verwerk als TradingView signaal
+            if telegram_service:
+                success = await telegram_service.process_signal(data)
+                if success:
+                    return JSONResponse(content={"status": "success", "message": "Signal processed"})
+                else:
+                    raise HTTPException(status_code=500, detail="Failed to process signal")
+        
+        # Als we hier komen, konden we het verzoek niet verwerken
+        raise HTTPException(status_code=400, detail="Unknown webhook format")
+    except json.JSONDecodeError:
+        logger.error("Invalid JSON in request body")
+        raise HTTPException(status_code=400, detail="Invalid JSON")
+    except Exception as e:
+        logger.error(f"Error processing webhook: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/signal")
+async def handle_signal(request: Request):
+    """Handle incoming trading signals"""
+    try:
+        # Log raw data
+        raw_data = await request.body()
+        logger.info(f"Received raw signal data: {raw_data}")
+        
+        # Parse JSON data
+        signal_data = await request.json()
+        logger.info(f"Parsed signal data: {signal_data}")
+        
+        # Controleer op template strings
+        for key, value in signal_data.items():
+            if isinstance(value, str) and '{{' in value and '}}' in value:
+                logger.error(f"Template string detected in {key}: {value}")
+                return {"status": "error", "message": f"Template strings not processed correctly by TradingView: {key}={value}"}
+        
+        # Validate required fields
+        required_fields = ['instrument', 'signal', 'price']
+        if not all(field in signal_data for field in required_fields):
+            logger.error(f"Missing required fields in signal: {signal_data}")
+            return {"status": "error", "message": "Missing required fields"}
             
-            if not supabase_url or not supabase_key:
-                raise ValueError("Missing Supabase credentials")
+        # Converteer waardes naar float en rond af op 2 decimalen
+        try:
+            price = float(signal_data.get('price', 0))
+            
+            # SL en TP waarden ophalen en valideren
+            if 'sl' in signal_data and signal_data['sl'] is not None:
+                sl = float(signal_data['sl'])
                 
-            self.supabase = create_client(supabase_url, supabase_key)
+                # Validatie voor Buy/Sell signalen
+                if signal_data['signal'].lower() == 'buy' and sl > price:
+                    logger.warning(f"Correcting invalid stop loss for BUY signal: SL ({sl}) > Entry ({price})")
+                    # Correctie: bereken een SL 1.5% onder de entry prijs
+                    sl = round(price * 0.985, 2)  # 1.5% onder entry prijs
+                    signal_data['sl'] = sl
+                
+                elif signal_data['signal'].lower() == 'sell' and sl < price:
+                    logger.warning(f"Correcting invalid stop loss for SELL signal: SL ({sl}) < Entry ({price})")
+                    # Correctie: bereken een SL 1.5% boven de entry prijs
+                    sl = round(price * 1.015, 2)  # 1.5% boven entry prijs
+                    signal_data['sl'] = sl
+            else:
+                # Als SL ontbreekt, bereken deze automatisch
+                if signal_data['signal'].lower() == 'buy':
+                    signal_data['sl'] = round(price * 0.985, 2)  # 1.5% onder entry prijs
+                else:
+                    signal_data['sl'] = round(price * 1.015, 2)  # 1.5% boven entry prijs
             
-            # Test de connectie
-            test_query = self.supabase.table('subscriber_preferences').select('*').limit(1).execute()
-            logger.info(f"Supabase connection test successful: {test_query}")
+            # Zorg dat TP waarden correct zijn
+            if signal_data['signal'].lower() == 'buy':
+                # Voor BUY: Entry < TP1 < TP2 < TP3
+                if 'tp1' in signal_data and signal_data['tp1'] is not None:
+                    if float(signal_data['tp1']) <= price:
+                        logger.warning(f"Correcting invalid TP1 for BUY signal: TP1 <= Entry")
+                        signal_data['tp1'] = round(price * 1.01, 2)  # 1% boven entry
+                else:
+                    signal_data['tp1'] = round(price * 1.01, 2)  # 1% boven entry
+                
+                if 'tp2' in signal_data and signal_data['tp2'] is not None:
+                    if float(signal_data['tp2']) <= price:
+                        logger.warning(f"Correcting invalid TP2 for BUY signal: TP2 <= Entry")
+                        signal_data['tp2'] = round(price * 1.02, 2)  # 2% boven entry
+                else:
+                    signal_data['tp2'] = round(price * 1.02, 2)  # 2% boven entry
+                
+                if 'tp3' in signal_data and signal_data['tp3'] is not None:
+                    if float(signal_data['tp3']) <= price:
+                        logger.warning(f"Correcting invalid TP3 for BUY signal: TP3 <= Entry")
+                        signal_data['tp3'] = round(price * 1.03, 2)  # 3% boven entry
+                else:
+                    signal_data['tp3'] = round(price * 1.03, 2)  # 3% boven entry
             
-            logger.info("Successfully connected to Supabase")
+            elif signal_data['signal'].lower() == 'sell':
+                # Voor SELL: Entry > TP1 > TP2 > TP3
+                if 'tp1' in signal_data and signal_data['tp1'] is not None:
+                    if float(signal_data['tp1']) >= price:
+                        logger.warning(f"Correcting invalid TP1 for SELL signal: TP1 >= Entry")
+                        signal_data['tp1'] = round(price * 0.99, 2)  # 1% onder entry
+                else:
+                    signal_data['tp1'] = round(price * 0.99, 2)  # 1% onder entry
+                
+                if 'tp2' in signal_data and signal_data['tp2'] is not None:
+                    if float(signal_data['tp2']) >= price:
+                        logger.warning(f"Correcting invalid TP2 for SELL signal: TP2 >= Entry")
+                        signal_data['tp2'] = round(price * 0.98, 2)  # 2% onder entry
+                else:
+                    signal_data['tp2'] = round(price * 0.98, 2)  # 2% onder entry
+                
+                if 'tp3' in signal_data and signal_data['tp3'] is not None:
+                    if float(signal_data['tp3']) >= price:
+                        logger.warning(f"Correcting invalid TP3 for SELL signal: TP3 >= Entry")
+                        signal_data['tp3'] = round(price * 0.97, 2)  # 3% onder entry
+                else:
+                    signal_data['tp3'] = round(price * 0.97, 2)  # 3% onder entry
             
-        except Exception as e:
-            logger.error(f"Failed to connect to Supabase: {str(e)}")
-            raise
-            
-        # Setup Redis
-        try:
-            redis_host = os.getenv("REDIS_HOST", "redis")
-            redis_port = int(os.getenv("REDIS_PORT", 6379))
-            redis_password = os.getenv("REDIS_PASSWORD", None)
-            
-            self.redis = redis.Redis(
-                host=redis_host,
-                port=redis_port,
-                password=redis_password,
-                db=0,
-                decode_responses=True,
-                socket_connect_timeout=5,
-                socket_keepalive=True,
-                retry_on_timeout=True,
-                health_check_interval=30
-            )
-            
-            # Test de verbinding
-            self.redis.ping()
-            logger.info(f"Redis connection established to {redis_host}:{redis_port}")
-        except Exception as redis_error:
-            logger.warning(f"Redis connection failed: {str(redis_error)}. Using local caching.")
-            self.redis = None
-        
-        self.CACHE_TIMEOUT = 300  # 5 minuten in seconden
-        
-        # Validatie constanten
-        self.VALID_STYLES = ['test', 'scalp', 'intraday', 'swing']
-        self.STYLE_TIMEFRAME_MAP = {
-            'test': '1m',
-            'scalp': '15m',
-            'intraday': '1h',
-            'swing': '4h'
-        }
-        
-    async def match_subscribers(self, signal):
-        """Match subscribers to a signal"""
-        try:
-            market = signal.get('market', 'forex')
-            instrument = signal.get('symbol', '')
-            timeframe = signal.get('interval', '1h')  # Gebruik interval indien aanwezig
-            
-            logger.info(f"Matching subscribers for: market={market}, instrument={instrument}, timeframe={timeframe}")
-            
-            # Haal alle abonnees op
-            all_preferences = await self.get_all_preferences()
-            
-            # Filter handmatig op basis van de signaalgegevens
-            matched_subscribers = []
-            for pref in all_preferences:
-                # Controleer of de voorkeuren overeenkomen met het signaal
-                if (pref.get('market') == market and 
-                    pref.get('instrument') == instrument and 
-                    pref.get('timeframe') == timeframe):
+            # Rond alle prijswaarden af op 2 decimalen
+            for key in ['price', 'sl', 'tp1', 'tp2', 'tp3']:
+                if key in signal_data and signal_data[key] is not None:
+                    signal_data[key] = round(float(signal_data[key]), 2)
                     
-                    # Voeg de gebruiker toe aan de lijst met matches
-                    matched_subscribers.append(pref)
-                    logger.info(f"Matched subscriber: user_id={pref.get('user_id')}, market={pref.get('market')}, instrument={pref.get('instrument')}, timeframe={pref.get('timeframe')}")
-            
-            # Log het resultaat
-            logger.info(f"Found {len(matched_subscribers)} matching subscribers")
-            
-            return matched_subscribers
-        except Exception as e:
-            logger.error(f"Error matching subscribers: {str(e)}")
-            logger.exception(e)
-            return []
-
-    async def get_all_preferences(self):
-        """Get all subscriber preferences"""
-        try:
-            # Haal alle voorkeuren op uit de database
-            response = self.supabase.table('subscriber_preferences').select('*').execute()
-            
-            if response.data:
-                return response.data
-            else:
-                return []
-        except Exception as e:
-            logger.error(f"Error getting all preferences: {str(e)}")
-            return []
+        except ValueError as e:
+            logger.error(f"Invalid price values in signal: {str(e)}")
+            return {"status": "error", "message": "Invalid price values"}
         
-    async def get_cached_sentiment(self, symbol: str) -> str:
-        """Get cached sentiment analysis"""
-        return self.redis.get(f"sentiment:{symbol}")
+        # Process the signal
+        success = await telegram_service.process_signal(signal_data)
         
-    async def cache_sentiment(self, symbol: str, sentiment: str) -> None:
-        """Cache sentiment analysis"""
-        try:
-            self.redis.set(f"sentiment:{symbol}", sentiment, ex=self.CACHE_TIMEOUT)
-        except Exception as e:
-            logger.error(f"Error caching sentiment: {str(e)}")
+        if success:
+            return {"status": "success", "message": "Signal processed successfully"}
+        else:
+            return {"status": "error", "message": "Failed to process signal"}
             
-    def _matches_preferences(self, signal: Dict, subscriber: Dict) -> bool:
-        """Check if signal matches subscriber preferences"""
-        logger.info(f"Checking preferences for subscriber: {subscriber}")
-        
-        # Check if subscriber is active
-        if not subscriber.get("is_active", False):
-            return False
-        
-        # Check symbol
-        if subscriber.get("symbols"):
-            if signal["symbol"] not in subscriber["symbols"]:
-                return False
-        
-        # Check timeframe
-        if subscriber.get("timeframes"):
-            if signal["timeframe"] not in subscriber["timeframes"]:
-                return False
-        
-        return True 
+    except json.JSONDecodeError as e:
+        logger.error(f"Invalid JSON in webhook: {str(e)}")
+        return {"status": "error", "message": "Invalid JSON format"}
+    except Exception as e:
+        logger.error(f"Error processing webhook: {str(e)}")
+        logger.exception(e)
+        return {"status": "error", "message": str(e)}
 
-    async def save_preferences(self, user_id: int, market: str, instrument: str, style: str):
-        """Save user preferences with validation"""
-        try:
-            if style not in self.VALID_STYLES:
-                raise ValueError(f"Invalid style: {style}")
-                
-            timeframe = self.STYLE_TIMEFRAME_MAP[style]
-            
-            data = {
-                'user_id': user_id,
-                'market': market,
-                'instrument': instrument,
-                'style': style,
-                'timeframe': timeframe
-            }
-            
-            response = self.supabase.table('subscriber_preferences').insert(data).execute()
-            return response
-            
-        except Exception as e:
-            logger.error(f"Error saving preferences: {str(e)}")
-            raise 
+@app.get("/health")
+async def health_check():
+    return {"status": "healthy"}
 
-    async def get_subscribers(self, instrument: str, timeframe: str = None):
-        """Get all subscribers for an instrument and timeframe"""
-        query = self.supabase.table('subscriber_preferences')\
-            .select('*')\
-            .eq('instrument', instrument)
-        
-        # Als timeframe '1m' is, voeg style='test' toe
-        if timeframe == '1m':
-            query = query.eq('style', 'test')
-        elif timeframe:
-            # Map timeframe naar style
-            style_map = {
-                '15m': 'scalp',
-                '1h': 'intraday',
-                '4h': 'swing'
-            }
-            if timeframe in style_map:
-                query = query.eq('style', style_map[timeframe])
-        
-        return query.execute() 
+if __name__ == "__main__":
+    import uvicorn
+    port = int(os.getenv("PORT", 8000))
+    uvicorn.run("trading_bot.main:app", host="0.0.0.0", port=port, reload=True)
 
-    async def get_user_preferences(self, user_id: int) -> List[Dict[str, Any]]:
-        """Get user preferences from database"""
-        try:
-            # Haal voorkeuren op uit de database
-            response = self.supabase.table('subscriber_preferences').select('*').eq('user_id', user_id).execute()
-            
-            if response.data:
-                return response.data
-            else:
-                return []
-        except Exception as e:
-            logger.error(f"Error getting user preferences: {str(e)}")
-            return []
+# Expliciet de app exporteren
+__all__ = ['app']
 
-    async def save_preference(self, user_id: int, market: str, instrument: str, style: str, timeframe: str) -> bool:
-        """Save user preference to database"""
-        try:
-            # Maak een nieuwe voorkeur
-            new_preference = {
-                'user_id': user_id,
-                'market': market,
-                'instrument': instrument,
-                'style': style,
-                'timeframe': timeframe
-            }
-            
-            # Sla op in de database
-            response = self.supabase.table('subscriber_preferences').insert(new_preference).execute()
-            
-            if response.data:
-                logger.info(f"Saved preference for user {user_id}: {instrument} ({timeframe})")
-                return True
-            else:
-                logger.error(f"Failed to save preference: {response}")
-                return False
-        except Exception as e:
-            logger.error(f"Error saving preference: {str(e)}")
-            return False
-
-    async def delete_preference(self, user_id: int, instrument: str) -> bool:
-        """Delete user preference from database"""
-        try:
-            # Verwijder de voorkeur
-            response = self.supabase.table('subscriber_preferences').delete().eq('user_id', user_id).eq('instrument', instrument).execute()
-            
-            if response.data:
-                logger.info(f"Deleted preference for user {user_id}: {instrument}")
-                return True
-            else:
-                logger.error(f"Failed to delete preference: {response}")
-                return False
-        except Exception as e:
-            logger.error(f"Error deleting preference: {str(e)}")
-            return False
-
-    async def delete_all_preferences(self, user_id: int) -> bool:
-        """Delete all preferences for a user"""
-        try:
-            # Delete all preferences for this user using Supabase
-            response = self.supabase.table('subscriber_preferences').delete().eq('user_id', user_id).execute()
-            
-            if response.data:
-                logger.info(f"Deleted all preferences for user {user_id}")
-                return True
-            else:
-                logger.error(f"Failed to delete all preferences: {response}")
-                return False
-        except Exception as e:
-            logger.error(f"Error deleting preferences: {str(e)}")
-            return False
-
-    async def delete_preference_by_id(self, preference_id: int) -> bool:
-        """Delete a preference by its ID"""
-        try:
-            # Delete the preference
-            response = self.supabase.table('subscriber_preferences').delete().eq('id', preference_id).execute()
-            
-            if response.data:
-                logger.info(f"Deleted preference with ID {preference_id}")
-                return True
-            else:
-                logger.error(f"Failed to delete preference: {response}")
-                return False
-        except Exception as e:
-            logger.error(f"Error deleting preference: {str(e)}")
-            return False
-
-    async def execute_query(self, query: str) -> List[Dict[str, Any]]:
-        """Execute a query on Supabase (simplified version)"""
-        try:
-            logger.info(f"Executing query: {query}")
-            
-            # Eenvoudige implementatie: haal alle subscriber_preferences op en filter handmatig
-            result = self.supabase.table('subscriber_preferences').select('*').execute()
-            
-            # Log het resultaat
-            logger.info(f"Raw query result: {result.data}")
-            
-            # Als de query een filter op market, instrument en timeframe bevat, filter dan handmatig
-            if 'market' in query and 'instrument' in query and 'timeframe' in query:
-                # Extraheer de waarden (eenvoudige implementatie)
-                market_match = re.search(r"market\s*=\s*'([^']*)'", query)
-                instrument_match = re.search(r"instrument\s*=\s*'([^']*)'", query)
-                timeframe_match = re.search(r"timeframe\s*=\s*'([^']*)'", query)
-                
-                if market_match and instrument_match and timeframe_match:
-                    market = market_match.group(1)
-                    instrument = instrument_match.group(1)
-                    timeframe = timeframe_match.group(1)
-                    
-                    # Filter handmatig
-                    filtered_result = [
-                        item for item in result.data
-                        if item.get('market') == market and 
-                           item.get('instrument') == instrument and 
-                           item.get('timeframe') == timeframe
-                    ]
-                    
-                    logger.info(f"Filtered result: {filtered_result}")
-                    return filtered_result
-            
-            return result.data
-        except Exception as e:
-            logger.error(f"Error executing query: {str(e)}")
-            logger.exception(e)
-            return []
-
-    async def get_all_users(self):
-        """Get all users from the database"""
-        try:
-            # Probeer eerst de users tabel
-            try:
-                users = await self.execute_query("SELECT * FROM users")
-            except Exception as e:
-                # Als users tabel niet bestaat, probeer subscriber_preferences
-                logger.warning(f"Could not query users table: {str(e)}")
-                users = await self.execute_query("SELECT DISTINCT user_id FROM subscriber_preferences")
-                
-                # Als dat ook niet werkt, gebruik een hardcoded test gebruiker
-                if not users:
-                    logger.warning("No users found in subscriber_preferences, using test user")
-                    return [{'user_id': 2004519703}]  # Vervang met je eigen user ID
-            
-            return users
-        except Exception as e:
-            logger.error(f"Error getting users: {str(e)}")
-            # Fallback naar test gebruiker
-            return [{'user_id': 2004519703}]  # Vervang met je eigen user ID 
+app = app  # Expliciete herbevestiging van de app variabele
