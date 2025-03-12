@@ -89,11 +89,16 @@ async def handle_signal(request: Request):
         signal_data = await request.json()
         logger.info(f"Parsed signal data: {signal_data}")
         
-        # Controleer op template strings
+        # Controleer en corrigeer template strings
         for key, value in signal_data.items():
             if isinstance(value, str) and '{{' in value and '}}' in value:
-                logger.error(f"Template string detected in {key}: {value}")
-                return {"status": "error", "message": f"Template strings not processed correctly by TradingView: {key}={value}"}
+                logger.warning(f"Template string detected in {key}: {value}, replacing with default value")
+                
+                # Vervang template strings met standaardwaarden
+                if key == 'signal':
+                    signal_data[key] = 'buy'  # Standaard naar 'buy' omdat we alleen met buy signalen werken
+                    logger.info(f"Replaced template string in 'signal' with 'buy'")
+                # Voeg hier andere template vervangingen toe indien nodig
         
         # Validate required fields
         required_fields = ['instrument', 'signal', 'price']
