@@ -232,44 +232,44 @@ No confirmed events scheduled.
     async def _fetch_calendar_data(self) -> str:
         """Fetch economic calendar data from API"""
         try:
-            # Krijg de huidige datum in EST timezone
+            # Get current date in EST timezone
             est = pytz.timezone('US/Eastern')
             current_date = datetime.now(est).strftime("%Y-%m-%d")
             
-            prompt = f"""Zoek en analyseer de economische kalender events voor vandaag ({current_date}) van Investing.com.
+            prompt = f"""Search and analyze the economic calendar events for today ({current_date}) from Investing.com.
 
-            BELANGRIJK: 
-            - Gebruik ALLEEN events van vandaag ({current_date})
-            - Check de actuele tijden in EST timezone
-            - Vermeld ALLEEN bevestigde events
-            - Sorteer events chronologisch per valuta
+            IMPORTANT: 
+            - Use ONLY events from today ({current_date})
+            - Check actual times in EST timezone
+            - Include ONLY confirmed events
+            - Sort events chronologically by currency
             
-            1. Check de volgende valuta's in deze volgorde:
+            1. Check the following currencies in this order:
             - EUR (Eurozone)
-            - USD (Verenigde Staten) 
-            - GBP (Verenigd Koninkrijk)
+            - USD (United States) 
+            - GBP (United Kingdom)
             - JPY (Japan)
-            - CHF (Zwitserland)
-            - AUD (Australië)
-            - NZD (Nieuw-Zeeland)
+            - CHF (Switzerland)
+            - AUD (Australia)
+            - NZD (New Zealand)
 
-            2. Formatteer elk event precies zo:
+            2. Format each event exactly like this:
             🇪🇺 Eurozone (EUR):
-            ⏰ [EXACTE TIJD] EST - [EVENT NAAM]
+            ⏰ [EXACT TIME] EST - [EVENT NAME]
             [IMPACT EMOJI] [IMPACT LEVEL]
-            Actueel: [ACTUAL als beschikbaar]
-            Verwacht: [FORECAST als beschikbaar]
-            Vorig: [PREVIOUS als beschikbaar]
+            Actual: [ACTUAL if available]
+            Forecast: [FORECAST if available]
+            Previous: [PREVIOUS if available]
 
-            Gebruik deze impact levels:
-            🔴 voor High Impact (Rentebeslissingen, NFP, GDP)
-            🟡 voor Medium Impact (Handelsbalans, retail)
-            ⚪ voor Low Impact (Kleine indicatoren)
+            Use these impact levels:
+            🔴 for High Impact (Interest Rate Decisions, NFP, GDP)
+            🟡 for Medium Impact (Trade Balance, Retail)
+            ⚪ for Low Impact (Minor indicators)
 
-            Voor valuta's zonder events vandaag, toon:
-            "Geen bevestigde events gepland voor vandaag."
+            For currencies with no events today, show:
+            "No confirmed events scheduled for today."
 
-            Eindig met:
+            End with:
             -------------------
             🔴 High Impact
             🟡 Medium Impact
@@ -279,14 +279,14 @@ No confirmed events scheduled.
                 "model": "sonar-pro",
                 "messages": [{
                     "role": "system",
-                    "content": f"""Je bent een real-time economische kalender analist. Je taak is:
-                    1. Check Investing.com's Economic Calendar voor events op {current_date}
-                    2. Gebruik ALLEEN bevestigde events voor vandaag
-                    3. Sorteer events chronologisch per valuta
-                    4. Gebruik exacte tijden in EST timezone
-                    5. Voeg actuele/verwachte/vorige waarden toe indien beschikbaar
-                    6. Markeer impact levels nauwkeurig op basis van event type
-                    7. Verifieer dat alle data up-to-date is voor vandaag"""
+                    "content": f"""You are a real-time economic calendar analyst. Your task is:
+                    1. Check Investing.com's Economic Calendar for events on {current_date}
+                    2. Use ONLY confirmed events for today
+                    3. Sort events chronologically by currency
+                    4. Use exact times in EST timezone
+                    5. Add actual/forecast/previous values if available
+                    6. Mark impact levels accurately based on event type
+                    7. Verify all data is up-to-date for today"""
                 }, {
                     "role": "user",
                     "content": prompt
@@ -300,9 +300,9 @@ No confirmed events scheduled.
                         data = await response.json()
                         calendar_data = data['choices'][0]['message']['content']
                         
-                        # Voeg timestamp toe aan de data
+                        # Add timestamp to the data
                         current_time = datetime.now(est).strftime("%H:%M EST")
-                        calendar_data = f"Laatste update: {current_time}\n\n{calendar_data}"
+                        calendar_data = f"Last update: {current_time}\n\n{calendar_data}"
                         
                         return calendar_data
                     else:
