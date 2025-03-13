@@ -163,6 +163,11 @@ async def handle_signal(request: Request):
             signal_data['interval'] = convert_interval_to_timeframe(original_interval)
             logger.info(f"Converted interval from {original_interval} to {signal_data['interval']}")
         
+        # Zorg ervoor dat 'symbol' wordt gekopieerd naar 'instrument' als het ontbreekt
+        if 'symbol' in signal_data and not signal_data.get('instrument'):
+            signal_data['instrument'] = signal_data['symbol']
+            logger.info(f"Copied symbol to instrument: {signal_data['instrument']}")
+        
         # Validate required fields
         required_fields = ['instrument', 'signal', 'price']
         if not all(field in signal_data for field in required_fields):
