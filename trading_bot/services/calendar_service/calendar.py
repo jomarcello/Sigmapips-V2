@@ -1,12 +1,9 @@
 import os
 import logging
 import aiohttp
-import asyncio
 import pytz
-import base64
 from datetime import datetime
 from typing import Dict, Any
-from playwright.async_api import async_playwright
 
 logger = logging.getLogger(__name__)
 
@@ -15,23 +12,17 @@ class EconomicCalendarService:
         """Initialize calendar service"""
         # Get API key from environment variable or use fallback
         self.api_key = os.getenv("DEEPSEEK_API_KEY", "your-deepseek-api-key")
-        self.api_url = "https://api.deepseek.com/v1/chat/completions"  # Update with correct endpoint
+        self.api_url = "https://api.deepseek.com/v1/chat/completions"
         self.headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json"
         }
-        
-        # Investing.com URL
-        self.calendar_url = "https://www.investing.com/economic-calendar/"
-        
-        # Create screenshots directory if it doesn't exist
-        os.makedirs("screenshots", exist_ok=True)
 
     async def get_economic_calendar(self, instrument: str = None) -> str:
         """Get economic calendar data"""
         try:
-            # Take screenshot and extract data
-            calendar_data = await self._screenshot_and_extract()
+            # Fetch calendar data using DeepSeek
+            calendar_data = await self._fetch_calendar_data()
             
             if not calendar_data:
                 return "No economic calendar data available at this time."
@@ -72,97 +63,23 @@ No confirmed events scheduled.
 🟡 Medium Impact
 ⚪ Low Impact"""
 
-    async def _screenshot_and_extract(self) -> str:
-        """Take screenshot of Investing.com economic calendar and extract data"""
-        try:
-            # Get current date for filename
-            current_date = datetime.now().strftime("%Y-%m-%d")
-            screenshot_path = f"screenshots/economic_calendar_{current_date}.png"
-            
-            # Check if we already have a recent screenshot (less than 1 hour old)
-            if os.path.exists(screenshot_path):
-                file_time = os.path.getmtime(screenshot_path)
-                current_time = datetime.now().timestamp()
-                # If screenshot is less than 1 hour old, use it
-                if current_time - file_time < 3600:  # 3600 seconds = 1 hour
-                    logger.info(f"Using existing screenshot from {screenshot_path}")
-                    with open(screenshot_path, "rb") as img_file:
-                        screenshot_base64 = base64.b64encode(img_file.read()).decode('utf-8')
-                    return await self._extract_data_from_image(screenshot_base64)
-            
-            # Take a new screenshot
-            logger.info("Taking new screenshot of Investing.com economic calendar")
-            async with async_playwright() as p:
-                browser = await p.chromium.launch()
-                page = await browser.new_page()
-                
-                # Set viewport size to capture more content
-                await page.set_viewport_size({"width": 1280, "height": 8000})
-                
-                # Navigate to the page
-                await page.goto(self.calendar_url, wait_until="networkidle")
-                
-                # Wait for the calendar to load
-                await page.wait_for_selector("#economicCalendarData", timeout=30000)
-                
-                # Accept cookies if the dialog appears
-                try:
-                    await page.click("button#onetrust-accept-btn-handler", timeout=5000)
-                    logger.info("Accepted cookies")
-                except:
-                    logger.info("No cookie dialog found or already accepted")
-                
-                # Scroll to load all content
-                await self._scroll_page(page)
-                
-                # Take screenshot
-                await page.screenshot(path=screenshot_path, full_page=True)
-                logger.info(f"Screenshot saved to {screenshot_path}")
-                
-                # Close browser
-                await browser.close()
-            
-            # Read the screenshot and convert to base64
-            with open(screenshot_path, "rb") as img_file:
-                screenshot_base64 = base64.b64encode(img_file.read()).decode('utf-8')
-            
-            # Extract data from the image
-            return await self._extract_data_from_image(screenshot_base64)
-            
-        except Exception as e:
-            logger.error(f"Error taking screenshot: {str(e)}")
-            return self._get_fallback_calendar()
-
-    async def _scroll_page(self, page):
-        """Scroll the page to load all content"""
-        try:
-            # Get scroll height
-            scroll_height = await page.evaluate("document.body.scrollHeight")
-            
-            # Scroll down in increments
-            for i in range(0, scroll_height, 500):
-                await page.evaluate(f"window.scrollTo(0, {i})")
-                await asyncio.sleep(0.1)  # Small delay to let content load
-            
-            # Scroll back to top
-            await page.evaluate("window.scrollTo(0, 0)")
-            
-        except Exception as e:
-            logger.error(f"Error scrolling page: {str(e)}")
-
-    async def _extract_data_from_image(self, image_base64: str) -> str:
-        """Extract economic calendar data from image using DeepSeek AI"""
+    async def _fetch_calendar_data(self) -> str:
+        """Fetch economic calendar data using DeepSeek API"""
         try:
             # Get current date in EST timezone
             est = pytz.timezone('US/Eastern')
             current_date = datetime.now(est).strftime("%Y-%m-%d")
             
-            # Prepare the prompt for DeepSeek
-            prompt = f"""This is a screenshot of the Investing.com Economic Calendar for {current_date}.
+            # Use DeepSeek API to get calendar data
+            prompt = f"""Search and analyze ALL economic calendar events for today ({current_date}) from Investing.com.
 
-            Please extract ALL economic events visible in this image and format them as follows:
+            IMPORTANT: 
+            - Include ALL events listed for today ({current_date}) regardless of confirmation status
+            - Maintain the exact order as shown on Investing.com
+            - Include ALL events for the specified currencies, even low impact ones
+            - Use the exact time format as displayed on Investing.com
 
-            1. Group events by currency in this exact order:
+            1. Check the following currencies in this exact order:
             - EUR (Eurozone)
             - USD (United States) 
             - GBP (United Kingdom)
@@ -194,34 +111,26 @@ No confirmed events scheduled.
             🟡 Medium Impact
             ⚪ Low Impact"""
 
-            # Prepare the payload for DeepSeek API
+            # Prepare payload for DeepSeek API
             payload = {
-                "model": "deepseek-vision",  # Use vision model that can process images
-                "messages": [
-                    {
-                        "role": "system",
-                        "content": f"You are an economic calendar data extraction specialist. Extract all economic events from the provided screenshot of Investing.com's Economic Calendar for {current_date}."
-                    },
-                    {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "text",
-                                "text": prompt
-                            },
-                            {
-                                "type": "image_url",
-                                "image_url": {
-                                    "url": f"data:image/png;base64,{image_base64}"
-                                }
-                            }
-                        ]
-                    }
-                ],
+                "model": "deepseek-chat",
+                "messages": [{
+                    "role": "system",
+                    "content": f"""You are a real-time economic calendar analyst. Your task is:
+                    1. Go to Investing.com's Economic Calendar and extract ALL events listed for {current_date}
+                    2. Include ALL events regardless of confirmation status
+                    3. Maintain the exact same order as shown on the website
+                    4. Convert times to EST timezone if needed
+                    5. Include ALL actual/forecast/previous values exactly as shown
+                    6. Do not filter out any events for the specified currencies
+                    7. If you're unsure about an event's impact level, default to Medium Impact"""
+                }, {
+                    "role": "user",
+                    "content": prompt
+                }],
                 "temperature": 0.1
             }
 
-            # Make request to DeepSeek API
             async with aiohttp.ClientSession() as session:
                 async with session.post(self.api_url, json=payload, headers=self.headers) as response:
                     if response.status == 200:
@@ -239,7 +148,7 @@ No confirmed events scheduled.
                         return self._get_fallback_calendar()
 
         except Exception as e:
-            logger.error(f"Error extracting data from image: {str(e)}")
+            logger.error(f"Error fetching calendar data: {str(e)}")
             return self._get_fallback_calendar()
 
     def _filter_by_instrument(self, calendar_data: str, instrument: str) -> str:
