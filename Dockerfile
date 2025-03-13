@@ -45,18 +45,23 @@ RUN apt-get update && apt-get install -y \
     --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
-# Installeer Chrome
-RUN wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | apt-key add - \
-    && echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google.list \
-    && apt-get update \
-    && apt-get install -y google-chrome-stable \
+# Gebruik Chromium in plaats van Chrome (werkt op ARM en x86)
+RUN apt-get update && apt-get install -y \
+    chromium \
+    chromium-driver \
     && rm -rf /var/lib/apt/lists/*
 
-# Installeer webdriver-manager voor automatische ChromeDriver installatie
-RUN pip install webdriver-manager
+# Installeer de nieuwste beschikbare ChromeDriver versie (voor Chrome 123)
+# Chrome 134 is te nieuw, dus we gebruiken de laatste beschikbare versie
+RUN echo "Installing latest available ChromeDriver version" \
+    && wget -q "https://chromedriver.storage.googleapis.com/123.0.6312.86/chromedriver_linux64.zip" \
+    && unzip chromedriver_linux64.zip \
+    && mv chromedriver /usr/bin/chromedriver \
+    && chmod +x /usr/bin/chromedriver \
+    && rm chromedriver_linux64.zip
 
 # Set up Chrome environment variables
-ENV CHROME_BIN=/usr/bin/google-chrome
+ENV CHROME_BIN=/usr/bin/chromium
 ENV CHROMEDRIVER_PATH=/usr/bin/chromedriver
 ENV DISPLAY=:99
 
@@ -71,12 +76,14 @@ ENV PATH="/app/venv/bin:$PATH"
 COPY requirements.txt .
 RUN pip install --upgrade pip
 RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir webdriver-manager==3.8.6
 
 # Installeer Playwright browsers voor Python
 RUN playwright install chromium
 
 # Installeer Playwright voor Node.js en de browsers
 RUN npm install -g playwright @playwright/test
+RUN npm install -g playwright-core
 RUN npx playwright install chromium
 
 # Maak directories voor data opslag
