@@ -10,7 +10,8 @@ logger = logging.getLogger(__name__)
 class EconomicCalendarService:
     def __init__(self):
         """Initialize calendar service"""
-        self.api_key = "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"
+        # Haal API-sleutel uit omgevingsvariabele of gebruik fallback
+        self.api_key = os.getenv("PERPLEXITY_API_KEY", "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")
         self.api_url = "https://api.perplexity.ai/chat/completions"
         self.headers = {
             "Authorization": f"Bearer {self.api_key}",
