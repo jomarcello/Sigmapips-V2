@@ -4,6 +4,8 @@ import logging
 import os
 from typing import Dict, List, Any
 import re
+import stripe
+import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -387,3 +389,100 @@ class Database:
             logger.error(f"Error getting users: {str(e)}")
             # Fallback naar test gebruiker
             return [{'user_id': 2004519703}]  # Vervang met je eigen user ID 
+
+    async def get_user_subscription(self, user_id: int):
+        """Get subscription status for a user"""
+        try:
+            response = self.supabase.table('user_subscriptions').select('*').eq('user_id', user_id).limit(1).execute()
+            
+            if response.data and len(response.data) > 0:
+                return response.data[0]
+            else:
+                return None
+        except Exception as e:
+            logger.error(f"Error getting user subscription: {str(e)}")
+            return None
+    
+    async def create_or_update_subscription(self, user_id: int, stripe_customer_id: str = None, 
+                                           stripe_subscription_id: str = None, status: str = 'inactive',
+                                           subscription_type: str = 'basic', current_period_end: datetime.datetime = None):
+        """Maak of update een gebruikersabonnement"""
+        try:
+            # Controleer of gebruiker al een abonnement heeft
+            existing = await self.get_user_subscription(user_id)
+            
+            subscription_data = {
+                'user_id': user_id,
+                'subscription_status': status,
+                'subscription_type': subscription_type,
+                'updated_at': datetime.datetime.now().isoformat()
+            }
+            
+            if stripe_customer_id:
+                subscription_data['stripe_customer_id'] = stripe_customer_id
+                
+            if stripe_subscription_id:
+                subscription_data['stripe_subscription_id'] = stripe_subscription_id
+                
+            if current_period_end:
+                subscription_data['current_period_end'] = current_period_end.isoformat()
+            
+            if existing:
+                # Update bestaand abonnement
+                response = self.supabase.table('user_subscriptions').update(subscription_data).eq('user_id', user_id).execute()
+            else:
+                # Maak nieuw abonnement
+                response = self.supabase.table('user_subscriptions').insert(subscription_data).execute()
+            
+            if response.data:
+                logger.info(f"Subscription updated for user {user_id}: {status}")
+                return True
+            else:
+                logger.error(f"Failed to update subscription: {response}")
+                return False
+        except Exception as e:
+            logger.error(f"Error updating subscription: {str(e)}")
+            return False
+    
+    async def is_user_subscribed(self, user_id: int):
+        """Check if a user has an active subscription"""
+        try:
+            subscription = await self.get_user_subscription(user_id)
+            
+            if not subscription:
+                return False
+            
+            # Check if the subscription is active
+            if subscription.get('subscription_status') in ['active', 'trialing']:
+                # Check if the subscription has not expired
+                end_time = subscription.get('current_period_end')
+                if end_time:
+                    if isinstance(end_time, str):
+                        end_time = datetime.datetime.fromisoformat(end_time.replace('Z', '+00:00'))
+                    
+                    # If the end date is in the future, the subscription is still active
+                    if end_time > datetime.datetime.now(datetime.timezone.utc):
+                        return True
+                
+                # If there is no end date, rely on the status
+                else:
+                    return True
+            
+            return False
+        except Exception as e:
+            logger.error(f"Error checking subscription status: {str(e)}")
+            # When in doubt, assume the user has no subscription
+            return False
+            
+    async def get_user_subscription_type(self, user_id: int):
+        """Haal het type abonnement op voor een gebruiker"""
+        try:
+            subscription = await self.get_user_subscription(user_id)
+            
+            if subscription and subscription.get('subscription_status') in ['active', 'trialing']:
+                return subscription.get('subscription_type', 'basic')
+            else:
+                return None
+        except Exception as e:
+            logger.error(f"Error getting subscription type: {str(e)}")
+            return None 
