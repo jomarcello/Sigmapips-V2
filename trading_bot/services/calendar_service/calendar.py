@@ -63,6 +63,55 @@ No confirmed events scheduled.
 🟡 Medium Impact
 ⚪ Low Impact"""
 
+    def _filter_by_instrument(self, calendar_data: str, instrument: str) -> str:
+        """Filter calendar data by instrument"""
+        try:
+            # Extract currency from instrument
+            if len(instrument) >= 3:
+                currency = instrument[:3]  # First 3 chars, e.g., "EUR" from "EURUSD"
+            else:
+                return calendar_data  # Can't filter, return all
+            
+            # Split by currency sections
+            sections = calendar_data.split('\n\n')
+            filtered_sections = []
+            
+            for section in sections:
+                # Check if this section is for our currency
+                if currency in section or currency.upper() in section:
+                    filtered_sections.append(section)
+            
+            # If no matching sections, return all data
+            if not filtered_sections:
+                return calendar_data
+            
+            # Join filtered sections with headers
+            result = '\n\n'.join(filtered_sections)
+            
+            # Add the legend at the end
+            if "-------------------" in calendar_data:
+                legend = calendar_data.split("-------------------")[1]
+                result += "\n\n-------------------" + legend
+                
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error filtering calendar data: {str(e)}")
+            return calendar_data  # Return original on error
+
+    def _format_calendar_data(self, calendar_data: str) -> str:
+        """Format calendar data for display"""
+        try:
+            # Add header
+            formatted = "📅 <b>Economic Calendar</b>\n\n"
+            formatted += calendar_data
+            
+            return formatted
+            
+        except Exception as e:
+            logger.error(f"Error formatting calendar data: {str(e)}")
+            return calendar_data
+
     async def _fetch_calendar_data(self) -> str:
         """Fetch economic calendar data using DeepSeek API"""
         try:
@@ -150,52 +199,3 @@ No confirmed events scheduled.
         except Exception as e:
             logger.error(f"Error fetching calendar data: {str(e)}")
             return self._get_fallback_calendar()
-
-    def _filter_by_instrument(self, calendar_data: str, instrument: str) -> str:
-        """Filter calendar data by instrument"""
-        try:
-            # Extract currency from instrument
-            if len(instrument) >= 3:
-                currency = instrument[:3]  # First 3 chars, e.g., "EUR" from "EURUSD"
-            else:
-                return calendar_data  # Can't filter, return all
-            
-            # Split by currency sections
-            sections = calendar_data.split('\n\n')
-            filtered_sections = []
-            
-            for section in sections:
-                # Check if this section is for our currency
-                if currency in section or currency.upper() in section:
-                    filtered_sections.append(section)
-            
-            # If no matching sections, return all data
-            if not filtered_sections:
-                return calendar_data
-            
-            # Join filtered sections with headers
-            result = '\n\n'.join(filtered_sections)
-            
-            # Add the legend at the end
-            if "-------------------" in calendar_data:
-                legend = calendar_data.split("-------------------")[1]
-                result += "\n\n-------------------" + legend
-                
-            return result
-            
-        except Exception as e:
-            logger.error(f"Error filtering calendar data: {str(e)}")
-            return calendar_data  # Return original on error
-
-    def _format_calendar_data(self, calendar_data: str) -> str:
-        """Format calendar data for display"""
-        try:
-            # Add header
-            formatted = "📅 <b>Economic Calendar</b>\n\n"
-            formatted += calendar_data
-            
-            return formatted
-            
-        except Exception as e:
-            logger.error(f"Error formatting calendar data: {str(e)}")
-            return calendar_data
