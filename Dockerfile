@@ -53,12 +53,8 @@ RUN apt-get update && apt-get install -y \
 
 # Installeer de nieuwste beschikbare ChromeDriver versie (voor Chrome 123)
 # Chrome 134 is te nieuw, dus we gebruiken de laatste beschikbare versie
-RUN echo "Installing latest available ChromeDriver version" \
-    && wget -q "https://chromedriver.storage.googleapis.com/123.0.6312.86/chromedriver_linux64.zip" \
-    && unzip chromedriver_linux64.zip \
-    && mv chromedriver /usr/bin/chromedriver \
-    && chmod +x /usr/bin/chromedriver \
-    && rm chromedriver_linux64.zip
+RUN echo "Using chromedriver from Chromium package" \
+    && ln -sf /usr/bin/chromedriver /usr/local/bin/chromedriver
 
 # Set up Chrome environment variables
 ENV CHROME_BIN=/usr/bin/chromium
