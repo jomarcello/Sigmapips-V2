@@ -10,6 +10,8 @@ class MarketSentimentService:
     async def get_market_sentiment(self, instrument):
         """Get market sentiment for a specific instrument"""
         try:
+            logger.info(f"Getting market sentiment for {instrument} (forex)")
+            
             # Hier zou je normaal gesproken een API aanroepen of een model gebruiken
             # Voor nu gebruiken we een eenvoudige mock implementatie
             
@@ -43,6 +45,7 @@ class MarketSentimentService:
                 
         except Exception as e:
             logger.error(f"Error getting market sentiment: {str(e)}")
+            logger.exception(e)
             # Fallback naar neutraal sentiment
             return {
                 'overall_sentiment': 'neutral',
