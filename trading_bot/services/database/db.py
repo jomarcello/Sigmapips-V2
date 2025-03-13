@@ -70,7 +70,7 @@ class Database:
         """Match subscribers to a signal"""
         try:
             market = signal.get('market', 'forex')
-            instrument = signal.get('symbol', '')
+            instrument = signal.get('symbol', '') or signal.get('instrument', '')
             timeframe = signal.get('interval', '1h')  # Gebruik interval indien aanwezig
             
             logger.info(f"Matching subscribers for: market={market}, instrument={instrument}, timeframe={timeframe}")
@@ -78,26 +78,77 @@ class Database:
             # Haal alle abonnees op
             all_preferences = await self.get_all_preferences()
             
+            # Normaliseer de timeframe voor vergelijking
+            normalized_timeframe = self._normalize_timeframe(timeframe)
+            
             # Filter handmatig op basis van de signaalgegevens
             matched_subscribers = []
+            seen_user_ids = set()  # Bijhouden welke gebruikers we al hebben toegevoegd
+            
             for pref in all_preferences:
+                # Normaliseer de timeframe in de voorkeur
+                pref_timeframe = self._normalize_timeframe(pref.get('timeframe', '1h'))
+                
                 # Controleer of de voorkeuren overeenkomen met het signaal
                 if (pref.get('market') == market and 
                     pref.get('instrument') == instrument and 
-                    pref.get('timeframe') == timeframe):
+                    pref_timeframe == normalized_timeframe):
                     
-                    # Voeg de gebruiker toe aan de lijst met matches
-                    matched_subscribers.append(pref)
-                    logger.info(f"Matched subscriber: user_id={pref.get('user_id')}, market={pref.get('market')}, instrument={pref.get('instrument')}, timeframe={pref.get('timeframe')}")
+                    user_id = pref.get('user_id')
+                    
+                    # Controleer of we deze gebruiker al hebben toegevoegd
+                    if user_id not in seen_user_ids:
+                        # Voeg de gebruiker toe aan de lijst met matches
+                        matched_subscribers.append(pref)
+                        seen_user_ids.add(user_id)  # Markeer deze gebruiker als gezien
+                        logger.info(f"Matched subscriber: user_id={user_id}, market={pref.get('market')}, instrument={pref.get('instrument')}, timeframe={pref.get('timeframe')}")
+                    else:
+                        logger.info(f"Skipping duplicate subscriber: user_id={user_id}, already matched")
             
             # Log het resultaat
-            logger.info(f"Found {len(matched_subscribers)} matching subscribers")
+            logger.info(f"Found {len(matched_subscribers)} unique matching subscribers")
             
             return matched_subscribers
         except Exception as e:
             logger.error(f"Error matching subscribers: {str(e)}")
             logger.exception(e)
             return []
+
+    def _normalize_timeframe(self, timeframe):
+        """Normalize timeframe for comparison (e.g., '1' and '1m' should match)"""
+        if not timeframe:
+            return '1h'  # Default
+        
+        # Converteer naar string
+        tf_str = str(timeframe).lower()
+        
+        # Verwijder spaties
+        tf_str = tf_str.strip()
+        
+        # Normaliseer minuten
+        if tf_str == '1' or tf_str == '1m':
+            return '1m'
+        if tf_str == '5' or tf_str == '5m':
+            return '5m'
+        if tf_str == '15' or tf_str == '15m':
+            return '15m'
+        if tf_str == '30' or tf_str == '30m':
+            return '30m'
+        
+        # Normaliseer uren
+        if tf_str == '60' or tf_str == '1h':
+            return '1h'
+        if tf_str == '120' or tf_str == '2h':
+            return '2h'
+        if tf_str == '240' or tf_str == '4h':
+            return '4h'
+        
+        # Normaliseer dagen
+        if tf_str == '1440' or tf_str == '1d':
+            return '1d'
+        
+        # Als geen match, geef de originele waarde terug
+        return tf_str
 
     async def get_all_preferences(self):
         """Get all subscriber preferences"""
