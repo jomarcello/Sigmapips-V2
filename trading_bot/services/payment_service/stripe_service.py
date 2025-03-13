@@ -210,4 +210,65 @@ class StripeService:
             
         except Exception as e:
             logger.error(f"Error canceling subscription: {str(e)}")
-            return False 
+            return False
+    
+    async def handle_webhook_event(self, event):
+        """Handle different types of Stripe webhook events"""
+        event_type = event['type']
+        event_data = event['data']['object']
+        
+        logger.info(f"Processing Stripe webhook event: {event_type}")
+        
+        try:
+            if event_type == 'checkout.session.completed':
+                # Een checkout sessie is voltooid
+                await self.handle_checkout_completed(event_data)
+                
+            elif event_type == 'customer.subscription.created':
+                # Nieuw abonnement aangemaakt
+                await self.handle_subscription_updated(event_data)
+                
+            elif event_type == 'customer.subscription.updated':
+                # Abonnement gewijzigd
+                await self.handle_subscription_updated(event_data)
+                
+            elif event_type == 'customer.subscription.deleted':
+                # Abonnement beëindigd
+                await self.handle_subscription_deleted(event_data)
+                
+            elif event_type == 'invoice.payment_succeeded':
+                # Succesvolle betaling
+                await self.handle_payment_succeeded(event_data)
+                
+            elif event_type == 'invoice.payment_failed':
+                # Mislukte betaling
+                await self.handle_payment_failed(event_data)
+                
+        except Exception as e:
+            logger.error(f"Error processing {event_type} event: {str(e)}")
+            raise
+    
+    async def handle_checkout_completed(self, session_data):
+        """Process a completed checkout session"""
+        # Haal gebruikers-ID op uit metadata of client reference
+        user_id = session_data.get('client_reference_id')
+        if not user_id:
+            if session_data.get('metadata') and session_data['metadata'].get('user_id'):
+                user_id = session_data['metadata']['user_id']
+        
+        if not user_id:
+            logger.error("No user_id found in checkout session data")
+            return
+        
+        # Convert to int if needed
+        user_id = int(user_id)
+        
+        # Registreer customer ID als dit een nieuwe klant is
+        customer_id = session_data.get('customer')
+        if customer_id:
+            # Update user_subscriptions table
+            await self.db.update_user_subscription_customer(user_id, customer_id)
+        
+        logger.info(f"Checkout completed for user {user_id}")
+
+    # Implementeer de andere handler methodes... 
