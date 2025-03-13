@@ -1,9 +1,10 @@
 import logging
 import os
 import json
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, Request, HTTPException, Header, Depends
 from fastapi.responses import JSONResponse
 from dotenv import load_dotenv
+import stripe
 
 # Configureer logging
 logging.basicConfig(
@@ -18,6 +19,8 @@ load_dotenv()
 # Importeer de benodigde services
 from trading_bot.services.database.db import Database
 from trading_bot.services.telegram_service.bot import TelegramService
+from trading_bot.services.payment_service.stripe_service import StripeService
+from trading_bot.services.payment_service.stripe_config import STRIPE_WEBHOOK_SECRET
 
 # Initialiseer de FastAPI app
 app = FastAPI()
@@ -25,8 +28,16 @@ app = FastAPI()
 # Initialiseer de database
 db = Database()
 
+# Initialiseer de Stripe service
+stripe_service = StripeService(db)
+
 # Initialiseer de Telegram service
-telegram_service = None
+telegram_service = TelegramService(
+    db=db, 
+    stripe_service=stripe_service,
+    signal_service=signal_service,
+    # andere bestaande services
+)
 
 # Voeg deze functie toe bovenaan het bestand, na de imports
 def convert_interval_to_timeframe(interval):
@@ -87,14 +98,21 @@ def convert_interval_to_timeframe(interval):
 
 @app.on_event("startup")
 async def startup_event():
-    global telegram_service
+    global telegram_service, stripe_service
     try:
+        # Initialiseer de database
+        db_instance = Database()
+        
         # Initialiseer de Telegram service
-        telegram_service = TelegramService(db)
+        telegram_service = TelegramService(db_instance)
         await telegram_service.initialize(use_webhook=True)
         logger.info("Telegram service initialized")
+        
+        # Initialiseer de Stripe service
+        stripe_service = StripeService(db_instance)
+        logger.info("Stripe service initialized")
     except Exception as e:
-        logger.error(f"Error initializing Telegram service: {str(e)}")
+        logger.error(f"Error initializing services: {str(e)}")
         raise
 
 @app.post("/webhook")
@@ -272,6 +290,40 @@ async def handle_signal(request: Request):
         logger.error(f"Error processing webhook: {str(e)}")
         logger.exception(e)
         return {"status": "error", "message": str(e)}
+
+@app.post("/stripe-webhook")
+async def stripe_webhook(request: Request):
+    payload = await request.body()
+    sig_header = request.headers.get("Stripe-Signature")
+    stripe_webhook_secret = os.getenv("STRIPE_WEBHOOK_SECRET")
+    
+    try:
+        # Verify the webhook event came from Stripe
+        event = stripe.Webhook.construct_event(
+            payload, sig_header, stripe_webhook_secret
+        )
+        
+        # Process the event according to its type
+        await stripe_service.handle_webhook_event(event)
+        
+        return {"status": "success"}
+    except Exception as e:
+        logger.error(f"Error processing webhook: {str(e)}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/create-subscription-link/{user_id}/{plan_type}")
+async def create_subscription_link(user_id: int, plan_type: str = 'basic'):
+    """Maak een Stripe Checkout URL voor een gebruiker"""
+    try:
+        checkout_url = await stripe_service.create_checkout_session(user_id, plan_type)
+        
+        if checkout_url:
+            return {"status": "success", "checkout_url": checkout_url}
+        else:
+            raise HTTPException(status_code=500, detail="Failed to create checkout session")
+    except Exception as e:
+        logger.error(f"Error creating subscription link: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/health")
 async def health_check():
