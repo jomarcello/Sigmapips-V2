@@ -119,60 +119,54 @@ No confirmed events scheduled.
             est = pytz.timezone('US/Eastern')
             current_date = datetime.now(est).strftime("%Y-%m-%d")
             
-            # Use DeepSeek API to get calendar data
-            prompt = f"""Search and analyze ALL economic calendar events for today ({current_date}) from Investing.com.
+            # Create a prompt focused on major pairs but with exact data
+            prompt = f"""I need you to extract economic events for today ({current_date}) from the Investing.com Economic Calendar page (https://www.investing.com/economic-calendar/).
 
-            IMPORTANT: 
-            - Include ALL events listed for today ({current_date}) regardless of confirmation status
-            - Maintain the exact order as shown on Investing.com
-            - Include ALL events for the specified currencies, even low impact ones
-            - Use the exact time format as displayed on Investing.com
-
-            1. Check the following currencies in this exact order:
+            Focus ONLY on these major currency pairs (but extract EVERY event for these currencies):
             - EUR (Eurozone)
             - USD (United States) 
             - GBP (United Kingdom)
             - JPY (Japan)
             - CHF (Switzerland)
             - AUD (Australia)
+            - CAD (Canada)
             - NZD (New Zealand)
-            - Include other currencies if they have high impact events
 
-            2. Format each event exactly like this:
-            🇪🇺 Eurozone (EUR):
-            ⏰ [EXACT TIME] EST - [EVENT NAME]
+            This is EXTREMELY important: For these currencies, include ALL events exactly as they appear on Investing.com. The data MUST match EXACTLY what is shown on the website - same times, same values, same order.
+
+            Please use EXACTLY this format for each event:
+            ⏰ [EXACT TIME as shown on Investing.com] - [EVENT NAME]
             [IMPACT EMOJI] [IMPACT LEVEL]
-            Actual: [ACTUAL if available]
-            Forecast: [FORECAST if available]
-            Previous: [PREVIOUS if available]
+            Actual: [ACTUAL VALUE] (exactly as shown)
+            Forecast: [FORECAST VALUE] (exactly as shown)
+            Previous: [PREVIOUS VALUE] (exactly as shown)
+            
+            Use these impact levels based on what's shown on Investing.com:
+            🔴 for High Impact (red bull)
+            🟡 for Medium Impact (orange bull)
+            ⚪ for Low Impact (gray bull)
 
-            Use these impact levels:
-            🔴 for High Impact (Interest Rate Decisions, NFP, GDP)
-            🟡 for Medium Impact (Trade Balance, Retail)
-            ⚪ for Low Impact (Minor indicators)
+            Maintain the EXACT same chronological order as shown on the website.
+            Do NOT skip ANY events for these currencies.
+            Do NOT modify ANY values - copy them exactly as shown.
+            
+            This is for an automated trading system and accuracy is critical."""
 
-            For currencies with no events today, show:
-            "No confirmed events scheduled for today."
-
-            End with:
-            -------------------
-            🔴 High Impact
-            🟡 Medium Impact
-            ⚪ Low Impact"""
+            # Update the system prompt as well
+            system_prompt = f"""You are a real-time economic calendar data extraction specialist. Your task is:
+            1. Go to Investing.com's Economic Calendar and extract ALL events for major currency pairs (EUR, USD, GBP, JPY, CHF, AUD, CAD, NZD) listed for {current_date}
+            2. Extract the data EXACTLY as it appears on the website - same order, same values, same format
+            3. Do not skip any events for these currencies
+            4. Do not modify any data or values
+            5. Ensure all times, actual values, forecast values, and previous values match exactly what's shown on Investing.com
+            6. Include all impact levels accurately based on Investing.com's indicators"""
 
             # Prepare payload for DeepSeek API
             payload = {
                 "model": "deepseek-chat",
                 "messages": [{
                     "role": "system",
-                    "content": f"""You are a real-time economic calendar analyst. Your task is:
-                    1. Go to Investing.com's Economic Calendar and extract ALL events listed for {current_date}
-                    2. Include ALL events regardless of confirmation status
-                    3. Maintain the exact same order as shown on the website
-                    4. Convert times to EST timezone if needed
-                    5. Include ALL actual/forecast/previous values exactly as shown
-                    6. Do not filter out any events for the specified currencies
-                    7. If you're unsure about an event's impact level, default to Medium Impact"""
+                    "content": system_prompt
                 }, {
                     "role": "user",
                     "content": prompt
