@@ -236,15 +236,15 @@ No confirmed events scheduled.
             est = pytz.timezone('US/Eastern')
             current_date = datetime.now(est).strftime("%Y-%m-%d")
             
-            prompt = f"""Search and analyze the economic calendar events for today ({current_date}) from Investing.com.
+            prompt = f"""Search and analyze ALL economic calendar events for today ({current_date}) from Investing.com.
 
             IMPORTANT: 
-            - Use ONLY events from today ({current_date})
-            - Check actual times in EST timezone
-            - Include ONLY confirmed events
-            - Sort events chronologically by currency
-            
-            1. Check the following currencies in this order:
+            - Include ALL events listed for today ({current_date}) regardless of confirmation status
+            - Maintain the exact order as shown on Investing.com
+            - Include ALL events for the specified currencies, even low impact ones
+            - Use the exact time format as displayed on Investing.com
+
+            1. Check the following currencies in this exact order:
             - EUR (Eurozone)
             - USD (United States) 
             - GBP (United Kingdom)
@@ -252,6 +252,7 @@ No confirmed events scheduled.
             - CHF (Switzerland)
             - AUD (Australia)
             - NZD (New Zealand)
+            - Include other currencies if they have high impact events
 
             2. Format each event exactly like this:
             🇪🇺 Eurozone (EUR):
@@ -270,7 +271,6 @@ No confirmed events scheduled.
             "No confirmed events scheduled for today."
 
             End with:
-            -------------------
             🔴 High Impact
             🟡 Medium Impact
             ⚪ Low Impact"""
