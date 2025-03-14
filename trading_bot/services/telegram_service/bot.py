@@ -1472,39 +1472,32 @@ class TelegramService:
             return ConversationHandler.END
 
     async def initialize(self, use_webhook=False):
-        """Initialize the Telegram bot asynchronously."""
+        """Start the bot"""
         try:
-            # Get bot info
-            info = await self.bot.get_me()
-            logger.info(f"Successfully connected to Telegram API. Bot info: {info}")
-            
-            # Initialize services
-            logger.info("Initializing services")
-            await self.chart.initialize()
-            
-            # Set bot commands
+            # Stel commands in
             commands = [
-                ("start", "Start the bot and show main menu"),
-                ("help", "Show help message")
+                BotCommand("start", "Start de bot en toon het startmenu"),
+                BotCommand("menu", "Toon het hoofdmenu"),
+                BotCommand("help", "Toon hulp")
             ]
             await self.bot.set_my_commands(commands)
             
-            # Start the bot
-            await self.application.initialize()
-            await self.application.start()
+            # Voeg CallbackQueryHandler toe aan de application
+            # Deze algemene handler zorgt ervoor dat de button_callback functie wordt opgeroepen
+            self.application.add_handler(CallbackQueryHandler(self.button_callback))
             
-            if not use_webhook:
-                # Verwijder eerst eventuele bestaande webhook
-                await self.bot.delete_webhook()
-                
-                # Start polling
-                await self.application.updater.start_polling()
-                logger.info("Telegram bot initialized and started polling.")
-            else:
+            # Start de bot
+            if use_webhook:
+                # Webhook setup
                 logger.info("Telegram bot initialized for webhook use.")
-            
+            else:
+                # Polling mode
+                await self.application.initialize()
+                await self.application.start()
+                await self.application.updater.start_polling()
+                logger.info("Telegram bot started polling")
         except Exception as e:
-            logger.error(f"Error during Telegram bot initialization: {str(e)}")
+            logger.error(f"Failed to start Telegram bot: {str(e)}")
             raise
 
     async def get_sentiment_verdict(self, instrument, direction):
@@ -2612,14 +2605,27 @@ class TelegramService:
     async def button_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle button presses from inline keyboards"""
         query = update.callback_query
+        logger.info(f"Button callback opgeroepen met data: {query.data}")
         await query.answer()
         
         if query.data == "subscribe_monthly":
+            logger.info(f"Subscribe Monthly knop geklikt door gebruiker {query.from_user.id}")
+            
+            # Controleer of stripe_service bestaat
+            if not self.stripe_service:
+                logger.error("Stripe service is niet geïnitialiseerd!")
+                await query.edit_message_text(
+                    text="Er is een probleem met de betalingsservice. Probeer het later opnieuw."
+                )
+                return
+                
             # Genereer Stripe checkout URL
             checkout_url = await self.stripe_service.create_checkout_session(
                 user_id=query.from_user.id,
                 plan_type="monthly"
             )
+            
+            logger.info(f"Checkout URL gegenereerd: {checkout_url}")
             
             if checkout_url:
                 # Maak betaalknop
@@ -2631,6 +2637,7 @@ class TelegramService:
                     reply_markup=reply_markup
                 )
             else:
+                logger.error("Geen checkout URL ontvangen van stripe_service")
                 await query.edit_message_text(
                     text="Sorry, there was an error creating your checkout session. Please try again later."
                 )
