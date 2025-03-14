@@ -368,94 +368,23 @@ class TelegramService:
             logger.error(f"Error saving signals: {str(e)}")
 
     def _register_handlers(self):
-        """Register all handlers"""
+        """Register message handlers"""
         try:
-            # Voeg een speciale handler toe voor sentiment analyse
-            self.application.add_handler(
-                CallbackQueryHandler(
-                    self.direct_sentiment_callback, 
-                    pattern="^sentiment_instrument_[A-Z0-9]+"
-                )
-            )
+            # Verwijder bestaande handlers om dubbele handlers te voorkomen
+            self.application.handlers.clear()
             
-            # Voeg een speciale handler toe voor directe sentiment analyse
-            self.application.add_handler(
-                CallbackQueryHandler(
-                    self.direct_sentiment_callback, 
-                    pattern="^direct_sentiment_[A-Z0-9]+"
-                )
-            )
+            # Voeg een CommandHandler toe voor /start
+            self.application.add_handler(CommandHandler("start", self.start_command))
             
-            # Registreer de conversation handler
-            conv_handler = ConversationHandler(
-                entry_points=[
-                    CommandHandler("start", self.start_command),
-                    CommandHandler("menu", self.menu_command),
-                    CommandHandler("help", self.help_command),
-                ],
-                states={
-                    MENU: [
-                        CallbackQueryHandler(self.menu_analyse_callback, pattern="^menu_analyse$"),
-                        CallbackQueryHandler(self.menu_signals_callback, pattern="^menu_signals$"),
-                        CallbackQueryHandler(self.analysis_callback, pattern="^analysis"),
-                        CallbackQueryHandler(self.signals_callback, pattern="^signals"),
-                        CallbackQueryHandler(self.help_callback, pattern="^help"),
-                        CallbackQueryHandler(self.back_to_menu_callback, pattern="^back_menu$"),
-                    ],
-                    CHOOSE_ANALYSIS: [
-                        CallbackQueryHandler(self.analysis_technical_callback, pattern=f"^{CALLBACK_ANALYSIS_TECHNICAL}$"),
-                        CallbackQueryHandler(self.analysis_sentiment_callback, pattern=f"^{CALLBACK_ANALYSIS_SENTIMENT}$"),
-                        CallbackQueryHandler(self.analysis_calendar_callback, pattern=f"^{CALLBACK_ANALYSIS_CALENDAR}$"),
-                        CallbackQueryHandler(self.back_to_analysis_callback, pattern=f"^{CALLBACK_BACK_ANALYSIS}$"),
-                        CallbackQueryHandler(self.back_to_menu_callback, pattern=f"^{CALLBACK_BACK_MENU}$"),
-                    ],
-                    CHOOSE_SIGNALS: [
-                        CallbackQueryHandler(self.signals_add_callback, pattern="^signals_add$"),
-                        CallbackQueryHandler(self.signals_manage_callback, pattern="^signals_manage$"),
-                        CallbackQueryHandler(self.delete_preferences_callback, pattern="^delete_prefs$"),
-                        CallbackQueryHandler(self.delete_single_preference_callback, pattern="^delete_pref_[0-9]+$"),
-                        CallbackQueryHandler(self.confirm_delete_callback, pattern="^confirm_delete$"),
-                        CallbackQueryHandler(self.back_to_menu_callback, pattern="^back_menu$"),
-                    ],
-                    CHOOSE_MARKET: [
-                        CallbackQueryHandler(self.market_signals_callback, pattern="^market_[a-z]+_signals$"),
-                        CallbackQueryHandler(self.market_callback, pattern="^market_[a-z]+$"),
-                        CallbackQueryHandler(self.back_to_signals, pattern="^back_signals$"),
-                        CallbackQueryHandler(self.back_to_analysis_callback, pattern="^back_analysis$"),
-                    ],
-                    CHOOSE_INSTRUMENT: [
-                        CallbackQueryHandler(self.instrument_signals_callback, pattern="^instrument_[A-Z0-9]+_signals$"),
-                        CallbackQueryHandler(self.instrument_callback, pattern="^instrument_[A-Z0-9]+$"),
-                        CallbackQueryHandler(self.back_to_market_callback, pattern="^back_market$"),
-                    ],
-                    CHOOSE_STYLE: [
-                        CallbackQueryHandler(self.style_choice, pattern="^style_[a-z]+$"),
-                        CallbackQueryHandler(self.back_to_instrument, pattern="^back_instrument$"),
-                    ],
-                    SHOW_RESULT: [
-                        CallbackQueryHandler(self.back_to_market_callback, pattern="^back_market$"),
-                        CallbackQueryHandler(self.back_to_analysis_callback, pattern="^back_analysis$"),
-                        CallbackQueryHandler(self.signals_add_callback, pattern="^signals_add$"),
-                        CallbackQueryHandler(self.signals_manage_callback, pattern="^signals_manage$"),
-                        CallbackQueryHandler(self.back_to_menu_callback, pattern="^back_menu$"),
-                    ],
-                },
-                fallbacks=[
-                    CommandHandler("cancel", self.cancel_command),
-                    # Voeg een algemene callback handler toe voor alle andere callbacks
-                    CallbackQueryHandler(self.callback_query_handler),
-                ],
-                per_message=False,
-            )
+            # Voeg een CommandHandler toe voor /menu
+            self.application.add_handler(CommandHandler("menu", self.show_main_menu))
             
-            self.application.add_handler(conv_handler)
+            # Voeg een CallbackQueryHandler toe voor knoppen
+            self.application.add_handler(CallbackQueryHandler(self.button_callback))
             
-            # Voeg een algemene callback handler toe voor alle callbacks die niet door de conversation handler worden afgehandeld
-            self.application.add_handler(CallbackQueryHandler(self.callback_query_handler))
+            # Meer handlers...
             
-            # Voeg een error handler toe
-            self.application.add_error_handler(self.error_handler)
-            
+            logger.info("Handlers registered")
         except Exception as e:
             logger.error(f"Error registering handlers: {str(e)}")
             raise
@@ -1482,6 +1411,13 @@ class TelegramService:
             ]
             await self.bot.set_my_commands(commands)
             
+            # Registreer handlers opnieuw
+            self._register_handlers()
+            
+            # Initialize de application altijd, ongeacht webhook of polling
+            await self.application.initialize()
+            await self.application.start()
+            
             # Voeg CallbackQueryHandler toe aan de application
             # Deze algemene handler zorgt ervoor dat de button_callback functie wordt opgeroepen
             self.application.add_handler(CallbackQueryHandler(self.button_callback))
@@ -1492,8 +1428,6 @@ class TelegramService:
                 logger.info("Telegram bot initialized for webhook use.")
             else:
                 # Polling mode
-                await self.application.initialize()
-                await self.application.start()
                 await self.application.updater.start_polling()
                 logger.info("Telegram bot started polling")
         except Exception as e:
