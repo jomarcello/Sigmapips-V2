@@ -2,8 +2,10 @@ import stripe
 import logging
 import datetime
 from typing import Dict, Any, Optional, Tuple
+import time
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
-from trading_bot.services.payment_service.stripe_config import stripe, get_price_id
+from trading_bot.services.payment_service.stripe_config import stripe, get_price_id, get_subscription_features
 from trading_bot.services.database.db import Database
 
 logger = logging.getLogger(__name__)
@@ -24,9 +26,13 @@ class StripeService:
             
             # Set the success and cancel URLs
             if not success_url:
-                success_url = f"https://t.me/your_bot_username?start=success_{plan_type}"
+                success_url = f"https://t.me/SignapipsAI_bot?start=success_{plan_type}"
             if not cancel_url:
-                cancel_url = f"https://t.me/your_bot_username?start=cancel"
+                cancel_url = f"https://t.me/SignapipsAI_bot?start=cancel"
+            
+            # Haal trial periode op uit configuratie
+            subscription_features = get_subscription_features(plan_type)
+            trial_days = subscription_features.get('trial_days', 14)
             
             # Create the checkout session
             checkout_session = stripe.checkout.Session.create(
@@ -39,6 +45,9 @@ class StripeService:
                     },
                 ],
                 mode='subscription',
+                subscription_data={
+                    'trial_period_days': trial_days  # 14-daagse proefperiode
+                },
                 success_url=success_url,
                 cancel_url=cancel_url,
                 client_reference_id=str(user_id),  # Use Telegram user_id as reference
@@ -159,25 +168,53 @@ class StripeService:
             return False
     
     async def handle_payment_failed(self, event_data: Dict[str, Any]) -> bool:
-        """Verwerk een payment_intent.payment_failed event"""
+        """Verwerk een payment_intent.payment_failed of invoice.payment_failed event"""
         try:
-            payment_intent = event_data['object']
-            customer_id = payment_intent.get('customer')
-            
+            # Haal de klant-ID op
+            customer_id = event_data.get('customer')
             if not customer_id:
-                logger.error("No customer ID in payment failed event")
+                logger.error("Geen customer ID in payment failed event")
                 return False
             
             # Zoek de gebruiker op basis van stripe_customer_id
-            # In een echte implementatie zou je hier een query naar je database doen
+            user_subscriptions = await self.db.get_users_by_customer_id(customer_id)
             
-            # Update de abonnementsstatus naar 'past_due' of 'unpaid'
-            # Dit is een voorbeeld - je moet dit aanpassen aan je database-model
+            for user_id in user_subscriptions:
+                # Update de abonnementsstatus naar 'past_due'
+                await self.db.create_or_update_subscription(
+                    user_id=user_id,
+                    status='past_due',
+                    stripe_customer_id=customer_id
+                )
+                
+                # Stuur een bericht naar de gebruiker over de mislukte betaling
+                try:
+                    # Controleer of telegram_service beschikbaar is
+                    if hasattr(self, 'telegram_service') and self.telegram_service:
+                        message = """
+⚠️ <b>Betalingswaarschuwing</b> ⚠️
+
+Je betaling voor het SigmaPips abonnement kon niet worden verwerkt.
+
+Om je toegang te behouden, update je betalingsgegevens binnen 3 dagen.
+
+🔄 Klik hier om je betalingsgegevens bij te werken:
+                        """
+                        # Maak een betaal-update URL
+                        update_url = await self.create_update_payment_session(user_id)
+                        
+                        # Stuur het bericht
+                        await self.telegram_service.send_message_to_user(
+                            user_id, 
+                            message, 
+                            reply_markup=InlineKeyboardMarkup([[
+                                InlineKeyboardButton("💳 Update betaalgegevens", url=update_url)
+                            ]])
+                        )
+                except Exception as msg_error:
+                    logger.error(f"Error sending payment failed message: {str(msg_error)}")
             
-            # Stuur een bericht naar de gebruiker over de mislukte betaling
-            # Dit zou je moeten implementeren met je bot
-            
-            logger.info(f"Handled payment failed for customer {customer_id}")
+            logger.info(f"Payment failed verwerkt voor klant {customer_id}")
             return True
             
         except Exception as e:
@@ -270,5 +307,58 @@ class StripeService:
             await self.db.update_user_subscription_customer(user_id, customer_id)
         
         logger.info(f"Checkout completed for user {user_id}")
+
+    async def simulate_payment_event(self, event_type="payment_intent.succeeded"):
+        """Simuleer een Stripe betaalgebeurtenis"""
+        # Simuleer de payload van de gebeurtenis
+        event_data = {
+            "id": f"evt_test_{int(time.time())}",
+            "type": event_type,
+            "data": {
+                "object": {
+                    "id": f"pi_test_{int(time.time())}",
+                    "customer": "cus_test123",
+                    "amount": 2999,  # €29.99 in centen
+                    "status": "succeeded",
+                    "metadata": {
+                        "user_id": "123456789"  # Voeg hier een echte gebruikers-ID in
+                    }
+                }
+            }
+        }
+        
+        # Verwerk de gesimuleerde gebeurtenis
+        db = Database()
+        success = await self.process_payment_event(event_data, db)
+        
+        return success, event_data
+
+    async def create_update_payment_session(self, user_id: int) -> str:
+        """Maak een sessie om betalingsgegevens bij te werken"""
+        try:
+            # Haal gebruikersabonnement op
+            subscription = await self.db.get_user_subscription(user_id)
+            if not subscription:
+                logger.error(f"Geen abonnement gevonden voor gebruiker {user_id}")
+                return ""
+            
+            # Haal stripe customer ID en subscription ID op
+            customer_id = subscription.get('stripe_customer_id')
+            subscription_id = subscription.get('stripe_subscription_id')
+            
+            if not customer_id or not subscription_id:
+                logger.error(f"Ontbrekende Stripe IDs voor gebruiker {user_id}")
+                return ""
+            
+            # Maak een update payment session
+            session = stripe.billing_portal.Session.create(
+                customer=customer_id,
+                return_url=f"https://t.me/SignapipsAI_bot?start=return_from_payment"
+            )
+            
+            return session.url
+        except Exception as e:
+            logger.error(f"Error creating update payment session: {str(e)}")
+            return ""
 
     # Implementeer de andere handler methodes... 
