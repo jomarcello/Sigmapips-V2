@@ -2719,13 +2719,50 @@ class TelegramService:
     # Voeg de decorator toe aan relevante functies
     @require_subscription
     async def market_choice(self, update: Update, context=None) -> int:
-        # bestaande code...
+        # Bestaande code behouden - NIET vervangen door commentaar
+        keyboard = []
+        markets = ["forex", "crypto", "indices", "commodities"]
+        
+        for market in markets:
+            keyboard.append([InlineKeyboardButton(market.capitalize(), callback_data=f"market_{market}")])
+        
+        keyboard.append([InlineKeyboardButton("⬅️ Terug naar menu", callback_data="back_to_menu")])
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text("Kies een markt:", reply_markup=reply_markup)
+        return MARKET_CHOICE
 
     @require_subscription
     async def instrument_choice(self, update: Update, context=None) -> int:
-        # bestaande code...
-
-    # Meer functies met decorator...
+        # Bestaande code behouden - NIET vervangen door commentaar
+        query = update.callback_query
+        await query.answer()
+        
+        selected_market = query.data.replace("market_", "")
+        user_id = query.from_user.id
+        
+        # Sla de geselecteerde markt op in de gebruikerscontext
+        if not hasattr(self, 'user_context'):
+            self.user_context = {}
+        
+        if user_id not in self.user_context:
+            self.user_context[user_id] = {}
+        
+        self.user_context[user_id]['market'] = selected_market
+        
+        # Haal instrumenten op voor de geselecteerde markt
+        instruments = await self.db.get_instruments_for_market(selected_market)
+        
+        # Maak keyboard met instrumenten
+        keyboard = []
+        for instrument in instruments:
+            keyboard.append([InlineKeyboardButton(instrument, callback_data=f"instrument_{instrument}")])
+        
+        keyboard.append([InlineKeyboardButton("⬅️ Terug naar markten", callback_data="back_to_markets")])
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text(f"Kies een instrument voor {selected_market.capitalize()}:", reply_markup=reply_markup)
+        return INSTRUMENT_CHOICE
 
     async def send_message_to_user(self, user_id: int, text: str, reply_markup=None, parse_mode=ParseMode.HTML):
         """Stuur een bericht naar een specifieke gebruiker"""
