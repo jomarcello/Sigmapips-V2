@@ -28,14 +28,12 @@ db = Database()
 # Initialiseer de Stripe service
 stripe_service = StripeService(db)
 
-# Initialiseer de Telegram service
-telegram_service = TelegramService(
-    db=db, 
-    stripe_service=stripe_service,
-    signal_service=None,
-    news_service=None,
-    chart_service=None
-)
+# Initialiseer de Telegram service met alleen db
+telegram_service = TelegramService(db)
+
+# Voeg de stripe_service toe aan het telegram_service object
+# na initialisatie
+telegram_service.stripe_service = stripe_service
 
 # Voeg deze functie toe bovenaan het bestand, na de imports
 def convert_interval_to_timeframe(interval):
