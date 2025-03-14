@@ -75,6 +75,20 @@ I'm your AI-powered trading assistant, designed to help you make better trading 
 Select an option below to get started:
 """
 
+# Abonnementsbericht voor nieuwe gebruikers
+SUBSCRIPTION_WELCOME_MESSAGE = """
+🚀 <b>Welcome to SigmaPips Trading Bot!</b> 🚀
+
+To access all features, you need a subscription:
+
+📊 <b>Trading Signals Subscription - $29.99/month</b>
+• Access to all trading signals (Forex, Crypto, Commodities, Indices)
+• Advanced timeframe analysis (1m, 15m, 1h, 4h)
+• Detailed chart analysis for each signal
+
+Click the button below to subscribe:
+"""
+
 MENU_MESSAGE = """
 Welcome to SigmaPips Trading Bot!
 
