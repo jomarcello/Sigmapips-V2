@@ -7,10 +7,7 @@ from dotenv import load_dotenv
 import stripe
 
 # Configureer logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Laad omgevingsvariabelen
@@ -99,19 +96,9 @@ def convert_interval_to_timeframe(interval):
 
 @app.on_event("startup")
 async def startup_event():
-    global telegram_service, stripe_service
     try:
-        # Initialiseer de database
-        db_instance = Database()
-        
-        # Initialiseer de Telegram service
-        telegram_service = TelegramService(db_instance)
         await telegram_service.initialize(use_webhook=True)
         logger.info("Telegram service initialized")
-        
-        # Initialiseer de Stripe service
-        stripe_service = StripeService(db_instance)
-        logger.info("Stripe service initialized")
     except Exception as e:
         logger.error(f"Error initializing services: {str(e)}")
         raise
@@ -332,8 +319,7 @@ async def health_check():
 
 if __name__ == "__main__":
     import uvicorn
-    port = int(os.getenv("PORT", 8000))
-    uvicorn.run("trading_bot.main:app", host="0.0.0.0", port=port, reload=True)
+    uvicorn.run("trading_bot.main:app", host="0.0.0.0", port=8080)
 
 # Expliciet de app exporteren
 __all__ = ['app']
