@@ -2518,21 +2518,13 @@ class TelegramService:
 
     async def show_main_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Show the main menu with all bot features"""
-        # Voeg hier je bestaande start commando functionaliteit toe
-        # Dit is wat eerder direct in start_command zat
-        
-        # Bijvoorbeeld:
-        keyboard = [
-            [InlineKeyboardButton("📈 Signals", callback_data="signals")],
-            [InlineKeyboardButton("📰 News", callback_data="news")],
-            [InlineKeyboardButton("📊 Charts", callback_data="charts")],
-            [InlineKeyboardButton("⚙️ Settings", callback_data="settings")]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
+        # Toon het originele hoofdmenu met alle opties
+        reply_markup = InlineKeyboardMarkup(START_KEYBOARD)
         
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
-            text="Welcome to SigmaPips! What would you like to do?",
+            text=WELCOME_MESSAGE,
+            parse_mode='HTML',
             reply_markup=reply_markup
         )
 
