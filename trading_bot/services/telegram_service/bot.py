@@ -292,6 +292,52 @@ def _detect_market(symbol: str) -> str:
     logger.info(f"Detected {symbol} as forex")
     return "forex"
 
+# Voeg dit toe als decorator functie bovenaan het bestand na de imports
+def require_subscription(func):
+    """Controleer of gebruiker een actief abonnement heeft"""
+    async def wrapper(self, update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
+        user_id = update.effective_user.id
+        
+        # Controleer abonnementsstatus
+        is_subscribed = await self.db.is_user_subscribed(user_id)
+        
+        if is_subscribed:
+            # Gebruiker heeft abonnement, ga door met functie
+            return await func(self, update, context, *args, **kwargs)
+        else:
+            # Toon abonnementsscherm
+            subscription_features = get_subscription_features("monthly")
+            
+            # Pas het bericht aan om de proefperiode te benadrukken
+            welcome_text = f"""
+🚀 <b>Welkom bij SigmaPips Trading Bot!</b> 🚀
+
+Voor toegang tot alle functies heb je een abonnement nodig:
+
+📊 <b>Trading Signals Abonnement - $29.99/maand</b>
+• <b>Begin met een GRATIS 14-daagse proefperiode!</b>
+• Toegang tot alle trading signalen (Forex, Crypto, Commodities, Indices)
+• Geavanceerde timeframe-analyse (1m, 15m, 1h, 4h)
+• Gedetailleerde grafiekanalyse voor elk signaal
+
+Klik op de knop hieronder om je proefperiode te starten:
+            """
+            
+            # Maak knoppen
+            keyboard = [
+                [InlineKeyboardButton("🔥 Start GRATIS Proefperiode", callback_data="subscribe_monthly")],
+                [InlineKeyboardButton("ℹ️ Meer Informatie", callback_data="subscription_info")]
+            ]
+            
+            await update.message.reply_text(
+                text=welcome_text,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode=ParseMode.HTML
+            )
+            return MENU
+    
+    return wrapper
+
 class TelegramService:
     def __init__(self, db: Database, stripe_service=None):
         """Initialize telegram service"""
@@ -2669,3 +2715,28 @@ class TelegramService:
         # Andere bestaande handlers...
         
         return application
+
+    # Voeg de decorator toe aan relevante functies
+    @require_subscription
+    async def market_choice(self, update: Update, context=None) -> int:
+        # bestaande code...
+
+    @require_subscription
+    async def instrument_choice(self, update: Update, context=None) -> int:
+        # bestaande code...
+
+    # Meer functies met decorator...
+
+    async def send_message_to_user(self, user_id: int, text: str, reply_markup=None, parse_mode=ParseMode.HTML):
+        """Stuur een bericht naar een specifieke gebruiker"""
+        try:
+            await self.bot.send_message(
+                chat_id=user_id,
+                text=text,
+                reply_markup=reply_markup,
+                parse_mode=parse_mode
+            )
+            return True
+        except Exception as e:
+            logger.error(f"Error sending message to user {user_id}: {str(e)}")
+            return False
