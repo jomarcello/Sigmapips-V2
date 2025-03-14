@@ -21,6 +21,7 @@ from trading_bot.services.database.db import Database
 from trading_bot.services.telegram_service.bot import TelegramService
 from trading_bot.services.payment_service.stripe_service import StripeService
 from trading_bot.services.payment_service.stripe_config import STRIPE_WEBHOOK_SECRET
+from trading_bot.services.signal_service.signal import SignalService
 
 # Initialiseer de FastAPI app
 app = FastAPI()
@@ -31,12 +32,14 @@ db = Database()
 # Initialiseer de Stripe service
 stripe_service = StripeService(db)
 
+# Initialiseer de SignalService als die bestaat
+signal_service = SignalService(db)
+
 # Initialiseer de Telegram service
 telegram_service = TelegramService(
     db=db, 
     stripe_service=stripe_service,
-    signal_service=signal_service,
-    # andere bestaande services
+    signal_service=signal_service
 )
 
 # Voeg deze functie toe bovenaan het bestand, na de imports
