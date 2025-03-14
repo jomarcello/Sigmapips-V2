@@ -1276,55 +1276,82 @@ class TelegramService:
             await query.answer()
             
             # Bepaal of we in de signals flow zitten of in de analyse flow
-            callback_data = query.data
-            in_signals_flow = False
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
             
-            # Check message text first (most reliable)
-            if hasattr(query.message, 'text'):
-                message_text = query.message.text
-                logger.info(f"Message text for back_market: {message_text}")
-                if "trading signals" in message_text.lower():
-                    in_signals_flow = True
-                    logger.info("Detected signals flow from message text")
-            
-            # Check user_data if available
-            if not in_signals_flow and context and hasattr(context, 'user_data') and 'in_signals_flow' in context.user_data:
-                in_signals_flow = context.user_data.get('in_signals_flow', False)
-                logger.info(f"Detected signals flow from user_data: {in_signals_flow}")
-            
-            # Check callback data as last resort
-            if not in_signals_flow and '_signals' in str(query.message.reply_markup):
-                in_signals_flow = True
-                logger.info("Detected signals flow from reply markup")
-            
-            logger.info(f"Back to market callback, in_signals_flow: {in_signals_flow}")
-            
-            if in_signals_flow:
-                # Toon het market keyboard voor signals
-                await query.edit_message_text(
-                    text="Select a market for trading signals:",
-                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD_SIGNALS)
-                )
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
             else:
-                # Toon het market keyboard voor analyse
-                await query.edit_message_text(
-                    text="Select a market for analysis:",
-                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False
+            
+            # Haal market uit user_data of fallback naar 'forex'
+            if context and hasattr(context, 'user_data'):
+                market = context.user_data.get('market', 'forex')
+                in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
+            else:
+                # Fallback waarden
+                market = 'forex'
+                in_signals_flow = is_signals_flow
+            
+            logger.info(f"Back to market: market={market}, in_signals_flow={in_signals_flow}")
+            
+            # Kies het juiste keyboard op basis van de flow
+            if in_signals_flow:
+                keyboard = MARKET_KEYBOARD_SIGNALS
+                text = "Select a market for trading signals:"
+            else:
+                keyboard = MARKET_KEYBOARD
+                text = "Select a market for technical analysis:"
+            
+            # Werk het bericht bij
+            try:
+                if is_photo_message:
+                    # Als het een foto is, antwoord met een nieuw bericht
+                    # omdat we niet een foto naar tekst kunnen omzetten
+                    await query.message.reply_text(
+                        text=text,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+                else:
+                    # Als het een tekstbericht is, bewerk het
+                    await query.edit_message_text(
+                        text=text,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+            except Exception as edit_error:
+                logger.error(f"Error updating message: {str(edit_error)}")
+                # Stuur een nieuw bericht als fallback
+                await query.message.reply_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
                 )
             
             return CHOOSE_MARKET
         except Exception as e:
             logger.error(f"Error in back_to_market_callback: {str(e)}")
-            logger.exception(e)
+            logger.exception(e)  # Volledige stacktrace loggen
             
-            # Fallback: stuur een nieuw bericht met het market menu
+            # Stuur een nieuw bericht als fallback bij fouten
             try:
                 await query.message.reply_text(
                     text="Select a market:",
                     reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
                 )
                 return CHOOSE_MARKET
-            except:
+            except Exception as inner_e:
+                logger.error(f"Failed to send fallback message: {str(inner_e)}")
                 return MENU
 
     async def back_to_instrument(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
