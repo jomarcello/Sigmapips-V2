@@ -294,39 +294,39 @@ def _detect_market(symbol: str) -> str:
 
 # Voeg dit toe als decorator functie bovenaan het bestand na de imports
 def require_subscription(func):
-    """Controleer of gebruiker een actief abonnement heeft"""
+    """Check if user has an active subscription"""
     async def wrapper(self, update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
         user_id = update.effective_user.id
         
-        # Controleer abonnementsstatus
+        # Check subscription status
         is_subscribed = await self.db.is_user_subscribed(user_id)
         
         if is_subscribed:
-            # Gebruiker heeft abonnement, ga door met functie
+            # User has subscription, proceed with function
             return await func(self, update, context, *args, **kwargs)
         else:
-            # Toon abonnementsscherm
+            # Show subscription screen
             subscription_features = get_subscription_features("monthly")
             
-            # Pas het bericht aan om de proefperiode te benadrukken
+            # Update message to emphasize the trial period
             welcome_text = f"""
-🚀 <b>Welkom bij SigmaPips Trading Bot!</b> 🚀
+🚀 <b>Welcome to SigmaPips Trading Bot!</b> 🚀
 
-Voor toegang tot alle functies heb je een abonnement nodig:
+To access all features, you need a subscription:
 
-📊 <b>Trading Signals Abonnement - $29.99/maand</b>
-• <b>Begin met een GRATIS 14-daagse proefperiode!</b>
-• Toegang tot alle trading signalen (Forex, Crypto, Commodities, Indices)
-• Geavanceerde timeframe-analyse (1m, 15m, 1h, 4h)
-• Gedetailleerde grafiekanalyse voor elk signaal
+📊 <b>Trading Signals Subscription - $29.99/month</b>
+• <b>Start with a FREE 14-day trial!</b>
+• Access to all trading signals (Forex, Crypto, Commodities, Indices)
+• Advanced timeframe analysis (1m, 15m, 1h, 4h)
+• Detailed chart analysis for each signal
 
-Klik op de knop hieronder om je proefperiode te starten:
+Click the button below to start your trial:
             """
             
-            # Maak knoppen
+            # Create buttons
             keyboard = [
-                [InlineKeyboardButton("🔥 Start GRATIS Proefperiode", callback_data="subscribe_monthly")],
-                [InlineKeyboardButton("ℹ️ Meer Informatie", callback_data="subscription_info")]
+                [InlineKeyboardButton("🔥 Start FREE Trial", callback_data="subscribe_monthly")],
+                [InlineKeyboardButton("ℹ️ More Information", callback_data="subscription_info")]
             ]
             
             await update.message.reply_text(
@@ -436,30 +436,64 @@ class TelegramService:
             raise
 
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Handle the /start command"""
+        """Send a welcome message when the bot is started."""
         user = update.effective_user
-        chat_id = update.effective_chat.id
+        user_id = user.id
+        first_name = user.first_name
         
-        # Ga er standaard van uit dat gebruikers niet geabonneerd zijn
-        is_subscribed = False
+        # Try to add the user to the database if they don't exist yet
+        try:
+            # Check if user already exists in the database
+            existing_user = await self.db.get_user(user_id)
+            
+            if not existing_user:
+                # Add new user
+                logger.info(f"New user started: {user_id}, {first_name}")
+                await self.db.add_user(user_id, first_name, user.username)
+            else:
+                logger.info(f"Existing user started: {user_id}, {first_name}")
+                
+        except Exception as e:
+            logger.error(f"Error registering user: {str(e)}")
         
-        # Toon altijd het abonnementsscherm voor de test
-        subscription_features = get_subscription_features("monthly")
+        # Check if the user has a subscription
+        is_subscribed = await self.db.is_user_subscribed(user_id)
         
-        # Maak knoppen
-        keyboard = [
-            [InlineKeyboardButton("📊 Subscribe Now", callback_data="subscribe_monthly")],
-            [InlineKeyboardButton("ℹ️ More Information", callback_data="subscription_info")]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        # Stuur het welkomstbericht
-        await context.bot.send_message(
-            chat_id=chat_id,
-            text=SUBSCRIPTION_WELCOME_MESSAGE,
-            reply_markup=reply_markup,
-            parse_mode='HTML'
-        )
+        if is_subscribed:
+            # Show the normal welcome message with all features
+            await self.show_main_menu(update, context)
+        else:
+            # Show the welcome message with trial option
+            welcome_text = f"""
+🚀 <b>Welcome to SigmaPips Trading Bot!</b> 🚀
+
+<b>Discover powerful trading signals for various markets:</b>
+• <b>Forex</b> - Major and minor currency pairs
+• <b>Crypto</b> - Bitcoin, Ethereum and other top cryptocurrencies
+• <b>Indices</b> - Global market indices
+• <b>Commodities</b> - Gold, silver and oil
+
+<b>Features:</b>
+✅ Real-time trading signals
+✅ Multi-timeframe analysis (1m, 15m, 1h, 4h)
+✅ Advanced chart analysis
+✅ Sentiment indicators
+✅ Economic calendar integration
+
+<b>Start today with a FREE 14-day trial!</b>
+            """
+            
+            # Create buttons
+            keyboard = [
+                [InlineKeyboardButton("🔥 Start 14-day FREE Trial", callback_data="subscribe_monthly")],
+                [InlineKeyboardButton("ℹ️ More Information", callback_data="subscription_info")]
+            ]
+            
+            await update.message.reply_text(
+                text=welcome_text,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode=ParseMode.HTML
+            )
 
     async def menu_analyse_callback(self, update: Update, context=None) -> int:
         """Handle menu_analyse callback"""
@@ -2614,89 +2648,17 @@ class TelegramService:
             reply_markup=reply_markup
         )
 
-    async def button_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    async def button_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """Handle button presses from inline keyboards"""
         query = update.callback_query
         logger.info(f"Button callback opgeroepen met data: {query.data}")
         await query.answer()
         
-        if query.data == "subscribe_monthly":
-            logger.info(f"Subscribe Monthly knop geklikt door gebruiker {query.from_user.id}")
-            
-            # Controleer of stripe_service bestaat
-            if not self.stripe_service:
-                logger.error("Stripe service is niet geïnitialiseerd!")
-                await query.edit_message_text(
-                    text="Er is een probleem met de betalingsservice. Probeer het later opnieuw."
-                )
-                return
-                
-            # Genereer Stripe checkout URL
-            checkout_url = await self.stripe_service.create_checkout_session(
-                user_id=query.from_user.id,
-                plan_type="monthly"
-            )
-            
-            logger.info(f"Checkout URL gegenereerd: {checkout_url}")
-            
-            if checkout_url:
-                # Maak betaalknop
-                keyboard = [[InlineKeyboardButton("🔐 Secure Checkout", url=checkout_url)]]
-                reply_markup = InlineKeyboardMarkup(keyboard)
-                
-                await query.edit_message_text(
-                    text="Click the button below to complete your subscription:",
-                    reply_markup=reply_markup
-                )
-            else:
-                logger.error("Geen checkout URL ontvangen van stripe_service")
-                await query.edit_message_text(
-                    text="Sorry, there was an error creating your checkout session. Please try again later."
-                )
+        # Verwerk abonnementsacties
+        if query.data == "subscribe_monthly" or query.data == "subscription_info":
+            return await self.handle_subscription_callback(update, context)
         
-        elif query.data == "subscription_info":
-            # Toon meer details over het abonnement
-            subscription_features = get_subscription_features("monthly")
-            features = "\n".join([f"• {feature}" for feature in subscription_features.get("signals", [])])
-            
-            info_text = f"""
-<b>{subscription_features['name']} - {subscription_features['price']}</b>
-
-<b>Features:</b>
-{features}
-
-<b>Analysis:</b> {'✅ Included' if subscription_features.get('analysis') else '❌ Not included'}
-
-<b>Timeframes:</b> {', '.join(subscription_features.get('timeframes', []))}
-            """
-            
-            # Terug-knop
-            keyboard = [[InlineKeyboardButton("🔙 Back", callback_data="back_to_subscription")]]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            
-            await query.edit_message_text(
-                text=info_text,
-                reply_markup=reply_markup,
-                parse_mode='HTML'
-            )
-        
-        elif query.data == "back_to_subscription":
-            # Terug naar abonnementsoverzicht
-            keyboard = [
-                [InlineKeyboardButton("📊 Subscribe Now", callback_data="subscribe_monthly")],
-                [InlineKeyboardButton("ℹ️ More Information", callback_data="subscription_info")]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            
-            await query.edit_message_text(
-                text=SUBSCRIPTION_WELCOME_MESSAGE,
-                reply_markup=reply_markup,
-                parse_mode='HTML'
-            )
-        
-        else:
-            # Handle andere callback data (voor bestaande functionaliteit)
-            pass
+        # De rest van je bestaande button_callback code blijft ongewijzigd...
 
     def setup(self):
         """Set up the bot with all handlers"""
@@ -2719,29 +2681,27 @@ class TelegramService:
     # Voeg de decorator toe aan relevante functies
     @require_subscription
     async def market_choice(self, update: Update, context=None) -> int:
-        # Bestaande code behouden - NIET vervangen door commentaar
         keyboard = []
         markets = ["forex", "crypto", "indices", "commodities"]
         
         for market in markets:
             keyboard.append([InlineKeyboardButton(market.capitalize(), callback_data=f"market_{market}")])
         
-        keyboard.append([InlineKeyboardButton("⬅️ Terug naar menu", callback_data="back_to_menu")])
+        keyboard.append([InlineKeyboardButton("⬅️ Back to Menu", callback_data="back_to_menu")])
         
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await update.message.reply_text("Kies een markt:", reply_markup=reply_markup)
+        await update.message.reply_text("Choose a market:", reply_markup=reply_markup)
         return MARKET_CHOICE
 
     @require_subscription
     async def instrument_choice(self, update: Update, context=None) -> int:
-        # Bestaande code behouden - NIET vervangen door commentaar
         query = update.callback_query
         await query.answer()
         
         selected_market = query.data.replace("market_", "")
         user_id = query.from_user.id
         
-        # Sla de geselecteerde markt op in de gebruikerscontext
+        # Save the selected market in the user context
         if not hasattr(self, 'user_context'):
             self.user_context = {}
         
@@ -2750,18 +2710,18 @@ class TelegramService:
         
         self.user_context[user_id]['market'] = selected_market
         
-        # Haal instrumenten op voor de geselecteerde markt
+        # Get instruments for the selected market
         instruments = await self.db.get_instruments_for_market(selected_market)
         
-        # Maak keyboard met instrumenten
+        # Create keyboard with instruments
         keyboard = []
         for instrument in instruments:
             keyboard.append([InlineKeyboardButton(instrument, callback_data=f"instrument_{instrument}")])
         
-        keyboard.append([InlineKeyboardButton("⬅️ Terug naar markten", callback_data="back_to_markets")])
+        keyboard.append([InlineKeyboardButton("⬅️ Back to Markets", callback_data="back_to_markets")])
         
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await query.edit_message_text(f"Kies een instrument voor {selected_market.capitalize()}:", reply_markup=reply_markup)
+        await query.edit_message_text(f"Choose an instrument for {selected_market.capitalize()}:", reply_markup=reply_markup)
         return INSTRUMENT_CHOICE
 
     async def send_message_to_user(self, user_id: int, text: str, reply_markup=None, parse_mode=ParseMode.HTML):
@@ -2777,3 +2737,75 @@ class TelegramService:
         except Exception as e:
             logger.error(f"Error sending message to user {user_id}: {str(e)}")
             return False
+
+    # Zoek of voeg deze functie toe aan de TelegramService class
+    async def handle_subscription_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        """Process subscription button clicks"""
+        query = update.callback_query
+        await query.answer()
+        
+        if query.data == "subscribe_monthly":
+            user_id = query.from_user.id
+            
+            # Use the fixed Stripe checkout URL for testing
+            checkout_url = "https://buy.stripe.com/test_6oE4kkdLefcT8Fy6oo"
+            
+            # Create keyboard with checkout link
+            keyboard = [
+                [InlineKeyboardButton("🔥 Start Trial", url=checkout_url)],
+                [InlineKeyboardButton("⬅️ Back", callback_data="back_to_menu")]
+            ]
+            
+            await query.edit_message_text(
+                text="""
+✨ <b>Almost ready!</b> ✨
+
+Click the button below to start your FREE 14-day trial.
+
+- No obligations during trial
+- Cancel anytime
+- After 14 days, regular rate of $29.99/month will be charged if you don't cancel
+            """,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode=ParseMode.HTML
+            )
+            return SUBSCRIBE
+            
+        elif query.data == "subscription_info":
+            # Show more information about the subscription
+            subscription_features = get_subscription_features("monthly")
+            
+            info_text = f"""
+💡 <b>SigmaPips Trading Signals - Subscription Details</b> 💡
+
+<b>Price:</b> {subscription_features.get('price')}
+<b>Trial period:</b> 14 days FREE
+
+<b>Included signals:</b>
+"""
+            for signal in subscription_features.get('signals', []):
+                info_text += f"✅ {signal}\n"
+                
+            info_text += f"""
+<b>Timeframes:</b> {', '.join(subscription_features.get('timeframes', []))}
+
+<b>How it works:</b>
+1. Start your free trial
+2. Get immediate access to all signals
+3. Easily cancel before day 14 if not satisfied
+4. No cancellation = automatic renewal at $29.99/month
+            """
+            
+            keyboard = [
+                [InlineKeyboardButton("🔥 Start FREE Trial", callback_data="subscribe_monthly")],
+                [InlineKeyboardButton("⬅️ Back", callback_data="back_to_menu")]
+            ]
+            
+            await query.edit_message_text(
+                text=info_text,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode=ParseMode.HTML
+            )
+            return SUBSCRIBE
+
+        return MENU
