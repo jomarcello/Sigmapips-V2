@@ -29,6 +29,8 @@ from trading_bot.services.database.db import Database
 from trading_bot.services.chart_service.chart import ChartService
 from trading_bot.services.sentiment_service.sentiment import MarketSentimentService
 from trading_bot.services.calendar_service.calendar import EconomicCalendarService
+from trading_bot.services.payment_service.stripe_service import StripeService
+from trading_bot.services.payment_service.stripe_config import get_subscription_features
 
 logger = logging.getLogger(__name__)
 
@@ -277,7 +279,7 @@ def _detect_market(symbol: str) -> str:
     return "forex"
 
 class TelegramService:
-    def __init__(self, db: Database):
+    def __init__(self, db: Database, stripe_service=None):
         """Initialize telegram service"""
         try:
             # Sla de database op
@@ -318,6 +320,8 @@ class TelegramService:
             
             # Houd bij welke updates al zijn verwerkt
             self.processed_updates = set()
+            
+            self.stripe_service = stripe_service  # Stripe service toevoegen
             
         except Exception as e:
             logger.error(f"Error initializing Telegram service: {str(e)}")
@@ -442,30 +446,37 @@ class TelegramService:
             logger.error(f"Error registering handlers: {str(e)}")
             raise
 
-    async def start_command(self, update: Update, context=None) -> int:
-        """Start the conversation."""
-        try:
-            logger.info(f"Start command aangeroepen door gebruiker: {update.effective_user.id}")
+    async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle the /start command - either show subscription options or main menu based on subscription status"""
+        user = update.effective_user
+        chat_id = update.effective_chat.id
+        
+        # Bewaar gebruiker in DB bij eerste gebruik
+        await self.db.save_user(user.id, user.first_name, user.last_name, user.username)
+        
+        # Check subscription status
+        is_subscribed = await self.db.is_user_subscribed(user.id)
+        
+        if not is_subscribed:
+            # Toon abonnementsopties
+            subscription_features = get_subscription_features("monthly")
             
-            # Send welcome message with main menu
-            await update.message.reply_text(
-                text=WELCOME_MESSAGE,
-                reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
-                parse_mode=ParseMode.HTML
+            # Maak knoppen
+            keyboard = [
+                [InlineKeyboardButton("📊 Subscribe Now", callback_data="subscribe_monthly")],
+                [InlineKeyboardButton("ℹ️ More Information", callback_data="subscription_info")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=SUBSCRIPTION_WELCOME_MESSAGE,
+                reply_markup=reply_markup,
+                parse_mode='HTML'
             )
-            logger.info("Welkomstbericht verzonden")
-            return MENU
-            
-        except Exception as e:
-            logger.error(f"Error in start command: {str(e)}")
-            logger.exception(e)  # Log de volledige stacktrace
-            try:
-                await update.message.reply_text(
-                    "Sorry, er is een fout opgetreden. Probeer het later nog eens."
-                )
-            except Exception as inner_e:
-                logger.error(f"Kon geen foutmelding sturen: {str(inner_e)}")
-            return ConversationHandler.END
+        else:
+            # Bestaande gebruiker met abonnement - toon normale start menu
+            await self.show_main_menu(update, context)
 
     async def menu_analyse_callback(self, update: Update, context=None) -> int:
         """Handle menu_analyse callback"""
@@ -2569,3 +2580,111 @@ class TelegramService:
                 logger.error(f"Failed to send fallback message: {str(inner_e)}")
             
             return MENU
+
+    async def show_main_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Show the main menu with all bot features"""
+        # Voeg hier je bestaande start commando functionaliteit toe
+        # Dit is wat eerder direct in start_command zat
+        
+        # Bijvoorbeeld:
+        keyboard = [
+            [InlineKeyboardButton("📈 Signals", callback_data="signals")],
+            [InlineKeyboardButton("📰 News", callback_data="news")],
+            [InlineKeyboardButton("📊 Charts", callback_data="charts")],
+            [InlineKeyboardButton("⚙️ Settings", callback_data="settings")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="Welcome to SigmaPips! What would you like to do?",
+            reply_markup=reply_markup
+        )
+
+    async def button_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle button presses from inline keyboards"""
+        query = update.callback_query
+        await query.answer()
+        
+        if query.data == "subscribe_monthly":
+            # Genereer Stripe checkout URL
+            checkout_url = await self.stripe_service.create_checkout_session(
+                user_id=query.from_user.id,
+                plan_type="monthly"
+            )
+            
+            if checkout_url:
+                # Maak betaalknop
+                keyboard = [[InlineKeyboardButton("🔐 Secure Checkout", url=checkout_url)]]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                
+                await query.edit_message_text(
+                    text="Click the button below to complete your subscription:",
+                    reply_markup=reply_markup
+                )
+            else:
+                await query.edit_message_text(
+                    text="Sorry, there was an error creating your checkout session. Please try again later."
+                )
+        
+        elif query.data == "subscription_info":
+            # Toon meer details over het abonnement
+            subscription_features = get_subscription_features("monthly")
+            features = "\n".join([f"• {feature}" for feature in subscription_features.get("signals", [])])
+            
+            info_text = f"""
+<b>{subscription_features['name']} - {subscription_features['price']}</b>
+
+<b>Features:</b>
+{features}
+
+<b>Analysis:</b> {'✅ Included' if subscription_features.get('analysis') else '❌ Not included'}
+
+<b>Timeframes:</b> {', '.join(subscription_features.get('timeframes', []))}
+            """
+            
+            # Terug-knop
+            keyboard = [[InlineKeyboardButton("🔙 Back", callback_data="back_to_subscription")]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await query.edit_message_text(
+                text=info_text,
+                reply_markup=reply_markup,
+                parse_mode='HTML'
+            )
+        
+        elif query.data == "back_to_subscription":
+            # Terug naar abonnementsoverzicht
+            keyboard = [
+                [InlineKeyboardButton("📊 Subscribe Now", callback_data="subscribe_monthly")],
+                [InlineKeyboardButton("ℹ️ More Information", callback_data="subscription_info")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await query.edit_message_text(
+                text=SUBSCRIPTION_WELCOME_MESSAGE,
+                reply_markup=reply_markup,
+                parse_mode='HTML'
+            )
+        
+        else:
+            # Handle andere callback data (voor bestaande functionaliteit)
+            pass
+
+    def setup(self):
+        """Set up the bot with all handlers"""
+        # Bestaande code behouden
+        application = Application.builder().token(self.token).build()
+        
+        # Command handlers
+        application.add_handler(CommandHandler("start", self.start_command))
+        
+        # Voeg nieuw menu commando toe (voor bestaande gebruikers om het menu te zien)
+        application.add_handler(CommandHandler("menu", self.show_main_menu))
+        
+        # Callback query handler
+        application.add_handler(CallbackQueryHandler(self.button_callback))
+        
+        # Andere bestaande handlers...
+        
+        return application
