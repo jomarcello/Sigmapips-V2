@@ -485,4 +485,25 @@ class Database:
                 return None
         except Exception as e:
             logger.error(f"Error getting subscription type: {str(e)}")
-            return None 
+            return None
+
+    async def save_user(self, user_id: int, first_name: str, last_name: str = None, username: str = None) -> bool:
+        """Sla een gebruiker op in de database"""
+        try:
+            logger.info(f"Gebruiker opslaan: {user_id} ({first_name})")
+            # Hier zou je code komen om de gebruiker op te slaan in je database
+            # Voor nu implementeren we een lege placeholder
+            return True
+        except Exception as e:
+            logger.error(f"Fout bij opslaan gebruiker: {str(e)}")
+            return False
+
+    async def is_user_subscribed(self, user_id: int) -> bool:
+        """Controleer of een gebruiker een actief abonnement heeft"""
+        try:
+            # Implementeer hier je abonnementscontrole
+            # Voor nu retourneren we standaard False, wat betekent dat gebruikers het abonnementsscherm zien
+            return False
+        except Exception as e:
+            logger.error(f"Fout bij controleren abonnement: {str(e)}")
+            return False 
