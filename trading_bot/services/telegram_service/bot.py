@@ -447,36 +447,30 @@ class TelegramService:
             raise
 
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Handle the /start command - either show subscription options or main menu based on subscription status"""
+        """Handle the /start command"""
         user = update.effective_user
         chat_id = update.effective_chat.id
         
-        # Bewaar gebruiker in DB bij eerste gebruik
-        await self.db.save_user(user.id, user.first_name, user.last_name, user.username)
+        # Ga er standaard van uit dat gebruikers niet geabonneerd zijn
+        is_subscribed = False
         
-        # Check subscription status
-        is_subscribed = await self.db.is_user_subscribed(user.id)
+        # Toon altijd het abonnementsscherm voor de test
+        subscription_features = get_subscription_features("monthly")
         
-        if not is_subscribed:
-            # Toon abonnementsopties
-            subscription_features = get_subscription_features("monthly")
-            
-            # Maak knoppen
-            keyboard = [
-                [InlineKeyboardButton("📊 Subscribe Now", callback_data="subscribe_monthly")],
-                [InlineKeyboardButton("ℹ️ More Information", callback_data="subscription_info")]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            
-            await context.bot.send_message(
-                chat_id=chat_id,
-                text=SUBSCRIPTION_WELCOME_MESSAGE,
-                reply_markup=reply_markup,
-                parse_mode='HTML'
-            )
-        else:
-            # Bestaande gebruiker met abonnement - toon normale start menu
-            await self.show_main_menu(update, context)
+        # Maak knoppen
+        keyboard = [
+            [InlineKeyboardButton("📊 Subscribe Now", callback_data="subscribe_monthly")],
+            [InlineKeyboardButton("ℹ️ More Information", callback_data="subscription_info")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        # Stuur het welkomstbericht
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=SUBSCRIPTION_WELCOME_MESSAGE,
+            reply_markup=reply_markup,
+            parse_mode='HTML'
+        )
 
     async def menu_analyse_callback(self, update: Update, context=None) -> int:
         """Handle menu_analyse callback"""
