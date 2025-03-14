@@ -1863,28 +1863,41 @@ class TelegramService:
                 if from_signal:
                     back_button = InlineKeyboardButton("⬅️ Back to Signal", callback_data=f"back_to_signal_{instrument}")
                 
-                # Stuur de chart als foto
-                await query.message.reply_photo(
-                    photo=chart_image,
-                    caption=f"📊 {instrument} Technical Analysis ({timeframe})",
-                    reply_markup=InlineKeyboardMarkup([[back_button]])
-                )
-                
-                # Verwijder het laadmelding bericht
+                # In plaats van een nieuw bericht te maken, werk het bestaande bericht bij
+                # met de foto via een media groep
                 try:
-                    await query.edit_message_text(
-                        text=f"Chart for {instrument} generated successfully.",
-                        reply_markup=None
+                    # Gebruik edit_message_media om het bericht bij te werken met de grafiek
+                    await query.message.edit_media(
+                        media=InputMediaPhoto(
+                            media=chart_image,
+                            caption=f"📊 {instrument} Technical Analysis ({timeframe})"
+                        ),
+                        reply_markup=InlineKeyboardMarkup([[back_button]])
                     )
+                    
+                    logger.info(f"Updated message with chart for {instrument}")
+                    return SHOW_RESULT
                 except Exception as edit_error:
-                    logger.warning(f"Could not edit loading message: {str(edit_error)}")
-                    # Als het bericht niet kan worden bewerkt, verwijder het dan
+                    logger.warning(f"Could not edit message with media: {str(edit_error)}")
+                    
+                    # Als het bijwerken van het bericht niet lukt, stuur een nieuwe foto
+                    # maar bewaar de message_id om later te gebruiken
+                    sent_message = await query.message.reply_photo(
+                        photo=chart_image,
+                        caption=f"📊 {instrument} Technical Analysis ({timeframe})",
+                        reply_markup=InlineKeyboardMarkup([[back_button]])
+                    )
+                    
+                    # Verberg het laadmelding bericht
                     try:
-                        await query.message.delete()
-                    except:
-                        pass
-                
-                return SHOW_RESULT
+                        await query.edit_message_text(
+                            text=f"Chart for {instrument} below ⬇️",
+                            reply_markup=None
+                        )
+                    except Exception as hide_error:
+                        logger.warning(f"Could not update loading message: {str(hide_error)}")
+                    
+                    return SHOW_RESULT
             else:
                 # Toon een foutmelding
                 await query.edit_message_text(
