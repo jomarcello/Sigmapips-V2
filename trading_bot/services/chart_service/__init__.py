@@ -16,5 +16,10 @@ ChartService = _ChartService
 
 # This file can be empty, it just marks the directory as a Python package
 
+# Eenvoudige versie zonder circulaire imports
+from trading_bot.services.chart_service.chart import ChartService
+
+# Vermijd het importeren van andere services hier om circulaire imports te voorkomen
+
 
 
