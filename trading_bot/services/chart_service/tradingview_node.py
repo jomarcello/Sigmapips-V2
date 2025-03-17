@@ -178,6 +178,9 @@ class TradingViewNodeService(TradingViewService):
             # Zorg ervoor dat de URL geen aanhalingstekens bevat
             url = url.strip('"\'')
             
+            # Debug logging
+            logger.info(f"Taking screenshot with fullscreen={fullscreen}")
+            
             # Controleer of de URL naar TradingView verwijst
             if "tradingview.com" in url:
                 logger.info(f"Taking screenshot of TradingView URL: {url}")
@@ -191,6 +194,10 @@ class TradingViewNodeService(TradingViewService):
             # Voeg fullscreen parameter toe als dat nodig is
             if fullscreen or "fullscreen=true" in url:
                 cmd += " fullscreen"
+                logger.info("Adding fullscreen parameter to command")
+            
+            # Verwijder eventuele puntkomma's uit het commando
+            cmd = cmd.replace(";", "")
             
             logger.info(f"Running command: {cmd.replace(self.session_id, '****')}")
             
