@@ -2766,3 +2766,197 @@ The {instrument} {direction.lower()} signal shows a promising setup with defined
         
         status = "enabled" if self.signals_enabled else "disabled"
         await update.message.reply_text(f"Signal processing is now {status}.")
+
+    async def check_subscription(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Admin command to check subscription status of any user"""
+        user_id = update.effective_user.id
+        admin_ids = [2004519703]  # Voeg hier je admin ID toe
+        
+        if user_id not in admin_ids:
+            await update.message.reply_text("Sorry, this command is only available for admins.")
+            return
+        
+        # Check arguments
+        if context.args and len(context.args) > 0:
+            try:
+                target_user_id = int(context.args[0])
+            except ValueError:
+                await update.message.reply_text("Invalid user ID. Please provide a numeric user ID.")
+                return
+        else:
+            target_user_id = user_id  # Default to self
+        
+        # Get subscription status
+        subscription = await self.db.get_user_subscription(target_user_id)
+        is_subscribed = await self.db.is_user_subscribed(target_user_id)
+        
+        # Format response
+        if subscription:
+            status = subscription.get('subscription_status')
+            customer_id = subscription.get('stripe_customer_id')
+            subscription_id = subscription.get('stripe_subscription_id')
+            end_date = subscription.get('current_period_end')
+            
+            response = f"""
+<b>Subscription Info for User {target_user_id}</b>
+
+Status: {status}
+Active: {'Yes' if is_subscribed else 'No'}
+Stripe Customer ID: {customer_id or 'Not set'}
+Stripe Subscription ID: {subscription_id or 'Not set'}
+End Date: {end_date or 'Not set'}
+            """
+        else:
+            response = f"No subscription found for user {target_user_id}"
+        
+        await update.message.reply_text(response, parse_mode=ParseMode.HTML)
+
+    async def set_subscription(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Admin command to manually set subscription status"""
+        user_id = update.effective_user.id
+        admin_ids = [2004519703]  # Voeg hier je admin ID toe
+        
+        if user_id not in admin_ids:
+            await update.message.reply_text("Sorry, this command is only available for admins.")
+            return
+        
+        # Check arguments: /set_subscription user_id status
+        if context.args and len(context.args) >= 2:
+            try:
+                target_user_id = int(context.args[0])
+                status = context.args[1]
+                days = 14  # Default trial period
+                
+                if len(context.args) > 2:
+                    days = int(context.args[2])
+                    
+            except ValueError:
+                await update.message.reply_text("Invalid parameters. Format: /set_subscription user_id status [days]")
+                return
+        else:
+            await update.message.reply_text("Missing parameters. Format: /set_subscription user_id status [days]")
+            return
+        
+        # Set subscription status
+        end_date = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=days)
+        
+        success = await self.db.create_or_update_subscription(
+            user_id=target_user_id,
+            status=status,
+            current_period_end=end_date
+        )
+        
+        if success:
+            await update.message.reply_text(f"Subscription for user {target_user_id} set to {status} until {end_date.strftime('%Y-%m-%d')}")
+            
+            # Als de status active of trialing is, stuur het welkomstbericht
+            if status in ['active', 'trialing']:
+                # Send the welcome message
+                welcome_message = """
+✅ <b>Thank You for Subscribing to SigmaPips Trading Bot!</b> ✅
+
+Your subscription has been successfully activated. You now have full access to all features and trading signals.
+
+<b>🚀 HOW TO USE:</b>
+
+<b>1. Start with /menu</b>
+   • This will show you the main options:
+   • <b>Analyze Market</b> - For all market analysis tools
+   • <b>Trading Signals</b> - To manage your trading signals
+
+<b>2. Analyze Market options:</b>
+   • <b>Technical Analysis</b> - Charts and price levels
+   • <b>Market Sentiment</b> - Indicators and market mood
+   • <b>Economic Calendar</b> - Upcoming economic events
+
+<b>3. Trading Signals:</b>
+   • Set up which signals you want to receive
+   • Signals will be sent automatically
+   • Each includes entry, stop loss, and take profit levels
+
+Type /menu to start using the bot.
+"""
+                # Stuur alleen het welkomstbericht, geen menu of bevestiging
+                await self.send_message_to_user(target_user_id, welcome_message, parse_mode=ParseMode.HTML)
+                
+                # Also send the main menu
+                await self.show_main_menu_to_user(target_user_id)
+                
+                await update.message.reply_text(f"Welcome message sent to user {target_user_id}")
+        else:
+            await update.message.reply_text(f"Failed to update subscription for user {target_user_id}")
+
+    async def send_welcome_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Admin command to manually send welcome message"""
+        user_id = update.effective_user.id
+        admin_ids = [2004519703]  # Voeg hier je admin ID toe
+        
+        if user_id not in admin_ids:
+            await update.message.reply_text("Sorry, this command is only available for admins.")
+            return
+        
+        # Check arguments
+        if context.args and len(context.args) > 0:
+            try:
+                target_user_id = int(context.args[0])
+            except ValueError:
+                await update.message.reply_text("Invalid user ID. Please provide a numeric user ID.")
+                return
+        else:
+            target_user_id = user_id  # Default to self
+        
+        # Send the welcome message
+        welcome_message = """
+✅ <b>Thank You for Subscribing to SigmaPips Trading Bot!</b> ✅
+
+Your 14-day FREE trial has been successfully activated. You now have full access to all features and trading signals.
+
+<b>🚀 HOW TO USE:</b>
+
+<b>1. Trading Signals</b>
+   • Use /menu and select "Trading Signals"
+   • You'll automatically receive signals when they become available
+   • Signals include: entry points, stop loss, take profit levels
+
+<b>2. Market Analysis</b>
+   • Use /menu and select "Technical Analysis" 
+   • Choose your market (Forex, Crypto, etc.)
+   • Select your desired instrument (EURUSD, BTCUSD, etc.)
+   • Pick your trading style (Scalp, Intraday, Swing)
+
+<b>3. Market Sentiment</b>
+   • Use /menu and select "Market Sentiment"
+   • View real-time market sentiment indicators
+
+<b>4. Economic Calendar</b>
+   • Use /menu and select "Economic Calendar"
+   • View upcoming high-impact economic events
+
+If you need any assistance, simply type /help to see available commands.
+
+Happy Trading! 📈
+"""
+        await self.send_message_to_user(target_user_id, welcome_message)
+        
+        # Also send the main menu
+        await self.show_main_menu_to_user(target_user_id)
+        
+        await update.message.reply_text(f"Welcome message sent to user {target_user_id}")
+
+    async def show_main_menu_to_user(self, user_id: int) -> bool:
+        """Show the main menu to a specific user"""
+        try:
+            # Create the main menu keyboard
+            reply_markup = InlineKeyboardMarkup(START_KEYBOARD)
+            
+            # Send the welcome message with menu
+            await self.bot.send_message(
+                chat_id=user_id,
+                text=WELCOME_MESSAGE,
+                parse_mode=ParseMode.HTML,
+                reply_markup=reply_markup
+            )
+            return True
+        except Exception as e:
+            logger.error(f"Error showing main menu to user {user_id}: {str(e)}")
+            return False
