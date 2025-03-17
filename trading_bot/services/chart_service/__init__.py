@@ -8,6 +8,12 @@ TradingViewPuppeteerService = TradingViewPlaywrightService
 # Leeg bestand of minimale imports
 # Vermijd het importeren van ChartService en TradingViewSeleniumService hier
 
+# Exporteer de ChartService klasse
+from trading_bot.services.chart_service.chart import ChartService as _ChartService
+
+# Maak een alias voor eenvoudige import
+ChartService = _ChartService
+
 # This file can be empty, it just marks the directory as a Python package
 
 
