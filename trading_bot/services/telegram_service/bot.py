@@ -244,6 +244,7 @@ COMMODITIES_KEYBOARD_SIGNALS = [
 STYLE_KEYBOARD = [
     [InlineKeyboardButton("⚡ Test (1m)", callback_data="style_test")],
     [InlineKeyboardButton("🏃 Scalp (15m)", callback_data="style_scalp")],
+    [InlineKeyboardButton("⏱️ Scalp30 (30m)", callback_data="style_scalp30")],
     [InlineKeyboardButton("📊 Intraday (1h)", callback_data="style_intraday")],
     [InlineKeyboardButton("🌊 Swing (4h)", callback_data="style_swing")],
     [InlineKeyboardButton("⬅️ Back", callback_data="back_instrument")]
@@ -253,6 +254,7 @@ STYLE_KEYBOARD = [
 STYLE_TIMEFRAME_MAP = {
     "test": "1m",
     "scalp": "15m",
+    "scalp30": "30m",
     "intraday": "1h",
     "swing": "4h"
 }
@@ -1110,115 +1112,17 @@ To regain access to all features and trading signals, please reactivate your sub
         query = update.callback_query
         
         try:
-            # Get instrument from callback data
+            # Extract instrument from callback data
             instrument = query.data.replace('instrument_', '')
             
-            # Save instrument in user_data
-            if context and hasattr(context, 'user_data'):
-                context.user_data['instrument'] = instrument
-                analysis_type = context.user_data.get('analysis_type', 'technical')
-                logger.info(f"Instrument callback: instrument={instrument}, analysis_type={analysis_type}")
-            else:
-                # Fallback als er geen context is
-                analysis_type = 'technical'
-                logger.info(f"Instrument callback zonder context: instrument={instrument}, fallback analysis_type={analysis_type}")
+            # Log the instrument
+            logger.info(f"Instrument callback zonder context: instrument={instrument}, fallback analysis_type=technical")
             
-            # Toon het resultaat op basis van het analyse type
-            if analysis_type == 'technical':
-                logger.info(f"Toon technische analyse voor {instrument}")
-                # Toon technische analyse
-                try:
-                    # Toon een laadmelding
-                    await query.edit_message_text(
-                        text=f"Generating technical analysis for {instrument}...",
-                        reply_markup=None
-                    )
-                    
-                    # Genereer de technische analyse
-                    await self.show_technical_analysis(update, context, instrument)
-                    return SHOW_RESULT
-                except Exception as e:
-                    logger.error(f"Error showing technical analysis: {str(e)}")
-                    logger.exception(e)
-                    # Stuur een nieuw bericht als fallback
-                    await query.message.reply_text(
-                        text=f"Error generating analysis for {instrument}. Please try again.",
-                        reply_markup=InlineKeyboardMarkup([[
-                            InlineKeyboardButton("⬅️ Back", callback_data="back_menu")
-                        ]])
-                    )
-                    return MENU
-            
-            elif analysis_type == 'sentiment':
-                logger.info(f"Toon sentiment analyse voor {instrument}")
-                # Toon sentiment analyse
-                try:
-                    # Toon een laadmelding
-                    await query.edit_message_text(
-                        text=f"Getting market sentiment for {instrument}...",
-                        reply_markup=None
-                    )
-                    
-                    # Genereer de sentiment analyse (niet de technische analyse)
-                    await self.show_sentiment_analysis(update, context, instrument)
-                    return SHOW_RESULT
-                except Exception as e:
-                    logger.error(f"Error showing sentiment analysis: {str(e)}")
-                    logger.exception(e)
-                    # Stuur een nieuw bericht als fallback
-                    await query.message.reply_text(
-                        text=f"Error getting sentiment for {instrument}. Please try again.",
-                        reply_markup=InlineKeyboardMarkup([[
-                            InlineKeyboardButton("⬅️ Back", callback_data="back_menu")
-                        ]])
-                    )
-                    return MENU
-            
-            elif analysis_type == 'calendar':
-                # Toon economische kalender
-                try:
-                    # Toon een laadmelding
-                    await query.edit_message_text(
-                        text=f"Getting economic calendar for {instrument}...",
-                        reply_markup=None
-                    )
-                    
-                    # Genereer de economische kalender (niet de technische analyse)
-                    await self.show_economic_calendar(update, context, instrument)
-                    return SHOW_RESULT
-                except Exception as e:
-                    logger.error(f"Error showing economic calendar: {str(e)}")
-                    # Stuur een nieuw bericht als fallback
-                    await query.message.reply_text(
-                        text=f"Error getting economic calendar for {instrument}. Please try again.",
-                        reply_markup=InlineKeyboardMarkup([[
-                            InlineKeyboardButton("⬅️ Back", callback_data="back_menu")
-                        ]])
-                    )
-                    return MENU
-            
-            else:
-                # Onbekend analyse type, toon een foutmelding
-                await query.edit_message_text(
-                    text=f"Unknown analysis type: {analysis_type}",
-                    reply_markup=InlineKeyboardMarkup([[
-                        InlineKeyboardButton("⬅️ Back", callback_data="back_menu")
-                    ]])
-                )
-                return MENU
-        
+            # Show technical analysis with fullscreen=True
+            logger.info(f"Toon technische analyse voor {instrument}")
+            return await self.show_technical_analysis(update, context, instrument, fullscreen=True)
         except Exception as e:
             logger.error(f"Error in instrument_callback: {str(e)}")
-            try:
-                # Stuur een nieuw bericht als fallback
-                await query.message.reply_text(
-                    text="An error occurred. Please try again.",
-                    reply_markup=InlineKeyboardMarkup([[
-                        InlineKeyboardButton("⬅️ Back", callback_data="back_menu")
-                    ]])
-                )
-            except:
-                pass
             return MENU
 
     async def instrument_signals_callback(self, update: Update, context=None) -> int:
@@ -1839,7 +1743,7 @@ The {instrument} {direction.lower()} signal shows a promising setup with defined
                 # Create keyboard with direct analysis options
                 keyboard = [
                     [InlineKeyboardButton("📊 Technical Analysis", callback_data=f"direct_technical_{instrument}")],
-                    [InlineKeyboardButton("�� Market Sentiment", callback_data=f"direct_sentiment_{instrument}")],
+                    [InlineKeyboardButton(" Market Sentiment", callback_data=f"direct_sentiment_{instrument}")],
                     [InlineKeyboardButton("📅 Economic Calendar", callback_data=f"direct_calendar_{instrument}")],
                     [InlineKeyboardButton("⬅️ Back to Signal", callback_data=f"back_to_signal_{instrument}")]
                 ]
@@ -2070,7 +1974,7 @@ The {instrument} {direction.lower()} signal shows a promising setup with defined
             logger.exception(e)
             return MENU
 
-    async def show_technical_analysis(self, update: Update, context=None, instrument=None, from_signal=False, style=None):
+    async def show_technical_analysis(self, update: Update, context=None, instrument=None, from_signal=False, style=None, fullscreen=True):
         """Show technical analysis for an instrument"""
         query = update.callback_query
         
@@ -2090,7 +1994,8 @@ The {instrument} {direction.lower()} signal shows a promising setup with defined
                 logger.warning(f"Could not edit message: {str(e)}")
             
             # Haal de chart op met de gekozen timeframe of de default (1h)
-            chart_image = await self.chart.get_chart(instrument, timeframe=timeframe)
+            # Geef de fullscreen parameter door
+            chart_image = await self.chart.get_chart(instrument, timeframe=timeframe, fullscreen=fullscreen)
             
             if chart_image:
                 # Bepaal de juiste back-knop op basis van de context
