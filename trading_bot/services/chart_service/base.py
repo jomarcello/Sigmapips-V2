@@ -14,11 +14,15 @@ class TradingViewService:
     
     async def initialize(self):
         """Initialize the service"""
-        raise NotImplementedError("Subclasses must implement initialize()")
+        return False
     
     async def take_screenshot(self, symbol, timeframe=None):
         """Take a screenshot of a chart"""
         raise NotImplementedError("Subclasses must implement take_screenshot()")
+    
+    async def take_screenshot_of_url(self, url):
+        """Take a screenshot of a URL"""
+        return None
     
     async def close(self):
         """Close the service"""
@@ -59,8 +63,4 @@ class TradingViewService:
     
     async def cleanup(self):
         """Clean up resources"""
-        try:
-            await self.close()
-            logger.info(f"{self.__class__.__name__} cleaned up")
-        except Exception as e:
-            logger.error(f"Error cleaning up {self.__class__.__name__}: {str(e)}") 
+        pass 
