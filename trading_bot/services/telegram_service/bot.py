@@ -153,16 +153,39 @@ MARKET_KEYBOARD = [
 # Forex keyboard voor analyse
 FOREX_KEYBOARD = [
     [
-        InlineKeyboardButton("EURUSD", callback_data="instrument_EURUSD"),
-        InlineKeyboardButton("GBPUSD", callback_data="instrument_GBPUSD"),
-        InlineKeyboardButton("USDJPY", callback_data="instrument_USDJPY")
+        InlineKeyboardButton("EURUSD", callback_data="instrument_EURUSD_analysis"),
+        InlineKeyboardButton("GBPUSD", callback_data="instrument_GBPUSD_analysis"),
+        InlineKeyboardButton("USDCAD", callback_data="instrument_USDCAD_analysis")
     ],
     [
-        InlineKeyboardButton("USDCAD", callback_data="instrument_USDCAD"),
-        InlineKeyboardButton("EURGBP", callback_data="instrument_EURGBP")
+        InlineKeyboardButton("EURGBP", callback_data="instrument_EURGBP_analysis"),
+        InlineKeyboardButton("EURJPY", callback_data="instrument_EURJPY_analysis"),
+        InlineKeyboardButton("AUDJPY", callback_data="instrument_AUDJPY_analysis")
     ],
     [
-        InlineKeyboardButton("AUDCAD", callback_data="instrument_AUDCAD")
+        InlineKeyboardButton("AUDCAD", callback_data="instrument_AUDCAD_analysis"),
+        InlineKeyboardButton("AUDCHF", callback_data="instrument_AUDCHF_analysis"),
+        InlineKeyboardButton("CADCHF", callback_data="instrument_CADCHF_analysis")
+    ],
+    [
+        InlineKeyboardButton("EURCAD", callback_data="instrument_EURCAD_analysis"),
+        InlineKeyboardButton("EURCHF", callback_data="instrument_EURCHF_analysis"),
+        InlineKeyboardButton("EURAUD", callback_data="instrument_EURAUD_analysis")
+    ],
+    [
+        InlineKeyboardButton("GBPAUD", callback_data="instrument_GBPAUD_analysis"),
+        InlineKeyboardButton("GBPCAD", callback_data="instrument_GBPCAD_analysis"),
+        InlineKeyboardButton("GBPCHF", callback_data="instrument_GBPCHF_analysis")
+    ],
+    [
+        InlineKeyboardButton("GBPNZD", callback_data="instrument_GBPNZD_analysis"),
+        InlineKeyboardButton("NZDCAD", callback_data="instrument_NZDCAD_analysis"),
+        InlineKeyboardButton("NZDCHF", callback_data="instrument_NZDCHF_analysis")
+    ],
+    [
+        InlineKeyboardButton("NZDJPY", callback_data="instrument_NZDJPY_analysis"),
+        InlineKeyboardButton("NZDUSD", callback_data="instrument_NZDUSD_analysis"),
+        InlineKeyboardButton("USDCHF", callback_data="instrument_USDCHF_analysis")
     ],
     [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
 ]
@@ -172,14 +195,37 @@ FOREX_KEYBOARD_SIGNALS = [
     [
         InlineKeyboardButton("EURUSD", callback_data="instrument_EURUSD_signals"),
         InlineKeyboardButton("GBPUSD", callback_data="instrument_GBPUSD_signals"),
-        InlineKeyboardButton("USDJPY", callback_data="instrument_USDJPY_signals")
+        InlineKeyboardButton("USDCAD", callback_data="instrument_USDCAD_signals")
     ],
     [
-        InlineKeyboardButton("USDCAD", callback_data="instrument_USDCAD_signals"),
-        InlineKeyboardButton("EURGBP", callback_data="instrument_EURGBP_signals")
+        InlineKeyboardButton("EURGBP", callback_data="instrument_EURGBP_signals"),
+        InlineKeyboardButton("EURJPY", callback_data="instrument_EURJPY_signals"),
+        InlineKeyboardButton("AUDJPY", callback_data="instrument_AUDJPY_signals")
     ],
     [
-        InlineKeyboardButton("AUDCAD", callback_data="instrument_AUDCAD_signals")
+        InlineKeyboardButton("AUDCAD", callback_data="instrument_AUDCAD_signals"),
+        InlineKeyboardButton("AUDCHF", callback_data="instrument_AUDCHF_signals"),
+        InlineKeyboardButton("CADCHF", callback_data="instrument_CADCHF_signals")
+    ],
+    [
+        InlineKeyboardButton("EURCAD", callback_data="instrument_EURCAD_signals"),
+        InlineKeyboardButton("EURCHF", callback_data="instrument_EURCHF_signals"),
+        InlineKeyboardButton("EURAUD", callback_data="instrument_EURAUD_signals")
+    ],
+    [
+        InlineKeyboardButton("GBPAUD", callback_data="instrument_GBPAUD_signals"),
+        InlineKeyboardButton("GBPCAD", callback_data="instrument_GBPCAD_signals"),
+        InlineKeyboardButton("GBPCHF", callback_data="instrument_GBPCHF_signals")
+    ],
+    [
+        InlineKeyboardButton("GBPNZD", callback_data="instrument_GBPNZD_signals"),
+        InlineKeyboardButton("NZDCAD", callback_data="instrument_NZDCAD_signals"),
+        InlineKeyboardButton("NZDCHF", callback_data="instrument_NZDCHF_signals")
+    ],
+    [
+        InlineKeyboardButton("NZDJPY", callback_data="instrument_NZDJPY_signals"),
+        InlineKeyboardButton("NZDUSD", callback_data="instrument_NZDUSD_signals"),
+        InlineKeyboardButton("USDCHF", callback_data="instrument_USDCHF_signals")
     ],
     [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
 ]
@@ -187,19 +233,41 @@ FOREX_KEYBOARD_SIGNALS = [
 # Crypto keyboard voor analyse
 CRYPTO_KEYBOARD = [
     [
-        InlineKeyboardButton("BTCUSD", callback_data="instrument_BTCUSD"),
-        InlineKeyboardButton("ETHUSD", callback_data="instrument_ETHUSD"),
-        InlineKeyboardButton("XRPUSD", callback_data="instrument_XRPUSD")
+        InlineKeyboardButton("ETHUSD", callback_data="instrument_ETHUSD_analysis"),
+        InlineKeyboardButton("XRPUSD", callback_data="instrument_XRPUSD_analysis")
     ],
-    [InlineKeyboardButton("⬅️ Terug", callback_data="back_market")]
+    [
+        InlineKeyboardButton("BNBUSD", callback_data="instrument_BNBUSD_analysis"),
+        InlineKeyboardButton("DOTUSD", callback_data="instrument_DOTUSD_analysis")
+    ],
+    [
+        InlineKeyboardButton("DOGEUSD", callback_data="instrument_DOGEUSD_analysis"),
+        InlineKeyboardButton("SOLUSD", callback_data="instrument_SOLUSD_analysis")
+    ],
+    [
+        InlineKeyboardButton("LINKUSD", callback_data="instrument_LINKUSD_analysis"),
+        InlineKeyboardButton("XLMUSD", callback_data="instrument_XLMUSD_analysis")
+    ],
+    [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
 ]
 
-# Crypto keyboard voor signals - Fix de "Terug" knop naar "Back"
+# Crypto keyboard voor signals
 CRYPTO_KEYBOARD_SIGNALS = [
     [
-        InlineKeyboardButton("BTCUSD", callback_data="instrument_BTCUSD_signals"),
         InlineKeyboardButton("ETHUSD", callback_data="instrument_ETHUSD_signals"),
         InlineKeyboardButton("XRPUSD", callback_data="instrument_XRPUSD_signals")
+    ],
+    [
+        InlineKeyboardButton("BNBUSD", callback_data="instrument_BNBUSD_signals"),
+        InlineKeyboardButton("DOTUSD", callback_data="instrument_DOTUSD_signals")
+    ],
+    [
+        InlineKeyboardButton("DOGEUSD", callback_data="instrument_DOGEUSD_signals"),
+        InlineKeyboardButton("SOLUSD", callback_data="instrument_SOLUSD_signals")
+    ],
+    [
+        InlineKeyboardButton("LINKUSD", callback_data="instrument_LINKUSD_signals"),
+        InlineKeyboardButton("XLMUSD", callback_data="instrument_XLMUSD_signals")
     ],
     [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
 ]
@@ -208,11 +276,15 @@ CRYPTO_KEYBOARD_SIGNALS = [
 INDICES_KEYBOARD = [
     [
         InlineKeyboardButton("US30", callback_data="instrument_US30_analysis"),
-        InlineKeyboardButton("US500", callback_data="instrument_US500_analysis"),
-        InlineKeyboardButton("US100", callback_data="instrument_US100_analysis")
+        InlineKeyboardButton("US500", callback_data="instrument_US500_analysis")
     ],
     [
-        InlineKeyboardButton("AUD200", callback_data="instrument_AUD200_analysis")
+        InlineKeyboardButton("UK100", callback_data="instrument_UK100_analysis"),
+        InlineKeyboardButton("DE40", callback_data="instrument_DE40_analysis")
+    ],
+    [
+        InlineKeyboardButton("AU200", callback_data="instrument_AU200_analysis"),
+        InlineKeyboardButton("HK50", callback_data="instrument_HK50_analysis")
     ],
     [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
 ]
@@ -221,11 +293,15 @@ INDICES_KEYBOARD = [
 INDICES_KEYBOARD_SIGNALS = [
     [
         InlineKeyboardButton("US30", callback_data="instrument_US30_signals"),
-        InlineKeyboardButton("US500", callback_data="instrument_US500_signals"),
-        InlineKeyboardButton("US100", callback_data="instrument_US100_signals")
+        InlineKeyboardButton("US500", callback_data="instrument_US500_signals")
     ],
     [
-        InlineKeyboardButton("AUD200", callback_data="instrument_AUD200_signals")
+        InlineKeyboardButton("UK100", callback_data="instrument_UK100_signals"),
+        InlineKeyboardButton("DE40", callback_data="instrument_DE40_signals")
+    ],
+    [
+        InlineKeyboardButton("AU200", callback_data="instrument_AU200_signals"),
+        InlineKeyboardButton("HK50", callback_data="instrument_HK50_signals")
     ],
     [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
 ]
@@ -233,19 +309,17 @@ INDICES_KEYBOARD_SIGNALS = [
 # Commodities keyboard voor analyse
 COMMODITIES_KEYBOARD = [
     [
-        InlineKeyboardButton("XAUUSD", callback_data="instrument_XAUUSD"),
-        InlineKeyboardButton("XAGUSD", callback_data="instrument_XAGUSD"),
-        InlineKeyboardButton("USOIL", callback_data="instrument_USOIL")
+        InlineKeyboardButton("XAUUSD", callback_data="instrument_XAUUSD_analysis"),
+        InlineKeyboardButton("XTIUSD", callback_data="instrument_XTIUSD_analysis")
     ],
-    [InlineKeyboardButton("⬅️ Terug", callback_data="back_market")]
+    [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
 ]
 
-# Commodities keyboard voor signals - Fix de "Terug" knop naar "Back"
+# Commodities keyboard voor signals
 COMMODITIES_KEYBOARD_SIGNALS = [
     [
         InlineKeyboardButton("XAUUSD", callback_data="instrument_XAUUSD_signals"),
-        InlineKeyboardButton("XAGUSD", callback_data="instrument_XAGUSD_signals"),
-        InlineKeyboardButton("USOIL", callback_data="instrument_USOIL_signals")
+        InlineKeyboardButton("XTIUSD", callback_data="instrument_XTIUSD_signals")
     ],
     [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
 ]
@@ -1128,14 +1202,12 @@ To regain access to all features and trading signals, please reactivate your sub
             # Log the instrument
             logger.info(f"Instrument callback voor analyse: instrument={instrument}")
             
-            # Speciale behandeling voor AUD200 en AUDCAD - alleen intraday opties tonen
-            if instrument in ["AUD200", "AUDCAD"]:
-                # Aangepast toetsenbord met alleen intraday opties voor analyse
-                restricted_keyboard = [
-                    [InlineKeyboardButton("📊 Intraday (1h)", callback_data=f"direct_technical_{instrument}_1h_analysis")],
-                    [InlineKeyboardButton("🌊 Intraday (4h)", callback_data=f"direct_technical_{instrument}_4h_analysis")],
-                    [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
-                ]
+            # Controleer of dit instrument een beperkte timeframe heeft
+            if instrument in RESTRICTED_TIMEFRAMES:
+                timeframe = RESTRICTED_TIMEFRAMES[instrument]
+                
+                # Maak een beperkt keyboard met alleen de toegestane timeframe
+                restricted_keyboard = create_restricted_keyboard(instrument, timeframe)
                 
                 # Toon de beperkte stijl keuze
                 await query.edit_message_text(
@@ -1164,14 +1236,12 @@ To regain access to all features and trading signals, please reactivate your sub
                 context.user_data['in_signals_flow'] = True
                 context.user_data['instrument'] = instrument
             
-            # Speciale behandeling voor AUD200 en AUDCAD - alleen intraday opties tonen
-            if instrument in ["AUD200", "AUDCAD"]:
-                # Aangepast toetsenbord met alleen intraday opties voor SIGNALS
-                restricted_keyboard = [
-                    [InlineKeyboardButton("📊 Intraday (1h)", callback_data="style_intraday_restricted")],
-                    [InlineKeyboardButton("🌊 Intraday (4h)", callback_data="style_swing_restricted")],
-                    [InlineKeyboardButton("⬅️ Back", callback_data="back_instrument")]
-                ]
+            # Controleer of dit instrument een beperkte timeframe heeft
+            if instrument in RESTRICTED_TIMEFRAMES:
+                timeframe = RESTRICTED_TIMEFRAMES[instrument]
+                
+                # Maak een beperkt keyboard met alleen de toegestane timeframe
+                restricted_keyboard = create_restricted_keyboard(instrument, timeframe)
                 
                 # Toon de beperkte stijl keuze
                 await query.edit_message_text(
@@ -3101,3 +3171,82 @@ Happy Trading! 📈
         except Exception as e:
             logger.error(f"Error showing main menu to user {user_id}: {str(e)}")
             return False
+
+# Functie om beperkte timeframe keyboard te maken op basis van timeframe
+def create_restricted_keyboard(instrument, timeframe):
+    """Maak een beperkt keyboard met alleen de opgegeven timeframe"""
+    # Bepaal de stijl op basis van de timeframe
+    style_map = {
+        "m15": "scalp",
+        "m30": "scalp30",
+        "h1": "intraday",
+        "h4": "swing"
+    }
+    
+    # Bepaal de emoji en tekst op basis van de timeframe
+    emoji_map = {
+        "m15": "🏃",
+        "m30": "⏱️",
+        "h1": "📊",
+        "h4": "🌊"
+    }
+    
+    text_map = {
+        "m15": "Scalp (15m)",
+        "m30": "Scalp (30m)",
+        "h1": "Intraday (1h)",
+        "h4": "Intraday (4h)"
+    }
+    
+    style = style_map.get(timeframe.lower(), "intraday")
+    emoji = emoji_map.get(timeframe.lower(), "📊")
+    text = text_map.get(timeframe.lower(), "Intraday (1h)")
+    
+    # Maak het keyboard
+    restricted_keyboard = [
+        [InlineKeyboardButton(f"{emoji} {text}", callback_data=f"style_{style}_restricted")],
+        [InlineKeyboardButton("⬅️ Back", callback_data="back_instrument")]
+    ]
+    
+    return restricted_keyboard
+
+# Definieer de instrumenten met hun beperkte timeframes
+RESTRICTED_TIMEFRAMES = {
+    "AUDJPY": "h1",
+    "AUDCHF": "h1",
+    "AUDCAD": "h4",
+    "AU200": "h4",
+    "BNBUSD": "m30",
+    "CADCHF": "h4",
+    "DOGEUSD": "m15",
+    "DOTUSD": "m30",
+    "ETHUSD": "m30",
+    "EURAUD": "m30",
+    "EURCAD": "h1",
+    "EURCHF": "h4",
+    "EURGBP": "h1",
+    "EURJPY": "m30",
+    "EURUSD": "h4",
+    "GBPAUD": "m30",
+    "GBPCAD": "h4",
+    "GBPCHF": "h1",
+    "GBPNZD": "m15",
+    "GBPUSD": "m30",
+    "HK50": "h1",
+    "LINKUSD": "h4",
+    "NZDCAD": "m30",
+    "NZDCHF": "h4",
+    "NZDJPY": "h1",
+    "NZDUSD": "m15",
+    "SOLUSD": "m15",
+    "UK100": "m15",
+    "US30": "m30",
+    "US500": "m30",
+    "USDCAD": "m30",
+    "USDCHF": "h1",
+    "XLMUSD": "m30",
+    "XRPUSD": "h1",
+    "XTIUSD": "m30",
+    "DE40": "m30",
+    "XAUUSD": "m15"
+}
