@@ -318,35 +318,25 @@ Your 14-day FREE trial has been successfully activated. You now have full access
 
 <b>🚀 HOW TO USE:</b>
 
-<b>1. Trading Signals</b>
-   • Use /menu and select "Trading Signals"
-   • You'll automatically receive signals when they become available
-   • Signals include: entry points, stop loss, take profit levels
+<b>1. Start with /menu</b>
+   • This will show you the main options:
+   • <b>Analyze Market</b> - For all market analysis tools
+   • <b>Trading Signals</b> - To manage your trading signals
 
-<b>2. Market Analysis</b>
-   • Use /menu and select "Technical Analysis" 
-   • Choose your market (Forex, Crypto, etc.)
-   • Select your desired instrument (EURUSD, BTCUSD, etc.)
-   • Pick your trading style (Scalp, Intraday, Swing)
+<b>2. Analyze Market options:</b>
+   • <b>Technical Analysis</b> - Charts and price levels
+   • <b>Market Sentiment</b> - Indicators and market mood
+   • <b>Economic Calendar</b> - Upcoming economic events
 
-<b>3. Market Sentiment</b>
-   • Use /menu and select "Market Sentiment"
-   • View real-time market sentiment indicators
+<b>3. Trading Signals:</b>
+   • Set up which signals you want to receive
+   • Signals will be sent automatically
+   • Each includes entry, stop loss, and take profit levels
 
-<b>4. Economic Calendar</b>
-   • Use /menu and select "Economic Calendar"
-   • View upcoming high-impact economic events
-
-
-If you need any assistance, simply type /help to see available commands.
-
-Happy Trading! 📈
+Type /menu to start using the bot.
 """
-                    await self.telegram_service.send_message_to_user(user_id, welcome_message)
-                    
-                    # Also send the main menu to get them started
-                    await self.telegram_service.show_main_menu_to_user(user_id)
-                    
+                    # Stuur alleen het welkomstbericht, geen menu of bevestiging
+                    await self.telegram_service.send_message_to_user(user_id, welcome_message, parse_mode=ParseMode.HTML)
                     return True
                 
                 return False
