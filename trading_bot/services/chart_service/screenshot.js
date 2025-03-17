@@ -99,9 +99,13 @@ const { chromium } = require('playwright');
       
       // Als fullscreen is aangevraagd, simuleer Shift+F
       if (fullscreen || url.includes('fullscreen=true')) {
-        console.log('Enabling fullscreen mode...');
-        await page.keyboard.press('F11');
-        await page.waitForTimeout(1000);
+        console.log('Enabling fullscreen mode with Shift+F...');
+        // Gebruik Shift+F in plaats van F11
+        await page.keyboard.down('Shift');
+        await page.keyboard.press('F');
+        await page.keyboard.up('Shift');
+        await page.waitForTimeout(2000); // Wacht iets langer voor fullscreen effect
+        console.log('Fullscreen mode activated');
       }
       
       console.log('Chart loaded, taking screenshot...');
