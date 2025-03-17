@@ -246,9 +246,9 @@ class TradingViewNodeService(TradingViewService):
                 # Voeg een parameter toe die aangeeft dat we Shift+F moeten simuleren
                 url += "&simulate_shift_f=true"
             
-            # Voer het Node.js script uit
-            cmd = f"node {self.script_path} \"{url}\" \"{screenshot_path}\" \"{self.tradingview_username}\""
-            logger.info(f"Running command: {cmd.replace(self.tradingview_username, '****')} ")
+            # Gebruik session_id in plaats van tradingview_username
+            cmd = f"node {self.script_path} \"{url}\" \"{screenshot_path}\" \"{self.session_id}\""
+            logger.info(f"Running command: {cmd.replace(self.session_id, '****')} ")
             
             process = await asyncio.create_subprocess_shell(
                 cmd,
