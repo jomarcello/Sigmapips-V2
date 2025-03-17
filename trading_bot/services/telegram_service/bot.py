@@ -161,10 +161,13 @@ FOREX_KEYBOARD = [
         InlineKeyboardButton("USDCAD", callback_data="instrument_USDCAD"),
         InlineKeyboardButton("EURGBP", callback_data="instrument_EURGBP")
     ],
+    [
+        InlineKeyboardButton("AUDCAD", callback_data="instrument_AUDCAD")
+    ],
     [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
 ]
 
-# Forex keyboard voor signals - Fix de "Terug" knop naar "Back"
+# Forex keyboard voor signals
 FOREX_KEYBOARD_SIGNALS = [
     [
         InlineKeyboardButton("EURUSD", callback_data="instrument_EURUSD_signals"),
@@ -174,6 +177,9 @@ FOREX_KEYBOARD_SIGNALS = [
     [
         InlineKeyboardButton("USDCAD", callback_data="instrument_USDCAD_signals"),
         InlineKeyboardButton("EURGBP", callback_data="instrument_EURGBP_signals")
+    ],
+    [
+        InlineKeyboardButton("AUDCAD", callback_data="instrument_AUDCAD_signals")
     ],
     [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
 ]
@@ -205,6 +211,9 @@ INDICES_KEYBOARD = [
         InlineKeyboardButton("US500", callback_data="instrument_US500"),
         InlineKeyboardButton("US100", callback_data="instrument_US100")
     ],
+    [
+        InlineKeyboardButton("AUD200", callback_data="instrument_AUD200")
+    ],
     [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
 ]
 
@@ -214,6 +223,9 @@ INDICES_KEYBOARD_SIGNALS = [
         InlineKeyboardButton("US30", callback_data="instrument_US30_signals"),
         InlineKeyboardButton("US500", callback_data="instrument_US500_signals"),
         InlineKeyboardButton("US100", callback_data="instrument_US100_signals")
+    ],
+    [
+        InlineKeyboardButton("AUD200", callback_data="instrument_AUD200_signals")
     ],
     [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
 ]
@@ -242,9 +254,9 @@ COMMODITIES_KEYBOARD_SIGNALS = [
 STYLE_KEYBOARD = [
     [InlineKeyboardButton("⚡ Test (1m)", callback_data="style_test")],
     [InlineKeyboardButton("🏃 Scalp (15m)", callback_data="style_scalp")],
-    [InlineKeyboardButton("⏱️ Scalp30 (30m)", callback_data="style_scalp30")],
+    [InlineKeyboardButton("⏱️ Scalp (30m)", callback_data="style_scalp30")],
     [InlineKeyboardButton("📊 Intraday (1h)", callback_data="style_intraday")],
-    [InlineKeyboardButton("🌊 Swing (4h)", callback_data="style_swing")],
+    [InlineKeyboardButton("🌊 Intraday (4h)", callback_data="style_swing")],
     [InlineKeyboardButton("⬅️ Back", callback_data="back_instrument")]
 ]
 
@@ -1136,11 +1148,26 @@ To regain access to all features and trading signals, please reactivate your sub
                 context.user_data['in_signals_flow'] = True
                 context.user_data['instrument'] = instrument
             
-            # Toon de stijl keuze
-            await query.edit_message_text(
-                text=f"Choose trading style for {instrument}:",
-                reply_markup=InlineKeyboardMarkup(STYLE_KEYBOARD)
-            )
+            # Speciale behandeling voor AUD200 en AUDCAD - alleen intraday opties tonen
+            if instrument in ["AUD200", "AUDCAD"]:
+                # Aangepast toetsenbord met alleen intraday opties
+                restricted_keyboard = [
+                    [InlineKeyboardButton("📊 Intraday (1h)", callback_data="style_intraday")],
+                    [InlineKeyboardButton("🌊 Intraday (4h)", callback_data="style_swing")],
+                    [InlineKeyboardButton("⬅️ Back", callback_data="back_instrument")]
+                ]
+                
+                # Toon de beperkte stijl keuze
+                await query.edit_message_text(
+                    text=f"Choose trading style for {instrument}:",
+                    reply_markup=InlineKeyboardMarkup(restricted_keyboard)
+                )
+            else:
+                # Toon de normale stijl keuze voor andere instrumenten
+                await query.edit_message_text(
+                    text=f"Choose trading style for {instrument}:",
+                    reply_markup=InlineKeyboardMarkup(STYLE_KEYBOARD)
+                )
             
             return CHOOSE_STYLE
         except Exception as e:
