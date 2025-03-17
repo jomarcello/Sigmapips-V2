@@ -4,6 +4,8 @@ import asyncio
 import json
 import base64
 import subprocess
+import time
+from typing import Optional, Dict, List, Any, Union
 from io import BytesIO
 from datetime import datetime
 from trading_bot.services.chart_service.tradingview import TradingViewService
@@ -232,7 +234,7 @@ class TradingViewNodeService(TradingViewService):
         # Geen resources om op te ruimen
         logger.info("TradingView Node.js service cleaned up")
     
-    async def take_screenshot_of_url(self, url: str, fullscreen: bool = False) -> Optional[bytes]:
+    async def take_screenshot_of_url(self, url: str, fullscreen: bool = False):
         """Take a screenshot of a TradingView chart URL using Node.js"""
         try:
             # Bepaal het pad naar de screenshot.js
