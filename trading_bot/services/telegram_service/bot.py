@@ -1689,11 +1689,43 @@ To regain access to all features and trading signals, please reactivate your sub
             tp3 = signal_data.get('tp3', 0)
             interval = signal_data.get('interval', '1h')
             
+            # Log het ontvangen signaal
+            logger.info(f"Received signal: {signal_data}")
+            
+            # Controleer of we voldoende gegevens hebben om een signaal te versturen
+            if not instrument or not price:
+                logger.error("Missing required signal data (instrument or price)")
+                return False
+            
             # Fix voor TradingView placeholders
             if direction == '{{STRATEGY.ORDER.ACTION}}' or direction == '{{strategy.order.action}}':
+                # Als we geen geldige stop loss hebben, maak een standaard stop loss
+                if not sl or sl == 0:
+                    # Maak een standaard stop loss op 1% van de prijs
+                    sl = price * 0.99 if direction == 'BUY' else price * 1.01
+                    logger.info(f"Created default stop loss: {sl}")
+                
                 # Bepaal richting op basis van stop loss en entry price
                 direction = 'BUY' if price > sl else 'SELL'
                 logger.info(f"Replaced placeholder with determined direction: {direction}")
+            
+            # Als we nog steeds geen geldige stop loss hebben, maak een standaard stop loss
+            if not sl or sl == 0:
+                sl = price * 0.99 if direction == 'BUY' else price * 1.01
+                logger.info(f"Created default stop loss: {sl}")
+            
+            # Als we geen take profit hebben, maak standaard take profit levels
+            if not tp1 or tp1 == 0:
+                tp1 = price * 1.01 if direction == 'BUY' else price * 0.99
+                logger.info(f"Created default TP1: {tp1}")
+            
+            if not tp2 or tp2 == 0:
+                tp2 = price * 1.02 if direction == 'BUY' else price * 0.98
+                logger.info(f"Created default TP2: {tp2}")
+            
+            if not tp3 or tp3 == 0:
+                tp3 = price * 1.03 if direction == 'BUY' else price * 0.97
+                logger.info(f"Created default TP3: {tp3}")
             
             # Create emoji based on direction
             direction_emoji = "📈" if direction == "BUY" else "📉"
@@ -1705,17 +1737,10 @@ Instrument: {instrument}
 Action: {direction} {direction_emoji}
 
 Entry Price: {price:.2f}
-Stop Loss: {sl:.2f} 🔴"""
-
-            # Add take profit levels if they exist
-            if tp1:
-                signal_message += f"\nTake Profit 1: {tp1:.2f} 🎯"
-            if tp2:
-                signal_message += f"\nTake Profit 2: {tp2:.2f} 🎯"
-            if tp3:
-                signal_message += f"\nTake Profit 3: {tp3:.2f} 🎯"
-
-            signal_message += f"""
+Stop Loss: {sl:.2f} 🔴
+Take Profit 1: {tp1:.2f} 🎯
+Take Profit 2: {tp2:.2f} 🎯
+Take Profit 3: {tp3:.2f} 🎯
 
 Timeframe: {interval}
 Strategy: TradingView Signal
@@ -1735,7 +1760,56 @@ The {instrument} {direction.lower()} signal shows a promising setup with defined
             # Find subscribers for this signal
             subscribers = await self.db.match_subscribers(signal_data)
             
-            # Rest van de code blijft hetzelfde...
+            # Verwijder dubbele gebruikers
+            unique_subscribers = {}
+            for sub in subscribers:
+                user_id = sub.get('user_id')
+                if user_id not in unique_subscribers:
+                    unique_subscribers[user_id] = sub
+            
+            # Stuur het signaal naar elke unieke abonnee
+            sent_count = 0
+            for user_id, subscriber in unique_subscribers.items():
+                try:
+                    logger.info(f"Sending signal to user {user_id}")
+                    
+                    # Controleer abonnementsstatus
+                    is_subscribed = await self.db.is_user_subscribed(int(user_id))
+                    if not is_subscribed:
+                        logger.info(f"User {user_id} has no active subscription, skipping signal")
+                        continue
+                    
+                    # Maak de keyboard met één knop voor analyse
+                    keyboard = [
+                        [InlineKeyboardButton("🔍 Analyze Market", callback_data=f"analyze_market_{instrument}")]
+                    ]
+                    
+                    # Stuur het signaal met de analyse knop
+                    await self.bot.send_message(
+                        chat_id=user_id,
+                        text=signal_message,
+                        reply_markup=InlineKeyboardMarkup(keyboard),
+                        parse_mode=ParseMode.HTML
+                    )
+                    
+                    # Sla het signaal op in de user_signals dictionary
+                    self.user_signals[int(user_id)] = {
+                        'instrument': instrument,
+                        'message': signal_message,
+                        'direction': direction,
+                        'price': price,
+                        'timestamp': time.time()
+                    }
+                    
+                    # Sla de signalen op naar bestand
+                    self._save_signals()
+                    
+                    logger.info(f"Saved signal for user {user_id} in user_signals")
+                    
+                    sent_count += 1
+                except Exception as user_error:
+                    logger.error(f"Error sending signal to user {user_id}: {str(user_error)}")
+                    logger.exception(user_error)
             
             # Log het verwerkte signaal
             logger.info(f"Processed signal: {signal_data}")
