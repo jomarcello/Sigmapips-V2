@@ -3,7 +3,7 @@ let playwright;
 try {
     // Probeer eerst lokaal geïnstalleerde module
     playwright = require('playwright');
-    console.log("Using playwright module");
+    console.log("Using locally installed playwright module");
 } catch (e) {
     try {
         // Probeer globaal geïnstalleerde module
@@ -102,25 +102,35 @@ const chromium = playwright.chromium;
             
             // Als fullscreen is ingeschakeld, verberg UI-elementen
             if (fullscreen) {
+                console.log('Removing UI elements for fullscreen...');
                 await page.evaluate(() => {
                     // Verberg de header
                     const header = document.querySelector('.tv-header');
                     if (header) header.style.display = 'none';
                     
                     // Verberg de toolbar
-                    const toolbar = document.querySelector('.tv-main-panel__top-toolbar');
+                    const toolbar = document.querySelector('.tv-main-panel__toolbar');
                     if (toolbar) toolbar.style.display = 'none';
                     
-                    // Verberg de linker sidebar
-                    const leftSidebar = document.querySelector('.tv-side-toolbar');
-                    if (leftSidebar) leftSidebar.style.display = 'none';
+                    // Verberg de zijbalk
+                    const sidebar = document.querySelector('.tv-side-toolbar');
+                    if (sidebar) sidebar.style.display = 'none';
                     
-                    // Verberg de rechter sidebar
-                    const rightSidebar = document.querySelector('.tv-side-toolbar--right');
-                    if (rightSidebar) rightSidebar.style.display = 'none';
+                    // Verberg andere UI-elementen
+                    const panels = document.querySelectorAll('.layout__area--left, .layout__area--right');
+                    panels.forEach(panel => {
+                        if (panel) panel.style.display = 'none';
+                    });
+                    
+                    // Maximaliseer de chart
+                    const chart = document.querySelector('.chart-container');
+                    if (chart) {
+                        chart.style.width = '100vw';
+                        chart.style.height = '100vh';
+                    }
                     
                     // Verberg de footer
-                    const footer = document.querySelector('.tv-main-panel__footer');
+                    const footer = document.querySelector('footer');
                     if (footer) footer.style.display = 'none';
                     
                     // Verberg de statusbalk
@@ -161,7 +171,15 @@ const chromium = playwright.chromium;
             console.error('Error loading page, trying to take screenshot anyway:', error);
         }
         
-        // Neem een screenshot
+        // Simuleer Shift+F om fullscreen modus te activeren
+        await page.keyboard.down('Shift');
+        await page.keyboard.press('F');
+        await page.keyboard.up('Shift');
+
+        // Wacht even zodat de UI kan updaten
+        await page.waitForTimeout(1000);
+        
+        // Maak nu de screenshot
         console.log('Taking screenshot...');
         await page.screenshot({
             path: outputPath,
@@ -177,4 +195,4 @@ const chromium = playwright.chromium;
         console.error('Error taking screenshot:', error);
         process.exit(1);
     }
-})();
+})(); 
