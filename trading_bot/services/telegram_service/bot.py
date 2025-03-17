@@ -1413,8 +1413,8 @@ To regain access to all features and trading signals, please reactivate your sub
                     text="Select your analysis type:",
                     reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
                 )
-            except Exception as inner_e:
-                logger.error(f"Failed to send fallback message: {str(inner_e)}")
+            except:
+                pass
             
             return CHOOSE_ANALYSIS
 
@@ -1688,6 +1688,12 @@ To regain access to all features and trading signals, please reactivate your sub
             tp2 = signal_data.get('tp2', 0)
             tp3 = signal_data.get('tp3', 0)
             interval = signal_data.get('interval', '1h')
+            
+            # Fix voor TradingView placeholders
+            if direction == '{{STRATEGY.ORDER.ACTION}}' or direction == '{{strategy.order.action}}':
+                # Bepaal richting op basis van stop loss en entry price
+                direction = 'BUY' if price > sl else 'SELL'
+                logger.info(f"Replaced placeholder with determined direction: {direction}")
             
             # Create emoji based on direction
             direction_emoji = "📈" if direction == "BUY" else "📉"
@@ -2606,7 +2612,7 @@ The {instrument} {direction.lower()} signal shows a promising setup with defined
                 import random
                 is_buy = random.choice([True, False])
                 direction = "BUY" if is_buy else "SELL"
-                emoji = "📈" if is_buy else "��"
+                emoji = "📈" if is_buy else "📉"
                 
                 signal_message += f"Action: {direction} {emoji}\n\n"
                 
