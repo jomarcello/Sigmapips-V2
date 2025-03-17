@@ -1460,30 +1460,43 @@ To regain access to all features and trading signals, please reactivate your sub
                 logger.error(f"Failed to send fallback message: {str(inner_e)}")
                 return MENU
 
-    async def back_to_instrument(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    async def back_to_instrument(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
         """Handle back to instrument selection"""
         query = update.callback_query
         await query.answer()
         
-        # Get market from user_data
-        market = context.user_data.get('market', 'forex')
+        # Get market from user_data or use a default
+        market = 'forex'  # Default fallback
+        
+        if context and hasattr(context, 'user_data'):
+            market = context.user_data.get('market', 'forex')
+        else:
+            # Probeer de markt te bepalen uit de message text
+            message_text = query.message.text if query.message and hasattr(query.message, 'text') else ""
+            
+            # Probeer instrument te extraheren uit tekst zoals "Choose trading style for AUDCAD:"
+            instrument_match = re.search(r"for ([A-Z0-9]+):", message_text)
+            if instrument_match:
+                instrument = instrument_match.group(1)
+                # Bepaal de markt op basis van het instrument
+                if "USD" in instrument or "EUR" in instrument or "GBP" in instrument or "JPY" in instrument or "CAD" in instrument:
+                    market = "forex"
+                elif "BTC" in instrument or "ETH" in instrument:
+                    market = "crypto"
+                elif "US" in instrument or "200" in instrument:
+                    market = "indices"
+                elif "XAU" in instrument or "XAG" in instrument or "OIL" in instrument:
+                    market = "commodities"
         
         # Determine which keyboard to show based on market
         keyboard_map = {
-            'forex': FOREX_KEYBOARD,
-            'crypto': CRYPTO_KEYBOARD,
-            'indices': INDICES_KEYBOARD,
-            'commodities': COMMODITIES_KEYBOARD
+            'forex': FOREX_KEYBOARD_SIGNALS if getattr(self, 'in_signals_flow', False) else FOREX_KEYBOARD,
+            'crypto': CRYPTO_KEYBOARD_SIGNALS if getattr(self, 'in_signals_flow', False) else CRYPTO_KEYBOARD,
+            'indices': INDICES_KEYBOARD_SIGNALS if getattr(self, 'in_signals_flow', False) else INDICES_KEYBOARD,
+            'commodities': COMMODITIES_KEYBOARD_SIGNALS if getattr(self, 'in_signals_flow', False) else COMMODITIES_KEYBOARD
         }
         
         keyboard = keyboard_map.get(market, FOREX_KEYBOARD)
-        
-        # Add _signals to callback data if we're in signals flow
-        if context.user_data.get('analysis_type') != 'technical':
-            for row in keyboard:
-                for button in row:
-                    if button.callback_data.startswith('instrument_'):
-                        button.callback_data = f"{button.callback_data}_signals"
         
         # Show instruments for the selected market
         await query.edit_message_text(
@@ -2616,7 +2629,7 @@ The {instrument} {direction.lower()} signal shows a promising setup with defined
                 import random
                 is_buy = random.choice([True, False])
                 direction = "BUY" if is_buy else "SELL"
-                emoji = "📈" if is_buy else "📉"
+                emoji = "📈" if is_buy else "��"
                 
                 signal_message += f"Action: {direction} {emoji}\n\n"
                 
