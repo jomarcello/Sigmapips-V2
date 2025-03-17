@@ -2746,5 +2746,6 @@ The {instrument} {direction.lower()} signal shows a promising setup with defined
             )
         return MENU
 
-# Voeg deze regel toe na de definitie van callback_query_handler
-button_callback = callback_query_handler  # Alias voor compatibiliteit
+    async def button_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        """Alias voor callback_query_handler voor compatibiliteit"""
+        return await self.callback_query_handler(update, context)
