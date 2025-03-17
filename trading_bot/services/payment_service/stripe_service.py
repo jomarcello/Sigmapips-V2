@@ -4,6 +4,7 @@ import datetime
 from typing import Dict, Any, Optional, Tuple
 import time
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+from datetime import datetime, timezone, timedelta
 
 from trading_bot.services.payment_service.stripe_config import stripe, get_price_id, get_subscription_features
 from trading_bot.services.database.db import Database
@@ -285,28 +286,56 @@ Om je toegang te behouden, update je betalingsgegevens binnen 3 dagen.
             logger.error(f"Error processing {event_type} event: {str(e)}")
             raise
     
-    async def handle_checkout_completed(self, session_data):
-        """Process a completed checkout session"""
-        # Haal gebruikers-ID op uit metadata of client reference
-        user_id = session_data.get('client_reference_id')
-        if not user_id:
-            if session_data.get('metadata') and session_data['metadata'].get('user_id'):
-                user_id = session_data['metadata']['user_id']
-        
-        if not user_id:
-            logger.error("No user_id found in checkout session data")
-            return
-        
-        # Convert to int if needed
-        user_id = int(user_id)
-        
-        # Registreer customer ID als dit een nieuwe klant is
-        customer_id = session_data.get('customer')
-        if customer_id:
-            # Update user_subscriptions table
-            await self.db.update_user_subscription_customer(user_id, customer_id)
-        
-        logger.info(f"Checkout completed for user {user_id}")
+    async def handle_checkout_completed(self, event_data: Dict[str, Any]) -> bool:
+        """Process a checkout.session.completed event"""
+        try:
+            session = event_data.get('object', {})
+            client_reference_id = session.get('client_reference_id')
+            
+            if not client_reference_id:
+                if session.get('metadata') and session['metadata'].get('user_id'):
+                    client_reference_id = session['metadata']['user_id']
+            
+            if not client_reference_id:
+                logger.error("No user ID found in checkout session data")
+                return False
+            
+            # Convert to int if needed
+            user_id = int(client_reference_id)
+            
+            # Register the customer ID if this is a new customer
+            customer_id = session.get('customer')
+            subscription_id = session.get('subscription')
+            
+            if customer_id:
+                # Update user's subscription in database
+                await self.db.create_or_update_subscription(
+                    user_id=user_id,
+                    stripe_customer_id=customer_id,
+                    stripe_subscription_id=subscription_id,
+                    status='trialing',  # Start with trial status
+                    current_period_end=datetime.now(timezone.utc) + timedelta(days=14)  # 14-day trial
+                )
+                
+                # Send confirmation to user
+                if hasattr(self, 'telegram_service') and self.telegram_service:
+                    message = """
+✅ <b>Trial Started Successfully!</b>
+
+Your 14-day FREE trial has been activated.
+You now have full access to all trading signals and features.
+
+Enjoy your trading journey with SigmaPips!
+                    """
+                    await self.telegram_service.send_message_to_user(user_id, message)
+                
+                return True
+            
+            return False
+            
+        except Exception as e:
+            logger.error(f"Error handling checkout completed: {str(e)}")
+            return False
 
     async def simulate_payment_event(self, event_type="payment_intent.succeeded"):
         """Simuleer een Stripe betaalgebeurtenis"""
