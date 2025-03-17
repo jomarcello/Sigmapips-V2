@@ -325,7 +325,7 @@ Click the button below to start your trial:
             
             # Create buttons
             keyboard = [
-                [InlineKeyboardButton("�� Start FREE Trial", url="https://buy.stripe.com/test_6oE4kkdLefcT8Fy6oo")],
+                [InlineKeyboardButton("🔥 Start FREE Trial", url="https://buy.stripe.com/test_6oE4kkdLefcT8Fy6oo")],
                 [InlineKeyboardButton("ℹ️ More Information", callback_data="subscription_info")]
             ]
             
@@ -2664,14 +2664,57 @@ class TelegramService:
     async def button_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """Handle button presses from inline keyboards"""
         query = update.callback_query
-        logger.info(f"Button callback opgeroepen met data: {query.data}")
+        logger.info(f"Button callback called with data: {query.data}")
         await query.answer()
         
-        # Verwerk abonnementsacties
+        # Handle subscription actions
         if query.data == "subscribe_monthly" or query.data == "subscription_info":
             return await self.handle_subscription_callback(update, context)
         
-        # De rest van je bestaande button_callback code blijft ongewijzigd...
+        # Handle back to menu action
+        elif query.data == "back_to_menu":
+            # Reset to main welcome screen for non-subscribed users
+            user_id = update.effective_user.id
+            is_subscribed = await self.db.is_user_subscribed(user_id)
+            
+            if is_subscribed:
+                # Show full menu for subscribed users
+                await self.show_main_menu(update, context)
+            else:
+                # Show welcome screen with trial options
+                welcome_text = """
+🚀 <b>Welcome to SigmaPips Trading Bot!</b> 🚀
+
+<b>Discover powerful trading signals for various markets:</b>
+• <b>Forex</b> - Major and minor currency pairs
+• <b>Crypto</b> - Bitcoin, Ethereum and other top cryptocurrencies
+• <b>Indices</b> - Global market indices
+• <b>Commodities</b> - Gold, silver and oil
+
+<b>Features:</b>
+✅ Real-time trading signals
+✅ Multi-timeframe analysis (1m, 15m, 1h, 4h)
+✅ Advanced chart analysis
+✅ Sentiment indicators
+✅ Economic calendar integration
+
+<b>Start today with a FREE 14-day trial!</b>
+                """
+                
+                # Create buttons with direct payment link
+                keyboard = [
+                    [InlineKeyboardButton("🔥 Start 14-day FREE Trial", url="https://buy.stripe.com/test_6oE4kkdLefcT8Fy6oo")],
+                    [InlineKeyboardButton("ℹ️ More Information", callback_data="subscription_info")]
+                ]
+                
+                await query.edit_message_text(
+                    text=welcome_text,
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.HTML
+                )
+            return MENU
+        
+        # Rest of existing button_callback code...
 
     def setup(self):
         """Set up the bot with all handlers"""
@@ -2798,7 +2841,7 @@ class TelegramService:
             """
             
             keyboard = [
-                [InlineKeyboardButton("�� Start FREE Trial", url="https://buy.stripe.com/test_6oE4kkdLefcT8Fy6oo")],
+                [InlineKeyboardButton("🔥 Start FREE Trial", url="https://buy.stripe.com/test_6oE4kkdLefcT8Fy6oo")],
                 [InlineKeyboardButton("⬅️ Back", callback_data="back_to_menu")]
             ]
             
