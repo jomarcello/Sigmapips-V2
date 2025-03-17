@@ -26,14 +26,11 @@ app = FastAPI()
 # Initialiseer de database
 db = Database()
 
-# Initialiseer de Stripe service
+# Initialiseer de services in de juiste volgorde
 stripe_service = StripeService(db)
-
-# Initialiseer de Telegram service met alleen db
 telegram_service = TelegramService(db)
 
-# Voeg de stripe_service toe aan het telegram_service object
-# na initialisatie
+# Voeg de services aan elkaar toe na initialisatie
 telegram_service.stripe_service = stripe_service
 stripe_service.telegram_service = telegram_service
 
