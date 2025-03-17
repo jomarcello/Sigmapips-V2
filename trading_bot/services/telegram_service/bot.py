@@ -2682,3 +2682,65 @@ The {instrument} {direction.lower()} signal shows a promising setup with defined
                 logger.error(f"Failed to send fallback message: {str(inner_e)}")
             
             return MENU
+
+    async def show_main_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Show the main menu with all bot features"""
+        try:
+            # Check subscription status
+            user_id = update.effective_user.id
+            is_subscribed = await self.db.is_user_subscribed(user_id)
+            
+            if is_subscribed:
+                # Show full menu for subscribed users
+                keyboard = [
+                    [InlineKeyboardButton("🔍 Analyze Market", callback_data=CALLBACK_MENU_ANALYSE)],
+                    [InlineKeyboardButton("📊 Trading Signals", callback_data=CALLBACK_MENU_SIGNALS)]
+                ]
+                
+                await update.message.reply_text(
+                    text=WELCOME_MESSAGE,
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.HTML
+                )
+            else:
+                # Show subscription screen for non-subscribed users
+                subscription_text = """
+🚀 <b>Welcome to SigmaPips Trading Bot!</b> 🚀
+
+<b>Discover powerful trading signals for various markets:</b>
+• <b>Forex</b> - Major and minor currency pairs
+• <b>Crypto</b> - Bitcoin, Ethereum and other top cryptocurrencies
+• <b>Indices</b> - Global market indices
+• <b>Commodities</b> - Gold, silver and oil
+
+<b>Features:</b>
+✅ Real-time trading signals
+✅ Multi-timeframe analysis (1m, 15m, 1h, 4h)
+✅ Advanced chart analysis
+✅ Sentiment indicators
+✅ Economic calendar integration
+
+<b>Start today with a FREE 14-day trial!</b>
+                """
+                
+                keyboard = [
+                    [InlineKeyboardButton("🔥 Start 14-day FREE Trial", url="https://buy.stripe.com/test_6oE4kkdLefcT8Fy6oo")],
+                    [InlineKeyboardButton("ℹ️ More Information", callback_data="subscription_info")]
+                ]
+                
+                await update.message.reply_text(
+                    text=subscription_text,
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.HTML
+                )
+            
+            return MENU
+        except Exception as e:
+            logger.error(f"Error showing main menu: {str(e)}")
+            await update.message.reply_text(
+                "An error occurred. Please try again or contact support.",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("🔄 Try Again", callback_data="back_menu")
+                ]])
+            )
+            return MENU
