@@ -116,16 +116,14 @@ class ChartService:
                 # Als er geen specifieke link is, gebruik een generieke link
                 logger.warning(f"No specific link found for {instrument}, using generic link")
                 tradingview_link = f"https://www.tradingview.com/chart/?symbol={instrument}"
-                
-                # Alleen voor generieke links voegen we timeframe toe
-                if "?" in tradingview_link:
-                    tradingview_link += f"&interval={timeframe}"
-                else:
-                    tradingview_link += f"?interval={timeframe}"
             
             # Voeg fullscreen parameter toe aan de URL als dat nodig is
             if fullscreen:
-                tradingview_link += "&fullscreen=true&hide_side_toolbar=true&hide_top_toolbar=true&theme=dark"
+                # Controleer of er al een vraagteken in de URL zit
+                if "?" in tradingview_link:
+                    tradingview_link += "&fullscreen=true&hide_side_toolbar=true&hide_top_toolbar=true&theme=dark"
+                else:
+                    tradingview_link += "?fullscreen=true&hide_side_toolbar=true&hide_top_toolbar=true&theme=dark"
             
             logger.info(f"Using exact TradingView link: {tradingview_link}")
             
