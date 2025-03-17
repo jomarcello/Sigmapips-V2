@@ -5333,4 +5333,4 @@ Happy Trading! 📈
             # Bepaal of we in de signals flow zitten of in de analyse flow
             # Check of het bericht een foto is (heeft caption) of tekst bericht
             is_photo_message = hasattr(query.message, 'photo') and query.message.photo
-            is_signals_flow =
+            is_signals_flow = False
