@@ -383,6 +383,9 @@ class TelegramService:
             
             self.stripe_service = stripe_service  # Stripe service toevoegen
             
+            # Signaal ontvanger status
+            self.signals_enabled = False  # Zet op False om signalen uit te schakelen
+            
         except Exception as e:
             logger.error(f"Error initializing Telegram service: {str(e)}")
             raise
@@ -428,7 +431,8 @@ class TelegramService:
             # Voeg een CallbackQueryHandler toe voor knoppen
             self.application.add_handler(CallbackQueryHandler(self.button_callback))
             
-            # Meer handlers...
+            # Admin commando voor signalen in/uitschakelen
+            self.application.add_handler(CommandHandler("toggle_signals", self.toggle_signals))
             
             logger.info("Handlers registered")
         except Exception as e:
@@ -1584,8 +1588,13 @@ class TelegramService:
             return f"The {instrument} {direction.lower()} signal shows a promising setup with defined entry and stop loss levels. Always follow your trading plan and risk management rules."
 
     async def process_signal(self, signal_data: Dict[str, Any]) -> bool:
-        """Process a trading signal and send it to subscribed users"""
+        """Process incoming trading signal"""
         try:
+            # Controleer of signalen zijn ingeschakeld
+            if not getattr(self, 'signals_enabled', False):
+                logger.info("Signal processing is currently disabled")
+                return False
+            
             # Log het ontvangen signaal
             logger.info(f"Processing signal (raw): {signal_data}")
             
@@ -2746,17 +2755,19 @@ class TelegramService:
     async def handle_subscription_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """Process subscription button clicks"""
         query = update.callback_query
-        await query.answer(url="https://buy.stripe.com/test_6oE4kkdLefcT8Fy6oo")
+        await query.answer()  # Zonder URL parameter
         
         if query.data == "subscribe_monthly":
-            # Telegram zal automatisch de URL openen
-            # Optioneel kun je het bericht bijwerken met een fallback
+            # Gebruik een normale button met URL
+            checkout_url = "https://buy.stripe.com/test_6oE4kkdLefcT8Fy6oo"
+            keyboard = [
+                [InlineKeyboardButton("🔥 Complete Payment", url=checkout_url)],
+                [InlineKeyboardButton("⬅️ Back", callback_data="back_to_menu")]
+            ]
+            
             await query.edit_message_text(
-                text="Redirecting to payment page... If not redirected automatically, use the button below:",
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("🔥 Complete Payment", url="https://buy.stripe.com/test_6oE4kkdLefcT8Fy6oo")],
-                    [InlineKeyboardButton("⬅️ Back", callback_data="back_to_menu")]
-                ]),
+                text="Click the button below to complete your payment:",
+                reply_markup=InlineKeyboardMarkup(keyboard),
                 parse_mode=ParseMode.HTML
             )
             return SUBSCRIBE
@@ -2799,3 +2810,20 @@ class TelegramService:
             return SUBSCRIBE
 
         return MENU
+
+    async def toggle_signals(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Toggle signal processing on/off (admin only)"""
+        user_id = update.effective_user.id
+        
+        # Controleer of gebruiker admin is (voeg je eigen admin ID toe)
+        admin_ids = [123456789]  # Vervang met je eigen admin user ID
+        
+        if user_id not in admin_ids:
+            await update.message.reply_text("Sorry, this command is only available for admins.")
+            return
+        
+        # Toggle signaal status
+        self.signals_enabled = not getattr(self, 'signals_enabled', False)
+        
+        status = "enabled" if self.signals_enabled else "disabled"
+        await update.message.reply_text(f"Signal processing is now {status}.")
