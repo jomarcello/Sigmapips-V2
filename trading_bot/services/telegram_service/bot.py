@@ -1202,12 +1202,23 @@ To regain access to all features and trading signals, please reactivate your sub
             # Log the instrument
             logger.info(f"Instrument callback voor analyse: instrument={instrument}")
             
+            # Bepaal de markt op basis van het instrument
+            market = "forex"  # Default
+            if "USD" in instrument or "EUR" in instrument or "GBP" in instrument or "JPY" in instrument or "CAD" in instrument:
+                market = "forex"
+            elif "BTC" in instrument or "ETH" in instrument or "XRP" in instrument or "BNB" in instrument or "DOT" in instrument or "DOGE" in instrument or "SOL" in instrument or "LINK" in instrument or "XLM" in instrument:
+                market = "crypto"
+            elif "US" in instrument or "UK" in instrument or "DE" in instrument or "AU200" in instrument or "HK50" in instrument:
+                market = "indices"
+            elif "XAU" in instrument or "XTI" in instrument:
+                market = "commodities"
+            
             # Controleer of dit instrument een beperkte timeframe heeft
             if instrument in RESTRICTED_TIMEFRAMES:
                 timeframe = RESTRICTED_TIMEFRAMES[instrument]
                 
                 # Maak een beperkt keyboard met alleen de toegestane timeframe
-                restricted_keyboard = create_restricted_keyboard(instrument, timeframe)
+                restricted_keyboard = create_restricted_keyboard(instrument, timeframe, market)
                 
                 # Toon de beperkte stijl keuze
                 await query.edit_message_text(
@@ -1241,7 +1252,7 @@ To regain access to all features and trading signals, please reactivate your sub
                 timeframe = RESTRICTED_TIMEFRAMES[instrument]
                 
                 # Maak een beperkt keyboard met alleen de toegestane timeframe
-                restricted_keyboard = create_restricted_keyboard(instrument, timeframe)
+                restricted_keyboard = create_restricted_keyboard(instrument, timeframe, market)
                 
                 # Toon de beperkte stijl keuze
                 await query.edit_message_text(
@@ -3172,81 +3183,2143 @@ Happy Trading! 📈
             logger.error(f"Error showing main menu to user {user_id}: {str(e)}")
             return False
 
-# Functie om beperkte timeframe keyboard te maken op basis van timeframe
-def create_restricted_keyboard(instrument, timeframe):
-    """Maak een beperkt keyboard met alleen de opgegeven timeframe"""
-    # Bepaal de stijl op basis van de timeframe
-    style_map = {
-        "m15": "scalp",
-        "m30": "scalp30",
-        "h1": "intraday",
-        "h4": "swing"
-    }
-    
-    # Bepaal de emoji en tekst op basis van de timeframe
-    emoji_map = {
-        "m15": "🏃",
-        "m30": "⏱️",
-        "h1": "📊",
-        "h4": "🌊"
-    }
-    
-    text_map = {
-        "m15": "Scalp (15m)",
-        "m30": "Scalp (30m)",
-        "h1": "Intraday (1h)",
-        "h4": "Intraday (4h)"
-    }
-    
-    style = style_map.get(timeframe.lower(), "intraday")
-    emoji = emoji_map.get(timeframe.lower(), "📊")
-    text = text_map.get(timeframe.lower(), "Intraday (1h)")
-    
-    # Maak het keyboard
-    restricted_keyboard = [
-        [InlineKeyboardButton(f"{emoji} {text}", callback_data=f"style_{style}_restricted")],
-        [InlineKeyboardButton("⬅️ Back", callback_data="back_instrument")]
-    ]
-    
-    return restricted_keyboard
+    async def back_to_market_callback(self, update: Update, context=None) -> int:
+        """Handle back_market callback"""
+        query = update.callback_query
+        
+        try:
+            # Beantwoord de callback query om de "wachtende" status te verwijderen
+            await query.answer()
+            
+            # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False
+            
+            # Haal market uit user_data of fallback naar 'forex'
+            if context and hasattr(context, 'user_data'):
+                market = context.user_data.get('market', 'forex')
+                in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
+            else:
+                # Fallback waarden
+                market = 'forex'
+                in_signals_flow = is_signals_flow
+            
+            logger.info(f"Back to market: market={market}, in_signals_flow={in_signals_flow}")
+            
+            # Kies het juiste keyboard op basis van de flow
+            if in_signals_flow:
+                keyboard = MARKET_KEYBOARD_SIGNALS
+                text = "Select a market for trading signals:"
+            else:
+                keyboard = MARKET_KEYBOARD
+                text = "Select a market for technical analysis:"
+            
+            # Werk het bericht bij
+            try:
+                if is_photo_message:
+                    # Als het een foto is, antwoord met een nieuw bericht
+                    # omdat we niet een foto naar tekst kunnen omzetten
+                    await query.message.reply_text(
+                        text=text,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+                else:
+                    # Als het een tekstbericht is, bewerk het
+                    await query.edit_message_text(
+                        text=text,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+            except Exception as edit_error:
+                logger.error(f"Error updating message: {str(edit_error)}")
+                # Stuur een nieuw bericht als fallback
+                await query.message.reply_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            
+            return CHOOSE_MARKET
+        except Exception as e:
+            logger.error(f"Error in back_to_market_callback: {str(e)}")
+            logger.exception(e)  # Volledige stacktrace loggen
+            
+            # Stuur een nieuw bericht als fallback bij fouten
+            try:
+                await query.message.reply_text(
+                    text="Select a market:",
+                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
+                )
+                return CHOOSE_MARKET
+            except Exception as inner_e:
+                logger.error(f"Failed to send fallback message: {str(inner_e)}")
+                return MENU
 
-# Definieer de instrumenten met hun beperkte timeframes
-RESTRICTED_TIMEFRAMES = {
-    "AUDJPY": "h1",
-    "AUDCHF": "h1",
-    "AUDCAD": "h4",
-    "AU200": "h4",
-    "BNBUSD": "m30",
-    "CADCHF": "h4",
-    "DOGEUSD": "m15",
-    "DOTUSD": "m30",
-    "ETHUSD": "m30",
-    "EURAUD": "m30",
-    "EURCAD": "h1",
-    "EURCHF": "h4",
-    "EURGBP": "h1",
-    "EURJPY": "m30",
-    "EURUSD": "h4",
-    "GBPAUD": "m30",
-    "GBPCAD": "h4",
-    "GBPCHF": "h1",
-    "GBPNZD": "m15",
-    "GBPUSD": "m30",
-    "HK50": "h1",
-    "LINKUSD": "h4",
-    "NZDCAD": "m30",
-    "NZDCHF": "h4",
-    "NZDJPY": "h1",
-    "NZDUSD": "m15",
-    "SOLUSD": "m15",
-    "UK100": "m15",
-    "US30": "m30",
-    "US500": "m30",
-    "USDCAD": "m30",
-    "USDCHF": "h1",
-    "XLMUSD": "m30",
-    "XRPUSD": "h1",
-    "XTIUSD": "m30",
-    "DE40": "m30",
-    "XAUUSD": "m15"
-}
+    async def back_to_instrument(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
+        """Handle back to instrument selection"""
+        query = update.callback_query
+        await query.answer()
+        
+        # Get market from user_data or use a default
+        market = 'forex'  # Default fallback
+        
+        if context and hasattr(context, 'user_data'):
+            market = context.user_data.get('market', 'forex')
+        else:
+            # Probeer de markt te bepalen uit de message text
+            message_text = query.message.text if query.message and hasattr(query.message, 'text') else ""
+            
+            # Probeer instrument te extraheren uit tekst zoals "Choose trading style for AUDCAD:"
+            instrument_match = re.search(r"for ([A-Z0-9]+):", message_text)
+            if instrument_match:
+                instrument = instrument_match.group(1)
+                # Bepaal de markt op basis van het instrument
+                if "USD" in instrument or "EUR" in instrument or "GBP" in instrument or "JPY" in instrument or "CAD" in instrument:
+                    market = "forex"
+                elif "BTC" in instrument or "ETH" in instrument:
+                    market = "crypto"
+                elif "US" in instrument or "200" in instrument:
+                    market = "indices"
+                elif "XAU" in instrument or "XAG" in instrument or "OIL" in instrument:
+                    market = "commodities"
+        
+        # Determine which keyboard to show based on market
+        keyboard_map = {
+            'forex': FOREX_KEYBOARD_SIGNALS if getattr(self, 'in_signals_flow', False) else FOREX_KEYBOARD,
+            'crypto': CRYPTO_KEYBOARD_SIGNALS if getattr(self, 'in_signals_flow', False) else CRYPTO_KEYBOARD,
+            'indices': INDICES_KEYBOARD_SIGNALS if getattr(self, 'in_signals_flow', False) else INDICES_KEYBOARD,
+            'commodities': COMMODITIES_KEYBOARD_SIGNALS if getattr(self, 'in_signals_flow', False) else COMMODITIES_KEYBOARD
+        }
+        
+        keyboard = keyboard_map.get(market, FOREX_KEYBOARD)
+        
+        # Show instruments for the selected market
+        await query.edit_message_text(
+            text=f"Select an instrument from {market.capitalize()}:",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        
+        return CHOOSE_INSTRUMENT
+
+    async def back_to_market_callback(self, update: Update, context=None) -> int:
+        """Handle back_market callback"""
+        query = update.callback_query
+        
+        try:
+            # Beantwoord de callback query om de "wachtende" status te verwijderen
+            await query.answer()
+            
+            # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False
+            
+            # Haal market uit user_data of fallback naar 'forex'
+            if context and hasattr(context, 'user_data'):
+                market = context.user_data.get('market', 'forex')
+                in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
+            else:
+                # Fallback waarden
+                market = 'forex'
+                in_signals_flow = is_signals_flow
+            
+            logger.info(f"Back to market: market={market}, in_signals_flow={in_signals_flow}")
+            
+            # Kies het juiste keyboard op basis van de flow
+            if in_signals_flow:
+                keyboard = MARKET_KEYBOARD_SIGNALS
+                text = "Select a market for trading signals:"
+            else:
+                keyboard = MARKET_KEYBOARD
+                text = "Select a market for technical analysis:"
+            
+            # Werk het bericht bij
+            try:
+                if is_photo_message:
+                    # Als het een foto is, antwoord met een nieuw bericht
+                    # omdat we niet een foto naar tekst kunnen omzetten
+                    await query.message.reply_text(
+                        text=text,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+                else:
+                    # Als het een tekstbericht is, bewerk het
+                    await query.edit_message_text(
+                        text=text,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+            except Exception as edit_error:
+                logger.error(f"Error updating message: {str(edit_error)}")
+                # Stuur een nieuw bericht als fallback
+                await query.message.reply_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            
+            return CHOOSE_MARKET
+        except Exception as e:
+            logger.error(f"Error in back_to_market_callback: {str(e)}")
+            logger.exception(e)  # Volledige stacktrace loggen
+            
+            # Stuur een nieuw bericht als fallback bij fouten
+            try:
+                await query.message.reply_text(
+                    text="Select a market:",
+                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
+                )
+                return CHOOSE_MARKET
+            except Exception as inner_e:
+                logger.error(f"Failed to send fallback message: {str(inner_e)}")
+                return MENU
+
+    async def back_to_instrument(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
+        """Handle back to instrument selection"""
+        query = update.callback_query
+        await query.answer()
+        
+        # Get market from user_data or use a default
+        market = 'forex'  # Default fallback
+        
+        if context and hasattr(context, 'user_data'):
+            market = context.user_data.get('market', 'forex')
+        else:
+            # Probeer de markt te bepalen uit de message text
+            message_text = query.message.text if query.message and hasattr(query.message, 'text') else ""
+            
+            # Probeer instrument te extraheren uit tekst zoals "Choose trading style for AUDCAD:"
+            instrument_match = re.search(r"for ([A-Z0-9]+):", message_text)
+            if instrument_match:
+                instrument = instrument_match.group(1)
+                # Bepaal de markt op basis van het instrument
+                if "USD" in instrument or "EUR" in instrument or "GBP" in instrument or "JPY" in instrument or "CAD" in instrument:
+                    market = "forex"
+                elif "BTC" in instrument or "ETH" in instrument:
+                    market = "crypto"
+                elif "US" in instrument or "200" in instrument:
+                    market = "indices"
+                elif "XAU" in instrument or "XAG" in instrument or "OIL" in instrument:
+                    market = "commodities"
+        
+        # Determine which keyboard to show based on market
+        keyboard_map = {
+            'forex': FOREX_KEYBOARD_SIGNALS if getattr(self, 'in_signals_flow', False) else FOREX_KEYBOARD,
+            'crypto': CRYPTO_KEYBOARD_SIGNALS if getattr(self, 'in_signals_flow', False) else CRYPTO_KEYBOARD,
+            'indices': INDICES_KEYBOARD_SIGNALS if getattr(self, 'in_signals_flow', False) else INDICES_KEYBOARD,
+            'commodities': COMMODITIES_KEYBOARD_SIGNALS if getattr(self, 'in_signals_flow', False) else COMMODITIES_KEYBOARD
+        }
+        
+        keyboard = keyboard_map.get(market, FOREX_KEYBOARD)
+        
+        # Show instruments for the selected market
+        await query.edit_message_text(
+            text=f"Select an instrument from {market.capitalize()}:",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        
+        return CHOOSE_INSTRUMENT
+
+    async def back_to_market_callback(self, update: Update, context=None) -> int:
+        """Handle back_market callback"""
+        query = update.callback_query
+        
+        try:
+            # Beantwoord de callback query om de "wachtende" status te verwijderen
+            await query.answer()
+            
+            # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False
+            
+            # Haal market uit user_data of fallback naar 'forex'
+            if context and hasattr(context, 'user_data'):
+                market = context.user_data.get('market', 'forex')
+                in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
+            else:
+                # Fallback waarden
+                market = 'forex'
+                in_signals_flow = is_signals_flow
+            
+            logger.info(f"Back to market: market={market}, in_signals_flow={in_signals_flow}")
+            
+            # Kies het juiste keyboard op basis van de flow
+            if in_signals_flow:
+                keyboard = MARKET_KEYBOARD_SIGNALS
+                text = "Select a market for trading signals:"
+            else:
+                keyboard = MARKET_KEYBOARD
+                text = "Select a market for technical analysis:"
+            
+            # Werk het bericht bij
+            try:
+                if is_photo_message:
+                    # Als het een foto is, antwoord met een nieuw bericht
+                    # omdat we niet een foto naar tekst kunnen omzetten
+                    await query.message.reply_text(
+                        text=text,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+                else:
+                    # Als het een tekstbericht is, bewerk het
+                    await query.edit_message_text(
+                        text=text,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+            except Exception as edit_error:
+                logger.error(f"Error updating message: {str(edit_error)}")
+                # Stuur een nieuw bericht als fallback
+                await query.message.reply_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            
+            return CHOOSE_MARKET
+        except Exception as e:
+            logger.error(f"Error in back_to_market_callback: {str(e)}")
+            logger.exception(e)  # Volledige stacktrace loggen
+            
+            # Stuur een nieuw bericht als fallback bij fouten
+            try:
+                await query.message.reply_text(
+                    text="Select a market:",
+                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
+                )
+                return CHOOSE_MARKET
+            except Exception as inner_e:
+                logger.error(f"Failed to send fallback message: {str(inner_e)}")
+                return MENU
+
+    async def back_to_instrument(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
+        """Handle back to instrument selection"""
+        query = update.callback_query
+        await query.answer()
+        
+        # Get market from user_data or use a default
+        market = 'forex'  # Default fallback
+        
+        if context and hasattr(context, 'user_data'):
+            market = context.user_data.get('market', 'forex')
+        else:
+            # Probeer de markt te bepalen uit de message text
+            message_text = query.message.text if query.message and hasattr(query.message, 'text') else ""
+            
+            # Probeer instrument te extraheren uit tekst zoals "Choose trading style for AUDCAD:"
+            instrument_match = re.search(r"for ([A-Z0-9]+):", message_text)
+            if instrument_match:
+                instrument = instrument_match.group(1)
+                # Bepaal de markt op basis van het instrument
+                if "USD" in instrument or "EUR" in instrument or "GBP" in instrument or "JPY" in instrument or "CAD" in instrument:
+                    market = "forex"
+                elif "BTC" in instrument or "ETH" in instrument:
+                    market = "crypto"
+                elif "US" in instrument or "200" in instrument:
+                    market = "indices"
+                elif "XAU" in instrument or "XAG" in instrument or "OIL" in instrument:
+                    market = "commodities"
+        
+        # Determine which keyboard to show based on market
+        keyboard_map = {
+            'forex': FOREX_KEYBOARD_SIGNALS if getattr(self, 'in_signals_flow', False) else FOREX_KEYBOARD,
+            'crypto': CRYPTO_KEYBOARD_SIGNALS if getattr(self, 'in_signals_flow', False) else CRYPTO_KEYBOARD,
+            'indices': INDICES_KEYBOARD_SIGNALS if getattr(self, 'in_signals_flow', False) else INDICES_KEYBOARD,
+            'commodities': COMMODITIES_KEYBOARD_SIGNALS if getattr(self, 'in_signals_flow', False) else COMMODITIES_KEYBOARD
+        }
+        
+        keyboard = keyboard_map.get(market, FOREX_KEYBOARD)
+        
+        # Show instruments for the selected market
+        await query.edit_message_text(
+            text=f"Select an instrument from {market.capitalize()}:",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        
+        return CHOOSE_INSTRUMENT
+
+    async def back_to_market_callback(self, update: Update, context=None) -> int:
+        """Handle back_market callback"""
+        query = update.callback_query
+        
+        try:
+            # Beantwoord de callback query om de "wachtende" status te verwijderen
+            await query.answer()
+            
+            # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False
+            
+            # Haal market uit user_data of fallback naar 'forex'
+            if context and hasattr(context, 'user_data'):
+                market = context.user_data.get('market', 'forex')
+                in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
+            else:
+                # Fallback waarden
+                market = 'forex'
+                in_signals_flow = is_signals_flow
+            
+            logger.info(f"Back to market: market={market}, in_signals_flow={in_signals_flow}")
+            
+            # Kies het juiste keyboard op basis van de flow
+            if in_signals_flow:
+                keyboard = MARKET_KEYBOARD_SIGNALS
+                text = "Select a market for trading signals:"
+            else:
+                keyboard = MARKET_KEYBOARD
+                text = "Select a market for technical analysis:"
+            
+            # Werk het bericht bij
+            try:
+                if is_photo_message:
+                    # Als het een foto is, antwoord met een nieuw bericht
+                    # omdat we niet een foto naar tekst kunnen omzetten
+                    await query.message.reply_text(
+                        text=text,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+                else:
+                    # Als het een tekstbericht is, bewerk het
+                    await query.edit_message_text(
+                        text=text,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+            except Exception as edit_error:
+                logger.error(f"Error updating message: {str(edit_error)}")
+                # Stuur een nieuw bericht als fallback
+                await query.message.reply_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            
+            return CHOOSE_MARKET
+        except Exception as e:
+            logger.error(f"Error in back_to_market_callback: {str(e)}")
+            logger.exception(e)  # Volledige stacktrace loggen
+            
+            # Stuur een nieuw bericht als fallback bij fouten
+            try:
+                await query.message.reply_text(
+                    text="Select a market:",
+                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
+                )
+                return CHOOSE_MARKET
+            except Exception as inner_e:
+                logger.error(f"Failed to send fallback message: {str(inner_e)}")
+                return MENU
+
+    async def back_to_instrument(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
+        """Handle back to instrument selection"""
+        query = update.callback_query
+        await query.answer()
+        
+        # Get market from user_data or use a default
+        market = 'forex'  # Default fallback
+        
+        if context and hasattr(context, 'user_data'):
+            market = context.user_data.get('market', 'forex')
+        else:
+            # Probeer de markt te bepalen uit de message text
+            message_text = query.message.text if query.message and hasattr(query.message, 'text') else ""
+            
+            # Probeer instrument te extraheren uit tekst zoals "Choose trading style for AUDCAD:"
+            instrument_match = re.search(r"for ([A-Z0-9]+):", message_text)
+            if instrument_match:
+                instrument = instrument_match.group(1)
+                # Bepaal de markt op basis van het instrument
+                if "USD" in instrument or "EUR" in instrument or "GBP" in instrument or "JPY" in instrument or "CAD" in instrument:
+                    market = "forex"
+                elif "BTC" in instrument or "ETH" in instrument:
+                    market = "crypto"
+                elif "US" in instrument or "200" in instrument:
+                    market = "indices"
+                elif "XAU" in instrument or "XAG" in instrument or "OIL" in instrument:
+                    market = "commodities"
+        
+        # Determine which keyboard to show based on market
+        keyboard_map = {
+            'forex': FOREX_KEYBOARD_SIGNALS if getattr(self, 'in_signals_flow', False) else FOREX_KEYBOARD,
+            'crypto': CRYPTO_KEYBOARD_SIGNALS if getattr(self, 'in_signals_flow', False) else CRYPTO_KEYBOARD,
+            'indices': INDICES_KEYBOARD_SIGNALS if getattr(self, 'in_signals_flow', False) else INDICES_KEYBOARD,
+            'commodities': COMMODITIES_KEYBOARD_SIGNALS if getattr(self, 'in_signals_flow', False) else COMMODITIES_KEYBOARD
+        }
+        
+        keyboard = keyboard_map.get(market, FOREX_KEYBOARD)
+        
+        # Show instruments for the selected market
+        await query.edit_message_text(
+            text=f"Select an instrument from {market.capitalize()}:",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        
+        return CHOOSE_INSTRUMENT
+
+    async def back_to_market_callback(self, update: Update, context=None) -> int:
+        """Handle back_market callback"""
+        query = update.callback_query
+        
+        try:
+            # Beantwoord de callback query om de "wachtende" status te verwijderen
+            await query.answer()
+            
+            # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False
+            
+            # Haal market uit user_data of fallback naar 'forex'
+            if context and hasattr(context, 'user_data'):
+                market = context.user_data.get('market', 'forex')
+                in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
+            else:
+                # Fallback waarden
+                market = 'forex'
+                in_signals_flow = is_signals_flow
+            
+            logger.info(f"Back to market: market={market}, in_signals_flow={in_signals_flow}")
+            
+            # Kies het juiste keyboard op basis van de flow
+            if in_signals_flow:
+                keyboard = MARKET_KEYBOARD_SIGNALS
+                text = "Select a market for trading signals:"
+            else:
+                keyboard = MARKET_KEYBOARD
+                text = "Select a market for technical analysis:"
+            
+            # Werk het bericht bij
+            try:
+                if is_photo_message:
+                    # Als het een foto is, antwoord met een nieuw bericht
+                    # omdat we niet een foto naar tekst kunnen omzetten
+                    await query.message.reply_text(
+                        text=text,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+                else:
+                    # Als het een tekstbericht is, bewerk het
+                    await query.edit_message_text(
+                        text=text,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+            except Exception as edit_error:
+                logger.error(f"Error updating message: {str(edit_error)}")
+                # Stuur een nieuw bericht als fallback
+                await query.message.reply_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            
+            return CHOOSE_MARKET
+        except Exception as e:
+            logger.error(f"Error in back_to_market_callback: {str(e)}")
+            logger.exception(e)  # Volledige stacktrace loggen
+            
+            # Stuur een nieuw bericht als fallback bij fouten
+            try:
+                await query.message.reply_text(
+                    text="Select a market:",
+                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
+                )
+                return CHOOSE_MARKET
+            except Exception as inner_e:
+                logger.error(f"Failed to send fallback message: {str(inner_e)}")
+                return MENU
+
+    async def back_to_instrument(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
+        """Handle back to instrument selection"""
+        query = update.callback_query
+        await query.answer()
+        
+        # Get market from user_data or use a default
+        market = 'forex'  # Default fallback
+        
+        if context and hasattr(context, 'user_data'):
+            market = context.user_data.get('market', 'forex')
+        else:
+            # Probeer de markt te bepalen uit de message text
+            message_text = query.message.text if query.message and hasattr(query.message, 'text') else ""
+            
+            # Probeer instrument te extraheren uit tekst zoals "Choose trading style for AUDCAD:"
+            instrument_match = re.search(r"for ([A-Z0-9]+):", message_text)
+            if instrument_match:
+                instrument = instrument_match.group(1)
+                # Bepaal de markt op basis van het instrument
+                if "USD" in instrument or "EUR" in instrument or "GBP" in instrument or "JPY" in instrument or "CAD" in instrument:
+                    market = "forex"
+                elif "BTC" in instrument or "ETH" in instrument:
+                    market = "crypto"
+                elif "US" in instrument or "200" in instrument:
+                    market = "indices"
+                elif "XAU" in instrument or "XAG" in instrument or "OIL" in instrument:
+                    market = "commodities"
+        
+        # Determine which keyboard to show based on market
+        keyboard_map = {
+            'forex': FOREX_KEYBOARD_SIGNALS if getattr(self, 'in_signals_flow', False) else FOREX_KEYBOARD,
+            'crypto': CRYPTO_KEYBOARD_SIGNALS if getattr(self, 'in_signals_flow', False) else CRYPTO_KEYBOARD,
+            'indices': INDICES_KEYBOARD_SIGNALS if getattr(self, 'in_signals_flow', False) else INDICES_KEYBOARD,
+            'commodities': COMMODITIES_KEYBOARD_SIGNALS if getattr(self, 'in_signals_flow', False) else COMMODITIES_KEYBOARD
+        }
+        
+        keyboard = keyboard_map.get(market, FOREX_KEYBOARD)
+        
+        # Show instruments for the selected market
+        await query.edit_message_text(
+            text=f"Select an instrument from {market.capitalize()}:",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        
+        return CHOOSE_INSTRUMENT
+
+    async def back_to_market_callback(self, update: Update, context=None) -> int:
+        """Handle back_market callback"""
+        query = update.callback_query
+        
+        try:
+            # Beantwoord de callback query om de "wachtende" status te verwijderen
+            await query.answer()
+            
+            # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False
+            
+            # Haal market uit user_data of fallback naar 'forex'
+            if context and hasattr(context, 'user_data'):
+                market = context.user_data.get('market', 'forex')
+                in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
+            else:
+                # Fallback waarden
+                market = 'forex'
+                in_signals_flow = is_signals_flow
+            
+            logger.info(f"Back to market: market={market}, in_signals_flow={in_signals_flow}")
+            
+            # Kies het juiste keyboard op basis van de flow
+            if in_signals_flow:
+                keyboard = MARKET_KEYBOARD_SIGNALS
+                text = "Select a market for trading signals:"
+            else:
+                keyboard = MARKET_KEYBOARD
+                text = "Select a market for technical analysis:"
+            
+            # Werk het bericht bij
+            try:
+                if is_photo_message:
+                    # Als het een foto is, antwoord met een nieuw bericht
+                    # omdat we niet een foto naar tekst kunnen omzetten
+                    await query.message.reply_text(
+                        text=text,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+                else:
+                    # Als het een tekstbericht is, bewerk het
+                    await query.edit_message_text(
+                        text=text,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+            except Exception as edit_error:
+                logger.error(f"Error updating message: {str(edit_error)}")
+                # Stuur een nieuw bericht als fallback
+                await query.message.reply_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            
+            return CHOOSE_MARKET
+        except Exception as e:
+            logger.error(f"Error in back_to_market_callback: {str(e)}")
+            logger.exception(e)  # Volledige stacktrace loggen
+            
+            # Stuur een nieuw bericht als fallback bij fouten
+            try:
+                await query.message.reply_text(
+                    text="Select a market:",
+                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
+                )
+                return CHOOSE_MARKET
+            except Exception as inner_e:
+                logger.error(f"Failed to send fallback message: {str(inner_e)}")
+                return MENU
+
+    async def back_to_instrument(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
+        """Handle back to instrument selection"""
+        query = update.callback_query
+        await query.answer()
+        
+        # Get market from user_data or use a default
+        market = 'forex'  # Default fallback
+        
+        if context and hasattr(context, 'user_data'):
+            market = context.user_data.get('market', 'forex')
+        else:
+            # Probeer de markt te bepalen uit de message text
+            message_text = query.message.text if query.message and hasattr(query.message, 'text') else ""
+            
+            # Probeer instrument te extraheren uit tekst zoals "Choose trading style for AUDCAD:"
+            instrument_match = re.search(r"for ([A-Z0-9]+):", message_text)
+            if instrument_match:
+                instrument = instrument_match.group(1)
+                # Bepaal de markt op basis van het instrument
+                if "USD" in instrument or "EUR" in instrument or "GBP" in instrument or "JPY" in instrument or "CAD" in instrument:
+                    market = "forex"
+                elif "BTC" in instrument or "ETH" in instrument:
+                    market = "crypto"
+                elif "US" in instrument or "200" in instrument:
+                    market = "indices"
+                elif "XAU" in instrument or "XAG" in instrument or "OIL" in instrument:
+                    market = "commodities"
+        
+        # Determine which keyboard to show based on market
+        keyboard_map = {
+            'forex': FOREX_KEYBOARD_SIGNALS if getattr(self, 'in_signals_flow', False) else FOREX_KEYBOARD,
+            'crypto': CRYPTO_KEYBOARD_SIGNALS if getattr(self, 'in_signals_flow', False) else CRYPTO_KEYBOARD,
+            'indices': INDICES_KEYBOARD_SIGNALS if getattr(self, 'in_signals_flow', False) else INDICES_KEYBOARD,
+            'commodities': COMMODITIES_KEYBOARD_SIGNALS if getattr(self, 'in_signals_flow', False) else COMMODITIES_KEYBOARD
+        }
+        
+        keyboard = keyboard_map.get(market, FOREX_KEYBOARD)
+        
+        # Show instruments for the selected market
+        await query.edit_message_text(
+            text=f"Select an instrument from {market.capitalize()}:",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        
+        return CHOOSE_INSTRUMENT
+
+    async def back_to_market_callback(self, update: Update, context=None) -> int:
+        """Handle back_market callback"""
+        query = update.callback_query
+        
+        try:
+            # Beantwoord de callback query om de "wachtende" status te verwijderen
+            await query.answer()
+            
+            # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False
+            
+            # Haal market uit user_data of fallback naar 'forex'
+            if context and hasattr(context, 'user_data'):
+                market = context.user_data.get('market', 'forex')
+                in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
+            else:
+                # Fallback waarden
+                market = 'forex'
+                in_signals_flow = is_signals_flow
+            
+            logger.info(f"Back to market: market={market}, in_signals_flow={in_signals_flow}")
+            
+            # Kies het juiste keyboard op basis van de flow
+            if in_signals_flow:
+                keyboard = MARKET_KEYBOARD_SIGNALS
+                text = "Select a market for trading signals:"
+            else:
+                keyboard = MARKET_KEYBOARD
+                text = "Select a market for technical analysis:"
+            
+            # Werk het bericht bij
+            try:
+                if is_photo_message:
+                    # Als het een foto is, antwoord met een nieuw bericht
+                    # omdat we niet een foto naar tekst kunnen omzetten
+                    await query.message.reply_text(
+                        text=text,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+                else:
+                    # Als het een tekstbericht is, bewerk het
+                    await query.edit_message_text(
+                        text=text,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+            except Exception as edit_error:
+                logger.error(f"Error updating message: {str(edit_error)}")
+                # Stuur een nieuw bericht als fallback
+                await query.message.reply_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            
+            return CHOOSE_MARKET
+        except Exception as e:
+            logger.error(f"Error in back_to_market_callback: {str(e)}")
+            logger.exception(e)  # Volledige stacktrace loggen
+            
+            # Stuur een nieuw bericht als fallback bij fouten
+            try:
+                await query.message.reply_text(
+                    text="Select a market:",
+                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
+                )
+                return CHOOSE_MARKET
+            except Exception as inner_e:
+                logger.error(f"Failed to send fallback message: {str(inner_e)}")
+                return MENU
+
+    async def back_to_instrument(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
+        """Handle back to instrument selection"""
+        query = update.callback_query
+        await query.answer()
+        
+        # Get market from user_data or use a default
+        market = 'forex'  # Default fallback
+        
+        if context and hasattr(context, 'user_data'):
+            market = context.user_data.get('market', 'forex')
+        else:
+            # Probeer de markt te bepalen uit de message text
+            message_text = query.message.text if query.message and hasattr(query.message, 'text') else ""
+            
+            # Probeer instrument te extraheren uit tekst zoals "Choose trading style for AUDCAD:"
+            instrument_match = re.search(r"for ([A-Z0-9]+):", message_text)
+            if instrument_match:
+                instrument = instrument_match.group(1)
+                # Bepaal de markt op basis van het instrument
+                if "USD" in instrument or "EUR" in instrument or "GBP" in instrument or "JPY" in instrument or "CAD" in instrument:
+                    market = "forex"
+                elif "BTC" in instrument or "ETH" in instrument:
+                    market = "crypto"
+                elif "US" in instrument or "200" in instrument:
+                    market = "indices"
+                elif "XAU" in instrument or "XAG" in instrument or "OIL" in instrument:
+                    market = "commodities"
+        
+        # Determine which keyboard to show based on market
+        keyboard_map = {
+            'forex': FOREX_KEYBOARD_SIGNALS if getattr(self, 'in_signals_flow', False) else FOREX_KEYBOARD,
+            'crypto': CRYPTO_KEYBOARD_SIGNALS if getattr(self, 'in_signals_flow', False) else CRYPTO_KEYBOARD,
+            'indices': INDICES_KEYBOARD_SIGNALS if getattr(self, 'in_signals_flow', False) else INDICES_KEYBOARD,
+            'commodities': COMMODITIES_KEYBOARD_SIGNALS if getattr(self, 'in_signals_flow', False) else COMMODITIES_KEYBOARD
+        }
+        
+        keyboard = keyboard_map.get(market, FOREX_KEYBOARD)
+        
+        # Show instruments for the selected market
+        await query.edit_message_text(
+            text=f"Select an instrument from {market.capitalize()}:",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        
+        return CHOOSE_INSTRUMENT
+
+    async def back_to_market_callback(self, update: Update, context=None) -> int:
+        """Handle back_market callback"""
+        query = update.callback_query
+        
+        try:
+            # Beantwoord de callback query om de "wachtende" status te verwijderen
+            await query.answer()
+            
+            # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False
+            
+            # Haal market uit user_data of fallback naar 'forex'
+            if context and hasattr(context, 'user_data'):
+                market = context.user_data.get('market', 'forex')
+                in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
+            else:
+                # Fallback waarden
+                market = 'forex'
+                in_signals_flow = is_signals_flow
+            
+            logger.info(f"Back to market: market={market}, in_signals_flow={in_signals_flow}")
+            
+            # Kies het juiste keyboard op basis van de flow
+            if in_signals_flow:
+                keyboard = MARKET_KEYBOARD_SIGNALS
+                text = "Select a market for trading signals:"
+            else:
+                keyboard = MARKET_KEYBOARD
+                text = "Select a market for technical analysis:"
+            
+            # Werk het bericht bij
+            try:
+                if is_photo_message:
+                    # Als het een foto is, antwoord met een nieuw bericht
+                    # omdat we niet een foto naar tekst kunnen omzetten
+                    await query.message.reply_text(
+                        text=text,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+                else:
+                    # Als het een tekstbericht is, bewerk het
+                    await query.edit_message_text(
+                        text=text,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+            except Exception as edit_error:
+                logger.error(f"Error updating message: {str(edit_error)}")
+                # Stuur een nieuw bericht als fallback
+                await query.message.reply_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            
+            return CHOOSE_MARKET
+        except Exception as e:
+            logger.error(f"Error in back_to_market_callback: {str(e)}")
+            logger.exception(e)  # Volledige stacktrace loggen
+            
+            # Stuur een nieuw bericht als fallback bij fouten
+            try:
+                await query.message.reply_text(
+                    text="Select a market:",
+                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
+                )
+                return CHOOSE_MARKET
+            except Exception as inner_e:
+                logger.error(f"Failed to send fallback message: {str(inner_e)}")
+                return MENU
+
+    async def back_to_instrument(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
+        """Handle back to instrument selection"""
+        query = update.callback_query
+        await query.answer()
+        
+        # Get market from user_data or use a default
+        market = 'forex'  # Default fallback
+        
+        if context and hasattr(context, 'user_data'):
+            market = context.user_data.get('market', 'forex')
+        else:
+            # Probeer de markt te bepalen uit de message text
+            message_text = query.message.text if query.message and hasattr(query.message, 'text') else ""
+            
+            # Probeer instrument te extraheren uit tekst zoals "Choose trading style for AUDCAD:"
+            instrument_match = re.search(r"for ([A-Z0-9]+):", message_text)
+            if instrument_match:
+                instrument = instrument_match.group(1)
+                # Bepaal de markt op basis van het instrument
+                if "USD" in instrument or "EUR" in instrument or "GBP" in instrument or "JPY" in instrument or "CAD" in instrument:
+                    market = "forex"
+                elif "BTC" in instrument or "ETH" in instrument:
+                    market = "crypto"
+                elif "US" in instrument or "200" in instrument:
+                    market = "indices"
+                elif "XAU" in instrument or "XAG" in instrument or "OIL" in instrument:
+                    market = "commodities"
+        
+        # Determine which keyboard to show based on market
+        keyboard_map = {
+            'forex': FOREX_KEYBOARD_SIGNALS if getattr(self, 'in_signals_flow', False) else FOREX_KEYBOARD,
+            'crypto': CRYPTO_KEYBOARD_SIGNALS if getattr(self, 'in_signals_flow', False) else CRYPTO_KEYBOARD,
+            'indices': INDICES_KEYBOARD_SIGNALS if getattr(self, 'in_signals_flow', False) else INDICES_KEYBOARD,
+            'commodities': COMMODITIES_KEYBOARD_SIGNALS if getattr(self, 'in_signals_flow', False) else COMMODITIES_KEYBOARD
+        }
+        
+        keyboard = keyboard_map.get(market, FOREX_KEYBOARD)
+        
+        # Show instruments for the selected market
+        await query.edit_message_text(
+            text=f"Select an instrument from {market.capitalize()}:",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        
+        return CHOOSE_INSTRUMENT
+
+    async def back_to_market_callback(self, update: Update, context=None) -> int:
+        """Handle back_market callback"""
+        query = update.callback_query
+        
+        try:
+            # Beantwoord de callback query om de "wachtende" status te verwijderen
+            await query.answer()
+            
+            # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False
+            
+            # Haal market uit user_data of fallback naar 'forex'
+            if context and hasattr(context, 'user_data'):
+                market = context.user_data.get('market', 'forex')
+                in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
+            else:
+                # Fallback waarden
+                market = 'forex'
+                in_signals_flow = is_signals_flow
+            
+            logger.info(f"Back to market: market={market}, in_signals_flow={in_signals_flow}")
+            
+            # Kies het juiste keyboard op basis van de flow
+            if in_signals_flow:
+                keyboard = MARKET_KEYBOARD_SIGNALS
+                text = "Select a market for trading signals:"
+            else:
+                keyboard = MARKET_KEYBOARD
+                text = "Select a market for technical analysis:"
+            
+            # Werk het bericht bij
+            try:
+                if is_photo_message:
+                    # Als het een foto is, antwoord met een nieuw bericht
+                    # omdat we niet een foto naar tekst kunnen omzetten
+                    await query.message.reply_text(
+                        text=text,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+                else:
+                    # Als het een tekstbericht is, bewerk het
+                    await query.edit_message_text(
+                        text=text,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+            except Exception as edit_error:
+                logger.error(f"Error updating message: {str(edit_error)}")
+                # Stuur een nieuw bericht als fallback
+                await query.message.reply_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            
+            return CHOOSE_MARKET
+        except Exception as e:
+            logger.error(f"Error in back_to_market_callback: {str(e)}")
+            logger.exception(e)  # Volledige stacktrace loggen
+            
+            # Stuur een nieuw bericht als fallback bij fouten
+            try:
+                await query.message.reply_text(
+                    text="Select a market:",
+                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
+                )
+                return CHOOSE_MARKET
+            except Exception as inner_e:
+                logger.error(f"Failed to send fallback message: {str(inner_e)}")
+                return MENU
+
+    async def back_to_instrument(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
+        """Handle back to instrument selection"""
+        query = update.callback_query
+        await query.answer()
+        
+        # Get market from user_data or use a default
+        market = 'forex'  # Default fallback
+        
+        if context and hasattr(context, 'user_data'):
+            market = context.user_data.get('market', 'forex')
+        else:
+            # Probeer de markt te bepalen uit de message text
+            message_text = query.message.text if query.message and hasattr(query.message, 'text') else ""
+            
+            # Probeer instrument te extraheren uit tekst zoals "Choose trading style for AUDCAD:"
+            instrument_match = re.search(r"for ([A-Z0-9]+):", message_text)
+            if instrument_match:
+                instrument = instrument_match.group(1)
+                # Bepaal de markt op basis van het instrument
+                if "USD" in instrument or "EUR" in instrument or "GBP" in instrument or "JPY" in instrument or "CAD" in instrument:
+                    market = "forex"
+                elif "BTC" in instrument or "ETH" in instrument:
+                    market = "crypto"
+                elif "US" in instrument or "200" in instrument:
+                    market = "indices"
+                elif "XAU" in instrument or "XAG" in instrument or "OIL" in instrument:
+                    market = "commodities"
+        
+        # Determine which keyboard to show based on market
+        keyboard_map = {
+            'forex': FOREX_KEYBOARD_SIGNALS if getattr(self, 'in_signals_flow', False) else FOREX_KEYBOARD,
+            'crypto': CRYPTO_KEYBOARD_SIGNALS if getattr(self, 'in_signals_flow', False) else CRYPTO_KEYBOARD,
+            'indices': INDICES_KEYBOARD_SIGNALS if getattr(self, 'in_signals_flow', False) else INDICES_KEYBOARD,
+            'commodities': COMMODITIES_KEYBOARD_SIGNALS if getattr(self, 'in_signals_flow', False) else COMMODITIES_KEYBOARD
+        }
+        
+        keyboard = keyboard_map.get(market, FOREX_KEYBOARD)
+        
+        # Show instruments for the selected market
+        await query.edit_message_text(
+            text=f"Select an instrument from {market.capitalize()}:",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        
+        return CHOOSE_INSTRUMENT
+
+    async def back_to_market_callback(self, update: Update, context=None) -> int:
+        """Handle back_market callback"""
+        query = update.callback_query
+        
+        try:
+            # Beantwoord de callback query om de "wachtende" status te verwijderen
+            await query.answer()
+            
+            # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False
+            
+            # Haal market uit user_data of fallback naar 'forex'
+            if context and hasattr(context, 'user_data'):
+                market = context.user_data.get('market', 'forex')
+                in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
+            else:
+                # Fallback waarden
+                market = 'forex'
+                in_signals_flow = is_signals_flow
+            
+            logger.info(f"Back to market: market={market}, in_signals_flow={in_signals_flow}")
+            
+            # Kies het juiste keyboard op basis van de flow
+            if in_signals_flow:
+                keyboard = MARKET_KEYBOARD_SIGNALS
+                text = "Select a market for trading signals:"
+            else:
+                keyboard = MARKET_KEYBOARD
+                text = "Select a market for technical analysis:"
+            
+            # Werk het bericht bij
+            try:
+                if is_photo_message:
+                    # Als het een foto is, antwoord met een nieuw bericht
+                    # omdat we niet een foto naar tekst kunnen omzetten
+                    await query.message.reply_text(
+                        text=text,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+                else:
+                    # Als het een tekstbericht is, bewerk het
+                    await query.edit_message_text(
+                        text=text,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+            except Exception as edit_error:
+                logger.error(f"Error updating message: {str(edit_error)}")
+                # Stuur een nieuw bericht als fallback
+                await query.message.reply_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            
+            return CHOOSE_MARKET
+        except Exception as e:
+            logger.error(f"Error in back_to_market_callback: {str(e)}")
+            logger.exception(e)  # Volledige stacktrace loggen
+            
+            # Stuur een nieuw bericht als fallback bij fouten
+            try:
+                await query.message.reply_text(
+                    text="Select a market:",
+                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
+                )
+                return CHOOSE_MARKET
+            except Exception as inner_e:
+                logger.error(f"Failed to send fallback message: {str(inner_e)}")
+                return MENU
+
+    async def back_to_instrument(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
+        """Handle back to instrument selection"""
+        query = update.callback_query
+        await query.answer()
+        
+        # Get market from user_data or use a default
+        market = 'forex'  # Default fallback
+        
+        if context and hasattr(context, 'user_data'):
+            market = context.user_data.get('market', 'forex')
+        else:
+            # Probeer de markt te bepalen uit de message text
+            message_text = query.message.text if query.message and hasattr(query.message, 'text') else ""
+            
+            # Probeer instrument te extraheren uit tekst zoals "Choose trading style for AUDCAD:"
+            instrument_match = re.search(r"for ([A-Z0-9]+):", message_text)
+            if instrument_match:
+                instrument = instrument_match.group(1)
+                # Bepaal de markt op basis van het instrument
+                if "USD" in instrument or "EUR" in instrument or "GBP" in instrument or "JPY" in instrument or "CAD" in instrument:
+                    market = "forex"
+                elif "BTC" in instrument or "ETH" in instrument:
+                    market = "crypto"
+                elif "US" in instrument or "200" in instrument:
+                    market = "indices"
+                elif "XAU" in instrument or "XAG" in instrument or "OIL" in instrument:
+                    market = "commodities"
+        
+        # Determine which keyboard to show based on market
+        keyboard_map = {
+            'forex': FOREX_KEYBOARD_SIGNALS if getattr(self, 'in_signals_flow', False) else FOREX_KEYBOARD,
+            'crypto': CRYPTO_KEYBOARD_SIGNALS if getattr(self, 'in_signals_flow', False) else CRYPTO_KEYBOARD,
+            'indices': INDICES_KEYBOARD_SIGNALS if getattr(self, 'in_signals_flow', False) else INDICES_KEYBOARD,
+            'commodities': COMMODITIES_KEYBOARD_SIGNALS if getattr(self, 'in_signals_flow', False) else COMMODITIES_KEYBOARD
+        }
+        
+        keyboard = keyboard_map.get(market, FOREX_KEYBOARD)
+        
+        # Show instruments for the selected market
+        await query.edit_message_text(
+            text=f"Select an instrument from {market.capitalize()}:",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        
+        return CHOOSE_INSTRUMENT
+
+    async def back_to_market_callback(self, update: Update, context=None) -> int:
+        """Handle back_market callback"""
+        query = update.callback_query
+        
+        try:
+            # Beantwoord de callback query om de "wachtende" status te verwijderen
+            await query.answer()
+            
+            # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False
+            
+            # Haal market uit user_data of fallback naar 'forex'
+            if context and hasattr(context, 'user_data'):
+                market = context.user_data.get('market', 'forex')
+                in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
+            else:
+                # Fallback waarden
+                market = 'forex'
+                in_signals_flow = is_signals_flow
+            
+            logger.info(f"Back to market: market={market}, in_signals_flow={in_signals_flow}")
+            
+            # Kies het juiste keyboard op basis van de flow
+            if in_signals_flow:
+                keyboard = MARKET_KEYBOARD_SIGNALS
+                text = "Select a market for trading signals:"
+            else:
+                keyboard = MARKET_KEYBOARD
+                text = "Select a market for technical analysis:"
+            
+            # Werk het bericht bij
+            try:
+                if is_photo_message:
+                    # Als het een foto is, antwoord met een nieuw bericht
+                    # omdat we niet een foto naar tekst kunnen omzetten
+                    await query.message.reply_text(
+                        text=text,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+                else:
+                    # Als het een tekstbericht is, bewerk het
+                    await query.edit_message_text(
+                        text=text,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+            except Exception as edit_error:
+                logger.error(f"Error updating message: {str(edit_error)}")
+                # Stuur een nieuw bericht als fallback
+                await query.message.reply_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            
+            return CHOOSE_MARKET
+        except Exception as e:
+            logger.error(f"Error in back_to_market_callback: {str(e)}")
+            logger.exception(e)  # Volledige stacktrace loggen
+            
+            # Stuur een nieuw bericht als fallback bij fouten
+            try:
+                await query.message.reply_text(
+                    text="Select a market:",
+                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
+                )
+                return CHOOSE_MARKET
+            except Exception as inner_e:
+                logger.error(f"Failed to send fallback message: {str(inner_e)}")
+                return MENU
+
+    async def back_to_instrument(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
+        """Handle back to instrument selection"""
+        query = update.callback_query
+        await query.answer()
+        
+        # Get market from user_data or use a default
+        market = 'forex'  # Default fallback
+        
+        if context and hasattr(context, 'user_data'):
+            market = context.user_data.get('market', 'forex')
+        else:
+            # Probeer de markt te bepalen uit de message text
+            message_text = query.message.text if query.message and hasattr(query.message, 'text') else ""
+            
+            # Probeer instrument te extraheren uit tekst zoals "Choose trading style for AUDCAD:"
+            instrument_match = re.search(r"for ([A-Z0-9]+):", message_text)
+            if instrument_match:
+                instrument = instrument_match.group(1)
+                # Bepaal de markt op basis van het instrument
+                if "USD" in instrument or "EUR" in instrument or "GBP" in instrument or "JPY" in instrument or "CAD" in instrument:
+                    market = "forex"
+                elif "BTC" in instrument or "ETH" in instrument:
+                    market = "crypto"
+                elif "US" in instrument or "200" in instrument:
+                    market = "indices"
+                elif "XAU" in instrument or "XAG" in instrument or "OIL" in instrument:
+                    market = "commodities"
+        
+        # Determine which keyboard to show based on market
+        keyboard_map = {
+            'forex': FOREX_KEYBOARD_SIGNALS if getattr(self, 'in_signals_flow', False) else FOREX_KEYBOARD,
+            'crypto': CRYPTO_KEYBOARD_SIGNALS if getattr(self, 'in_signals_flow', False) else CRYPTO_KEYBOARD,
+            'indices': INDICES_KEYBOARD_SIGNALS if getattr(self, 'in_signals_flow', False) else INDICES_KEYBOARD,
+            'commodities': COMMODITIES_KEYBOARD_SIGNALS if getattr(self, 'in_signals_flow', False) else COMMODITIES_KEYBOARD
+        }
+        
+        keyboard = keyboard_map.get(market, FOREX_KEYBOARD)
+        
+        # Show instruments for the selected market
+        await query.edit_message_text(
+            text=f"Select an instrument from {market.capitalize()}:",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        
+        return CHOOSE_INSTRUMENT
+
+    async def back_to_market_callback(self, update: Update, context=None) -> int:
+        """Handle back_market callback"""
+        query = update.callback_query
+        
+        try:
+            # Beantwoord de callback query om de "wachtende" status te verwijderen
+            await query.answer()
+            
+            # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False
+            
+            # Haal market uit user_data of fallback naar 'forex'
+            if context and hasattr(context, 'user_data'):
+                market = context.user_data.get('market', 'forex')
+                in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
+            else:
+                # Fallback waarden
+                market = 'forex'
+                in_signals_flow = is_signals_flow
+            
+            logger.info(f"Back to market: market={market}, in_signals_flow={in_signals_flow}")
+            
+            # Kies het juiste keyboard op basis van de flow
+            if in_signals_flow:
+                keyboard = MARKET_KEYBOARD_SIGNALS
+                text = "Select a market for trading signals:"
+            else:
+                keyboard = MARKET_KEYBOARD
+                text = "Select a market for technical analysis:"
+            
+            # Werk het bericht bij
+            try:
+                if is_photo_message:
+                    # Als het een foto is, antwoord met een nieuw bericht
+                    # omdat we niet een foto naar tekst kunnen omzetten
+                    await query.message.reply_text(
+                        text=text,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+                else:
+                    # Als het een tekstbericht is, bewerk het
+                    await query.edit_message_text(
+                        text=text,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+            except Exception as edit_error:
+                logger.error(f"Error updating message: {str(edit_error)}")
+                # Stuur een nieuw bericht als fallback
+                await query.message.reply_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            
+            return CHOOSE_MARKET
+        except Exception as e:
+            logger.error(f"Error in back_to_market_callback: {str(e)}")
+            logger.exception(e)  # Volledige stacktrace loggen
+            
+            # Stuur een nieuw bericht als fallback bij fouten
+            try:
+                await query.message.reply_text(
+                    text="Select a market:",
+                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
+                )
+                return CHOOSE_MARKET
+            except Exception as inner_e:
+                logger.error(f"Failed to send fallback message: {str(inner_e)}")
+                return MENU
+
+    async def back_to_instrument(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
+        """Handle back to instrument selection"""
+        query = update.callback_query
+        await query.answer()
+        
+        # Get market from user_data or use a default
+        market = 'forex'  # Default fallback
+        
+        if context and hasattr(context, 'user_data'):
+            market = context.user_data.get('market', 'forex')
+        else:
+            # Probeer de markt te bepalen uit de message text
+            message_text = query.message.text if query.message and hasattr(query.message, 'text') else ""
+            
+            # Probeer instrument te extraheren uit tekst zoals "Choose trading style for AUDCAD:"
+            instrument_match = re.search(r"for ([A-Z0-9]+):", message_text)
+            if instrument_match:
+                instrument = instrument_match.group(1)
+                # Bepaal de markt op basis van het instrument
+                if "USD" in instrument or "EUR" in instrument or "GBP" in instrument or "JPY" in instrument or "CAD" in instrument:
+                    market = "forex"
+                elif "BTC" in instrument or "ETH" in instrument:
+                    market = "crypto"
+                elif "US" in instrument or "200" in instrument:
+                    market = "indices"
+                elif "XAU" in instrument or "XAG" in instrument or "OIL" in instrument:
+                    market = "commodities"
+        
+        # Determine which keyboard to show based on market
+        keyboard_map = {
+            'forex': FOREX_KEYBOARD_SIGNALS if getattr(self, 'in_signals_flow', False) else FOREX_KEYBOARD,
+            'crypto': CRYPTO_KEYBOARD_SIGNALS if getattr(self, 'in_signals_flow', False) else CRYPTO_KEYBOARD,
+            'indices': INDICES_KEYBOARD_SIGNALS if getattr(self, 'in_signals_flow', False) else INDICES_KEYBOARD,
+            'commodities': COMMODITIES_KEYBOARD_SIGNALS if getattr(self, 'in_signals_flow', False) else COMMODITIES_KEYBOARD
+        }
+        
+        keyboard = keyboard_map.get(market, FOREX_KEYBOARD)
+        
+        # Show instruments for the selected market
+        await query.edit_message_text(
+            text=f"Select an instrument from {market.capitalize()}:",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        
+        return CHOOSE_INSTRUMENT
+
+    async def back_to_market_callback(self, update: Update, context=None) -> int:
+        """Handle back_market callback"""
+        query = update.callback_query
+        
+        try:
+            # Beantwoord de callback query om de "wachtende" status te verwijderen
+            await query.answer()
+            
+            # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False
+            
+            # Haal market uit user_data of fallback naar 'forex'
+            if context and hasattr(context, 'user_data'):
+                market = context.user_data.get('market', 'forex')
+                in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
+            else:
+                # Fallback waarden
+                market = 'forex'
+                in_signals_flow = is_signals_flow
+            
+            logger.info(f"Back to market: market={market}, in_signals_flow={in_signals_flow}")
+            
+            # Kies het juiste keyboard op basis van de flow
+            if in_signals_flow:
+                keyboard = MARKET_KEYBOARD_SIGNALS
+                text = "Select a market for trading signals:"
+            else:
+                keyboard = MARKET_KEYBOARD
+                text = "Select a market for technical analysis:"
+            
+            # Werk het bericht bij
+            try:
+                if is_photo_message:
+                    # Als het een foto is, antwoord met een nieuw bericht
+                    # omdat we niet een foto naar tekst kunnen omzetten
+                    await query.message.reply_text(
+                        text=text,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+                else:
+                    # Als het een tekstbericht is, bewerk het
+                    await query.edit_message_text(
+                        text=text,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+            except Exception as edit_error:
+                logger.error(f"Error updating message: {str(edit_error)}")
+                # Stuur een nieuw bericht als fallback
+                await query.message.reply_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            
+            return CHOOSE_MARKET
+        except Exception as e:
+            logger.error(f"Error in back_to_market_callback: {str(e)}")
+            logger.exception(e)  # Volledige stacktrace loggen
+            
+            # Stuur een nieuw bericht als fallback bij fouten
+            try:
+                await query.message.reply_text(
+                    text="Select a market:",
+                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
+                )
+                return CHOOSE_MARKET
+            except Exception as inner_e:
+                logger.error(f"Failed to send fallback message: {str(inner_e)}")
+                return MENU
+
+    async def back_to_instrument(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
+        """Handle back to instrument selection"""
+        query = update.callback_query
+        await query.answer()
+        
+        # Get market from user_data or use a default
+        market = 'forex'  # Default fallback
+        
+        if context and hasattr(context, 'user_data'):
+            market = context.user_data.get('market', 'forex')
+        else:
+            # Probeer de markt te bepalen uit de message text
+            message_text = query.message.text if query.message and hasattr(query.message, 'text') else ""
+            
+            # Probeer instrument te extraheren uit tekst zoals "Choose trading style for AUDCAD:"
+            instrument_match = re.search(r"for ([A-Z0-9]+):", message_text)
+            if instrument_match:
+                instrument = instrument_match.group(1)
+                # Bepaal de markt op basis van het instrument
+                if "USD" in instrument or "EUR" in instrument or "GBP" in instrument or "JPY" in instrument or "CAD" in instrument:
+                    market = "forex"
+                elif "BTC" in instrument or "ETH" in instrument:
+                    market = "crypto"
+                elif "US" in instrument or "200" in instrument:
+                    market = "indices"
+                elif "XAU" in instrument or "XAG" in instrument or "OIL" in instrument:
+                    market = "commodities"
+        
+        # Determine which keyboard to show based on market
+        keyboard_map = {
+            'forex': FOREX_KEYBOARD_SIGNALS if getattr(self, 'in_signals_flow', False) else FOREX_KEYBOARD,
+            'crypto': CRYPTO_KEYBOARD_SIGNALS if getattr(self, 'in_signals_flow', False) else CRYPTO_KEYBOARD,
+            'indices': INDICES_KEYBOARD_SIGNALS if getattr(self, 'in_signals_flow', False) else INDICES_KEYBOARD,
+            'commodities': COMMODITIES_KEYBOARD_SIGNALS if getattr(self, 'in_signals_flow', False) else COMMODITIES_KEYBOARD
+        }
+        
+        keyboard = keyboard_map.get(market, FOREX_KEYBOARD)
+        
+        # Show instruments for the selected market
+        await query.edit_message_text(
+            text=f"Select an instrument from {market.capitalize()}:",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        
+        return CHOOSE_INSTRUMENT
+
+    async def back_to_market_callback(self, update: Update, context=None) -> int:
+        """Handle back_market callback"""
+        query = update.callback_query
+        
+        try:
+            # Beantwoord de callback query om de "wachtende" status te verwijderen
+            await query.answer()
+            
+            # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False
+            
+            # Haal market uit user_data of fallback naar 'forex'
+            if context and hasattr(context, 'user_data'):
+                market = context.user_data.get('market', 'forex')
+                in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
+            else:
+                # Fallback waarden
+                market = 'forex'
+                in_signals_flow = is_signals_flow
+            
+            logger.info(f"Back to market: market={market}, in_signals_flow={in_signals_flow}")
+            
+            # Kies het juiste keyboard op basis van de flow
+            if in_signals_flow:
+                keyboard = MARKET_KEYBOARD_SIGNALS
+                text = "Select a market for trading signals:"
+            else:
+                keyboard = MARKET_KEYBOARD
+                text = "Select a market for technical analysis:"
+            
+            # Werk het bericht bij
+            try:
+                if is_photo_message:
+                    # Als het een foto is, antwoord met een nieuw bericht
+                    # omdat we niet een foto naar tekst kunnen omzetten
+                    await query.message.reply_text(
+                        text=text,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+                else:
+                    # Als het een tekstbericht is, bewerk het
+                    await query.edit_message_text(
+                        text=text,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+            except Exception as edit_error:
+                logger.error(f"Error updating message: {str(edit_error)}")
+                # Stuur een nieuw bericht als fallback
+                await query.message.reply_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            
+            return CHOOSE_MARKET
+        except Exception as e:
+            logger.error(f"Error in back_to_market_callback: {str(e)}")
+            logger.exception(e)  # Volledige stacktrace loggen
+            
+            # Stuur een nieuw bericht als fallback bij fouten
+            try:
+                await query.message.reply_text(
+                    text="Select a market:",
+                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
+                )
+                return CHOOSE_MARKET
+            except Exception as inner_e:
+                logger.error(f"Failed to send fallback message: {str(inner_e)}")
+                return MENU
+
+    async def back_to_instrument(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
+        """Handle back to instrument selection"""
+        query = update.callback_query
+        await query.answer()
+        
+        # Get market from user_data or use a default
+        market = 'forex'  # Default fallback
+        
+        if context and hasattr(context, 'user_data'):
+            market = context.user_data.get('market', 'forex')
+        else:
+            # Probeer de markt te bepalen uit de message text
+            message_text = query.message.text if query.message and hasattr(query.message, 'text') else ""
+            
+            # Probeer instrument te extraheren uit tekst zoals "Choose trading style for AUDCAD:"
+            instrument_match = re.search(r"for ([A-Z0-9]+):", message_text)
+            if instrument_match:
+                instrument = instrument_match.group(1)
+                # Bepaal de markt op basis van het instrument
+                if "USD" in instrument or "EUR" in instrument or "GBP" in instrument or "JPY" in instrument or "CAD" in instrument:
+                    market = "forex"
+                elif "BTC" in instrument or "ETH" in instrument:
+                    market = "crypto"
+                elif "US" in instrument or "200" in instrument:
+                    market = "indices"
+                elif "XAU" in instrument or "XAG" in instrument or "OIL" in instrument:
+                    market = "commodities"
+        
+        # Determine which keyboard to show based on market
+        keyboard_map = {
+            'forex': FOREX_KEYBOARD_SIGNALS if getattr(self, 'in_signals_flow', False) else FOREX_KEYBOARD,
+            'crypto': CRYPTO_KEYBOARD_SIGNALS if getattr(self, 'in_signals_flow', False) else CRYPTO_KEYBOARD,
+            'indices': INDICES_KEYBOARD_SIGNALS if getattr(self, 'in_signals_flow', False) else INDICES_KEYBOARD,
+            'commodities': COMMODITIES_KEYBOARD_SIGNALS if getattr(self, 'in_signals_flow', False) else COMMODITIES_KEYBOARD
+        }
+        
+        keyboard = keyboard_map.get(market, FOREX_KEYBOARD)
+        
+        # Show instruments for the selected market
+        await query.edit_message_text(
+            text=f"Select an instrument from {market.capitalize()}:",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        
+        return CHOOSE_INSTRUMENT
+
+    async def back_to_market_callback(self, update: Update, context=None) -> int:
+        """Handle back_market callback"""
+        query = update.callback_query
+        
+        try:
+            # Beantwoord de callback query om de "wachtende" status te verwijderen
+            await query.answer()
+            
+            # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False
+            
+            # Haal market uit user_data of fallback naar 'forex'
+            if context and hasattr(context, 'user_data'):
+                market = context.user_data.get('market', 'forex')
+                in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
+            else:
+                # Fallback waarden
+                market = 'forex'
+                in_signals_flow = is_signals_flow
+            
+            logger.info(f"Back to market: market={market}, in_signals_flow={in_signals_flow}")
+            
+            # Kies het juiste keyboard op basis van de flow
+            if in_signals_flow:
+                keyboard = MARKET_KEYBOARD_SIGNALS
+                text = "Select a market for trading signals:"
+            else:
+                keyboard = MARKET_KEYBOARD
+                text = "Select a market for technical analysis:"
+            
+            # Werk het bericht bij
+            try:
+                if is_photo_message:
+                    # Als het een foto is, antwoord met een nieuw bericht
+                    # omdat we niet een foto naar tekst kunnen omzetten
+                    await query.message.reply_text(
+                        text=text,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+                else:
+                    # Als het een tekstbericht is, bewerk het
+                    await query.edit_message_text(
+                        text=text,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+            except Exception as edit_error:
+                logger.error(f"Error updating message: {str(edit_error)}")
+                # Stuur een nieuw bericht als fallback
+                await query.message.reply_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            
+            return CHOOSE_MARKET
+        except Exception as e:
+            logger.error(f"Error in back_to_market_callback: {str(e)}")
+            logger.exception(e)  # Volledige stacktrace loggen
+            
+            # Stuur een nieuw bericht als fallback bij fouten
+            try:
+                await query.message.reply_text(
+                    text="Select a market:",
+                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
+                )
+                return CHOOSE_MARKET
+            except Exception as inner_e:
+                logger.error(f"Failed to send fallback message: {str(inner_e)}")
+                return MENU
+
+    async def back_to_instrument(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
+        """Handle back to instrument selection"""
+        query = update.callback_query
+        await query.answer()
+        
+        # Get market from user_data or use a default
+        market = 'forex'  # Default fallback
+        
+        if context and hasattr(context, 'user_data'):
+            market = context.user_data.get('market', 'forex')
+        else:
+            # Probeer de markt te bepalen uit de message text
+            message_text = query.message.text if query.message and hasattr(query.message, 'text') else ""
+            
+            # Probeer instrument te extraheren uit tekst zoals "Choose trading style for AUDCAD:"
+            instrument_match = re.search(r"for ([A-Z0-9]+):", message_text)
+            if instrument_match:
+                instrument = instrument_match.group(1)
+                # Bepaal de markt op basis van het instrument
+                if "USD" in instrument or "EUR" in instrument or "GBP" in instrument or "JPY" in instrument or "CAD" in instrument:
+                    market = "forex"
+                elif "BTC" in instrument or "ETH" in instrument:
+                    market = "crypto"
+                elif "US" in instrument or "200" in instrument:
+                    market = "indices"
+                elif "XAU" in instrument or "XAG" in instrument or "OIL" in instrument:
+                    market = "commodities"
+        
+        # Determine which keyboard to show based on market
+        keyboard_map = {
+            'forex': FOREX_KEYBOARD_SIGNALS if getattr(self, 'in_signals_flow', False) else FOREX_KEYBOARD,
+            'crypto': CRYPTO_KEYBOARD_SIGNALS if getattr(self, 'in_signals_flow', False) else CRYPTO_KEYBOARD,
+            'indices': INDICES_KEYBOARD_SIGNALS if getattr(self, 'in_signals_flow', False) else INDICES_KEYBOARD,
+            'commodities': COMMODITIES_KEYBOARD_SIGNALS if getattr(self, 'in_signals_flow', False) else COMMODITIES_KEYBOARD
+        }
+        
+        keyboard = keyboard_map.get(market, FOREX_KEYBOARD)
+        
+        # Show instruments for the selected market
+        await query.edit_message_text(
+            text=f"Select an instrument from {market.capitalize()}:",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        
+        return CHOOSE_INSTRUMENT
+
+    async def back_to_market_callback(self, update: Update, context=None) -> int:
+        """Handle back_market callback"""
+        query = update.callback_query
+        
+        try:
+            # Beantwoord de callback query om de "wachtende" status te verwijderen
+            await query.answer()
+            
+            # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False
+            
+            # Haal market uit user_data of fallback naar 'forex'
+            if context and hasattr(context, 'user_data'):
+                market = context.user_data.get('market', 'forex')
+                in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
+            else:
+                # Fallback waarden
+                market = 'forex'
+                in_signals_flow = is_signals_flow
+            
+            logger.info(f"Back to market: market={market}, in_signals_flow={in_signals_flow}")
+            
+            # Kies het juiste keyboard op basis van de flow
+            if in_signals_flow:
+                keyboard = MARKET_KEYBOARD_SIGNALS
+                text = "Select a market for trading signals:"
+            else:
+                keyboard = MARKET_KEYBOARD
+                text = "Select a market for technical analysis:"
+            
+            # Werk het bericht bij
+            try:
+                if is_photo_message:
+                    # Als het een foto is, antwoord met een nieuw bericht
+                    # omdat we niet een foto naar tekst kunnen omzetten
+                    await query.message.reply_text(
+                        text=text,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+                else:
+                    # Als het een tekstbericht is, bewerk het
+                    await query.edit_message_text(
+                        text=text,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+            except Exception as edit_error:
+                logger.error(f"Error updating message: {str(edit_error)}")
+                # Stuur een nieuw bericht als fallback
+                await query.message.reply_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            
+            return CHOOSE_MARKET
+        except Exception as e:
+            logger.error(f"Error in back_to_market_callback: {str(e)}")
+            logger.exception(e)  # Volledige stacktrace loggen
+            
+            # Stuur een nieuw bericht als fallback bij fouten
+            try:
+                await query.message.reply_text(
+                    text="Select a market:",
+                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
+                )
+                return CHOOSE_MARKET
+            except Exception as inner_e:
+                logger.error(f"Failed to send fallback message: {str(inner_e)}")
+                return MENU
+
+    async def back_to_instrument(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
+        """Handle back to instrument selection"""
+        query = update.callback_query
+        await query.answer()
+        
+        # Get market from user_data or use a default
+        market = 'forex'  # Default fallback
+        
+        if context and hasattr(context, 'user_data'):
+            market = context.user_data.get('market', 'forex')
+        else:
+            # Probeer de markt te bepalen uit de message text
+            message_text = query.message.text if query.message and hasattr(query.message, 'text') else ""
+            
+            # Probeer instrument te extraheren uit tekst zoals "Choose trading style for AUDCAD:"
+            instrument_match = re.search(r"for ([A-Z0-9]+):", message_text)
+            if instrument_match:
+                instrument = instrument_match.group(1)
+                # Bepaal de markt op basis van het instrument
+                if "USD" in instrument or "EUR" in instrument or "GBP" in instrument or "JPY" in instrument or "CAD" in instrument:
+                    market = "forex"
+                elif "BTC" in instrument or "ETH" in instrument:
+                    market = "crypto"
+                elif "US" in instrument or "200" in instrument:
+                    market = "indices"
+                elif "XAU" in instrument or "XAG" in instrument or "OIL" in instrument:
+                    market = "commodities"
+        
+        # Determine which keyboard to show based on market
+        keyboard_map = {
+            'forex': FOREX_KEYBOARD_SIGNALS if getattr(self, 'in_signals_flow', False) else FOREX_KEYBOARD,
+            'crypto': CRYPTO_KEYBOARD_SIGNALS if getattr(self, 'in_signals_flow', False) else CRYPTO_KEYBOARD,
+            'indices': INDICES_KEYBOARD_SIGNALS if getattr(self, 'in_signals_flow', False) else INDICES_KEYBOARD,
+            'commodities': COMMODITIES_KEYBOARD_SIGNALS if getattr(self, 'in_signals_flow', False) else COMMODITIES_KEYBOARD
+        }
+        
+        keyboard = keyboard_map.get(market, FOREX_KEYBOARD)
+        
+        # Show instruments for the selected market
+        await query.edit_message_text(
+            text=f"Select an instrument from {market.capitalize()}:",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        
+        return CHOOSE_INSTRUMENT
+
+    async def back_to_market_callback(self, update: Update, context=None) -> int:
+        """Handle back_market callback"""
+        query = update.callback_query
+        
+        try:
+            # Beantwoord de callback query om de "wachtende" status te verwijderen
+            await query.answer()
+            
+            # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow =
