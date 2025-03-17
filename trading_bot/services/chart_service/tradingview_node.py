@@ -175,21 +175,23 @@ class TradingViewNodeService(TradingViewService):
             timestamp = int(time.time())
             screenshot_path = os.path.join(os.path.dirname(self.script_path), f"screenshot_{timestamp}.png")
             
+            # Zorg ervoor dat de URL geen aanhalingstekens bevat
+            url = url.strip('"\'')
+            
             # Controleer of de URL naar TradingView verwijst
             if "tradingview.com" in url:
                 logger.info(f"Taking screenshot of TradingView URL: {url}")
                 
-                # Voeg extra parameters toe aan de URL om fullscreen te forceren als dat nodig is
-                if "fullscreen=true" in url:
-                    # Voeg een parameter toe die aangeeft dat we Shift+F moeten simuleren
-                    if "?" in url:
-                        url += "&simulate_shift_f=true"
-                    else:
-                        url += "?simulate_shift_f=true"
+                # Verwijder eventuele extra parameters als het een specifieke chart URL is
+                if "/chart/" in url and "?" in url:
+                    # Haal de basis-URL eruit (alles voor het vraagteken)
+                    url = url.split("?")[0]
+                    logger.info(f"Cleaned URL to: {url}")
             else:
                 logger.warning(f"URL is not a TradingView URL: {url}")
             
             # Gebruik session_id in plaats van tradingview_username
+            # Zorg ervoor dat de URL correct wordt doorgegeven zonder extra aanhalingstekens
             cmd = f"node {self.script_path} \"{url}\" \"{screenshot_path}\" \"{self.session_id}\""
             logger.info(f"Running command: {cmd.replace(self.session_id, '****')}")
             
