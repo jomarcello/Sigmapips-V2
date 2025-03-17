@@ -1245,6 +1245,38 @@ To regain access to all features and trading signals, please reactivate your sub
             market = self.temp_user_data[user_id].get('market', 'forex')
             instrument = self.temp_user_data[user_id].get('instrument', 'EURUSD')
         
+        # Als er geen instrument is, probeer het uit de message text te halen
+        if instrument == 'EURUSD' or not instrument:
+            message_text = query.message.text if query.message and hasattr(query.message, 'text') else ""
+            instrument_match = re.search(r"for ([A-Z0-9]+):", message_text)
+            if instrument_match:
+                extracted_instrument = instrument_match.group(1)
+                logger.info(f"Extracted instrument from message text: {extracted_instrument}")
+                
+                # Update het instrument in de context of tijdelijke opslag
+                if context and hasattr(context, 'user_data'):
+                    context.user_data['instrument'] = extracted_instrument
+                    instrument = extracted_instrument
+                else:
+                    self.temp_user_data[user_id]['instrument'] = extracted_instrument
+                    instrument = extracted_instrument
+                
+                # Bepaal de markt op basis van het instrument
+                if "USD" in instrument or "EUR" in instrument or "GBP" in instrument or "JPY" in instrument or "CAD" in instrument:
+                    market = "forex"
+                elif "BTC" in instrument or "ETH" in instrument:
+                    market = "crypto"
+                elif "US" in instrument or "200" in instrument:
+                    market = "indices"
+                elif "XAU" in instrument or "XAG" in instrument or "OIL" in instrument:
+                    market = "commodities"
+                
+                # Update de markt in de context of tijdelijke opslag
+                if context and hasattr(context, 'user_data'):
+                    context.user_data['market'] = market
+                else:
+                    self.temp_user_data[user_id]['market'] = market
+        
         try:
             # Check if this combination already exists
             preferences = await self.db.get_user_preferences(user_id)
