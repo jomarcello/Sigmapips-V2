@@ -92,10 +92,11 @@ class TradingViewNodeService(TradingViewService):
                 logger.error(f"Error checking/installing Playwright modules: {str(e)}")
                 # Ga door, want we kunnen nog steeds proberen om de service te gebruiken
             
-            # Test de Node.js service met een eenvoudige URL
+            # Test de Node.js service met een TradingView URL in plaats van Google
             try:
-                logger.info("Testing Node.js service with a simple URL")
-                test_result = await self.take_screenshot_of_url("https://www.google.com")
+                logger.info("Testing Node.js service with TradingView URL")
+                test_url = "https://www.tradingview.com/chart/xknpxpcr/?symbol=EURUSD&interval=1h"
+                test_result = await self.take_screenshot_of_url(test_url)
                 if test_result:
                     logger.info("Node.js service test successful")
                     self.is_initialized = True
@@ -134,63 +135,16 @@ class TradingViewNodeService(TradingViewService):
                 logger.error(f"Invalid chart URL for {symbol}")
                 return None
             
-            # Maak een tijdelijk bestand voor de screenshot
-            import tempfile
-            with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as temp_file:
-                screenshot_path = temp_file.name
+            # Gebruik de take_screenshot_of_url methode om de screenshot te maken
+            logger.info(f"Taking screenshot of URL: {chart_url}")
+            screenshot_bytes = await self.take_screenshot_of_url(chart_url)
             
-            # Voer het Node.js script uit om een screenshot te maken
-            import subprocess
-            
-            # Controleer of het script bestaat
-            script_path = os.path.join(os.path.dirname(__file__), "screenshot.js")
-            if not os.path.exists(script_path):
-                logger.error(f"Screenshot script not found at {script_path}")
+            if screenshot_bytes:
+                logger.info(f"Screenshot taken successfully for {symbol}")
+                return screenshot_bytes
+            else:
+                logger.error(f"Failed to take screenshot for {symbol}")
                 return None
-            
-            # Voeg de session ID toe aan de command line arguments
-            command = ["node", script_path, chart_url, screenshot_path]
-            if self.session_id:
-                command.append(self.session_id)
-                logger.info(f"Using session ID: {self.session_id[:5]}...")
-            
-            # Voeg fullscreen parameter toe indien nodig
-            if fullscreen:
-                command.append("fullscreen")
-            
-            # Voer het script uit
-            logger.info(f"Running Node.js script: {script_path} with URL: {chart_url} and output: {screenshot_path}")
-            process = subprocess.Popen(
-                command,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE
-            )
-            stdout, stderr = process.communicate()
-            
-            # Log de output
-            if stdout:
-                logger.info(f"Node.js script output: {stdout.decode('utf-8')}")
-            if stderr:
-                logger.error(f"Node.js script error: {stderr.decode('utf-8')}")
-            
-            # Controleer of het script succesvol was
-            if process.returncode != 0:
-                logger.error(f"Node.js script failed with return code {process.returncode}")
-                return None
-            
-            # Controleer of het bestand bestaat
-            if not os.path.exists(screenshot_path):
-                logger.error(f"Screenshot file not found at {screenshot_path}")
-                return None
-            
-            # Lees het bestand
-            with open(screenshot_path, "rb") as f:
-                screenshot_bytes = f.read()
-            
-            # Verwijder het tijdelijke bestand
-            os.unlink(screenshot_path)
-            
-            return screenshot_bytes
             
         except Exception as e:
             logger.error(f"Error taking screenshot: {str(e)}")
@@ -243,10 +197,19 @@ class TradingViewNodeService(TradingViewService):
             timestamp = int(time.time())
             screenshot_path = os.path.join(os.path.dirname(self.script_path), f"screenshot_{timestamp}.png")
             
-            # Voeg extra parameters toe aan de URL om fullscreen te forceren
-            if "tradingview.com" in url and "fullscreen=true" in url:
-                # Voeg een parameter toe die aangeeft dat we Shift+F moeten simuleren
-                url += "&simulate_shift_f=true"
+            # Controleer of de URL naar TradingView verwijst
+            if "tradingview.com" in url:
+                logger.info(f"Taking screenshot of TradingView URL: {url}")
+                
+                # Voeg extra parameters toe aan de URL om fullscreen te forceren als dat nodig is
+                if "fullscreen=true" in url:
+                    # Voeg een parameter toe die aangeeft dat we Shift+F moeten simuleren
+                    if "?" in url:
+                        url += "&simulate_shift_f=true"
+                    else:
+                        url += "?simulate_shift_f=true"
+            else:
+                logger.warning(f"URL is not a TradingView URL: {url}")
             
             # Gebruik session_id in plaats van tradingview_username
             cmd = f"node {self.script_path} \"{url}\" \"{screenshot_path}\" \"{self.session_id}\""
