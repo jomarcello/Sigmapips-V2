@@ -303,14 +303,39 @@ def require_subscription(func):
         # Check subscription status
         is_subscribed = await self.db.is_user_subscribed(user_id)
         
+        # Get subscription record to check if it's expired
+        subscription = await self.db.get_user_subscription(user_id)
+        has_expired = subscription and subscription.get('subscription_status') != 'active' and subscription.get('subscription_status') != 'trialing'
+        
         if is_subscribed:
             # User has subscription, proceed with function
             return await func(self, update, context, *args, **kwargs)
+        elif has_expired:
+            # User has an expired subscription
+            expired_message = """
+❌ <b>Subscription Inactive</b> ❌
+
+Your SigmaPips Trading Bot subscription is currently inactive. 
+
+To regain access to all features and trading signals, please reactivate your subscription:
+"""
+            
+            # Create buttons for resubscription
+            keyboard = [
+                [InlineKeyboardButton("🔄 Reactivate Subscription", url="https://buy.stripe.com/test_5kA4kkcHa2q73le6op")],
+                [InlineKeyboardButton("ℹ️ More Information", callback_data="subscription_info")]
+            ]
+            
+            await update.message.reply_text(
+                text=expired_message,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode=ParseMode.HTML
+            )
+            return MENU
         else:
-            # Show subscription screen
+            # Show subscription screen for new users
             subscription_features = get_subscription_features("monthly")
             
-            # Update message to emphasize the trial period
             welcome_text = f"""
 🚀 <b>Welcome to SigmaPips Trading Bot!</b> 🚀
 
@@ -461,6 +486,10 @@ class TelegramService:
         # Check if user is subscribed
         is_subscribed = await self.db.is_user_subscribed(user_id)
         
+        # Check if user has a subscription record but inactive (expired)
+        subscription = await self.db.get_user_subscription(user_id)
+        has_expired = subscription and subscription.get('subscription_status') != 'active' and subscription.get('subscription_status') != 'trialing'
+        
         if is_subscribed:
             # Welcome message for subscribed users
             welcome_message = """
@@ -497,7 +526,29 @@ Type /menu to start using the bot.
                 reply_markup=InlineKeyboardMarkup(keyboard),
                 parse_mode=ParseMode.HTML
             )
+        
+        elif has_expired:
+            # Message for users with expired subscriptions
+            expired_message = """
+❌ <b>Subscription Inactive</b> ❌
+
+Your SigmaPips Trading Bot subscription is currently inactive. 
+
+To regain access to all features and trading signals, please reactivate your subscription:
+"""
             
+            # Create buttons for resubscription
+            keyboard = [
+                [InlineKeyboardButton("🔄 Reactivate Subscription", url="https://buy.stripe.com/test_5kA4kkcHa2q73le6op")],
+                [InlineKeyboardButton("ℹ️ More Information", callback_data="subscription_info")]
+            ]
+            
+            await update.message.reply_text(
+                text=expired_message,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode=ParseMode.HTML
+            )
+        
         else:
             # Original welcome message for unsubscribed users
             subscription_features = get_subscription_features("monthly")
@@ -2696,7 +2747,11 @@ Type /menu to start using the bot.
     @require_subscription
     async def show_main_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Show the main menu with all bot features"""
-        # Toon het originele hoofdmenu met alle opties
+        # The @require_subscription decorator already checks if the user has an active subscription
+        # If not, it will show the subscription screen
+        # We just need to make sure the require_subscription decorator checks for expired subscriptions too
+        
+        # Show the original main menu with all options
         reply_markup = InlineKeyboardMarkup(START_KEYBOARD)
         
         await context.bot.send_message(
