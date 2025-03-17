@@ -5,6 +5,7 @@ from typing import Dict, Any, Optional, Tuple
 import time
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from datetime import datetime, timezone, timedelta
+from telegram import ParseMode
 
 from trading_bot.services.payment_service.stripe_config import stripe, get_price_id, get_subscription_features
 from trading_bot.services.database.db import Database
@@ -174,48 +175,40 @@ class StripeService:
             # Haal de klant-ID op
             customer_id = event_data.get('customer')
             if not customer_id:
-                logger.error("Geen customer ID in payment failed event")
+                logger.warning("No customer ID found in payment failed event")
                 return False
             
-            # Zoek de gebruiker op basis van stripe_customer_id
-            user_subscriptions = await self.db.get_users_by_customer_id(customer_id)
+            # Zoek de gebruiker op basis van customer_id
+            user_subscription = await self.db.get_subscription_by_customer(customer_id)
+            if not user_subscription:
+                logger.warning(f"No user found for customer {customer_id}")
+                return False
             
-            for user_id in user_subscriptions:
-                # Update de abonnementsstatus naar 'past_due'
-                await self.db.create_or_update_subscription(
-                    user_id=user_id,
-                    status='past_due',
-                    stripe_customer_id=customer_id
-                )
-                
-                # Stuur een bericht naar de gebruiker over de mislukte betaling
-                try:
-                    # Controleer of telegram_service beschikbaar is
-                    if hasattr(self, 'telegram_service') and self.telegram_service:
-                        message = """
-⚠️ <b>Betalingswaarschuwing</b> ⚠️
-
-Je betaling voor het SigmaPips abonnement kon niet worden verwerkt.
-
-Om je toegang te behouden, update je betalingsgegevens binnen 3 dagen.
-
-🔄 Klik hier om je betalingsgegevens bij te werken:
-                        """
-                        # Maak een betaal-update URL
-                        update_url = await self.create_update_payment_session(user_id)
-                        
-                        # Stuur het bericht
-                        await self.telegram_service.send_message_to_user(
-                            user_id, 
-                            message, 
-                            reply_markup=InlineKeyboardMarkup([[
-                                InlineKeyboardButton("💳 Update betaalgegevens", url=update_url)
-                            ]])
-                        )
-                except Exception as msg_error:
-                    logger.error(f"Error sending payment failed message: {str(msg_error)}")
+            user_id = user_subscription.get('user_id')
             
-            logger.info(f"Payment failed verwerkt voor klant {customer_id}")
+            # Update subscription status to inactive
+            await self.db.create_or_update_subscription(
+                user_id=user_id,
+                status='inactive',
+                current_period_end=datetime.now(timezone.utc)  # Set end date to now
+            )
+            
+            # Notify the user of the payment failure
+            if hasattr(self, 'telegram_service') and self.telegram_service:
+                failed_message = """
+❌ <b>Payment Failed - Subscription Inactive</b>
+
+We were unable to process your payment and your subscription is now inactive.
+
+To continue using SigmaPips Trading Bot, please update your payment method:
+
+<b>👉 <a href="https://buy.stripe.com/test_5kA4kkcHa2q73le6op">Click Here to Reactivate Your Subscription</a></b>
+
+Need help? Type /help for assistance.
+"""
+                await self.telegram_service.send_message_to_user(user_id, failed_message, parse_mode=ParseMode.HTML)
+            
+            logger.info(f"Processed payment failure for user {user_id}")
             return True
             
         except Exception as e:
