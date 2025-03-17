@@ -2963,3 +2963,21 @@ End Date: {end_date or 'Not set'}
             await update.message.reply_text(f"Subscription for user {target_user_id} set to {status} until {end_date.strftime('%Y-%m-%d')}")
         else:
             await update.message.reply_text(f"Failed to update subscription for user {target_user_id}")
+
+    async def show_main_menu_to_user(self, user_id: int) -> bool:
+        """Show the main menu to a specific user"""
+        try:
+            # Create the main menu keyboard
+            reply_markup = InlineKeyboardMarkup(START_KEYBOARD)
+            
+            # Send the welcome message with menu
+            await self.bot.send_message(
+                chat_id=user_id,
+                text=WELCOME_MESSAGE,
+                parse_mode=ParseMode.HTML,
+                reply_markup=reply_markup
+            )
+            return True
+        except Exception as e:
+            logger.error(f"Error showing main menu to user {user_id}: {str(e)}")
+            return False
