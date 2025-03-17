@@ -410,7 +410,7 @@ class TelegramService:
             self.stripe_service = stripe_service  # Stripe service toevoegen
             
             # Signaal ontvanger status
-            self.signals_enabled = False  # Zet op False om signalen uit te schakelen
+            self.signals_enabled = True  # Zet op True om signalen in te schakelen
             
         except Exception as e:
             logger.error(f"Error initializing Telegram service: {str(e)}")
