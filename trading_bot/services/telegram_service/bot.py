@@ -2755,18 +2755,58 @@ class TelegramService:
     async def handle_subscription_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """Process subscription button clicks"""
         query = update.callback_query
+        await query.answer()  # Zonder URL parameter
         
         if query.data == "subscribe_monthly":
-            # Direct naar de checkout URL sturen zonder tussenpagina
+            # Direct doorsturen naar payment met een duidelijke URL-knop
             checkout_url = "https://buy.stripe.com/test_6oE4kkdLefcT8Fy6oo"
-            await query.answer(url=checkout_url)
+            
+            # Eenvoudige, directe interface met één knop
+            keyboard = [
+                [InlineKeyboardButton("CONTINUE TO PAYMENT", url=checkout_url)]
+            ]
+            
+            await query.edit_message_text(
+                text="Redirecting to payment...",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
             return SUBSCRIBE
         
         elif query.data == "subscription_info":
-            # Bestaande code voor subscription_info blijft ongewijzigd
-            await query.answer()
-            # (bestaande code voor subscription_info)
-            # ...
+            # Toon informatie over het abonnement
+            subscription_features = get_subscription_features("monthly")
+            
+            info_text = f"""
+💡 <b>SigmaPips Trading Signals - Subscription Details</b> 💡
+
+<b>Price:</b> {subscription_features.get('price')}
+<b>Trial period:</b> 14 days FREE
+
+<b>Included signals:</b>
+"""
+            for signal in subscription_features.get('signals', []):
+                info_text += f"✅ {signal}\n"
+                
+            info_text += f"""
+<b>Timeframes:</b> {', '.join(subscription_features.get('timeframes', []))}
+
+<b>How it works:</b>
+1. Start your free trial
+2. Get immediate access to all signals
+3. Easily cancel before day 14 if not satisfied
+4. No cancellation = automatic renewal at $29.99/month
+            """
+            
+            keyboard = [
+                [InlineKeyboardButton("🔥 Start FREE Trial", callback_data="subscribe_monthly")],
+                [InlineKeyboardButton("⬅️ Back", callback_data="back_to_menu")]
+            ]
+            
+            await query.edit_message_text(
+                text=info_text,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode=ParseMode.HTML
+            )
             return SUBSCRIBE
 
         return MENU
