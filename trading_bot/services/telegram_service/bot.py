@@ -325,7 +325,7 @@ Click the button below to start your trial:
             
             # Create buttons
             keyboard = [
-                [InlineKeyboardButton("🔥 Start FREE Trial", callback_data="subscribe_monthly")],
+                [InlineKeyboardButton("�� Start FREE Trial", url="https://buy.stripe.com/test_6oE4kkdLefcT8Fy6oo")],
                 [InlineKeyboardButton("ℹ️ More Information", callback_data="subscription_info")]
             ]
             
@@ -493,7 +493,7 @@ class TelegramService:
             
             # Create buttons - ONLY SUBSCRIPTION OPTIONS
             keyboard = [
-                [InlineKeyboardButton("🔥 Start 14-day FREE Trial", callback_data="subscribe_monthly")],
+                [InlineKeyboardButton("🔥 Start 14-day FREE Trial", url="https://buy.stripe.com/test_6oE4kkdLefcT8Fy6oo")],
                 [InlineKeyboardButton("ℹ️ More Information", callback_data="subscription_info")]
             ]
             
@@ -2798,7 +2798,7 @@ class TelegramService:
             """
             
             keyboard = [
-                [InlineKeyboardButton("🔥 Start FREE Trial", callback_data="subscribe_monthly")],
+                [InlineKeyboardButton("�� Start FREE Trial", url="https://buy.stripe.com/test_6oE4kkdLefcT8Fy6oo")],
                 [InlineKeyboardButton("⬅️ Back", callback_data="back_to_menu")]
             ]
             
