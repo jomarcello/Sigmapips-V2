@@ -1700,6 +1700,12 @@ Type /menu to start using the bot.
                 try:
                     logger.info(f"Sending signal to user {user_id}")
                     
+                    # Voeg dit als EERSTE controle toe binnen de loop door gebruikersvoorkeuren
+                    is_subscribed = await self.db.is_user_subscribed(int(user_id))
+                    if not is_subscribed:
+                        logger.info(f"User {user_id} has no active subscription, skipping signal")
+                        continue
+                    
                     # Maak de keyboard met één knop voor analyse
                     keyboard = [
                         [InlineKeyboardButton("🔍 Analyze Market", callback_data=f"analyze_market_{instrument}")]
@@ -3068,3 +3074,26 @@ Happy Trading! 📈
         await self.show_main_menu_to_user(target_user_id)
         
         await update.message.reply_text(f"Welcome message sent to user {target_user_id}")
+
+    async def handle_incoming_trading_signal(self, signal_data: Dict[str, Any]) -> bool:
+        """Process an incoming trading signal and send to subscribers"""
+        try:
+            # Extract signal info
+            market = signal_data.get('market', 'forex')
+            instrument = signal_data.get('instrument', '')
+            timeframe = signal_data.get('timeframe', '1h')
+            
+            # Find subscribers that match this signal's criteria
+            for user_id, preferences in self.user_signals.items():
+                # Controleer abonnementsstatus EERST voordat signalen worden verstuurd
+                is_subscribed = await self.db.is_user_subscribed(int(user_id))
+                if not is_subscribed:
+                    logger.info(f"User {user_id} has no active subscription, skipping signal")
+                    continue
+                
+                # Ga verder met signaalverwerking voor geabonneerde gebruikers
+                # ...
+        except Exception as e:
+            logger.error(f"Error handling incoming trading signal: {str(e)}")
+            logger.exception(e)
+            return False
