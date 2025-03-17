@@ -455,7 +455,8 @@ class TelegramService:
             self.application.add_handler(CommandHandler("menu", self.show_main_menu))
             
             # Voeg een CallbackQueryHandler toe voor knoppen
-            self.application.add_handler(CallbackQueryHandler(self.button_callback))
+            # Verander button_callback naar callback_query_handler
+            self.application.add_handler(CallbackQueryHandler(self.callback_query_handler))
             
             # Admin commando voor signalen in/uitschakelen
             self.application.add_handler(CommandHandler("toggle_signals", self.toggle_signals))
@@ -1623,7 +1624,7 @@ To regain access to all features and trading signals, please reactivate your sub
             
             # Voeg CallbackQueryHandler toe aan de application
             # Deze algemene handler zorgt ervoor dat de button_callback functie wordt opgeroepen
-            self.application.add_handler(CallbackQueryHandler(self.button_callback))
+            self.application.add_handler(CallbackQueryHandler(self.callback_query_handler))
             
             # Start de bot
             if use_webhook:
@@ -2743,4 +2744,7 @@ The {instrument} {direction.lower()} signal shows a promising setup with defined
                     InlineKeyboardButton("🔄 Try Again", callback_data="back_menu")
                 ]])
             )
-            return MENU
+        return MENU
+
+# Voeg deze regel toe na de definitie van callback_query_handler
+button_callback = callback_query_handler  # Alias voor compatibiliteit
