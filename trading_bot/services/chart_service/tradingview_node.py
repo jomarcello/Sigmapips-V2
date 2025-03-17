@@ -23,7 +23,9 @@ class TradingViewNodeService(TradingViewService):
         self.is_logged_in = False
         self.base_url = "https://www.tradingview.com"
         self.chart_url = "https://www.tradingview.com/chart"
-        self.script_path = os.path.join(os.getcwd(), "tradingview_screenshot.js")
+        
+        # Corrigeer het pad naar het script
+        self.script_path = os.path.join(os.path.dirname(__file__), "screenshot.js")
         
         # Chart links voor verschillende symbolen
         self.chart_links = {
