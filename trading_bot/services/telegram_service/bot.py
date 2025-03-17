@@ -3052,6 +3052,40 @@ End Date: {end_date or 'Not set'}
         
         if success:
             await update.message.reply_text(f"Subscription for user {target_user_id} set to {status} until {end_date.strftime('%Y-%m-%d')}")
+            
+            # Als de status active of trialing is, stuur het welkomstbericht
+            if status in ['active', 'trialing']:
+                # Send the welcome message
+                welcome_message = """
+✅ <b>Thank You for Subscribing to SigmaPips Trading Bot!</b> ✅
+
+Your subscription has been successfully activated. You now have full access to all features and trading signals.
+
+<b>🚀 HOW TO USE:</b>
+
+<b>1. Start with /menu</b>
+   • This will show you the main options:
+   • <b>Analyze Market</b> - For all market analysis tools
+   • <b>Trading Signals</b> - To manage your trading signals
+
+<b>2. Analyze Market options:</b>
+   • <b>Technical Analysis</b> - Charts and price levels
+   • <b>Market Sentiment</b> - Indicators and market mood
+   • <b>Economic Calendar</b> - Upcoming economic events
+
+<b>3. Trading Signals:</b>
+   • Set up which signals you want to receive
+   • Signals will be sent automatically
+   • Each includes entry, stop loss, and take profit levels
+
+Type /menu to start using the bot.
+"""
+                await self.send_message_to_user(target_user_id, welcome_message, parse_mode=ParseMode.HTML)
+                
+                # Also send the main menu
+                await self.show_main_menu_to_user(target_user_id)
+                
+                await update.message.reply_text(f"Welcome message sent to user {target_user_id}")
         else:
             await update.message.reply_text(f"Failed to update subscription for user {target_user_id}")
 
