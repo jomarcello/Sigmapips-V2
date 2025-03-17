@@ -442,6 +442,9 @@ class TelegramService:
             # Admin commando voor handmatig abonnement toewijzen
             self.application.add_handler(CommandHandler("set_subscription", self.set_subscription))
             
+            # Handler registreren
+            self.application.add_handler(CommandHandler("send_welcome", self.send_welcome_message))
+            
             logger.info("Handlers registered")
         except Exception as e:
             logger.error(f"Error registering handlers: {str(e)}")
@@ -2981,3 +2984,60 @@ End Date: {end_date or 'Not set'}
         except Exception as e:
             logger.error(f"Error showing main menu to user {user_id}: {str(e)}")
             return False
+
+    async def send_welcome_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Admin command to manually send welcome message"""
+        user_id = update.effective_user.id
+        admin_ids = [2004519703]  # Voeg hier je admin ID toe
+        
+        if user_id not in admin_ids:
+            await update.message.reply_text("Sorry, this command is only available for admins.")
+            return
+        
+        # Check arguments
+        if context.args and len(context.args) > 0:
+            try:
+                target_user_id = int(context.args[0])
+            except ValueError:
+                await update.message.reply_text("Invalid user ID. Please provide a numeric user ID.")
+                return
+        else:
+            target_user_id = user_id  # Default to self
+        
+        # Send the welcome message
+        welcome_message = """
+✅ <b>Thank You for Subscribing to SigmaPips Trading Bot!</b> ✅
+
+Your 14-day FREE trial has been successfully activated. You now have full access to all features and trading signals.
+
+<b>🚀 HOW TO USE:</b>
+
+<b>1. Trading Signals</b>
+   • Use /menu and select "Trading Signals"
+   • You'll automatically receive signals when they become available
+   • Signals include: entry points, stop loss, take profit levels
+
+<b>2. Market Analysis</b>
+   • Use /menu and select "Technical Analysis" 
+   • Choose your market (Forex, Crypto, etc.)
+   • Select your desired instrument (EURUSD, BTCUSD, etc.)
+   • Pick your trading style (Scalp, Intraday, Swing)
+
+<b>3. Market Sentiment</b>
+   • Use /menu and select "Market Sentiment"
+   • View real-time market sentiment indicators
+
+<b>4. Economic Calendar</b>
+   • Use /menu and select "Economic Calendar"
+   • View upcoming high-impact economic events
+
+If you need any assistance, simply type /help to see available commands.
+
+Happy Trading! 📈
+"""
+        await self.send_message_to_user(target_user_id, welcome_message)
+        
+        # Also send the main menu
+        await self.show_main_menu_to_user(target_user_id)
+        
+        await update.message.reply_text(f"Welcome message sent to user {target_user_id}")
