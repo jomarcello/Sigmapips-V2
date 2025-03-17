@@ -460,10 +460,14 @@ class TelegramService:
         is_subscribed = await self.db.is_user_subscribed(user_id)
         
         if is_subscribed:
-            # Show the normal welcome message with all features
+            # SUBSCRIBED USER: Show full menu with all options
+            await update.message.reply_text(
+                text=f"Welcome back {first_name}! You have an active subscription. Use the menu below to access all features:",
+                parse_mode=ParseMode.HTML
+            )
             await self.show_main_menu(update, context)
         else:
-            # Show the welcome message with trial option
+            # NON-SUBSCRIBED USER: Show welcome with trial option
             welcome_text = f"""
 🚀 <b>Welcome to SigmaPips Trading Bot!</b> 🚀
 
@@ -483,7 +487,7 @@ class TelegramService:
 <b>Start today with a FREE 14-day trial!</b>
             """
             
-            # Create buttons
+            # Create buttons - ONLY SUBSCRIPTION OPTIONS
             keyboard = [
                 [InlineKeyboardButton("🔥 Start 14-day FREE Trial", callback_data="subscribe_monthly")],
                 [InlineKeyboardButton("ℹ️ More Information", callback_data="subscription_info")]
@@ -2758,7 +2762,40 @@ class TelegramService:
             return SUBSCRIBE
         
         elif query.data == "subscription_info":
-            # Bestaande code voor subscription_info
-            # ...
+            # Show more information about the subscription
+            subscription_features = get_subscription_features("monthly")
+            
+            info_text = f"""
+💡 <b>SigmaPips Trading Signals - Subscription Details</b> 💡
+
+<b>Price:</b> {subscription_features.get('price')}
+<b>Trial period:</b> 14 days FREE
+
+<b>Included signals:</b>
+"""
+            for signal in subscription_features.get('signals', []):
+                info_text += f"✅ {signal}\n"
+                
+            info_text += f"""
+<b>Timeframes:</b> {', '.join(subscription_features.get('timeframes', []))}
+
+<b>How it works:</b>
+1. Start your free trial
+2. Get immediate access to all signals
+3. Easily cancel before day 14 if not satisfied
+4. No cancellation = automatic renewal at $29.99/month
+            """
+            
+            keyboard = [
+                [InlineKeyboardButton("🔥 Start FREE Trial", callback_data="subscribe_monthly")],
+                [InlineKeyboardButton("⬅️ Back", callback_data="back_to_menu")]
+            ]
+            
+            await query.edit_message_text(
+                text=info_text,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode=ParseMode.HTML
+            )
+            return SUBSCRIBE
 
         return MENU
