@@ -2749,3 +2749,20 @@ The {instrument} {direction.lower()} signal shows a promising setup with defined
     async def button_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """Alias voor callback_query_handler voor compatibiliteit"""
         return await self.callback_query_handler(update, context)
+
+    async def toggle_signals(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Toggle signal processing on/off (admin only)"""
+        user_id = update.effective_user.id
+        
+        # Controleer of gebruiker admin is (voeg je eigen admin ID toe)
+        admin_ids = [2004519703]  # Vervang met je eigen admin user ID
+        
+        if user_id not in admin_ids:
+            await update.message.reply_text("Sorry, this command is only available for admins.")
+            return
+        
+        # Toggle signaal status
+        self.signals_enabled = not getattr(self, 'signals_enabled', True)
+        
+        status = "enabled" if self.signals_enabled else "disabled"
+        await update.message.reply_text(f"Signal processing is now {status}.")
