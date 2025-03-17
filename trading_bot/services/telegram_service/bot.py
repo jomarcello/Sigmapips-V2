@@ -207,17 +207,17 @@ CRYPTO_KEYBOARD_SIGNALS = [
 # Indices keyboard voor analyse
 INDICES_KEYBOARD = [
     [
-        InlineKeyboardButton("US30", callback_data="instrument_US30"),
-        InlineKeyboardButton("US500", callback_data="instrument_US500"),
-        InlineKeyboardButton("US100", callback_data="instrument_US100")
+        InlineKeyboardButton("US30", callback_data="instrument_US30_analysis"),
+        InlineKeyboardButton("US500", callback_data="instrument_US500_analysis"),
+        InlineKeyboardButton("US100", callback_data="instrument_US100_analysis")
     ],
     [
-        InlineKeyboardButton("AUD200", callback_data="instrument_AUD200")
+        InlineKeyboardButton("AUD200", callback_data="instrument_AUD200_analysis")
     ],
     [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
 ]
 
-# Indices keyboard voor signals - Fix de "Terug" knop naar "Back"
+# Indices keyboard voor signals
 INDICES_KEYBOARD_SIGNALS = [
     [
         InlineKeyboardButton("US30", callback_data="instrument_US30_signals"),
@@ -1123,7 +1123,7 @@ To regain access to all features and trading signals, please reactivate your sub
         
         try:
             # Extract instrument from callback data
-            instrument = query.data.replace('instrument_', '')
+            instrument = query.data.replace('instrument_', '').replace('_analysis', '')
             
             # Log the instrument
             logger.info(f"Instrument callback voor analyse: instrument={instrument}")
@@ -1132,8 +1132,8 @@ To regain access to all features and trading signals, please reactivate your sub
             if instrument in ["AUD200", "AUDCAD"]:
                 # Aangepast toetsenbord met alleen intraday opties voor analyse
                 restricted_keyboard = [
-                    [InlineKeyboardButton("📊 Intraday (1h)", callback_data=f"direct_technical_{instrument}_1h")],
-                    [InlineKeyboardButton("🌊 Intraday (4h)", callback_data=f"direct_technical_{instrument}_4h")],
+                    [InlineKeyboardButton("📊 Intraday (1h)", callback_data=f"direct_technical_{instrument}_1h_analysis")],
+                    [InlineKeyboardButton("🌊 Intraday (4h)", callback_data=f"direct_technical_{instrument}_4h_analysis")],
                     [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
                 ]
                 
@@ -1861,8 +1861,76 @@ The {instrument} {direction.lower()} signal shows a promising setup with defined
                 parts = query.data.split("direct_technical_")[1].split("_")
                 instrument = parts[0]
                 timeframe = parts[1]
-                logger.info(f"Direct technical analysis for {instrument} with timeframe {timeframe}")
-                return await self.show_technical_analysis(update, context, instrument, fullscreen=True, timeframe=timeframe)
+                is_analysis = len(parts) > 2 and parts[2] == "analysis"
+                
+                logger.info(f"Direct technical analysis for {instrument} with timeframe {timeframe}, is_analysis={is_analysis}")
+                
+                if is_analysis:
+                    # Dit is een technical analysis request
+                    return await self.show_technical_analysis(update, context, instrument, fullscreen=True, timeframe=timeframe)
+                else:
+                    # Dit is een trading signals request, sla de voorkeur op
+                    # Bepaal de juiste stijl op basis van de timeframe
+                    style_map = {
+                        "1h": "intraday",
+                        "4h": "swing"
+                    }
+                    style = style_map.get(timeframe, "intraday")
+                    
+                    # Stel de user_data in
+                    if context and hasattr(context, 'user_data'):
+                        context.user_data['style'] = style
+                        context.user_data['timeframe'] = timeframe
+                        context.user_data['instrument'] = instrument
+                        
+                        # Bepaal de markt op basis van het instrument
+                        if "USD" in instrument or "EUR" in instrument or "GBP" in instrument or "JPY" in instrument or "CAD" in instrument:
+                            market = "forex"
+                        elif "BTC" in instrument or "ETH" in instrument:
+                            market = "crypto"
+                        elif "US" in instrument or "200" in instrument:
+                            market = "indices"
+                        elif "XAU" in instrument or "XAG" in instrument or "OIL" in instrument:
+                            market = "commodities"
+                        
+                        context.user_data['market'] = market
+                    
+                    # Sla de voorkeur op en toon bevestiging
+                    user_id = update.effective_user.id
+                    
+                    # Bepaal de markt op basis van het instrument
+                    if "USD" in instrument or "EUR" in instrument or "GBP" in instrument or "JPY" in instrument or "CAD" in instrument:
+                        market = "forex"
+                    elif "BTC" in instrument or "ETH" in instrument:
+                        market = "crypto"
+                    elif "US" in instrument or "200" in instrument:
+                        market = "indices"
+                    elif "XAU" in instrument or "XAG" in instrument or "OIL" in instrument:
+                        market = "commodities"
+                    
+                    # Save the preference
+                    await self.db.save_preference(
+                        user_id=user_id,
+                        market=market,
+                        instrument=instrument,
+                        style=style,
+                        timeframe=timeframe
+                    )
+                    
+                    # Show success message with options
+                    await query.edit_message_text(
+                        text=f"✅ Your preferences have been successfully saved!\n\n"
+                             f"Market: {market}\n"
+                             f"Instrument: {instrument}\n"
+                             f"Style: {style} ({timeframe})",
+                        reply_markup=InlineKeyboardMarkup([
+                            [InlineKeyboardButton("➕ Add More", callback_data="signals_add")],
+                            [InlineKeyboardButton("⚙️ Manage Preferences", callback_data="signals_manage")],
+                            [InlineKeyboardButton("🏠 Back to Start", callback_data="back_menu")]
+                        ])
+                    )
+                    logger.info(f"Saved preferences for user {user_id}")
+                    return SHOW_RESULT
                 
             elif query.data.startswith("direct_sentiment_"):
                 instrument = query.data.replace("direct_sentiment_", "")
@@ -2679,7 +2747,7 @@ The {instrument} {direction.lower()} signal shows a promising setup with defined
                 import random
                 is_buy = random.choice([True, False])
                 direction = "BUY" if is_buy else "SELL"
-                emoji = "📈" if is_buy else "📉"
+                emoji = "📈" if is_buy else "��"
                 
                 signal_message += f"Action: {direction} {emoji}\n\n"
                 
