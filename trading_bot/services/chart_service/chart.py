@@ -185,42 +185,25 @@ class ChartService:
         try:
             logger.info("Initializing chart service")
             
-            # Lazy imports om circulaire imports te vermijden
-            try:
-                from trading_bot.services.chart_service.tradingview_node import TradingViewNodeService
-                logger.info("Successfully imported TradingViewNodeService")
-            except Exception as import_error:
-                logger.error(f"Error importing TradingViewNodeService: {str(import_error)}")
-                return False
+            # Initialiseer de TradingView Node.js service
+            from trading_bot.services.chart_service.tradingview_node import TradingViewNodeService
+            self.tradingview = TradingViewNodeService()
+            node_initialized = await self.tradingview.initialize()
             
-            try:
-                from trading_bot.services.chart_service.tradingview_selenium import TradingViewSeleniumService
-                logger.info("Successfully imported TradingViewSeleniumService")
-            except Exception as import_error:
-                logger.error(f"Error importing TradingViewSeleniumService: {str(import_error)}")
-                return False
+            if node_initialized:
+                logger.info("Node.js service initialized successfully")
+            else:
+                logger.error("Node.js service initialization returned False")
             
-            # Probeer eerst de Node service te initialiseren
-            try:
-                logger.info("Initializing Node.js service")
-                node_service = TradingViewNodeService()
-                node_initialized = await node_service.initialize()
-                if node_initialized:
-                    self.tradingview = node_service
-                    logger.info("TradingView Node service initialized successfully")
-                    return True
-                else:
-                    logger.error("Node.js service initialization returned False")
-            except Exception as e:
-                logger.error(f"Failed to initialize TradingView Node service: {str(e)}")
-            
-            # Voorlopig Selenium skip vanwege versie-incompatibiliteit
+            # Sla Selenium initialisatie over vanwege ChromeDriver compatibiliteitsproblemen
             logger.warning("Skipping Selenium initialization due to ChromeDriver compatibility issues")
+            self.tradingview_selenium = None
             
-            # Als Node.js service faalt, gebruik matplotlib als fallback
-            logger.warning("Using matplotlib fallback")
-            return False
+            # Als geen van beide services is geïnitialiseerd, gebruik matplotlib fallback
+            if not node_initialized and not getattr(self, 'tradingview_selenium', None):
+                logger.warning("Using matplotlib fallback")
             
+            return True
         except Exception as e:
             logger.error(f"Error initializing chart service: {str(e)}")
             return False
