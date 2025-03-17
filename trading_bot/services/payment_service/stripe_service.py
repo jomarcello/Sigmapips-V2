@@ -5,7 +5,7 @@ from typing import Dict, Any, Optional, Tuple
 import time
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from datetime import datetime, timezone, timedelta
-from telegram import ParseMode
+from telegram.constants import ParseMode
 
 from trading_bot.services.payment_service.stripe_config import stripe, get_price_id, get_subscription_features
 from trading_bot.services.database.db import Database
