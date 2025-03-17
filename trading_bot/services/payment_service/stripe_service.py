@@ -316,19 +316,47 @@ Om je toegang te behouden, update je betalingsgegevens binnen 3 dagen.
                     current_period_end=datetime.now(timezone.utc) + timedelta(days=14)  # 14-day trial
                 )
                 
-                # Send confirmation to user
+                # Send welcome and instruction message to user
                 if hasattr(self, 'telegram_service') and self.telegram_service:
-                    message = """
-✅ <b>Trial Started Successfully!</b>
+                    welcome_message = """
+✅ <b>Thank You for Subscribing to SigmaPips Trading Bot!</b> ✅
 
-Your 14-day FREE trial has been activated.
-You now have full access to all trading signals and features.
+Your 14-day FREE trial has been successfully activated. You now have full access to all features and trading signals.
 
-Enjoy your trading journey with SigmaPips!
-                    """
-                    await self.telegram_service.send_message_to_user(user_id, message)
+<b>🚀 HOW TO USE:</b>
+
+<b>1. Trading Signals</b>
+   • Use /menu and select "Trading Signals"
+   • You'll automatically receive signals when they become available
+   • Signals include: entry points, stop loss, take profit levels
+
+<b>2. Market Analysis</b>
+   • Use /menu and select "Technical Analysis" 
+   • Choose your market (Forex, Crypto, etc.)
+   • Select your desired instrument (EURUSD, BTCUSD, etc.)
+   • Pick your trading style (Scalp, Intraday, Swing)
+
+<b>3. Market Sentiment</b>
+   • Use /menu and select "Market Sentiment"
+   • View real-time market sentiment indicators
+
+<b>4. Economic Calendar</b>
+   • Use /menu and select "Economic Calendar"
+   • View upcoming high-impact economic events
+
+
+If you need any assistance, simply type /help to see available commands.
+
+Happy Trading! 📈
+"""
+                    await self.telegram_service.send_message_to_user(user_id, welcome_message)
+                    
+                    # Also send the main menu to get them started
+                    await self.telegram_service.show_main_menu_to_user(user_id)
+                    
+                    return True
                 
-                return True
+                return False
             
             return False
             
