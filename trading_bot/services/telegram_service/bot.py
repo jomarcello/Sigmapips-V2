@@ -1128,9 +1128,25 @@ To regain access to all features and trading signals, please reactivate your sub
             # Log the instrument
             logger.info(f"Instrument callback voor analyse: instrument={instrument}")
             
-            # Show technical analysis with fullscreen=True
-            logger.info(f"Toon technische analyse voor {instrument}")
-            return await self.show_technical_analysis(update, context, instrument, fullscreen=True)
+            # Speciale behandeling voor AUD200 en AUDCAD - alleen intraday opties tonen
+            if instrument in ["AUD200", "AUDCAD"]:
+                # Aangepast toetsenbord met alleen intraday opties voor analyse
+                restricted_keyboard = [
+                    [InlineKeyboardButton("📊 Intraday (1h)", callback_data=f"direct_technical_{instrument}_1h")],
+                    [InlineKeyboardButton("🌊 Intraday (4h)", callback_data=f"direct_technical_{instrument}_4h")],
+                    [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
+                ]
+                
+                # Toon de beperkte stijl keuze
+                await query.edit_message_text(
+                    text=f"Choose timeframe for {instrument}:",
+                    reply_markup=InlineKeyboardMarkup(restricted_keyboard)
+                )
+                return CHOOSE_STYLE
+            else:
+                # Show technical analysis with fullscreen=True
+                logger.info(f"Toon technische analyse voor {instrument}")
+                return await self.show_technical_analysis(update, context, instrument, fullscreen=True)
         except Exception as e:
             logger.error(f"Error in instrument_callback: {str(e)}")
             return MENU
