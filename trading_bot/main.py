@@ -5,6 +5,7 @@ from fastapi import FastAPI, Request, HTTPException, Header, Depends
 from fastapi.responses import JSONResponse
 from dotenv import load_dotenv
 import stripe
+import time
 
 # Configureer logging
 logging.basicConfig(level=logging.INFO)
@@ -217,6 +218,41 @@ async def create_subscription_link(user_id: int, plan_type: str = 'basic'):
 @app.get("/health")
 async def health_check():
     return {"status": "healthy"}
+
+@app.post("/test-webhook")
+async def test_webhook(request: Request):
+    """Test endpoint for webhook processing"""
+    try:
+        # Log de request
+        body = await request.body()
+        logger.info(f"Test webhook received: {body.decode('utf-8')}")
+        
+        # Parse de data
+        data = await request.json()
+        
+        # Simuleer een checkout.session.completed event
+        event = {
+            "type": "checkout.session.completed",
+            "data": {
+                "object": {
+                    "id": "cs_test_" + str(int(time.time())),
+                    "client_reference_id": str(data.get("user_id")),
+                    "customer": "cus_test_" + str(int(time.time())),
+                    "subscription": "sub_test_" + str(int(time.time())),
+                    "metadata": {
+                        "user_id": str(data.get("user_id"))
+                    }
+                }
+            }
+        }
+        
+        # Process the test event
+        result = await stripe_service.handle_webhook_event(event)
+        
+        return {"status": "success", "processed": result}
+    except Exception as e:
+        logger.error(f"Error processing test webhook: {str(e)}")
+        return {"status": "error", "message": str(e)}
 
 if __name__ == "__main__":
     import uvicorn
