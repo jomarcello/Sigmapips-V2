@@ -1168,8 +1168,8 @@ To regain access to all features and trading signals, please reactivate your sub
             if instrument in ["AUD200", "AUDCAD"]:
                 # Aangepast toetsenbord met alleen intraday opties voor SIGNALS
                 restricted_keyboard = [
-                    [InlineKeyboardButton("📊 Intraday (1h)", callback_data="style_intraday")],
-                    [InlineKeyboardButton("🌊 Intraday (4h)", callback_data="style_swing")],
+                    [InlineKeyboardButton("📊 Intraday (1h)", callback_data="style_intraday_restricted")],
+                    [InlineKeyboardButton("🌊 Intraday (4h)", callback_data="style_swing_restricted")],
                     [InlineKeyboardButton("⬅️ Back", callback_data="back_instrument")]
                 ]
                 
@@ -1222,7 +1222,7 @@ To regain access to all features and trading signals, please reactivate your sub
             )
             return CHOOSE_INSTRUMENT
         
-        style = query.data.replace('style_', '')
+        style = query.data.replace('style_', '').replace('_restricted', '')
         
         # Sla style op in user_data of tijdelijke opslag
         if context and hasattr(context, 'user_data'):
