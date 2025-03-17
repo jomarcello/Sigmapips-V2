@@ -16,7 +16,7 @@ class TradingViewNodeService(TradingViewService):
     def __init__(self, session_id=None):
         """Initialize the TradingView Node.js service"""
         super().__init__()
-        self.session_id = session_id or os.getenv("TRADINGVIEW_SESSION_ID", "")
+        self.session_id = session_id or os.getenv("TRADINGVIEW_SESSION_ID", "z90l85p2anlgdwfppsrdnnfantz48z1o")
         self.username = os.getenv("TRADINGVIEW_USERNAME", "")
         self.password = os.getenv("TRADINGVIEW_PASSWORD", "")
         self.is_initialized = False
@@ -242,7 +242,9 @@ class TradingViewNodeService(TradingViewService):
             output_path = os.path.join(os.path.dirname(__file__), f'screenshot_{int(time.time())}.png')
             
             # Haal de sessie ID op
-            session_id = os.getenv("TRADINGVIEW_SESSION_ID", "")
+            session_id = "z90l85p2anlgdwfppsrdnnfantz48z1o"  # Gebruik directe session ID waarde
+            # of behoud os.getenv maar met een fallback naar de nieuwe waarde
+            # session_id = os.getenv("TRADINGVIEW_SESSION_ID", "z90l85p2anlgdwfppsrdnnfantz48z1o")
             
             # Bepaal de fullscreen parameter
             fullscreen_arg = "fullscreen" if fullscreen else ""
