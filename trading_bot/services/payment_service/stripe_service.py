@@ -251,40 +251,39 @@ Om je toegang te behouden, update je betalingsgegevens binnen 3 dagen.
             return False
     
     async def handle_webhook_event(self, event):
-        """Handle different types of Stripe webhook events"""
-        event_type = event['type']
-        event_data = event['data']['object']
-        
-        logger.info(f"Processing Stripe webhook event: {event_type}")
-        
+        """Handle Stripe webhook events"""
         try:
+            event_type = event.get('type')
+            logger.info(f"Processing Stripe webhook event: {event_type}")
+            
             if event_type == 'checkout.session.completed':
-                # Een checkout sessie is voltooid
-                await self.handle_checkout_completed(event_data)
+                # Verwerk voltooide checkout
+                await self.handle_checkout_completed(event.get('data', {}))
                 
             elif event_type == 'customer.subscription.created':
-                # Nieuw abonnement aangemaakt
-                await self.handle_subscription_updated(event_data)
+                # Verwerk nieuw abonnement
+                await self.handle_subscription_created(event.get('data', {}))
                 
             elif event_type == 'customer.subscription.updated':
                 # Abonnement gewijzigd
-                await self.handle_subscription_updated(event_data)
+                await self.handle_subscription_updated(event.get('data', {}))
                 
             elif event_type == 'customer.subscription.deleted':
                 # Abonnement beëindigd
-                await self.handle_subscription_deleted(event_data)
+                await self.handle_subscription_deleted(event.get('data', {}))
                 
             elif event_type == 'invoice.payment_succeeded':
                 # Succesvolle betaling
-                await self.handle_payment_succeeded(event_data)
+                await self.handle_payment_succeeded(event.get('data', {}))
                 
             elif event_type == 'invoice.payment_failed':
                 # Mislukte betaling
-                await self.handle_payment_failed(event_data)
+                await self.handle_payment_failed(event.get('data', {}))
                 
+            return True
         except Exception as e:
-            logger.error(f"Error processing {event_type} event: {str(e)}")
-            raise
+            logger.error(f"Error processing webhook: {str(e)}")
+            return False
     
     async def handle_checkout_completed(self, event_data: Dict[str, Any]) -> bool:
         """Process a checkout.session.completed event"""
