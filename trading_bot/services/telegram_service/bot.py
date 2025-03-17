@@ -10,6 +10,8 @@ import base64
 import time
 import re
 import random
+import datetime
+import pytz
 
 from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery, InputMediaPhoto, BotCommand
 from telegram.ext import (
@@ -433,6 +435,12 @@ class TelegramService:
             
             # Admin commando voor signalen in/uitschakelen
             self.application.add_handler(CommandHandler("toggle_signals", self.toggle_signals))
+            
+            # Admin commando voor abonnementsstatus
+            self.application.add_handler(CommandHandler("check_subscription", self.check_subscription))
+            
+            # Admin commando voor handmatig abonnement toewijzen
+            self.application.add_handler(CommandHandler("set_subscription", self.set_subscription))
             
             logger.info("Handlers registered")
         except Exception as e:
@@ -2871,3 +2879,87 @@ class TelegramService:
         
         status = "enabled" if self.signals_enabled else "disabled"
         await update.message.reply_text(f"Signal processing is now {status}.")
+
+    async def check_subscription(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Admin command to check subscription status of any user"""
+        user_id = update.effective_user.id
+        admin_ids = [2004519703]  # Voeg hier je admin ID toe
+        
+        if user_id not in admin_ids:
+            await update.message.reply_text("Sorry, this command is only available for admins.")
+            return
+        
+        # Check arguments
+        if context.args and len(context.args) > 0:
+            try:
+                target_user_id = int(context.args[0])
+            except ValueError:
+                await update.message.reply_text("Invalid user ID. Please provide a numeric user ID.")
+                return
+        else:
+            target_user_id = user_id  # Default to self
+        
+        # Get subscription status
+        subscription = await self.db.get_user_subscription(target_user_id)
+        is_subscribed = await self.db.is_user_subscribed(target_user_id)
+        
+        # Format response
+        if subscription:
+            status = subscription.get('subscription_status')
+            customer_id = subscription.get('stripe_customer_id')
+            subscription_id = subscription.get('stripe_subscription_id')
+            end_date = subscription.get('current_period_end')
+            
+            response = f"""
+<b>Subscription Info for User {target_user_id}</b>
+
+Status: {status}
+Active: {'Yes' if is_subscribed else 'No'}
+Stripe Customer ID: {customer_id or 'Not set'}
+Stripe Subscription ID: {subscription_id or 'Not set'}
+End Date: {end_date or 'Not set'}
+            """
+        else:
+            response = f"No subscription found for user {target_user_id}"
+        
+        await update.message.reply_text(response, parse_mode=ParseMode.HTML)
+
+    async def set_subscription(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Admin command to manually set subscription status"""
+        user_id = update.effective_user.id
+        admin_ids = [2004519703]  # Voeg hier je admin ID toe
+        
+        if user_id not in admin_ids:
+            await update.message.reply_text("Sorry, this command is only available for admins.")
+            return
+        
+        # Check arguments: /set_subscription user_id status
+        if context.args and len(context.args) >= 2:
+            try:
+                target_user_id = int(context.args[0])
+                status = context.args[1]
+                days = 14  # Default trial period
+                
+                if len(context.args) > 2:
+                    days = int(context.args[2])
+                    
+            except ValueError:
+                await update.message.reply_text("Invalid parameters. Format: /set_subscription user_id status [days]")
+                return
+        else:
+            await update.message.reply_text("Missing parameters. Format: /set_subscription user_id status [days]")
+            return
+        
+        # Set subscription status
+        end_date = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=days)
+        
+        success = await self.db.create_or_update_subscription(
+            user_id=target_user_id,
+            status=status,
+            current_period_end=end_date
+        )
+        
+        if success:
+            await update.message.reply_text(f"Subscription for user {target_user_id} set to {status} until {end_date.strftime('%Y-%m-%d')}")
+        else:
+            await update.message.reply_text(f"Failed to update subscription for user {target_user_id}")
