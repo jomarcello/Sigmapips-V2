@@ -6,6 +6,7 @@ from typing import Dict, List, Any
 import re
 import stripe
 import datetime
+from datetime import timezone
 
 logger = logging.getLogger(__name__)
 
@@ -14,7 +15,7 @@ class Database:
         """Initialize database connections"""
         try:
             # Supabase setup
-            supabase_url = os.getenv("SUPABASE_URL")
+            supabase_url = os.getenv("SUPABASE_URL") 
             supabase_key = os.getenv("SUPABASE_KEY")
             
             if not supabase_url or not supabase_key:
@@ -71,7 +72,18 @@ class Database:
     async def match_subscribers(self, signal):
         """Match subscribers to a signal"""
         try:
-            market = signal.get('market', 'forex')
+            # Zorg ervoor dat we altijd dictionary-keys gebruiken
+            if isinstance(signal, str):
+                logger.warning(f"Signal is a string instead of a dictionary: {signal}")
+                return []
+            
+            market = signal.get('market', '')
+            # Als er geen market is, probeer deze af te leiden van het instrument
+            if not market:
+                instrument = signal.get('symbol', '') or signal.get('instrument', '')
+                market = self._detect_market(instrument)
+                logger.info(f"Detected market for {instrument}: {market}")
+            
             instrument = signal.get('symbol', '') or signal.get('instrument', '')
             timeframe = signal.get('interval', '1h')  # Gebruik interval indien aanwezig
             
@@ -79,17 +91,29 @@ class Database:
             
             # Haal alle abonnees op
             all_preferences = await self.get_all_preferences()
+            if not all_preferences:
+                logger.warning("No preferences found in database")
+                return []
             
             # Normaliseer de timeframe voor vergelijking
             normalized_timeframe = self._normalize_timeframe(timeframe)
+            logger.info(f"Normalized timeframe: {normalized_timeframe}")
             
             # Filter handmatig op basis van de signaalgegevens
             matched_subscribers = []
             seen_user_ids = set()  # Bijhouden welke gebruikers we al hebben toegevoegd
             
             for pref in all_preferences:
+                # Sla ongeldige voorkeuren over
+                if not isinstance(pref, dict):
+                    logger.warning(f"Skipping invalid preference (not a dict): {pref}")
+                    continue
+                
                 # Normaliseer de timeframe in de voorkeur
                 pref_timeframe = self._normalize_timeframe(pref.get('timeframe', '1h'))
+                
+                # Debug logging
+                logger.info(f"Checking preference: market={pref.get('market')}, instrument={pref.get('instrument')}, timeframe={pref.get('timeframe')} (normalized: {pref_timeframe})")
                 
                 # Controleer of de voorkeuren overeenkomen met het signaal
                 if (pref.get('market') == market and 
@@ -121,32 +145,40 @@ class Database:
         if not timeframe:
             return '1h'  # Default
         
+        try:
+            # Als het een dict is, probeer de waarde op te halen
+            if isinstance(timeframe, dict) and 'timeframe' in timeframe:
+                timeframe = timeframe['timeframe']
+        except:
+            # Als er iets misgaat, gebruik de default
+            return '1h'
+        
         # Converteer naar string
         tf_str = str(timeframe).lower()
         
-        # Verwijder spaties
-        tf_str = tf_str.strip()
+        # Verwijder spaties en aanhalingstekens
+        tf_str = tf_str.strip().strip('"\'')
         
         # Normaliseer minuten
-        if tf_str == '1' or tf_str == '1m':
+        if tf_str in ['1', '1m', '"1m"', "'1m'"]:
             return '1m'
-        if tf_str == '5' or tf_str == '5m':
+        if tf_str in ['5', '5m', '"5m"', "'5m'"]:
             return '5m'
-        if tf_str == '15' or tf_str == '15m':
+        if tf_str in ['15', '15m', '"15m"', "'15m'"]:
             return '15m'
-        if tf_str == '30' or tf_str == '30m':
+        if tf_str in ['30', '30m', '"30m"', "'30m'"]:
             return '30m'
         
         # Normaliseer uren
-        if tf_str == '60' or tf_str == '1h':
+        if tf_str in ['60', '1h', '"1h"', "'1h'"]:
             return '1h'
-        if tf_str == '120' or tf_str == '2h':
+        if tf_str in ['120', '2h', '"2h"', "'2h'"]:
             return '2h'
-        if tf_str == '240' or tf_str == '4h':
+        if tf_str in ['240', '4h', '"4h"', "'4h'"]:
             return '4h'
         
         # Normaliseer dagen
-        if tf_str == '1440' or tf_str == '1d':
+        if tf_str in ['1440', '1d', '"1d"', "'1d'"]:
             return '1d'
         
         # Als geen match, geef de originele waarde terug
@@ -444,34 +476,34 @@ class Database:
             logger.error(f"Error updating subscription: {str(e)}")
             return False
     
-    async def is_user_subscribed(self, user_id: int):
-        """Check if a user has an active subscription"""
+    async def is_user_subscribed(self, user_id: int) -> bool:
+        """Check if user has an active subscription"""
         try:
+            # Retrieve the user's subscription
             subscription = await self.get_user_subscription(user_id)
             
             if not subscription:
                 return False
             
-            # Check if the subscription is active
-            if subscription.get('subscription_status') in ['active', 'trialing']:
-                # Check if the subscription has not expired
-                end_time = subscription.get('current_period_end')
-                if end_time:
-                    if isinstance(end_time, str):
-                        end_time = datetime.datetime.fromisoformat(end_time.replace('Z', '+00:00'))
+            # Check if status is active or trialing
+            status = subscription.get('subscription_status')
+            if status in ['active', 'trialing']:
+                # Check if the subscription period has ended
+                end_date = subscription.get('current_period_end')
+                if not end_date:
+                    return False
                     
-                    # If the end date is in the future, the subscription is still active
-                    if end_time > datetime.datetime.now(datetime.timezone.utc):
-                        return True
+                # Convert end_date to datetime if it's a string
+                if isinstance(end_date, str):
+                    end_date = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
+                    
+                now = datetime.now(timezone.utc)
+                return end_date > now
                 
-                # If there is no end date, rely on the status
-                else:
-                    return True
-            
             return False
+            
         except Exception as e:
             logger.error(f"Error checking subscription status: {str(e)}")
-            # When in doubt, assume the user has no subscription
             return False
             
     async def get_user_subscription_type(self, user_id: int):
@@ -498,12 +530,36 @@ class Database:
             logger.error(f"Fout bij opslaan gebruiker: {str(e)}")
             return False
 
-    async def is_user_subscribed(self, user_id: int) -> bool:
-        """Controleer of een gebruiker een actief abonnement heeft"""
-        try:
-            # Implementeer hier je abonnementscontrole
-            # Voor nu retourneren we standaard False, wat betekent dat gebruikers het abonnementsscherm zien
-            return False
-        except Exception as e:
-            logger.error(f"Fout bij controleren abonnement: {str(e)}")
-            return False 
+    def _detect_market(self, symbol: str) -> str:
+        """Detecteer market type gebaseerd op symbol"""
+        if not symbol:
+            return "forex"  # Default
+        
+        symbol = str(symbol).upper()
+        
+        # Commodities eerst checken
+        commodities = [
+            "XAUUSD",  # Gold
+            "XAGUSD",  # Silver
+            "WTIUSD",  # Oil WTI
+            "BCOUSD",  # Oil Brent
+        ]
+        if symbol in commodities:
+            return "commodities"
+        
+        # Crypto pairs
+        crypto_base = ["BTC", "ETH", "XRP", "SOL", "BNB", "ADA", "DOT", "LINK"]
+        if any(c in symbol for c in crypto_base):
+            return "crypto"
+        
+        # Major indices
+        indices = [
+            "US30", "US500", "US100",  # US indices
+            "UK100", "DE40", "FR40",   # European indices
+            "JP225", "AU200", "HK50"   # Asian indices
+        ]
+        if symbol in indices:
+            return "indices"
+        
+        # Forex pairs als default
+        return "forex" 
