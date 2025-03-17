@@ -1,3 +1,6 @@
+# Leeg bestand om de map als een Python-pakket te markeren
+# Vermijd ALLE imports hier om circulaire imports te voorkomen
+
 # Import hack voor backward compatibility
 from trading_bot.services.chart_service.tradingview_selenium import TradingViewSeleniumService
 from trading_bot.services.chart_service.tradingview_playwright import TradingViewPlaywrightService
