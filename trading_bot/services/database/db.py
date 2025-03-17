@@ -479,10 +479,15 @@ class Database:
     async def is_user_subscribed(self, user_id: int) -> bool:
         """Check if user has an active subscription"""
         try:
+            # Add debugging
+            logger.info(f"Checking subscription for user {user_id}")
+            
             # Retrieve the user's subscription
             subscription = await self.get_user_subscription(user_id)
+            logger.info(f"Subscription data: {subscription}")
             
             if not subscription:
+                logger.info(f"User {user_id} has no subscription record")
                 return False
             
             # Check if status is active or trialing
