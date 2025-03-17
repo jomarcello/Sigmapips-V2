@@ -2649,6 +2649,7 @@ class TelegramService:
             
             return MENU
 
+    @require_subscription
     async def show_main_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Show the main menu with all bot features"""
         # Toon het originele hoofdmenu met alle opties
