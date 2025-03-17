@@ -115,7 +115,7 @@ class TradingViewNodeService(TradingViewService):
             
             # Gebruik de take_screenshot_of_url methode om de screenshot te maken
             logger.info(f"Taking screenshot of URL: {chart_url}")
-            screenshot_bytes = await self.take_screenshot_of_url(chart_url)
+            screenshot_bytes = await self.take_screenshot_of_url(chart_url, fullscreen=fullscreen)
             
             if screenshot_bytes:
                 logger.info(f"Screenshot taken successfully for {symbol}")
@@ -168,7 +168,7 @@ class TradingViewNodeService(TradingViewService):
         # Geen resources om op te ruimen
         logger.info("TradingView Node.js service cleaned up")
     
-    async def take_screenshot_of_url(self, url: str) -> Optional[bytes]:
+    async def take_screenshot_of_url(self, url: str, fullscreen: bool = False) -> Optional[bytes]:
         """Take a screenshot of a URL using Node.js"""
         try:
             # Genereer een unieke bestandsnaam voor de screenshot
@@ -181,18 +181,17 @@ class TradingViewNodeService(TradingViewService):
             # Controleer of de URL naar TradingView verwijst
             if "tradingview.com" in url:
                 logger.info(f"Taking screenshot of TradingView URL: {url}")
-                
-                # Verwijder eventuele extra parameters als het een specifieke chart URL is
-                if "/chart/" in url and "?" in url:
-                    # Haal de basis-URL eruit (alles voor het vraagteken)
-                    url = url.split("?")[0]
-                    logger.info(f"Cleaned URL to: {url}")
             else:
                 logger.warning(f"URL is not a TradingView URL: {url}")
             
             # Gebruik session_id in plaats van tradingview_username
-            # Zorg ervoor dat de URL correct wordt doorgegeven zonder extra aanhalingstekens
+            # Voeg fullscreen parameter toe aan het commando
             cmd = f"node {self.script_path} \"{url}\" \"{screenshot_path}\" \"{self.session_id}\""
+            
+            # Voeg fullscreen parameter toe als dat nodig is
+            if fullscreen or "fullscreen=true" in url:
+                cmd += " fullscreen"
+            
             logger.info(f"Running command: {cmd.replace(self.session_id, '****')}")
             
             process = await asyncio.create_subprocess_shell(
