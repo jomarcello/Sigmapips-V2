@@ -58,41 +58,19 @@ class TradingViewNodeService(TradingViewService):
             
             logger.info(f"screenshot.js found at {script_path}")
             
-            # Controleer of de benodigde Node.js modules zijn geïnstalleerd
+            # Installeer Playwright direct via npm
             try:
-                # Controleer of playwright is geïnstalleerd
-                playwright_check = subprocess.run(["npm", "list", "-g", "playwright"], 
-                                                 stdout=subprocess.PIPE, 
-                                                 stderr=subprocess.PIPE)
-                
-                if playwright_check.returncode != 0:
-                    logger.info("Installing Playwright...")
-                    subprocess.run(["npm", "install", "-g", "playwright"], check=True)
-                
-                # Controleer of @playwright/test is geïnstalleerd
-                test_check = subprocess.run(["npm", "list", "-g", "@playwright/test"], 
-                                           stdout=subprocess.PIPE, 
-                                           stderr=subprocess.PIPE)
-                
-                if test_check.returncode != 0:
-                    logger.info("Installing @playwright/test...")
-                    subprocess.run(["npm", "install", "-g", "@playwright/test"], check=True)
-                
-                # Controleer of playwright-core is geïnstalleerd
-                core_check = subprocess.run(["npm", "list", "-g", "playwright-core"], 
-                                           stdout=subprocess.PIPE, 
-                                           stderr=subprocess.PIPE)
-                
-                if core_check.returncode != 0:
-                    logger.info("Installing playwright-core...")
-                    subprocess.run(["npm", "install", "-g", "playwright-core"], check=True)
-                
-                logger.info("Playwright modules are installed")
+                logger.info("Installing Playwright directly...")
+                subprocess.run(["npm", "install", "playwright", "--no-save"], 
+                              check=True, 
+                              stdout=subprocess.PIPE, 
+                              stderr=subprocess.PIPE)
+                logger.info("Playwright installed successfully")
             except Exception as e:
-                logger.error(f"Error checking/installing Playwright modules: {str(e)}")
-                # Ga door, want we kunnen nog steeds proberen om de service te gebruiken
+                logger.error(f"Error installing Playwright: {str(e)}")
+                # Ga door, want het script zal proberen Playwright te installeren indien nodig
             
-            # Test de Node.js service met een TradingView URL in plaats van Google
+            # Test de Node.js service met een TradingView URL
             try:
                 logger.info("Testing Node.js service with TradingView URL")
                 test_url = "https://www.tradingview.com/chart/xknpxpcr/?symbol=EURUSD&interval=1h"
