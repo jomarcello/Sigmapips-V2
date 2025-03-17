@@ -28,7 +28,7 @@ from telegram.ext import (
 from telegram.constants import ParseMode
 
 from trading_bot.services.database.db import Database
-from trading_bot.services.chart_service import ChartService
+from trading_bot.services.chart_service.chart import ChartService  # Direct importeren uit het bestand
 from trading_bot.services.sentiment_service.sentiment import MarketSentimentService
 from trading_bot.services.calendar_service.calendar import EconomicCalendarService
 from trading_bot.services.payment_service.stripe_config import get_subscription_features
@@ -2083,7 +2083,7 @@ The {instrument} {direction.lower()} signal shows a promising setup with defined
             # Toon een laadmelding als die nog niet is getoond
             try:
                 await query.edit_message_text(
-                    text=f"Generating technical analysis for {instrument} ({timeframe})...",
+                    text=f"Generating technical analysis for {instrument}...",
                     reply_markup=None
                 )
             except Exception as e:
@@ -2105,7 +2105,7 @@ The {instrument} {direction.lower()} signal shows a promising setup with defined
                     await query.message.edit_media(
                         media=InputMediaPhoto(
                             media=chart_image,
-                            caption=f"📊 {instrument} Technical Analysis ({timeframe})"
+                            caption=f"📊 {instrument} Technical Analysis"
                         ),
                         reply_markup=InlineKeyboardMarkup([[back_button]])
                     )
@@ -2119,7 +2119,7 @@ The {instrument} {direction.lower()} signal shows a promising setup with defined
                     # maar bewaar de message_id om later te gebruiken
                     sent_message = await query.message.reply_photo(
                         photo=chart_image,
-                        caption=f"📊 {instrument} Technical Analysis ({timeframe})",
+                        caption=f"📊 {instrument} Technical Analysis",
                         reply_markup=InlineKeyboardMarkup([[back_button]])
                     )
                     
