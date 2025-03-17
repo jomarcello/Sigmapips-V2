@@ -1128,9 +1128,25 @@ To regain access to all features and trading signals, please reactivate your sub
             # Log the instrument
             logger.info(f"Instrument callback zonder context: instrument={instrument}, fallback analysis_type=technical")
             
-            # Show technical analysis with fullscreen=True
-            logger.info(f"Toon technische analyse voor {instrument}")
-            return await self.show_technical_analysis(update, context, instrument, fullscreen=True)
+            # Speciale behandeling voor AUD200 en AUDCAD - alleen intraday opties tonen
+            if instrument in ["AUD200", "AUDCAD"]:
+                # Aangepast toetsenbord met alleen intraday opties
+                restricted_keyboard = [
+                    [InlineKeyboardButton("📊 Intraday (1h)", callback_data=f"direct_technical_{instrument}_1h")],
+                    [InlineKeyboardButton("🌊 Intraday (4h)", callback_data=f"direct_technical_{instrument}_4h")],
+                    [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
+                ]
+                
+                # Toon de beperkte stijl keuze
+                await query.edit_message_text(
+                    text=f"Choose timeframe for {instrument}:",
+                    reply_markup=InlineKeyboardMarkup(restricted_keyboard)
+                )
+                return CHOOSE_STYLE
+            else:
+                # Show technical analysis with fullscreen=True
+                logger.info(f"Toon technische analyse voor {instrument}")
+                return await self.show_technical_analysis(update, context, instrument, fullscreen=True)
         except Exception as e:
             logger.error(f"Error in instrument_callback: {str(e)}")
             return MENU
@@ -1810,9 +1826,11 @@ The {instrument} {direction.lower()} signal shows a promising setup with defined
                 return CHOOSE_ANALYSIS
                 
             elif query.data.startswith("direct_technical_"):
-                instrument = query.data.replace("direct_technical_", "")
-                logger.info(f"Direct technical analysis for {instrument}")
-                return await self.show_technical_analysis(update, context, instrument, from_signal=True)
+                parts = query.data.split("direct_technical_")[1].split("_")
+                instrument = parts[0]
+                timeframe = parts[1]
+                logger.info(f"Direct technical analysis for {instrument} with timeframe {timeframe}")
+                return await self.show_technical_analysis(update, context, instrument, fullscreen=True, timeframe=timeframe)
                 
             elif query.data.startswith("direct_sentiment_"):
                 instrument = query.data.replace("direct_sentiment_", "")
@@ -2012,15 +2030,16 @@ The {instrument} {direction.lower()} signal shows a promising setup with defined
             logger.exception(e)
             return MENU
 
-    async def show_technical_analysis(self, update: Update, context=None, instrument=None, from_signal=False, style=None, fullscreen=True):
+    async def show_technical_analysis(self, update: Update, context=None, instrument=None, from_signal=False, style=None, fullscreen=True, timeframe=None):
         """Show technical analysis for an instrument"""
         query = update.callback_query
         
         try:
-            # Als er geen stijl is gekozen, gebruik de 1h timeframe als default
-            timeframe = "1h"
-            if style and style in STYLE_TIMEFRAME_MAP:
-                timeframe = STYLE_TIMEFRAME_MAP[style]
+            # Als er geen timeframe is opgegeven, gebruik de stijl of default
+            if not timeframe:
+                timeframe = "1h"  # Default
+                if style and style in STYLE_TIMEFRAME_MAP:
+                    timeframe = STYLE_TIMEFRAME_MAP[style]
             
             # Toon een laadmelding als die nog niet is getoond
             try:
@@ -2031,8 +2050,7 @@ The {instrument} {direction.lower()} signal shows a promising setup with defined
             except Exception as e:
                 logger.warning(f"Could not edit message: {str(e)}")
             
-            # Haal de chart op met de gekozen timeframe of de default (1h)
-            # Geef de fullscreen parameter door
+            # Haal de chart op met de gekozen timeframe
             chart_image = await self.chart.get_chart(instrument, timeframe=timeframe, fullscreen=fullscreen)
             
             if chart_image:
@@ -2629,7 +2647,7 @@ The {instrument} {direction.lower()} signal shows a promising setup with defined
                 import random
                 is_buy = random.choice([True, False])
                 direction = "BUY" if is_buy else "SELL"
-                emoji = "📈" if is_buy else "��"
+                emoji = "📈" if is_buy else "📉"
                 
                 signal_message += f"Action: {direction} {emoji}\n\n"
                 
