@@ -127,7 +127,7 @@ class ChartService:
             if hasattr(self, 'tradingview') and self.tradingview and hasattr(self.tradingview, 'take_screenshot_of_url'):
                 try:
                     logger.info(f"Taking screenshot with Node.js service: {tradingview_link}")
-                    chart_image = await self.tradingview.take_screenshot_of_url(tradingview_link, fullscreen)
+                    chart_image = await self.tradingview.take_screenshot_of_url(tradingview_link)
                     if chart_image:
                         logger.info("Screenshot taken successfully with Node.js service")
                         return chart_image
