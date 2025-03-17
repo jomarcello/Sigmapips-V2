@@ -159,6 +159,13 @@ async def receive_signal(request: Request):
         logger.error(f"Error processing signal: {str(e)}")
         return {"status": "error", "message": str(e)}
 
+# Voeg deze nieuwe route toe voor het enkelvoudige '/signal' eindpunt
+@app.post("/signal")
+async def receive_single_signal(request: Request):
+    """Endpoint for receiving trading signals (singular form)"""
+    # Stuur gewoon door naar de bestaande eindpunt-functie
+    return await receive_signal(request)
+
 @app.post("/stripe-webhook")
 async def stripe_webhook(request: Request):
     payload = await request.body()
