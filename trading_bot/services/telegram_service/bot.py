@@ -491,17 +491,10 @@ Your subscription is <b>ACTIVE</b>. You have full access to all features.
 
 Type /menu to start using the bot.
 """
-            # Create buttons for subscribed users
+            # Create buttons for subscribed users - ALLEEN Subscription Active knop
             keyboard = [
-                [
-                    InlineKeyboardButton("🔄 Menu", callback_data="menu"),
-                    InlineKeyboardButton("✅ Subscription Active", callback_data="subscription_status")
-                ]
+                [InlineKeyboardButton("✅ Subscription Active", callback_data="subscription_status")]
             ]
-            
-            # Add the main menu buttons
-            for row in START_KEYBOARD:
-                keyboard.append(row)
             
             await update.message.reply_text(
                 text=welcome_message,
@@ -546,7 +539,7 @@ Type /menu to start using the bot.
             )
         
         # Process start parameters if any
-        if context.args and context.args[0].startswith('success'):
+        if context.args and len(context.args) > 0 and context.args[0].startswith('success'):
             # Handle payment success through deep link
             await update.message.reply_text("Your payment was successful! You now have full access to all features.")
         
