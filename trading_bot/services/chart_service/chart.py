@@ -123,8 +123,8 @@ class ChartService:
                 else:
                     tradingview_link += f"?interval={timeframe}"
             
-            # Voeg fullscreen parameter toe aan de URL als dat nodig is en het een generieke URL is
-            if fullscreen and not instrument in self.chart_links:
+            # Voeg fullscreen parameter toe aan de URL als dat nodig is
+            if fullscreen:
                 tradingview_link += "&fullscreen=true&hide_side_toolbar=true&hide_top_toolbar=true&theme=dark"
             
             logger.info(f"Using exact TradingView link: {tradingview_link}")
@@ -133,7 +133,7 @@ class ChartService:
             if hasattr(self, 'tradingview') and self.tradingview and hasattr(self.tradingview, 'take_screenshot_of_url'):
                 try:
                     logger.info(f"Taking screenshot with Node.js service: {tradingview_link}")
-                    chart_image = await self.tradingview.take_screenshot_of_url(tradingview_link)
+                    chart_image = await self.tradingview.take_screenshot_of_url(tradingview_link, fullscreen=fullscreen)
                     if chart_image:
                         logger.info("Screenshot taken successfully with Node.js service")
                         return chart_image
