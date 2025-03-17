@@ -450,40 +450,71 @@ class TelegramService:
             logger.error(f"Error registering handlers: {str(e)}")
             raise
 
-    async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Send a welcome message when the bot is started."""
+    async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        """Send welcome message when the command /start is issued."""
+        user_id = update.effective_user.id
         user = update.effective_user
-        user_id = user.id
-        first_name = user.first_name
         
-        # Try to add the user to the database if they don't exist yet
-        try:
-            # Check if user already exists in the database
-            existing_user = await self.db.get_user(user_id)
-            
-            if not existing_user:
-                # Add new user
-                logger.info(f"New user started: {user_id}, {first_name}")
-                await self.db.add_user(user_id, first_name, user.username)
-            else:
-                logger.info(f"Existing user started: {user_id}, {first_name}")
-                
-        except Exception as e:
-            logger.error(f"Error registering user: {str(e)}")
+        # Save user info in database
+        await self.db.save_user(user_id, user.first_name, user.last_name, user.username)
         
-        # Check if the user has a subscription
+        # Check if user is subscribed
         is_subscribed = await self.db.is_user_subscribed(user_id)
         
         if is_subscribed:
-            # SUBSCRIBED USER: Show full menu with all options
+            # Welcome message for subscribed users
+            welcome_message = """
+✅ <b>Welcome to SigmaPips Trading Bot!</b> ✅
+
+Your subscription is <b>ACTIVE</b>. You have full access to all features.
+
+<b>🚀 HOW TO USE:</b>
+
+<b>1. Trading Signals</b>
+   • Use /menu and select "Trading Signals"
+   • You'll automatically receive signals when they become available
+   • Signals include: entry points, stop loss, take profit levels
+
+<b>2. Market Analysis</b>
+   • Use /menu and select "Technical Analysis" 
+   • Choose your market (Forex, Crypto, etc.)
+   • Select your desired instrument (EURUSD, BTCUSD, etc.)
+   • Pick your trading style (Scalp, Intraday, Swing)
+
+<b>3. Market Sentiment</b>
+   • Use /menu and select "Market Sentiment"
+   • View real-time market sentiment indicators
+
+<b>4. Economic Calendar</b>
+   • Use /menu and select "Economic Calendar"
+   • View upcoming high-impact economic events
+
+Type /menu to start using the bot.
+"""
+            # Create buttons for subscribed users
+            keyboard = [
+                [
+                    InlineKeyboardButton("🔄 Menu", callback_data="menu"),
+                    InlineKeyboardButton("✅ Subscription Active", callback_data="subscription_status")
+                ]
+            ]
+            
+            # Add the main menu buttons
+            for row in START_KEYBOARD:
+                keyboard.append(row)
+            
             await update.message.reply_text(
-                text=f"Welcome back {first_name}! You have an active subscription. Use the menu below to access all features:",
+                text=welcome_message,
+                reply_markup=InlineKeyboardMarkup(keyboard),
                 parse_mode=ParseMode.HTML
             )
-            await self.show_main_menu(update, context)
+            
         else:
-            # NON-SUBSCRIBED USER: Show welcome with trial option
-            welcome_text = f"""
+            # Original welcome message for unsubscribed users
+            subscription_features = get_subscription_features("monthly")
+            
+            # Update message to emphasize the trial period
+            welcome_text = """
 🚀 <b>Welcome to SigmaPips Trading Bot!</b> 🚀
 
 <b>Discover powerful trading signals for various markets:</b>
@@ -500,7 +531,7 @@ class TelegramService:
 ✅ Economic calendar integration
 
 <b>Start today with a FREE 14-day trial!</b>
-            """
+        """
             
             # Create buttons - ONLY SUBSCRIPTION OPTIONS
             keyboard = [
@@ -513,6 +544,13 @@ class TelegramService:
                 reply_markup=InlineKeyboardMarkup(keyboard),
                 parse_mode=ParseMode.HTML
             )
+        
+        # Process start parameters if any
+        if context.args and context.args[0].startswith('success'):
+            # Handle payment success through deep link
+            await update.message.reply_text("Your payment was successful! You now have full access to all features.")
+        
+        return MENU
 
     async def menu_analyse_callback(self, update: Update, context=None) -> int:
         """Handle menu_analyse callback"""
