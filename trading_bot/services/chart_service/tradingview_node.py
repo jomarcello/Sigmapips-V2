@@ -234,67 +234,50 @@ class TradingViewNodeService(TradingViewService):
         # Geen resources om op te ruimen
         logger.info("TradingView Node.js service cleaned up")
     
-    async def take_screenshot_of_url(self, url: str, fullscreen: bool = False):
-        """Take a screenshot of a TradingView chart URL using Node.js"""
+    async def take_screenshot_of_url(self, url: str) -> Optional[bytes]:
+        """Take a screenshot of a URL using Node.js"""
         try:
-            # Bepaal het pad naar de screenshot.js
-            js_path = os.path.join(os.path.dirname(__file__), 'screenshot.js')
-            output_path = os.path.join(os.path.dirname(__file__), f'screenshot_{int(time.time())}.png')
+            # Genereer een unieke bestandsnaam voor de screenshot
+            timestamp = int(time.time())
+            screenshot_path = os.path.join(os.path.dirname(self.script_path), f"screenshot_{timestamp}.png")
             
-            # Haal de sessie ID op
-            session_id = "z90l85p2anlgdwfppsrdnnfantz48z1o"  # Gebruik directe session ID waarde
-            # of behoud os.getenv maar met een fallback naar de nieuwe waarde
-            # session_id = os.getenv("TRADINGVIEW_SESSION_ID", "z90l85p2anlgdwfppsrdnnfantz48z1o")
-            
-            # Bepaal de fullscreen parameter
-            fullscreen_arg = "fullscreen" if fullscreen else ""
+            # Voeg extra parameters toe aan de URL om fullscreen te forceren
+            if "tradingview.com" in url and "fullscreen=true" in url:
+                # Voeg een parameter toe die aangeeft dat we Shift+F moeten simuleren
+                url += "&simulate_shift_f=true"
             
             # Voer het Node.js script uit
-            cmd = f"node {js_path} \"{url}\" \"{output_path}\" \"{session_id}\" {fullscreen_arg}"
+            cmd = f"node {self.script_path} \"{url}\" \"{screenshot_path}\" \"{self.tradingview_username}\""
+            logger.info(f"Running command: {cmd.replace(self.tradingview_username, '****')} ")
             
-            # Log de command (zonder de session ID om privacy te waarborgen)
-            safe_cmd = cmd.replace(session_id, "****") if session_id else cmd
-            logger.info(f"Running command: {safe_cmd}")
-            
-            # Voer het commando uit
             process = await asyncio.create_subprocess_shell(
                 cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
             
-            # Wacht op resultaten
             stdout, stderr = await process.communicate()
             
             # Log de output
-            logger.info(f"Node.js output: {stdout.decode()}")
+            if stdout:
+                logger.info(f"Node.js stdout: {stdout.decode()}")
             if stderr:
-                logger.warning(f"Node.js error: {stderr.decode()}")
-            
-            # Controleer of het proces succesvol was
-            if process.returncode != 0:
-                logger.error(f"Node.js process returned non-zero exit code: {process.returncode}")
-                return None
+                logger.error(f"Node.js stderr: {stderr.decode()}")
             
             # Controleer of het bestand bestaat
-            if not os.path.exists(output_path):
-                logger.error(f"Screenshot file not found: {output_path}")
+            if os.path.exists(screenshot_path):
+                # Lees het bestand
+                with open(screenshot_path, 'rb') as f:
+                    screenshot_data = f.read()
+                
+                # Verwijder het bestand
+                os.remove(screenshot_path)
+                
+                return screenshot_data
+            else:
+                logger.error(f"Screenshot file not found: {screenshot_path}")
                 return None
-            
-            # Lees het bestand
-            with open(output_path, 'rb') as f:
-                screenshot_data = f.read()
-            
-            # Verwijder het bestand
-            try:
-                os.remove(output_path)
-            except Exception as e:
-                logger.warning(f"Failed to remove temporary screenshot file: {str(e)}")
-            
-            return screenshot_data
-            
+        
         except Exception as e:
             logger.error(f"Error taking screenshot with Node.js: {str(e)}")
-            import traceback
-            logger.error(traceback.format_exc())
             return None 
