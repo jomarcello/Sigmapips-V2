@@ -34,6 +34,7 @@ telegram_service = TelegramService(db)
 # Voeg de stripe_service toe aan het telegram_service object
 # na initialisatie
 telegram_service.stripe_service = stripe_service
+stripe_service.telegram_service = telegram_service
 
 # Voeg deze functie toe bovenaan het bestand, na de imports
 def convert_interval_to_timeframe(interval):
@@ -138,143 +139,26 @@ async def webhook(request: Request):
         logger.error(f"Error processing webhook: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/signal")
-async def handle_signal(request: Request):
-    """Handle incoming trading signals"""
+@app.post("/signals")
+async def receive_signal(request: Request):
+    """Endpoint for receiving trading signals"""
     try:
-        # Log raw data
-        raw_data = await request.body()
-        logger.info(f"Received raw signal data: {raw_data}")
-        
-        # Parse JSON data
+        # Haal de data op
         signal_data = await request.json()
-        logger.info(f"Parsed signal data: {signal_data}")
         
-        # Controleer en corrigeer template strings
-        for key, value in signal_data.items():
-            if isinstance(value, str) and '{{' in value and '}}' in value:
-                logger.warning(f"Template string detected in {key}: {value}, replacing with default value")
-                
-                # Vervang template strings met standaardwaarden
-                if key == 'signal':
-                    signal_data[key] = 'buy'  # Standaard naar 'buy' omdat we alleen met buy signalen werken
-                    logger.info(f"Replaced template string in 'signal' with 'buy'")
-                # Voeg hier andere template vervangingen toe indien nodig
+        # Controleer of de bot signalen accepteert
+        if not telegram_service.signals_enabled:
+            return {"status": "disabled", "message": "Signal processing is currently disabled"}
         
-        # Converteer interval naar leesbaar timeframe formaat
-        if 'interval' in signal_data:
-            original_interval = signal_data['interval']
-            signal_data['interval'] = convert_interval_to_timeframe(original_interval)
-            logger.info(f"Converted interval from {original_interval} to {signal_data['interval']}")
-        
-        # Zorg ervoor dat 'symbol' wordt gekopieerd naar 'instrument' als het ontbreekt
-        if 'symbol' in signal_data and not signal_data.get('instrument'):
-            signal_data['instrument'] = signal_data['symbol']
-            logger.info(f"Copied symbol to instrument: {signal_data['instrument']}")
-        
-        # Validate required fields
-        required_fields = ['instrument', 'signal', 'price']
-        if not all(field in signal_data for field in required_fields):
-            logger.error(f"Missing required fields in signal: {signal_data}")
-            return {"status": "error", "message": "Missing required fields"}
-            
-        # Converteer waardes naar float en rond af op 2 decimalen
-        try:
-            price = float(signal_data.get('price', 0))
-            
-            # SL en TP waarden ophalen en valideren
-            if 'sl' in signal_data and signal_data['sl'] is not None:
-                sl = float(signal_data['sl'])
-                
-                # Validatie voor Buy/Sell signalen
-                if signal_data['signal'].lower() == 'buy' and sl > price:
-                    logger.warning(f"Correcting invalid stop loss for BUY signal: SL ({sl}) > Entry ({price})")
-                    # Correctie: bereken een SL 1.5% onder de entry prijs
-                    sl = round(price * 0.985, 2)  # 1.5% onder entry prijs
-                    signal_data['sl'] = sl
-                
-                elif signal_data['signal'].lower() == 'sell' and sl < price:
-                    logger.warning(f"Correcting invalid stop loss for SELL signal: SL ({sl}) < Entry ({price})")
-                    # Correctie: bereken een SL 1.5% boven de entry prijs
-                    sl = round(price * 1.015, 2)  # 1.5% boven entry prijs
-                    signal_data['sl'] = sl
-            else:
-                # Als SL ontbreekt, bereken deze automatisch
-                if signal_data['signal'].lower() == 'buy':
-                    signal_data['sl'] = round(price * 0.985, 2)  # 1.5% onder entry prijs
-                else:
-                    signal_data['sl'] = round(price * 1.015, 2)  # 1.5% boven entry prijs
-            
-            # Zorg dat TP waarden correct zijn
-            if signal_data['signal'].lower() == 'buy':
-                # Voor BUY: Entry < TP1 < TP2 < TP3
-                if 'tp1' in signal_data and signal_data['tp1'] is not None:
-                    if float(signal_data['tp1']) <= price:
-                        logger.warning(f"Correcting invalid TP1 for BUY signal: TP1 <= Entry")
-                        signal_data['tp1'] = round(price * 1.01, 2)  # 1% boven entry
-                else:
-                    signal_data['tp1'] = round(price * 1.01, 2)  # 1% boven entry
-                
-                if 'tp2' in signal_data and signal_data['tp2'] is not None:
-                    if float(signal_data['tp2']) <= price:
-                        logger.warning(f"Correcting invalid TP2 for BUY signal: TP2 <= Entry")
-                        signal_data['tp2'] = round(price * 1.02, 2)  # 2% boven entry
-                else:
-                    signal_data['tp2'] = round(price * 1.02, 2)  # 2% boven entry
-                
-                if 'tp3' in signal_data and signal_data['tp3'] is not None:
-                    if float(signal_data['tp3']) <= price:
-                        logger.warning(f"Correcting invalid TP3 for BUY signal: TP3 <= Entry")
-                        signal_data['tp3'] = round(price * 1.03, 2)  # 3% boven entry
-                else:
-                    signal_data['tp3'] = round(price * 1.03, 2)  # 3% boven entry
-            
-            elif signal_data['signal'].lower() == 'sell':
-                # Voor SELL: Entry > TP1 > TP2 > TP3
-                if 'tp1' in signal_data and signal_data['tp1'] is not None:
-                    if float(signal_data['tp1']) >= price:
-                        logger.warning(f"Correcting invalid TP1 for SELL signal: TP1 >= Entry")
-                        signal_data['tp1'] = round(price * 0.99, 2)  # 1% onder entry
-                else:
-                    signal_data['tp1'] = round(price * 0.99, 2)  # 1% onder entry
-                
-                if 'tp2' in signal_data and signal_data['tp2'] is not None:
-                    if float(signal_data['tp2']) >= price:
-                        logger.warning(f"Correcting invalid TP2 for SELL signal: TP2 >= Entry")
-                        signal_data['tp2'] = round(price * 0.98, 2)  # 2% onder entry
-                else:
-                    signal_data['tp2'] = round(price * 0.98, 2)  # 2% onder entry
-                
-                if 'tp3' in signal_data and signal_data['tp3'] is not None:
-                    if float(signal_data['tp3']) >= price:
-                        logger.warning(f"Correcting invalid TP3 for SELL signal: TP3 >= Entry")
-                        signal_data['tp3'] = round(price * 0.97, 2)  # 3% onder entry
-                else:
-                    signal_data['tp3'] = round(price * 0.97, 2)  # 3% onder entry
-            
-            # Rond alle prijswaarden af op 2 decimalen
-            for key in ['price', 'sl', 'tp1', 'tp2', 'tp3']:
-                if key in signal_data and signal_data[key] is not None:
-                    signal_data[key] = round(float(signal_data[key]), 2)
-                    
-        except ValueError as e:
-            logger.error(f"Invalid price values in signal: {str(e)}")
-            return {"status": "error", "message": "Invalid price values"}
-        
-        # Process the signal
+        # Verwerk het signaal
         success = await telegram_service.process_signal(signal_data)
         
         if success:
             return {"status": "success", "message": "Signal processed successfully"}
         else:
             return {"status": "error", "message": "Failed to process signal"}
-            
-    except json.JSONDecodeError as e:
-        logger.error(f"Invalid JSON in webhook: {str(e)}")
-        return {"status": "error", "message": "Invalid JSON format"}
     except Exception as e:
-        logger.error(f"Error processing webhook: {str(e)}")
-        logger.exception(e)
+        logger.error(f"Error processing signal: {str(e)}")
         return {"status": "error", "message": str(e)}
 
 @app.post("/stripe-webhook")
@@ -282,39 +166,39 @@ async def stripe_webhook(request: Request):
     payload = await request.body()
     sig_header = request.headers.get("Stripe-Signature")
     
-    # Haal webhook secret rechtstreeks uit de omgevingsvariabele
-    stripe_webhook_secret = os.getenv("STRIPE_WEBHOOK_SECRET")
+    # Uitgebreidere logging
+    logger.info(f"Webhook payload begin: {payload[:100]}")  # Log begin van payload
+    logger.info(f"Signature header: {sig_header}")
     
-    # Verbeterde debug logging
-    logger.info(f"Received Stripe webhook. Signature header: {sig_header}")
-    logger.info(f"Using webhook secret: {stripe_webhook_secret[:5]}...{stripe_webhook_secret[-5:]}")
+    # Test verschillende webhook secrets
+    test_secrets = [
+        os.getenv("STRIPE_WEBHOOK_SECRET"),
+        "whsec_ylBJwcxgeTj66Y8e2zcXDjY3IlTvhPPa",  # Je huidige secret
+        # Voeg hier andere mogelijke secrets toe
+    ]
     
-    try:
-        # Verify the webhook event came from Stripe
-        if not sig_header:
-            logger.error("No Stripe-Signature header found in request")
-            raise HTTPException(status_code=400, detail="No Stripe signature header")
-        
-        # Voor test/debug: Accepteer de webhook zonder verificatie
+    event = None
+    # Probeer elk secret
+    for secret in test_secrets:
+        if not secret:
+            continue
         try:
-            # Probeer met signature verificatie
-            event = stripe.Webhook.construct_event(
-                payload, sig_header, stripe_webhook_secret
-            )
-        except Exception as e:
-            logger.warning(f"Webhook signature verificatie overgeslagen: {str(e)}")
-            # Fallback: Accepteer webhook zonder verificatie (ALLEEN VOOR TESTEN)
-            data = json.loads(payload)
-            event = {"type": data.get("type"), "data": {"object": data}}
-        
-        # Process the event according to its type
-        await stripe_service.handle_webhook_event(event)
-        
-        return {"status": "success"}
-    except Exception as e:
-        logger.error(f"Error processing webhook: {str(e)}")
-        logger.exception(e)  # Log volledige stack trace
-        raise HTTPException(status_code=400, detail=str(e))
+            event = stripe.Webhook.construct_event(payload, sig_header, secret)
+            logger.info(f"Signature validatie succesvol met secret: {secret[:5]}...")
+            break
+        except Exception:
+            continue
+            
+    # Als geen enkel secret werkt, accepteer zonder validatie (voor testen)
+    if not event:
+        logger.warning("Geen enkel webhook secret werkt, webhook accepteren zonder validatie")
+        data = json.loads(payload)
+        event = {"type": data.get("type"), "data": {"object": data}}
+    
+    # Verwerk het event
+    await stripe_service.handle_webhook_event(event)
+    
+    return {"status": "success"}
 
 @app.get("/create-subscription-link/{user_id}/{plan_type}")
 async def create_subscription_link(user_id: int, plan_type: str = 'basic'):
