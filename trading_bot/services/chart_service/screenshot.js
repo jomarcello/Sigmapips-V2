@@ -41,13 +41,14 @@ const { chromium } = require('playwright');
     // Start een browser
     browser = await chromium.launch({
       headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox']
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-web-security']
     });
     
     // Maak een nieuwe context en pagina
     const context = await browser.newContext({
       viewport: { width: 1280, height: 800 },
       deviceScaleFactor: 1,
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
     });
     
     // Voeg cookies toe als er een session ID is
@@ -65,18 +66,33 @@ const { chromium } = require('playwright');
     
     const page = await context.newPage();
     
-    // Navigeer naar de URL
+    // Navigeer naar de URL met een minder strenge wachttoestand
     console.log(`Navigating to ${url}`);
-    await page.goto(url, { waitUntil: 'networkidle', timeout: 60000 });
+    try {
+      // Gebruik domcontentloaded in plaats van networkidle
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      console.log('Page loaded (domcontentloaded)');
+      
+      // Wacht extra tijd voor de pagina om te laden
+      console.log('Waiting additional time for page to render...');
+      await page.waitForTimeout(10000);
+    } catch (navError) {
+      console.error('Navigation error:', navError);
+      // Probeer toch door te gaan, misschien is de pagina gedeeltelijk geladen
+      console.log('Continuing despite navigation error...');
+    }
     
     // Als het een TradingView URL is, wacht dan op de chart
     if (url.includes('tradingview.com')) {
       console.log('Waiting for TradingView chart to load...');
       
-      // Wacht op de chart container
-      await page.waitForSelector('.chart-container', { timeout: 30000 }).catch(e => {
+      // Wacht op de chart container met een kortere timeout
+      try {
+        await page.waitForSelector('.chart-container', { timeout: 10000 });
+        console.log('Chart container found');
+      } catch (e) {
         console.warn('Could not find chart container, continuing anyway:', e);
-      });
+      }
       
       // Wacht extra tijd voor de chart om volledig te laden
       await page.waitForTimeout(5000);
