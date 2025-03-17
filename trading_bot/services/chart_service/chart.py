@@ -110,24 +110,24 @@ class ChartService:
             # Normaliseer instrument (verwijder /)
             instrument = instrument.upper().replace("/", "")
             
-            # Gebruik de TradingView link voor dit instrument
+            # Gebruik de exacte TradingView link voor dit instrument zonder parameters toe te voegen
             tradingview_link = self.chart_links.get(instrument)
             if not tradingview_link:
                 # Als er geen specifieke link is, gebruik een generieke link
                 logger.warning(f"No specific link found for {instrument}, using generic link")
                 tradingview_link = f"https://www.tradingview.com/chart/?symbol={instrument}"
+                
+                # Alleen voor generieke links voegen we timeframe toe
+                if "?" in tradingview_link:
+                    tradingview_link += f"&interval={timeframe}"
+                else:
+                    tradingview_link += f"?interval={timeframe}"
             
-            # Voeg timeframe parameter toe aan de URL
-            if "?" in tradingview_link:
-                tradingview_link += f"&interval={timeframe}"
-            else:
-                tradingview_link += f"?interval={timeframe}"
+            # Voeg fullscreen parameter toe aan de URL als dat nodig is en het een generieke URL is
+            if fullscreen and not instrument in self.chart_links:
+                tradingview_link += "&fullscreen=true&hide_side_toolbar=true&hide_top_toolbar=true&theme=dark"
             
-            # Voeg fullscreen parameter toe aan de URL als dat nodig is
-            if fullscreen:
-                tradingview_link += "&fullscreen=true&hide_side_toolbar=true&hide_top_toolbar=true"
-            
-            logger.info(f"Using TradingView link: {tradingview_link}")
+            logger.info(f"Using exact TradingView link: {tradingview_link}")
             
             # Probeer eerst de Node.js service te gebruiken
             if hasattr(self, 'tradingview') and self.tradingview and hasattr(self.tradingview, 'take_screenshot_of_url'):
