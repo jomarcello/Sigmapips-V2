@@ -13,6 +13,13 @@ import random
 import datetime
 import pytz
 
+# Path to the GIF file
+GIF_PATH = 'assets/sigmapips_logo.gif'
+
+# Check if the GIF file exists
+def gif_exists() -> bool:
+    return os.path.exists(GIF_PATH)
+
 from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery, InputMediaPhoto, BotCommand
 from telegram.ext import (
     Application,
@@ -562,6 +569,10 @@ class TelegramService:
             raise
 
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        # Send GIF if it exists
+        if gif_exists():
+            with open(GIF_PATH, 'rb') as gif:
+                await context.bot.send_animation(chat_id=update.effective_chat.id, animation=gif)
         """Send welcome message when the command /start is issued."""
         user_id = update.effective_user.id
         user = update.effective_user
