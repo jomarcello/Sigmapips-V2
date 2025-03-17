@@ -61,10 +61,11 @@ class Database:
         self.CACHE_TIMEOUT = 300  # 5 minuten in seconden
         
         # Validatie constanten
-        self.VALID_STYLES = ['test', 'scalp', 'intraday', 'swing']
+        self.VALID_STYLES = ['test', 'scalp', 'scalp30', 'intraday', 'swing']
         self.STYLE_TIMEFRAME_MAP = {
             'test': '1m',
             'scalp': '15m',
+            'scalp30': '30m',
             'intraday': '1h',
             'swing': '4h'
         }
