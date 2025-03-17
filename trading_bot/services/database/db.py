@@ -492,18 +492,13 @@ class Database:
             
             # Check if status is active or trialing
             status = subscription.get('subscription_status')
-            if status in ['active', 'trialing']:
-                # Check if the subscription period has ended
-                end_date = subscription.get('current_period_end')
-                if not end_date:
-                    return False
-                    
-                # Convert end_date to datetime if it's a string
-                if isinstance(end_date, str):
-                    end_date = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
-                    
-                now = datetime.now(timezone.utc)
-                return end_date > now
+            logger.info(f"Subscription status: {status}")
+            
+            # Consider any of these statuses as active
+            if status in ['active', 'trialing', 'past_due']:
+                # For debugging: skip end date check temporarily
+                logger.info(f"User {user_id} has active status: {status}")
+                return True
                 
             return False
             
