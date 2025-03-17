@@ -158,7 +158,6 @@ FOREX_KEYBOARD = [
         InlineKeyboardButton("USDJPY", callback_data="instrument_USDJPY")
     ],
     [
-        InlineKeyboardButton("AUDUSD", callback_data="instrument_AUDUSD"),
         InlineKeyboardButton("USDCAD", callback_data="instrument_USDCAD"),
         InlineKeyboardButton("EURGBP", callback_data="instrument_EURGBP")
     ],
@@ -173,7 +172,6 @@ FOREX_KEYBOARD_SIGNALS = [
         InlineKeyboardButton("USDJPY", callback_data="instrument_USDJPY_signals")
     ],
     [
-        InlineKeyboardButton("AUDUSD", callback_data="instrument_AUDUSD_signals"),
         InlineKeyboardButton("USDCAD", callback_data="instrument_USDCAD_signals"),
         InlineKeyboardButton("EURGBP", callback_data="instrument_EURGBP_signals")
     ],
@@ -207,7 +205,7 @@ INDICES_KEYBOARD = [
         InlineKeyboardButton("US500", callback_data="instrument_US500"),
         InlineKeyboardButton("US100", callback_data="instrument_US100")
     ],
-    [InlineKeyboardButton("⬅️ Terug", callback_data="back_market")]
+    [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
 ]
 
 # Indices keyboard voor signals - Fix de "Terug" knop naar "Back"
