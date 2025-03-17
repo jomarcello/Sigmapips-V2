@@ -214,22 +214,11 @@ class ChartService:
             except Exception as e:
                 logger.error(f"Failed to initialize TradingView Node service: {str(e)}")
             
-            # Probeer dan de Selenium service te initialiseren als fallback
-            try:
-                logger.info("Initializing Selenium service")
-                self.tradingview_selenium = TradingViewSeleniumService()
-                selenium_initialized = await self.tradingview_selenium.initialize()
-                if selenium_initialized:
-                    self.tradingview = self.tradingview_selenium
-                    logger.info("TradingView Selenium service initialized successfully")
-                    return True
-                else:
-                    logger.error("Selenium service initialization returned False")
-            except Exception as e:
-                logger.error(f"Failed to initialize TradingView Selenium service: {str(e)}")
+            # Voorlopig Selenium skip vanwege versie-incompatibiliteit
+            logger.warning("Skipping Selenium initialization due to ChromeDriver compatibility issues")
             
-            # Als beide services falen, gebruik matplotlib als fallback
-            logger.warning("All TradingView services failed, using matplotlib fallback")
+            # Als Node.js service faalt, gebruik matplotlib als fallback
+            logger.warning("Using matplotlib fallback")
             return False
             
         except Exception as e:
