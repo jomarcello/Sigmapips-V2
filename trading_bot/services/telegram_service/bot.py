@@ -2664,7 +2664,10 @@ The {instrument} {direction.lower()} signal shows a promising setup with defined
                 context.user_data.pop('current_instrument', None)
             
             return CHOOSE_ANALYSIS
-            
+        except Exception as e:
+            logger.error(f"Error in back_to_analysis: {str(e)}")
+            logger.exception(e)
+            return ConversationHandler.END
     async def back_signals_callback(self, update: Update, context=None) -> int:
         """Handle back_signals callback"""
         query = update.callback_query
