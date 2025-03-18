@@ -24,8 +24,9 @@ class TradingViewNodeService(TradingViewService):
         self.base_url = "https://www.tradingview.com"
         self.chart_url = "https://www.tradingview.com/chart"
         
-        # Corrigeer het pad naar het script
-        self.script_path = os.path.join(os.path.dirname(__file__), "screenshot.js")
+        # Get the project root directory and set the correct script path
+        project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+        self.script_path = os.path.join(project_root, "tradingview_screenshot.js")
         
         # Chart links voor verschillende symbolen
         self.chart_links = {
@@ -50,13 +51,12 @@ class TradingViewNodeService(TradingViewService):
                 logger.error(f"Error checking Node.js version: {str(node_error)}")
                 return False
             
-            # Controleer of het screenshot.js bestand bestaat
-            script_path = os.path.join(os.path.dirname(__file__), "screenshot.js")
-            if not os.path.exists(script_path):
-                logger.error(f"screenshot.js not found at {script_path}")
+            # Check if the screenshot.js file exists
+            if not os.path.exists(self.script_path):
+                logger.error(f"screenshot.js not found at {self.script_path}")
                 return False
             
-            logger.info(f"screenshot.js found at {script_path}")
+            logger.info(f"screenshot.js found at {self.script_path}")
             
             # Installeer Playwright direct via npm
             try:
@@ -231,4 +231,4 @@ class TradingViewNodeService(TradingViewService):
         
         except Exception as e:
             logger.error(f"Error taking screenshot with Node.js: {str(e)}")
-            return None 
+            return None
