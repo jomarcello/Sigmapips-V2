@@ -469,7 +469,6 @@ class TelegramService:
             self.application = Application.builder().bot(self.bot).build()
             
             # Initialiseer de services
-            self.chart = ChartService()
             self.sentiment = MarketSentimentService()
             self.calendar = EconomicCalendarService()
             
@@ -827,25 +826,23 @@ To regain access to all features and trading signals, please reactivate your sub
                 context.user_data['analysis_type'] = 'sentiment'
                 context.user_data['current_state'] = CHOOSE_INSTRUMENT
             
-            # Maak speciale keyboards voor sentiment analyse
-            FOREX_SENTIMENT_KEYBOARD = [
+            # Create sentiment-specific keyboard
+            SENTIMENT_KEYBOARD = [
                 [
                     InlineKeyboardButton("EURUSD", callback_data="direct_sentiment_EURUSD"),
-                    InlineKeyboardButton("GBPUSD", callback_data="direct_sentiment_GBPUSD"),
-                    InlineKeyboardButton("USDJPY", callback_data="direct_sentiment_USDJPY")
+                    InlineKeyboardButton("GBPUSD", callback_data="direct_sentiment_GBPUSD")
                 ],
                 [
-                    InlineKeyboardButton("AUDUSD", callback_data="direct_sentiment_AUDUSD"),
-                    InlineKeyboardButton("USDCAD", callback_data="direct_sentiment_USDCAD"),
-                    InlineKeyboardButton("EURGBP", callback_data="direct_sentiment_EURGBP")
+                    InlineKeyboardButton("USDJPY", callback_data="direct_sentiment_USDJPY"),
+                    InlineKeyboardButton("XAUUSD", callback_data="direct_sentiment_XAUUSD")
                 ],
                 [InlineKeyboardButton("⬅️ Back to Analysis", callback_data="back_to_analysis")]
             ]
             
-            # Toon direct de forex instrumenten voor sentiment analyse
+            # Show independent sentiment analysis options
             await query.edit_message_text(
-                text="Select a forex pair for sentiment analysis:",
-                reply_markup=InlineKeyboardMarkup(FOREX_SENTIMENT_KEYBOARD)
+                text="Select an instrument for sentiment analysis:",
+                reply_markup=InlineKeyboardMarkup(SENTIMENT_KEYBOARD)
             )
             
             return CHOOSE_INSTRUMENT
@@ -2275,15 +2272,29 @@ The {instrument} {direction.lower()} signal shows a promising setup with defined
             # Debug logging
             logger.info(f"show_sentiment_analysis aangeroepen voor instrument: {instrument}, from_signal: {from_signal}")
             
-            # Toon een laadmelding als die nog niet is getoond
-            if not from_signal:
-                try:
-                    await query.edit_message_text(
-                        text=f"Getting market sentiment for {instrument}...",
-                        reply_markup=None
-                    )
-                except Exception as e:
-                    logger.warning(f"Could not edit message: {str(e)}")
+            # Get fresh sentiment data from service
+            sentiment_data = await self.sentiment.get_market_sentiment(instrument)
+            
+            # Format sentiment message
+            sentiment_msg = f"""
+📊 **{instrument} Market Sentiment Analysis**
+
+- Bullish/Bearish Ratio: {sentiment_data['bullish_percentage']}% / {100 - sentiment_data['bullish_percentage']}%
+- Market Trend: {sentiment_data['trend_strength']}
+- Volatility Level: {sentiment_data['volatility']}
+- Key Support: {sentiment_data['support_level']}
+- Key Resistance: {sentiment_data['resistance_level']}
+
+**Trading Recommendation:**
+{sentiment_data['recommendation']}
+"""
+
+            # Update message with sentiment analysis
+            await query.edit_message_text(
+                text=sentiment_msg,
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_to_analysis")]]),
+                parse_mode=ParseMode.MARKDOWN
+            )
             
             try:
                 # Probeer sentiment analyse op te halen
