@@ -6107,23 +6107,3 @@ Happy Trading! 📈
         )
         
         return CHOOSE_INSTRUMENT
-            # Bepaal of we in de signals flow zitten of in de analyse flow
-            # Check of het bericht een foto is (heeft caption) of tekst bericht
-            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
-            is_signals_flow = False
-            
-            if is_photo_message:
-                # Als het een foto is, kijk in de caption voor aanwijzingen
-                caption = query.message.caption or ""
-                is_signals_flow = "signals" in caption.lower()
-                logger.info(f"Message is a photo with caption: {caption}")
-            else:
-                # Als het een tekstbericht is, kijk in de message text
-                message_text = getattr(query.message, 'text', '')
-                if message_text:
-                    is_signals_flow = "trading signals" in message_text.lower()
-                    logger.info(f"Message is text: {message_text[:50]}...")
-                else:
-                    # Fallback als er geen tekst is
-                    logger.warning("Message has no text or caption")
-                    is_signals_flow = False
