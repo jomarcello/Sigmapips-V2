@@ -1213,23 +1213,9 @@ To regain access to all features and trading signals, please reactivate your sub
             elif "XAU" in instrument or "XTI" in instrument:
                 market = "commodities"
             
-            # Controleer of dit instrument een beperkte timeframe heeft
-            if instrument in RESTRICTED_TIMEFRAMES:
-                timeframe = RESTRICTED_TIMEFRAMES[instrument]
-                
-                # Maak een beperkt keyboard met alleen de toegestane timeframe
-                restricted_keyboard = create_restricted_keyboard(instrument, timeframe, market)
-                
-                # Toon de beperkte stijl keuze
-                await query.edit_message_text(
-                    text=f"Choose timeframe for {instrument}:",
-                    reply_markup=InlineKeyboardMarkup(restricted_keyboard)
-                )
-                return CHOOSE_STYLE
-            else:
-                # Show technical analysis with fullscreen=True
-                logger.info(f"Toon technische analyse voor {instrument}")
-                return await self.show_technical_analysis(update, context, instrument, fullscreen=True)
+            # Show technical analysis with fullscreen=True
+            logger.info(f"Toon technische analyse voor {instrument}")
+            return await self.show_technical_analysis(update, context, instrument, fullscreen=True)
         except Exception as e:
             logger.error(f"Error in instrument_callback: {str(e)}")
             return MENU
@@ -1247,17 +1233,10 @@ To regain access to all features and trading signals, please reactivate your sub
                 context.user_data['in_signals_flow'] = True
                 context.user_data['instrument'] = instrument
             
-            # Controleer of dit instrument een beperkte timeframe heeft
-            if instrument in RESTRICTED_TIMEFRAMES:
-                timeframe = RESTRICTED_TIMEFRAMES[instrument]
-                
-                # Maak een beperkt keyboard met alleen de toegestane timeframe
-                restricted_keyboard = create_restricted_keyboard(instrument, timeframe, market)
-                
-                # Toon de beperkte stijl keuze
-                await query.edit_message_text(
-                    text=f"Choose trading style for {instrument}:",
-                    reply_markup=InlineKeyboardMarkup(restricted_keyboard)
+            # Show trading style options
+            await query.edit_message_text(
+                text=f"Choose trading style for {instrument}:",
+                reply_markup=InlineKeyboardMarkup(self.get_style_keyboard(instrument))
                 )
             else:
                 # Toon de normale stijl keuze voor andere instrumenten
