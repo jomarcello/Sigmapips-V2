@@ -534,15 +534,28 @@ class TelegramService:
             # Verwijder bestaande handlers om dubbele handlers te voorkomen
             self.application.handlers.clear()
             
-            # Voeg een CommandHandler toe voor /start
-            self.application.add_handler(CommandHandler("start", self.start_command))
+            # Add conversation handler
+            conv_handler = ConversationHandler(
+                entry_points=[CommandHandler('start', self.start_command),
+                             CommandHandler('menu', self.show_main_menu),
+                             CommandHandler('help', self.help_command)],
+                states={
+                    MENU: [
+                        CallbackQueryHandler(self.menu_analyse_callback, pattern='^menu_analyse$'),
+                        CallbackQueryHandler(self.menu_signals_callback, pattern='^menu_signals$')
+                    ],
+                    CHOOSE_ANALYSIS: [
+                        CallbackQueryHandler(self.analysis_technical_callback, pattern='^analysis_technical$'),
+                        CallbackQueryHandler(self.analysis_sentiment_callback, pattern='^analysis_sentiment$'), 
+                        CallbackQueryHandler(self.analysis_calendar_callback, pattern='^analysis_calendar$'),
+                        CallbackQueryHandler(self.back_to_analysis, pattern='^back_to_analysis$'),
+                        CallbackQueryHandler(self.back_menu_callback, pattern='^back_menu$')
+                    ]
+                },
+                fallbacks=[CommandHandler('cancel', self.cancel_command)]
+            )
             
-            # Voeg een CommandHandler toe voor /menu
-            self.application.add_handler(CommandHandler("menu", self.show_main_menu))
-            
-            # Voeg een CallbackQueryHandler toe voor knoppen
-            # Verander button_callback naar callback_query_handler
-            self.application.add_handler(CallbackQueryHandler(self.callback_query_handler))
+            self.application.add_handler(conv_handler)
             
             # Admin commando voor signalen in/uitschakelen
             self.application.add_handler(CommandHandler("toggle_signals", self.toggle_signals))
@@ -809,6 +822,11 @@ To regain access to all features and trading signals, please reactivate your sub
             # Debug logging
             logger.info("analysis_sentiment_callback aangeroepen")
             
+            # Store analysis type in user_data
+            if context and hasattr(context, 'user_data'):
+                context.user_data['analysis_type'] = 'sentiment'
+                context.user_data['current_state'] = CHOOSE_INSTRUMENT
+            
             # Maak speciale keyboards voor sentiment analyse
             FOREX_SENTIMENT_KEYBOARD = [
                 [
@@ -821,7 +839,7 @@ To regain access to all features and trading signals, please reactivate your sub
                     InlineKeyboardButton("USDCAD", callback_data="direct_sentiment_USDCAD"),
                     InlineKeyboardButton("EURGBP", callback_data="direct_sentiment_EURGBP")
                 ],
-                [InlineKeyboardButton("⬅️ Terug", callback_data="back_analysis")]
+                [InlineKeyboardButton("⬅️ Back to Analysis", callback_data="back_to_analysis")]
             ]
             
             # Toon direct de forex instrumenten voor sentiment analyse
@@ -1505,58 +1523,35 @@ To regain access to all features and trading signals, please reactivate your sub
                 keyboard = MARKET_KEYBOARD
                 text = "Select a market for technical analysis:"
             
-            # Update the message
-            try:
-                await query.edit_message_text(
-                    text=text,
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
-            except Exception as edit_error:
-                logger.error(f"Error updating message: {str(edit_error)}")
-                # Send a new message as fallback
+            # Check if the message contains a photo
+            has_photo = bool(query.message.photo)
+            
+            if has_photo:
+                # For messages with photos, send a new message instead of editing
                 await query.message.reply_text(
                     text=text,
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
-            
-            # Werk het bericht bij
-            try:
-                if is_photo_message:
-                    # Als het een foto is, antwoord met een nieuw bericht
-                    # omdat we niet een foto naar tekst kunnen omzetten
-                    await query.message.reply_text(
-                        text=text,
-                        reply_markup=InlineKeyboardMarkup(keyboard)
-                    )
-                else:
-                    # Als het een tekstbericht is, bewerk het
+            else:
+                # For text messages, try to edit the existing message
+                try:
                     await query.edit_message_text(
                         text=text,
                         reply_markup=InlineKeyboardMarkup(keyboard)
                     )
-            except Exception as edit_error:
-                logger.error(f"Error updating message: {str(edit_error)}")
-                # Stuur een nieuw bericht als fallback
-                await query.message.reply_text(
-                    text=text,
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
+                except Exception as edit_error:
+                    logger.error(f"Error updating message: {str(edit_error)}")
+                    # Send a new message as fallback
+                    await query.message.reply_text(
+                        text=text,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
             
-            return CHOOSE_MARKET
+            return ConversationHandler.END
+            
         except Exception as e:
             logger.error(f"Error in back_to_market_callback: {str(e)}")
-            logger.exception(e)  # Volledige stacktrace loggen
-            
-            # Stuur een nieuw bericht als fallback bij fouten
-            try:
-                await query.message.reply_text(
-                    text="Select a market:",
-                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
-                )
-                return CHOOSE_MARKET
-            except Exception as inner_e:
-                logger.error(f"Failed to send fallback message: {str(inner_e)}")
-                return MENU
+            return ConversationHandler.END
 
     async def back_to_instrument(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
         """Handle back to instrument selection"""
@@ -2184,6 +2179,12 @@ The {instrument} {direction.lower()} signal shows a promising setup with defined
         query = update.callback_query
         
         try:
+            # Store current state and instrument
+            if context and hasattr(context, 'user_data'):
+                context.user_data['current_instrument'] = instrument
+                context.user_data['current_state'] = SHOW_RESULT
+                context.user_data['analysis_type'] = 'technical'
+            
             # Als er geen timeframe is opgegeven, gebruik de stijl of default
             if not timeframe:
                 timeframe = "1h"  # Default
@@ -2563,6 +2564,12 @@ The {instrument} {direction.lower()} signal shows a promising setup with defined
             instrument = query.data.replace('direct_sentiment_', '')
             logger.info(f"Direct sentiment callback voor instrument: {instrument}")
             
+            # Store current state and instrument
+            if context and hasattr(context, 'user_data'):
+                context.user_data['current_instrument'] = instrument
+                context.user_data['current_state'] = SHOW_RESULT
+                context.user_data['analysis_type'] = 'sentiment'
+            
             # Toon een laadmelding
             await query.edit_message_text(
                 text=f"Getting market sentiment for {instrument}...",
@@ -2633,6 +2640,31 @@ The {instrument} {direction.lower()} signal shows a promising setup with defined
             
             return MENU
 
+    async def back_to_analysis(self, update: Update, context=None) -> int:
+        """Handle back to analysis menu callback"""
+        query = update.callback_query
+        
+        try:
+            # Beantwoord de callback query
+            await query.answer()
+            
+            # Get the previous state and analysis type
+            previous_state = context.user_data.get('current_state') if context and hasattr(context, 'user_data') else None
+            analysis_type = context.user_data.get('analysis_type') if context and hasattr(context, 'user_data') else None
+            
+            # Show the analysis menu
+            await query.edit_message_text(
+                text="Select your analysis type:",
+                reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
+            )
+            
+            # Reset the state
+            if context and hasattr(context, 'user_data'):
+                context.user_data['current_state'] = CHOOSE_ANALYSIS
+                context.user_data.pop('current_instrument', None)
+            
+            return CHOOSE_ANALYSIS
+            
     async def back_signals_callback(self, update: Update, context=None) -> int:
         """Handle back_signals callback"""
         query = update.callback_query
@@ -3181,58 +3213,35 @@ Happy Trading! 📈
                 keyboard = MARKET_KEYBOARD
                 text = "Select a market for technical analysis:"
             
-            # Update the message
-            try:
-                await query.edit_message_text(
-                    text=text,
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
-            except Exception as edit_error:
-                logger.error(f"Error updating message: {str(edit_error)}")
-                # Send a new message as fallback
+            # Check if the message contains a photo
+            has_photo = bool(query.message.photo)
+            
+            if has_photo:
+                # For messages with photos, send a new message instead of editing
                 await query.message.reply_text(
                     text=text,
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
-            
-            # Werk het bericht bij
-            try:
-                if is_photo_message:
-                    # Als het een foto is, antwoord met een nieuw bericht
-                    # omdat we niet een foto naar tekst kunnen omzetten
-                    await query.message.reply_text(
-                        text=text,
-                        reply_markup=InlineKeyboardMarkup(keyboard)
-                    )
-                else:
-                    # Als het een tekstbericht is, bewerk het
+            else:
+                # For text messages, try to edit the existing message
+                try:
                     await query.edit_message_text(
                         text=text,
                         reply_markup=InlineKeyboardMarkup(keyboard)
                     )
-            except Exception as edit_error:
-                logger.error(f"Error updating message: {str(edit_error)}")
-                # Stuur een nieuw bericht als fallback
-                await query.message.reply_text(
-                    text=text,
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
+                except Exception as edit_error:
+                    logger.error(f"Error updating message: {str(edit_error)}")
+                    # Send a new message as fallback
+                    await query.message.reply_text(
+                        text=text,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
             
-            return CHOOSE_MARKET
+            return ConversationHandler.END
+            
         except Exception as e:
             logger.error(f"Error in back_to_market_callback: {str(e)}")
-            logger.exception(e)  # Volledige stacktrace loggen
-            
-            # Stuur een nieuw bericht als fallback bij fouten
-            try:
-                await query.message.reply_text(
-                    text="Select a market:",
-                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
-                )
-                return CHOOSE_MARKET
-            except Exception as inner_e:
-                logger.error(f"Failed to send fallback message: {str(inner_e)}")
-                return MENU
+            return ConversationHandler.END
 
     async def back_to_instrument(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
         """Handle back to instrument selection"""
@@ -3310,58 +3319,35 @@ Happy Trading! 📈
                 keyboard = MARKET_KEYBOARD
                 text = "Select a market for technical analysis:"
             
-            # Update the message
-            try:
-                await query.edit_message_text(
-                    text=text,
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
-            except Exception as edit_error:
-                logger.error(f"Error updating message: {str(edit_error)}")
-                # Send a new message as fallback
+            # Check if the message contains a photo
+            has_photo = bool(query.message.photo)
+            
+            if has_photo:
+                # For messages with photos, send a new message instead of editing
                 await query.message.reply_text(
                     text=text,
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
-            
-            # Werk het bericht bij
-            try:
-                if is_photo_message:
-                    # Als het een foto is, antwoord met een nieuw bericht
-                    # omdat we niet een foto naar tekst kunnen omzetten
-                    await query.message.reply_text(
-                        text=text,
-                        reply_markup=InlineKeyboardMarkup(keyboard)
-                    )
-                else:
-                    # Als het een tekstbericht is, bewerk het
+            else:
+                # For text messages, try to edit the existing message
+                try:
                     await query.edit_message_text(
                         text=text,
                         reply_markup=InlineKeyboardMarkup(keyboard)
                     )
-            except Exception as edit_error:
-                logger.error(f"Error updating message: {str(edit_error)}")
-                # Stuur een nieuw bericht als fallback
-                await query.message.reply_text(
-                    text=text,
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
+                except Exception as edit_error:
+                    logger.error(f"Error updating message: {str(edit_error)}")
+                    # Send a new message as fallback
+                    await query.message.reply_text(
+                        text=text,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
             
-            return CHOOSE_MARKET
+            return ConversationHandler.END
+            
         except Exception as e:
             logger.error(f"Error in back_to_market_callback: {str(e)}")
-            logger.exception(e)  # Volledige stacktrace loggen
-            
-            # Stuur een nieuw bericht als fallback bij fouten
-            try:
-                await query.message.reply_text(
-                    text="Select a market:",
-                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
-                )
-                return CHOOSE_MARKET
-            except Exception as inner_e:
-                logger.error(f"Failed to send fallback message: {str(inner_e)}")
-                return MENU
+            return ConversationHandler.END
 
     async def back_to_instrument(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
         """Handle back to instrument selection"""
@@ -3439,58 +3425,35 @@ Happy Trading! 📈
                 keyboard = MARKET_KEYBOARD
                 text = "Select a market for technical analysis:"
             
-            # Update the message
-            try:
-                await query.edit_message_text(
-                    text=text,
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
-            except Exception as edit_error:
-                logger.error(f"Error updating message: {str(edit_error)}")
-                # Send a new message as fallback
+            # Check if the message contains a photo
+            has_photo = bool(query.message.photo)
+            
+            if has_photo:
+                # For messages with photos, send a new message instead of editing
                 await query.message.reply_text(
                     text=text,
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
-            
-            # Werk het bericht bij
-            try:
-                if is_photo_message:
-                    # Als het een foto is, antwoord met een nieuw bericht
-                    # omdat we niet een foto naar tekst kunnen omzetten
-                    await query.message.reply_text(
-                        text=text,
-                        reply_markup=InlineKeyboardMarkup(keyboard)
-                    )
-                else:
-                    # Als het een tekstbericht is, bewerk het
+            else:
+                # For text messages, try to edit the existing message
+                try:
                     await query.edit_message_text(
                         text=text,
                         reply_markup=InlineKeyboardMarkup(keyboard)
                     )
-            except Exception as edit_error:
-                logger.error(f"Error updating message: {str(edit_error)}")
-                # Stuur een nieuw bericht als fallback
-                await query.message.reply_text(
-                    text=text,
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
+                except Exception as edit_error:
+                    logger.error(f"Error updating message: {str(edit_error)}")
+                    # Send a new message as fallback
+                    await query.message.reply_text(
+                        text=text,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
             
-            return CHOOSE_MARKET
+            return ConversationHandler.END
+            
         except Exception as e:
             logger.error(f"Error in back_to_market_callback: {str(e)}")
-            logger.exception(e)  # Volledige stacktrace loggen
-            
-            # Stuur een nieuw bericht als fallback bij fouten
-            try:
-                await query.message.reply_text(
-                    text="Select a market:",
-                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
-                )
-                return CHOOSE_MARKET
-            except Exception as inner_e:
-                logger.error(f"Failed to send fallback message: {str(inner_e)}")
-                return MENU
+            return ConversationHandler.END
 
     async def back_to_instrument(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
         """Handle back to instrument selection"""
@@ -3568,58 +3531,35 @@ Happy Trading! 📈
                 keyboard = MARKET_KEYBOARD
                 text = "Select a market for technical analysis:"
             
-            # Update the message
-            try:
-                await query.edit_message_text(
-                    text=text,
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
-            except Exception as edit_error:
-                logger.error(f"Error updating message: {str(edit_error)}")
-                # Send a new message as fallback
+            # Check if the message contains a photo
+            has_photo = bool(query.message.photo)
+            
+            if has_photo:
+                # For messages with photos, send a new message instead of editing
                 await query.message.reply_text(
                     text=text,
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
-            
-            # Werk het bericht bij
-            try:
-                if is_photo_message:
-                    # Als het een foto is, antwoord met een nieuw bericht
-                    # omdat we niet een foto naar tekst kunnen omzetten
-                    await query.message.reply_text(
-                        text=text,
-                        reply_markup=InlineKeyboardMarkup(keyboard)
-                    )
-                else:
-                    # Als het een tekstbericht is, bewerk het
+            else:
+                # For text messages, try to edit the existing message
+                try:
                     await query.edit_message_text(
                         text=text,
                         reply_markup=InlineKeyboardMarkup(keyboard)
                     )
-            except Exception as edit_error:
-                logger.error(f"Error updating message: {str(edit_error)}")
-                # Stuur een nieuw bericht als fallback
-                await query.message.reply_text(
-                    text=text,
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
+                except Exception as edit_error:
+                    logger.error(f"Error updating message: {str(edit_error)}")
+                    # Send a new message as fallback
+                    await query.message.reply_text(
+                        text=text,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
             
-            return CHOOSE_MARKET
+            return ConversationHandler.END
+            
         except Exception as e:
             logger.error(f"Error in back_to_market_callback: {str(e)}")
-            logger.exception(e)  # Volledige stacktrace loggen
-            
-            # Stuur een nieuw bericht als fallback bij fouten
-            try:
-                await query.message.reply_text(
-                    text="Select a market:",
-                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
-                )
-                return CHOOSE_MARKET
-            except Exception as inner_e:
-                logger.error(f"Failed to send fallback message: {str(inner_e)}")
-                return MENU
+            return ConversationHandler.END
 
     async def back_to_instrument(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
         """Handle back to instrument selection"""
@@ -3697,58 +3637,35 @@ Happy Trading! 📈
                 keyboard = MARKET_KEYBOARD
                 text = "Select a market for technical analysis:"
             
-            # Update the message
-            try:
-                await query.edit_message_text(
-                    text=text,
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
-            except Exception as edit_error:
-                logger.error(f"Error updating message: {str(edit_error)}")
-                # Send a new message as fallback
+            # Check if the message contains a photo
+            has_photo = bool(query.message.photo)
+            
+            if has_photo:
+                # For messages with photos, send a new message instead of editing
                 await query.message.reply_text(
                     text=text,
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
-            
-            # Werk het bericht bij
-            try:
-                if is_photo_message:
-                    # Als het een foto is, antwoord met een nieuw bericht
-                    # omdat we niet een foto naar tekst kunnen omzetten
-                    await query.message.reply_text(
-                        text=text,
-                        reply_markup=InlineKeyboardMarkup(keyboard)
-                    )
-                else:
-                    # Als het een tekstbericht is, bewerk het
+            else:
+                # For text messages, try to edit the existing message
+                try:
                     await query.edit_message_text(
                         text=text,
                         reply_markup=InlineKeyboardMarkup(keyboard)
                     )
-            except Exception as edit_error:
-                logger.error(f"Error updating message: {str(edit_error)}")
-                # Stuur een nieuw bericht als fallback
-                await query.message.reply_text(
-                    text=text,
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
+                except Exception as edit_error:
+                    logger.error(f"Error updating message: {str(edit_error)}")
+                    # Send a new message as fallback
+                    await query.message.reply_text(
+                        text=text,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
             
-            return CHOOSE_MARKET
+            return ConversationHandler.END
+            
         except Exception as e:
             logger.error(f"Error in back_to_market_callback: {str(e)}")
-            logger.exception(e)  # Volledige stacktrace loggen
-            
-            # Stuur een nieuw bericht als fallback bij fouten
-            try:
-                await query.message.reply_text(
-                    text="Select a market:",
-                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
-                )
-                return CHOOSE_MARKET
-            except Exception as inner_e:
-                logger.error(f"Failed to send fallback message: {str(inner_e)}")
-                return MENU
+            return ConversationHandler.END
 
     async def back_to_instrument(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
         """Handle back to instrument selection"""
@@ -3826,58 +3743,35 @@ Happy Trading! 📈
                 keyboard = MARKET_KEYBOARD
                 text = "Select a market for technical analysis:"
             
-            # Update the message
-            try:
-                await query.edit_message_text(
-                    text=text,
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
-            except Exception as edit_error:
-                logger.error(f"Error updating message: {str(edit_error)}")
-                # Send a new message as fallback
+            # Check if the message contains a photo
+            has_photo = bool(query.message.photo)
+            
+            if has_photo:
+                # For messages with photos, send a new message instead of editing
                 await query.message.reply_text(
                     text=text,
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
-            
-            # Werk het bericht bij
-            try:
-                if is_photo_message:
-                    # Als het een foto is, antwoord met een nieuw bericht
-                    # omdat we niet een foto naar tekst kunnen omzetten
-                    await query.message.reply_text(
-                        text=text,
-                        reply_markup=InlineKeyboardMarkup(keyboard)
-                    )
-                else:
-                    # Als het een tekstbericht is, bewerk het
+            else:
+                # For text messages, try to edit the existing message
+                try:
                     await query.edit_message_text(
                         text=text,
                         reply_markup=InlineKeyboardMarkup(keyboard)
                     )
-            except Exception as edit_error:
-                logger.error(f"Error updating message: {str(edit_error)}")
-                # Stuur een nieuw bericht als fallback
-                await query.message.reply_text(
-                    text=text,
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
+                except Exception as edit_error:
+                    logger.error(f"Error updating message: {str(edit_error)}")
+                    # Send a new message as fallback
+                    await query.message.reply_text(
+                        text=text,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
             
-            return CHOOSE_MARKET
+            return ConversationHandler.END
+            
         except Exception as e:
             logger.error(f"Error in back_to_market_callback: {str(e)}")
-            logger.exception(e)  # Volledige stacktrace loggen
-            
-            # Stuur een nieuw bericht als fallback bij fouten
-            try:
-                await query.message.reply_text(
-                    text="Select a market:",
-                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
-                )
-                return CHOOSE_MARKET
-            except Exception as inner_e:
-                logger.error(f"Failed to send fallback message: {str(inner_e)}")
-                return MENU
+            return ConversationHandler.END
 
     async def back_to_instrument(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
         """Handle back to instrument selection"""
@@ -3955,58 +3849,35 @@ Happy Trading! 📈
                 keyboard = MARKET_KEYBOARD
                 text = "Select a market for technical analysis:"
             
-            # Update the message
-            try:
-                await query.edit_message_text(
-                    text=text,
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
-            except Exception as edit_error:
-                logger.error(f"Error updating message: {str(edit_error)}")
-                # Send a new message as fallback
+            # Check if the message contains a photo
+            has_photo = bool(query.message.photo)
+            
+            if has_photo:
+                # For messages with photos, send a new message instead of editing
                 await query.message.reply_text(
                     text=text,
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
-            
-            # Werk het bericht bij
-            try:
-                if is_photo_message:
-                    # Als het een foto is, antwoord met een nieuw bericht
-                    # omdat we niet een foto naar tekst kunnen omzetten
-                    await query.message.reply_text(
-                        text=text,
-                        reply_markup=InlineKeyboardMarkup(keyboard)
-                    )
-                else:
-                    # Als het een tekstbericht is, bewerk het
+            else:
+                # For text messages, try to edit the existing message
+                try:
                     await query.edit_message_text(
                         text=text,
                         reply_markup=InlineKeyboardMarkup(keyboard)
                     )
-            except Exception as edit_error:
-                logger.error(f"Error updating message: {str(edit_error)}")
-                # Stuur een nieuw bericht als fallback
-                await query.message.reply_text(
-                    text=text,
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
+                except Exception as edit_error:
+                    logger.error(f"Error updating message: {str(edit_error)}")
+                    # Send a new message as fallback
+                    await query.message.reply_text(
+                        text=text,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
             
-            return CHOOSE_MARKET
+            return ConversationHandler.END
+            
         except Exception as e:
             logger.error(f"Error in back_to_market_callback: {str(e)}")
-            logger.exception(e)  # Volledige stacktrace loggen
-            
-            # Stuur een nieuw bericht als fallback bij fouten
-            try:
-                await query.message.reply_text(
-                    text="Select a market:",
-                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
-                )
-                return CHOOSE_MARKET
-            except Exception as inner_e:
-                logger.error(f"Failed to send fallback message: {str(inner_e)}")
-                return MENU
+            return ConversationHandler.END
 
     async def back_to_instrument(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
         """Handle back to instrument selection"""
@@ -4084,58 +3955,35 @@ Happy Trading! 📈
                 keyboard = MARKET_KEYBOARD
                 text = "Select a market for technical analysis:"
             
-            # Update the message
-            try:
-                await query.edit_message_text(
-                    text=text,
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
-            except Exception as edit_error:
-                logger.error(f"Error updating message: {str(edit_error)}")
-                # Send a new message as fallback
+            # Check if the message contains a photo
+            has_photo = bool(query.message.photo)
+            
+            if has_photo:
+                # For messages with photos, send a new message instead of editing
                 await query.message.reply_text(
                     text=text,
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
-            
-            # Werk het bericht bij
-            try:
-                if is_photo_message:
-                    # Als het een foto is, antwoord met een nieuw bericht
-                    # omdat we niet een foto naar tekst kunnen omzetten
-                    await query.message.reply_text(
-                        text=text,
-                        reply_markup=InlineKeyboardMarkup(keyboard)
-                    )
-                else:
-                    # Als het een tekstbericht is, bewerk het
+            else:
+                # For text messages, try to edit the existing message
+                try:
                     await query.edit_message_text(
                         text=text,
                         reply_markup=InlineKeyboardMarkup(keyboard)
                     )
-            except Exception as edit_error:
-                logger.error(f"Error updating message: {str(edit_error)}")
-                # Stuur een nieuw bericht als fallback
-                await query.message.reply_text(
-                    text=text,
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
+                except Exception as edit_error:
+                    logger.error(f"Error updating message: {str(edit_error)}")
+                    # Send a new message as fallback
+                    await query.message.reply_text(
+                        text=text,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
             
-            return CHOOSE_MARKET
+            return ConversationHandler.END
+            
         except Exception as e:
             logger.error(f"Error in back_to_market_callback: {str(e)}")
-            logger.exception(e)  # Volledige stacktrace loggen
-            
-            # Stuur een nieuw bericht als fallback bij fouten
-            try:
-                await query.message.reply_text(
-                    text="Select a market:",
-                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
-                )
-                return CHOOSE_MARKET
-            except Exception as inner_e:
-                logger.error(f"Failed to send fallback message: {str(inner_e)}")
-                return MENU
+            return ConversationHandler.END
 
     async def back_to_instrument(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
         """Handle back to instrument selection"""
@@ -4213,58 +4061,35 @@ Happy Trading! 📈
                 keyboard = MARKET_KEYBOARD
                 text = "Select a market for technical analysis:"
             
-            # Update the message
-            try:
-                await query.edit_message_text(
-                    text=text,
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
-            except Exception as edit_error:
-                logger.error(f"Error updating message: {str(edit_error)}")
-                # Send a new message as fallback
+            # Check if the message contains a photo
+            has_photo = bool(query.message.photo)
+            
+            if has_photo:
+                # For messages with photos, send a new message instead of editing
                 await query.message.reply_text(
                     text=text,
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
-            
-            # Werk het bericht bij
-            try:
-                if is_photo_message:
-                    # Als het een foto is, antwoord met een nieuw bericht
-                    # omdat we niet een foto naar tekst kunnen omzetten
-                    await query.message.reply_text(
-                        text=text,
-                        reply_markup=InlineKeyboardMarkup(keyboard)
-                    )
-                else:
-                    # Als het een tekstbericht is, bewerk het
+            else:
+                # For text messages, try to edit the existing message
+                try:
                     await query.edit_message_text(
                         text=text,
                         reply_markup=InlineKeyboardMarkup(keyboard)
                     )
-            except Exception as edit_error:
-                logger.error(f"Error updating message: {str(edit_error)}")
-                # Stuur een nieuw bericht als fallback
-                await query.message.reply_text(
-                    text=text,
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
+                except Exception as edit_error:
+                    logger.error(f"Error updating message: {str(edit_error)}")
+                    # Send a new message as fallback
+                    await query.message.reply_text(
+                        text=text,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
             
-            return CHOOSE_MARKET
+            return ConversationHandler.END
+            
         except Exception as e:
             logger.error(f"Error in back_to_market_callback: {str(e)}")
-            logger.exception(e)  # Volledige stacktrace loggen
-            
-            # Stuur een nieuw bericht als fallback bij fouten
-            try:
-                await query.message.reply_text(
-                    text="Select a market:",
-                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
-                )
-                return CHOOSE_MARKET
-            except Exception as inner_e:
-                logger.error(f"Failed to send fallback message: {str(inner_e)}")
-                return MENU
+            return ConversationHandler.END
 
     async def back_to_instrument(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
         """Handle back to instrument selection"""
@@ -4342,58 +4167,35 @@ Happy Trading! 📈
                 keyboard = MARKET_KEYBOARD
                 text = "Select a market for technical analysis:"
             
-            # Update the message
-            try:
-                await query.edit_message_text(
-                    text=text,
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
-            except Exception as edit_error:
-                logger.error(f"Error updating message: {str(edit_error)}")
-                # Send a new message as fallback
+            # Check if the message contains a photo
+            has_photo = bool(query.message.photo)
+            
+            if has_photo:
+                # For messages with photos, send a new message instead of editing
                 await query.message.reply_text(
                     text=text,
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
-            
-            # Werk het bericht bij
-            try:
-                if is_photo_message:
-                    # Als het een foto is, antwoord met een nieuw bericht
-                    # omdat we niet een foto naar tekst kunnen omzetten
-                    await query.message.reply_text(
-                        text=text,
-                        reply_markup=InlineKeyboardMarkup(keyboard)
-                    )
-                else:
-                    # Als het een tekstbericht is, bewerk het
+            else:
+                # For text messages, try to edit the existing message
+                try:
                     await query.edit_message_text(
                         text=text,
                         reply_markup=InlineKeyboardMarkup(keyboard)
                     )
-            except Exception as edit_error:
-                logger.error(f"Error updating message: {str(edit_error)}")
-                # Stuur een nieuw bericht als fallback
-                await query.message.reply_text(
-                    text=text,
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
+                except Exception as edit_error:
+                    logger.error(f"Error updating message: {str(edit_error)}")
+                    # Send a new message as fallback
+                    await query.message.reply_text(
+                        text=text,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
             
-            return CHOOSE_MARKET
+            return ConversationHandler.END
+            
         except Exception as e:
             logger.error(f"Error in back_to_market_callback: {str(e)}")
-            logger.exception(e)  # Volledige stacktrace loggen
-            
-            # Stuur een nieuw bericht als fallback bij fouten
-            try:
-                await query.message.reply_text(
-                    text="Select a market:",
-                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
-                )
-                return CHOOSE_MARKET
-            except Exception as inner_e:
-                logger.error(f"Failed to send fallback message: {str(inner_e)}")
-                return MENU
+            return ConversationHandler.END
 
     async def back_to_instrument(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
         """Handle back to instrument selection"""
@@ -4471,58 +4273,35 @@ Happy Trading! 📈
                 keyboard = MARKET_KEYBOARD
                 text = "Select a market for technical analysis:"
             
-            # Update the message
-            try:
-                await query.edit_message_text(
-                    text=text,
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
-            except Exception as edit_error:
-                logger.error(f"Error updating message: {str(edit_error)}")
-                # Send a new message as fallback
+            # Check if the message contains a photo
+            has_photo = bool(query.message.photo)
+            
+            if has_photo:
+                # For messages with photos, send a new message instead of editing
                 await query.message.reply_text(
                     text=text,
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
-            
-            # Werk het bericht bij
-            try:
-                if is_photo_message:
-                    # Als het een foto is, antwoord met een nieuw bericht
-                    # omdat we niet een foto naar tekst kunnen omzetten
-                    await query.message.reply_text(
-                        text=text,
-                        reply_markup=InlineKeyboardMarkup(keyboard)
-                    )
-                else:
-                    # Als het een tekstbericht is, bewerk het
+            else:
+                # For text messages, try to edit the existing message
+                try:
                     await query.edit_message_text(
                         text=text,
                         reply_markup=InlineKeyboardMarkup(keyboard)
                     )
-            except Exception as edit_error:
-                logger.error(f"Error updating message: {str(edit_error)}")
-                # Stuur een nieuw bericht als fallback
-                await query.message.reply_text(
-                    text=text,
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
+                except Exception as edit_error:
+                    logger.error(f"Error updating message: {str(edit_error)}")
+                    # Send a new message as fallback
+                    await query.message.reply_text(
+                        text=text,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
             
-            return CHOOSE_MARKET
+            return ConversationHandler.END
+            
         except Exception as e:
             logger.error(f"Error in back_to_market_callback: {str(e)}")
-            logger.exception(e)  # Volledige stacktrace loggen
-            
-            # Stuur een nieuw bericht als fallback bij fouten
-            try:
-                await query.message.reply_text(
-                    text="Select a market:",
-                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
-                )
-                return CHOOSE_MARKET
-            except Exception as inner_e:
-                logger.error(f"Failed to send fallback message: {str(inner_e)}")
-                return MENU
+            return ConversationHandler.END
 
     async def back_to_instrument(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
         """Handle back to instrument selection"""
@@ -4600,58 +4379,35 @@ Happy Trading! 📈
                 keyboard = MARKET_KEYBOARD
                 text = "Select a market for technical analysis:"
             
-            # Update the message
-            try:
-                await query.edit_message_text(
-                    text=text,
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
-            except Exception as edit_error:
-                logger.error(f"Error updating message: {str(edit_error)}")
-                # Send a new message as fallback
+            # Check if the message contains a photo
+            has_photo = bool(query.message.photo)
+            
+            if has_photo:
+                # For messages with photos, send a new message instead of editing
                 await query.message.reply_text(
                     text=text,
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
-            
-            # Werk het bericht bij
-            try:
-                if is_photo_message:
-                    # Als het een foto is, antwoord met een nieuw bericht
-                    # omdat we niet een foto naar tekst kunnen omzetten
-                    await query.message.reply_text(
-                        text=text,
-                        reply_markup=InlineKeyboardMarkup(keyboard)
-                    )
-                else:
-                    # Als het een tekstbericht is, bewerk het
+            else:
+                # For text messages, try to edit the existing message
+                try:
                     await query.edit_message_text(
                         text=text,
                         reply_markup=InlineKeyboardMarkup(keyboard)
                     )
-            except Exception as edit_error:
-                logger.error(f"Error updating message: {str(edit_error)}")
-                # Stuur een nieuw bericht als fallback
-                await query.message.reply_text(
-                    text=text,
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
+                except Exception as edit_error:
+                    logger.error(f"Error updating message: {str(edit_error)}")
+                    # Send a new message as fallback
+                    await query.message.reply_text(
+                        text=text,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
             
-            return CHOOSE_MARKET
+            return ConversationHandler.END
+            
         except Exception as e:
             logger.error(f"Error in back_to_market_callback: {str(e)}")
-            logger.exception(e)  # Volledige stacktrace loggen
-            
-            # Stuur een nieuw bericht als fallback bij fouten
-            try:
-                await query.message.reply_text(
-                    text="Select a market:",
-                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
-                )
-                return CHOOSE_MARKET
-            except Exception as inner_e:
-                logger.error(f"Failed to send fallback message: {str(inner_e)}")
-                return MENU
+            return ConversationHandler.END
 
     async def back_to_instrument(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
         """Handle back to instrument selection"""
@@ -4729,58 +4485,35 @@ Happy Trading! 📈
                 keyboard = MARKET_KEYBOARD
                 text = "Select a market for technical analysis:"
             
-            # Update the message
-            try:
-                await query.edit_message_text(
-                    text=text,
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
-            except Exception as edit_error:
-                logger.error(f"Error updating message: {str(edit_error)}")
-                # Send a new message as fallback
+            # Check if the message contains a photo
+            has_photo = bool(query.message.photo)
+            
+            if has_photo:
+                # For messages with photos, send a new message instead of editing
                 await query.message.reply_text(
                     text=text,
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
-            
-            # Werk het bericht bij
-            try:
-                if is_photo_message:
-                    # Als het een foto is, antwoord met een nieuw bericht
-                    # omdat we niet een foto naar tekst kunnen omzetten
-                    await query.message.reply_text(
-                        text=text,
-                        reply_markup=InlineKeyboardMarkup(keyboard)
-                    )
-                else:
-                    # Als het een tekstbericht is, bewerk het
+            else:
+                # For text messages, try to edit the existing message
+                try:
                     await query.edit_message_text(
                         text=text,
                         reply_markup=InlineKeyboardMarkup(keyboard)
                     )
-            except Exception as edit_error:
-                logger.error(f"Error updating message: {str(edit_error)}")
-                # Stuur een nieuw bericht als fallback
-                await query.message.reply_text(
-                    text=text,
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
+                except Exception as edit_error:
+                    logger.error(f"Error updating message: {str(edit_error)}")
+                    # Send a new message as fallback
+                    await query.message.reply_text(
+                        text=text,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
             
-            return CHOOSE_MARKET
+            return ConversationHandler.END
+            
         except Exception as e:
             logger.error(f"Error in back_to_market_callback: {str(e)}")
-            logger.exception(e)  # Volledige stacktrace loggen
-            
-            # Stuur een nieuw bericht als fallback bij fouten
-            try:
-                await query.message.reply_text(
-                    text="Select a market:",
-                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
-                )
-                return CHOOSE_MARKET
-            except Exception as inner_e:
-                logger.error(f"Failed to send fallback message: {str(inner_e)}")
-                return MENU
+            return ConversationHandler.END
 
     async def back_to_instrument(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
         """Handle back to instrument selection"""
@@ -4858,58 +4591,35 @@ Happy Trading! 📈
                 keyboard = MARKET_KEYBOARD
                 text = "Select a market for technical analysis:"
             
-            # Update the message
-            try:
-                await query.edit_message_text(
-                    text=text,
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
-            except Exception as edit_error:
-                logger.error(f"Error updating message: {str(edit_error)}")
-                # Send a new message as fallback
+            # Check if the message contains a photo
+            has_photo = bool(query.message.photo)
+            
+            if has_photo:
+                # For messages with photos, send a new message instead of editing
                 await query.message.reply_text(
                     text=text,
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
-            
-            # Werk het bericht bij
-            try:
-                if is_photo_message:
-                    # Als het een foto is, antwoord met een nieuw bericht
-                    # omdat we niet een foto naar tekst kunnen omzetten
-                    await query.message.reply_text(
-                        text=text,
-                        reply_markup=InlineKeyboardMarkup(keyboard)
-                    )
-                else:
-                    # Als het een tekstbericht is, bewerk het
+            else:
+                # For text messages, try to edit the existing message
+                try:
                     await query.edit_message_text(
                         text=text,
                         reply_markup=InlineKeyboardMarkup(keyboard)
                     )
-            except Exception as edit_error:
-                logger.error(f"Error updating message: {str(edit_error)}")
-                # Stuur een nieuw bericht als fallback
-                await query.message.reply_text(
-                    text=text,
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
+                except Exception as edit_error:
+                    logger.error(f"Error updating message: {str(edit_error)}")
+                    # Send a new message as fallback
+                    await query.message.reply_text(
+                        text=text,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
             
-            return CHOOSE_MARKET
+            return ConversationHandler.END
+            
         except Exception as e:
             logger.error(f"Error in back_to_market_callback: {str(e)}")
-            logger.exception(e)  # Volledige stacktrace loggen
-            
-            # Stuur een nieuw bericht als fallback bij fouten
-            try:
-                await query.message.reply_text(
-                    text="Select a market:",
-                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
-                )
-                return CHOOSE_MARKET
-            except Exception as inner_e:
-                logger.error(f"Failed to send fallback message: {str(inner_e)}")
-                return MENU
+            return ConversationHandler.END
 
     async def back_to_instrument(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
         """Handle back to instrument selection"""
@@ -4987,58 +4697,35 @@ Happy Trading! 📈
                 keyboard = MARKET_KEYBOARD
                 text = "Select a market for technical analysis:"
             
-            # Update the message
-            try:
-                await query.edit_message_text(
-                    text=text,
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
-            except Exception as edit_error:
-                logger.error(f"Error updating message: {str(edit_error)}")
-                # Send a new message as fallback
+            # Check if the message contains a photo
+            has_photo = bool(query.message.photo)
+            
+            if has_photo:
+                # For messages with photos, send a new message instead of editing
                 await query.message.reply_text(
                     text=text,
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
-            
-            # Werk het bericht bij
-            try:
-                if is_photo_message:
-                    # Als het een foto is, antwoord met een nieuw bericht
-                    # omdat we niet een foto naar tekst kunnen omzetten
-                    await query.message.reply_text(
-                        text=text,
-                        reply_markup=InlineKeyboardMarkup(keyboard)
-                    )
-                else:
-                    # Als het een tekstbericht is, bewerk het
+            else:
+                # For text messages, try to edit the existing message
+                try:
                     await query.edit_message_text(
                         text=text,
                         reply_markup=InlineKeyboardMarkup(keyboard)
                     )
-            except Exception as edit_error:
-                logger.error(f"Error updating message: {str(edit_error)}")
-                # Stuur een nieuw bericht als fallback
-                await query.message.reply_text(
-                    text=text,
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
+                except Exception as edit_error:
+                    logger.error(f"Error updating message: {str(edit_error)}")
+                    # Send a new message as fallback
+                    await query.message.reply_text(
+                        text=text,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
             
-            return CHOOSE_MARKET
+            return ConversationHandler.END
+            
         except Exception as e:
             logger.error(f"Error in back_to_market_callback: {str(e)}")
-            logger.exception(e)  # Volledige stacktrace loggen
-            
-            # Stuur een nieuw bericht als fallback bij fouten
-            try:
-                await query.message.reply_text(
-                    text="Select a market:",
-                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
-                )
-                return CHOOSE_MARKET
-            except Exception as inner_e:
-                logger.error(f"Failed to send fallback message: {str(inner_e)}")
-                return MENU
+            return ConversationHandler.END
 
     async def back_to_instrument(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
         """Handle back to instrument selection"""
@@ -5116,58 +4803,35 @@ Happy Trading! 📈
                 keyboard = MARKET_KEYBOARD
                 text = "Select a market for technical analysis:"
             
-            # Update the message
-            try:
-                await query.edit_message_text(
-                    text=text,
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
-            except Exception as edit_error:
-                logger.error(f"Error updating message: {str(edit_error)}")
-                # Send a new message as fallback
+            # Check if the message contains a photo
+            has_photo = bool(query.message.photo)
+            
+            if has_photo:
+                # For messages with photos, send a new message instead of editing
                 await query.message.reply_text(
                     text=text,
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
-            
-            # Werk het bericht bij
-            try:
-                if is_photo_message:
-                    # Als het een foto is, antwoord met een nieuw bericht
-                    # omdat we niet een foto naar tekst kunnen omzetten
-                    await query.message.reply_text(
-                        text=text,
-                        reply_markup=InlineKeyboardMarkup(keyboard)
-                    )
-                else:
-                    # Als het een tekstbericht is, bewerk het
+            else:
+                # For text messages, try to edit the existing message
+                try:
                     await query.edit_message_text(
                         text=text,
                         reply_markup=InlineKeyboardMarkup(keyboard)
                     )
-            except Exception as edit_error:
-                logger.error(f"Error updating message: {str(edit_error)}")
-                # Stuur een nieuw bericht als fallback
-                await query.message.reply_text(
-                    text=text,
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
+                except Exception as edit_error:
+                    logger.error(f"Error updating message: {str(edit_error)}")
+                    # Send a new message as fallback
+                    await query.message.reply_text(
+                        text=text,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
             
-            return CHOOSE_MARKET
+            return ConversationHandler.END
+            
         except Exception as e:
             logger.error(f"Error in back_to_market_callback: {str(e)}")
-            logger.exception(e)  # Volledige stacktrace loggen
-            
-            # Stuur een nieuw bericht als fallback bij fouten
-            try:
-                await query.message.reply_text(
-                    text="Select a market:",
-                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
-                )
-                return CHOOSE_MARKET
-            except Exception as inner_e:
-                logger.error(f"Failed to send fallback message: {str(inner_e)}")
-                return MENU
+            return ConversationHandler.END
 
     async def back_to_instrument(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
         """Handle back to instrument selection"""
@@ -5245,58 +4909,35 @@ Happy Trading! 📈
                 keyboard = MARKET_KEYBOARD
                 text = "Select a market for technical analysis:"
             
-            # Update the message
-            try:
-                await query.edit_message_text(
-                    text=text,
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
-            except Exception as edit_error:
-                logger.error(f"Error updating message: {str(edit_error)}")
-                # Send a new message as fallback
+            # Check if the message contains a photo
+            has_photo = bool(query.message.photo)
+            
+            if has_photo:
+                # For messages with photos, send a new message instead of editing
                 await query.message.reply_text(
                     text=text,
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
-            
-            # Werk het bericht bij
-            try:
-                if is_photo_message:
-                    # Als het een foto is, antwoord met een nieuw bericht
-                    # omdat we niet een foto naar tekst kunnen omzetten
-                    await query.message.reply_text(
-                        text=text,
-                        reply_markup=InlineKeyboardMarkup(keyboard)
-                    )
-                else:
-                    # Als het een tekstbericht is, bewerk het
+            else:
+                # For text messages, try to edit the existing message
+                try:
                     await query.edit_message_text(
                         text=text,
                         reply_markup=InlineKeyboardMarkup(keyboard)
                     )
-            except Exception as edit_error:
-                logger.error(f"Error updating message: {str(edit_error)}")
-                # Stuur een nieuw bericht als fallback
-                await query.message.reply_text(
-                    text=text,
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
+                except Exception as edit_error:
+                    logger.error(f"Error updating message: {str(edit_error)}")
+                    # Send a new message as fallback
+                    await query.message.reply_text(
+                        text=text,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
             
-            return CHOOSE_MARKET
+            return ConversationHandler.END
+            
         except Exception as e:
             logger.error(f"Error in back_to_market_callback: {str(e)}")
-            logger.exception(e)  # Volledige stacktrace loggen
-            
-            # Stuur een nieuw bericht als fallback bij fouten
-            try:
-                await query.message.reply_text(
-                    text="Select a market:",
-                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
-                )
-                return CHOOSE_MARKET
-            except Exception as inner_e:
-                logger.error(f"Failed to send fallback message: {str(inner_e)}")
-                return MENU
+            return ConversationHandler.END
 
     async def back_to_instrument(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
         """Handle back to instrument selection"""
@@ -5374,58 +5015,35 @@ Happy Trading! 📈
                 keyboard = MARKET_KEYBOARD
                 text = "Select a market for technical analysis:"
             
-            # Update the message
-            try:
-                await query.edit_message_text(
-                    text=text,
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
-            except Exception as edit_error:
-                logger.error(f"Error updating message: {str(edit_error)}")
-                # Send a new message as fallback
+            # Check if the message contains a photo
+            has_photo = bool(query.message.photo)
+            
+            if has_photo:
+                # For messages with photos, send a new message instead of editing
                 await query.message.reply_text(
                     text=text,
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
-            
-            # Werk het bericht bij
-            try:
-                if is_photo_message:
-                    # Als het een foto is, antwoord met een nieuw bericht
-                    # omdat we niet een foto naar tekst kunnen omzetten
-                    await query.message.reply_text(
-                        text=text,
-                        reply_markup=InlineKeyboardMarkup(keyboard)
-                    )
-                else:
-                    # Als het een tekstbericht is, bewerk het
+            else:
+                # For text messages, try to edit the existing message
+                try:
                     await query.edit_message_text(
                         text=text,
                         reply_markup=InlineKeyboardMarkup(keyboard)
                     )
-            except Exception as edit_error:
-                logger.error(f"Error updating message: {str(edit_error)}")
-                # Stuur een nieuw bericht als fallback
-                await query.message.reply_text(
-                    text=text,
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
+                except Exception as edit_error:
+                    logger.error(f"Error updating message: {str(edit_error)}")
+                    # Send a new message as fallback
+                    await query.message.reply_text(
+                        text=text,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
             
-            return CHOOSE_MARKET
+            return ConversationHandler.END
+            
         except Exception as e:
             logger.error(f"Error in back_to_market_callback: {str(e)}")
-            logger.exception(e)  # Volledige stacktrace loggen
-            
-            # Stuur een nieuw bericht als fallback bij fouten
-            try:
-                await query.message.reply_text(
-                    text="Select a market:",
-                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
-                )
-                return CHOOSE_MARKET
-            except Exception as inner_e:
-                logger.error(f"Failed to send fallback message: {str(inner_e)}")
-                return MENU
+            return ConversationHandler.END
 
     async def back_to_instrument(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
         """Handle back to instrument selection"""
@@ -5503,58 +5121,35 @@ Happy Trading! 📈
                 keyboard = MARKET_KEYBOARD
                 text = "Select a market for technical analysis:"
             
-            # Update the message
-            try:
-                await query.edit_message_text(
-                    text=text,
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
-            except Exception as edit_error:
-                logger.error(f"Error updating message: {str(edit_error)}")
-                # Send a new message as fallback
+            # Check if the message contains a photo
+            has_photo = bool(query.message.photo)
+            
+            if has_photo:
+                # For messages with photos, send a new message instead of editing
                 await query.message.reply_text(
                     text=text,
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
-            
-            # Werk het bericht bij
-            try:
-                if is_photo_message:
-                    # Als het een foto is, antwoord met een nieuw bericht
-                    # omdat we niet een foto naar tekst kunnen omzetten
-                    await query.message.reply_text(
-                        text=text,
-                        reply_markup=InlineKeyboardMarkup(keyboard)
-                    )
-                else:
-                    # Als het een tekstbericht is, bewerk het
+            else:
+                # For text messages, try to edit the existing message
+                try:
                     await query.edit_message_text(
                         text=text,
                         reply_markup=InlineKeyboardMarkup(keyboard)
                     )
-            except Exception as edit_error:
-                logger.error(f"Error updating message: {str(edit_error)}")
-                # Stuur een nieuw bericht als fallback
-                await query.message.reply_text(
-                    text=text,
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
+                except Exception as edit_error:
+                    logger.error(f"Error updating message: {str(edit_error)}")
+                    # Send a new message as fallback
+                    await query.message.reply_text(
+                        text=text,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
             
-            return CHOOSE_MARKET
+            return ConversationHandler.END
+            
         except Exception as e:
             logger.error(f"Error in back_to_market_callback: {str(e)}")
-            logger.exception(e)  # Volledige stacktrace loggen
-            
-            # Stuur een nieuw bericht als fallback bij fouten
-            try:
-                await query.message.reply_text(
-                    text="Select a market:",
-                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
-                )
-                return CHOOSE_MARKET
-            except Exception as inner_e:
-                logger.error(f"Failed to send fallback message: {str(inner_e)}")
-                return MENU
+            return ConversationHandler.END
 
     async def back_to_instrument(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
         """Handle back to instrument selection"""
@@ -5632,58 +5227,35 @@ Happy Trading! 📈
                 keyboard = MARKET_KEYBOARD
                 text = "Select a market for technical analysis:"
             
-            # Update the message
-            try:
-                await query.edit_message_text(
-                    text=text,
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
-            except Exception as edit_error:
-                logger.error(f"Error updating message: {str(edit_error)}")
-                # Send a new message as fallback
+            # Check if the message contains a photo
+            has_photo = bool(query.message.photo)
+            
+            if has_photo:
+                # For messages with photos, send a new message instead of editing
                 await query.message.reply_text(
                     text=text,
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
-            
-            # Werk het bericht bij
-            try:
-                if is_photo_message:
-                    # Als het een foto is, antwoord met een nieuw bericht
-                    # omdat we niet een foto naar tekst kunnen omzetten
-                    await query.message.reply_text(
-                        text=text,
-                        reply_markup=InlineKeyboardMarkup(keyboard)
-                    )
-                else:
-                    # Als het een tekstbericht is, bewerk het
+            else:
+                # For text messages, try to edit the existing message
+                try:
                     await query.edit_message_text(
                         text=text,
                         reply_markup=InlineKeyboardMarkup(keyboard)
                     )
-            except Exception as edit_error:
-                logger.error(f"Error updating message: {str(edit_error)}")
-                # Stuur een nieuw bericht als fallback
-                await query.message.reply_text(
-                    text=text,
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
+                except Exception as edit_error:
+                    logger.error(f"Error updating message: {str(edit_error)}")
+                    # Send a new message as fallback
+                    await query.message.reply_text(
+                        text=text,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
             
-            return CHOOSE_MARKET
+            return ConversationHandler.END
+            
         except Exception as e:
             logger.error(f"Error in back_to_market_callback: {str(e)}")
-            logger.exception(e)  # Volledige stacktrace loggen
-            
-            # Stuur een nieuw bericht als fallback bij fouten
-            try:
-                await query.message.reply_text(
-                    text="Select a market:",
-                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
-                )
-                return CHOOSE_MARKET
-            except Exception as inner_e:
-                logger.error(f"Failed to send fallback message: {str(inner_e)}")
-                return MENU
+            return ConversationHandler.END
 
     async def back_to_instrument(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
         """Handle back to instrument selection"""
@@ -5761,58 +5333,35 @@ Happy Trading! 📈
                 keyboard = MARKET_KEYBOARD
                 text = "Select a market for technical analysis:"
             
-            # Update the message
-            try:
-                await query.edit_message_text(
-                    text=text,
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
-            except Exception as edit_error:
-                logger.error(f"Error updating message: {str(edit_error)}")
-                # Send a new message as fallback
+            # Check if the message contains a photo
+            has_photo = bool(query.message.photo)
+            
+            if has_photo:
+                # For messages with photos, send a new message instead of editing
                 await query.message.reply_text(
                     text=text,
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
-            
-            # Werk het bericht bij
-            try:
-                if is_photo_message:
-                    # Als het een foto is, antwoord met een nieuw bericht
-                    # omdat we niet een foto naar tekst kunnen omzetten
-                    await query.message.reply_text(
-                        text=text,
-                        reply_markup=InlineKeyboardMarkup(keyboard)
-                    )
-                else:
-                    # Als het een tekstbericht is, bewerk het
+            else:
+                # For text messages, try to edit the existing message
+                try:
                     await query.edit_message_text(
                         text=text,
                         reply_markup=InlineKeyboardMarkup(keyboard)
                     )
-            except Exception as edit_error:
-                logger.error(f"Error updating message: {str(edit_error)}")
-                # Stuur een nieuw bericht als fallback
-                await query.message.reply_text(
-                    text=text,
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
+                except Exception as edit_error:
+                    logger.error(f"Error updating message: {str(edit_error)}")
+                    # Send a new message as fallback
+                    await query.message.reply_text(
+                        text=text,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
             
-            return CHOOSE_MARKET
+            return ConversationHandler.END
+            
         except Exception as e:
             logger.error(f"Error in back_to_market_callback: {str(e)}")
-            logger.exception(e)  # Volledige stacktrace loggen
-            
-            # Stuur een nieuw bericht als fallback bij fouten
-            try:
-                await query.message.reply_text(
-                    text="Select a market:",
-                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
-                )
-                return CHOOSE_MARKET
-            except Exception as inner_e:
-                logger.error(f"Failed to send fallback message: {str(inner_e)}")
-                return MENU
+            return ConversationHandler.END
 
     async def back_to_instrument(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
         """Handle back to instrument selection"""
@@ -5890,58 +5439,35 @@ Happy Trading! 📈
                 keyboard = MARKET_KEYBOARD
                 text = "Select a market for technical analysis:"
             
-            # Update the message
-            try:
-                await query.edit_message_text(
-                    text=text,
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
-            except Exception as edit_error:
-                logger.error(f"Error updating message: {str(edit_error)}")
-                # Send a new message as fallback
+            # Check if the message contains a photo
+            has_photo = bool(query.message.photo)
+            
+            if has_photo:
+                # For messages with photos, send a new message instead of editing
                 await query.message.reply_text(
                     text=text,
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
-            
-            # Werk het bericht bij
-            try:
-                if is_photo_message:
-                    # Als het een foto is, antwoord met een nieuw bericht
-                    # omdat we niet een foto naar tekst kunnen omzetten
-                    await query.message.reply_text(
-                        text=text,
-                        reply_markup=InlineKeyboardMarkup(keyboard)
-                    )
-                else:
-                    # Als het een tekstbericht is, bewerk het
+            else:
+                # For text messages, try to edit the existing message
+                try:
                     await query.edit_message_text(
                         text=text,
                         reply_markup=InlineKeyboardMarkup(keyboard)
                     )
-            except Exception as edit_error:
-                logger.error(f"Error updating message: {str(edit_error)}")
-                # Stuur een nieuw bericht als fallback
-                await query.message.reply_text(
-                    text=text,
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
+                except Exception as edit_error:
+                    logger.error(f"Error updating message: {str(edit_error)}")
+                    # Send a new message as fallback
+                    await query.message.reply_text(
+                        text=text,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
             
-            return CHOOSE_MARKET
+            return ConversationHandler.END
+            
         except Exception as e:
             logger.error(f"Error in back_to_market_callback: {str(e)}")
-            logger.exception(e)  # Volledige stacktrace loggen
-            
-            # Stuur een nieuw bericht als fallback bij fouten
-            try:
-                await query.message.reply_text(
-                    text="Select a market:",
-                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
-                )
-                return CHOOSE_MARKET
-            except Exception as inner_e:
-                logger.error(f"Failed to send fallback message: {str(inner_e)}")
-                return MENU
+            return ConversationHandler.END
 
     async def back_to_instrument(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
         """Handle back to instrument selection"""
