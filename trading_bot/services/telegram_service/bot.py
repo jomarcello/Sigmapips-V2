@@ -1237,13 +1237,7 @@ To regain access to all features and trading signals, please reactivate your sub
             await query.edit_message_text(
                 text=f"Choose trading style for {instrument}:",
                 reply_markup=InlineKeyboardMarkup(self.get_style_keyboard(instrument))
-                )
-            else:
-                # Toon de normale stijl keuze voor andere instrumenten
-                await query.edit_message_text(
-                    text=f"Choose trading style for {instrument}:",
-                    reply_markup=InlineKeyboardMarkup(STYLE_KEYBOARD)
-                )
+            )
             
             return CHOOSE_STYLE
         except Exception as e:
