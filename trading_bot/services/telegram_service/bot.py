@@ -2686,13 +2686,14 @@ The {instrument} {direction.lower()} signal shows a promising setup with defined
             
             # Fallback: stuur een nieuw bericht met het signals menu
             try:
-                await query.message.reply_text(
+                await update.effective_message.reply_text(
                     text="What would you like to do with trading signals?",
                     reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD)
                 )
                 return CHOOSE_SIGNALS
-            except:
-                return MENU
+            except Exception as inner_e:
+                logger.error(f"Fallback failed in back_signals_callback: {str(inner_e)}")
+                return ConversationHandler.END
 
     async def analysis_choice(self, update: Update, context=None) -> int:
         """Handle analysis type selection"""
