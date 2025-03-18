@@ -549,7 +549,7 @@ class TelegramService:
                         CallbackQueryHandler(self.analysis_sentiment_callback, pattern='^analysis_sentiment$'), 
                         CallbackQueryHandler(self.analysis_calendar_callback, pattern='^analysis_calendar$'),
                         CallbackQueryHandler(self.back_to_analysis, pattern='^back_to_analysis$'),
-                        CallbackQueryHandler(self.back_menu_callback, pattern='^back_menu$')
+                        CallbackQueryHandler(self.back_to_menu_callback, pattern='^back_menu$')
                     ]
                 },
                 fallbacks=[CommandHandler('cancel', self.cancel_command)]
