@@ -1513,6 +1513,9 @@ To regain access to all features and trading signals, please reactivate your sub
             # Bepaal of we in de signals flow zitten of in de analyse flow
             # Check of het bericht een foto is (heeft caption) of tekst bericht
             is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
             is_signals_flow = False
             
             if is_photo_message:
@@ -1530,6 +1533,81 @@ To regain access to all features and trading signals, please reactivate your sub
                     # Fallback als er geen tekst is
                     logger.warning("Message has no text or caption")
                     is_signals_flow = False
+                in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False and "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False and "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False
+                in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
             
             # Haal market uit user_data of fallback naar 'forex'
             if context and hasattr(context, 'user_data'):
@@ -3193,6 +3271,9 @@ Happy Trading! 📈
             # Bepaal of we in de signals flow zitten of in de analyse flow
             # Check of het bericht een foto is (heeft caption) of tekst bericht
             is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
             is_signals_flow = False
             
             if is_photo_message:
@@ -3210,6 +3291,81 @@ Happy Trading! 📈
                     # Fallback als er geen tekst is
                     logger.warning("Message has no text or caption")
                     is_signals_flow = False
+                in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False and "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False and "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False
+                in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
             
             # Haal market uit user_data of fallback naar 'forex'
             if context and hasattr(context, 'user_data'):
@@ -3326,6 +3482,9 @@ Happy Trading! 📈
             # Bepaal of we in de signals flow zitten of in de analyse flow
             # Check of het bericht een foto is (heeft caption) of tekst bericht
             is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
             is_signals_flow = False
             
             if is_photo_message:
@@ -3343,6 +3502,81 @@ Happy Trading! 📈
                     # Fallback als er geen tekst is
                     logger.warning("Message has no text or caption")
                     is_signals_flow = False
+                in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False and "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False and "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False
+                in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
             
             # Haal market uit user_data of fallback naar 'forex'
             if context and hasattr(context, 'user_data'):
@@ -3459,6 +3693,9 @@ Happy Trading! 📈
             # Bepaal of we in de signals flow zitten of in de analyse flow
             # Check of het bericht een foto is (heeft caption) of tekst bericht
             is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
             is_signals_flow = False
             
             if is_photo_message:
@@ -3476,6 +3713,81 @@ Happy Trading! 📈
                     # Fallback als er geen tekst is
                     logger.warning("Message has no text or caption")
                     is_signals_flow = False
+                in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False and "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False and "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False
+                in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
             
             # Haal market uit user_data of fallback naar 'forex'
             if context and hasattr(context, 'user_data'):
@@ -3592,6 +3904,9 @@ Happy Trading! 📈
             # Bepaal of we in de signals flow zitten of in de analyse flow
             # Check of het bericht een foto is (heeft caption) of tekst bericht
             is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
             is_signals_flow = False
             
             if is_photo_message:
@@ -3609,6 +3924,81 @@ Happy Trading! 📈
                     # Fallback als er geen tekst is
                     logger.warning("Message has no text or caption")
                     is_signals_flow = False
+                in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False and "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False and "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False
+                in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
             
             # Haal market uit user_data of fallback naar 'forex'
             if context and hasattr(context, 'user_data'):
@@ -3725,6 +4115,9 @@ Happy Trading! 📈
             # Bepaal of we in de signals flow zitten of in de analyse flow
             # Check of het bericht een foto is (heeft caption) of tekst bericht
             is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
             is_signals_flow = False
             
             if is_photo_message:
@@ -3742,6 +4135,81 @@ Happy Trading! 📈
                     # Fallback als er geen tekst is
                     logger.warning("Message has no text or caption")
                     is_signals_flow = False
+                in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False and "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False and "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False
+                in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
             
             # Haal market uit user_data of fallback naar 'forex'
             if context and hasattr(context, 'user_data'):
@@ -3858,6 +4326,9 @@ Happy Trading! 📈
             # Bepaal of we in de signals flow zitten of in de analyse flow
             # Check of het bericht een foto is (heeft caption) of tekst bericht
             is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
             is_signals_flow = False
             
             if is_photo_message:
@@ -3875,6 +4346,81 @@ Happy Trading! 📈
                     # Fallback als er geen tekst is
                     logger.warning("Message has no text or caption")
                     is_signals_flow = False
+                in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False and "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False and "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False
+                in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
             
             # Haal market uit user_data of fallback naar 'forex'
             if context and hasattr(context, 'user_data'):
@@ -3991,6 +4537,9 @@ Happy Trading! 📈
             # Bepaal of we in de signals flow zitten of in de analyse flow
             # Check of het bericht een foto is (heeft caption) of tekst bericht
             is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
             is_signals_flow = False
             
             if is_photo_message:
@@ -4008,6 +4557,81 @@ Happy Trading! 📈
                     # Fallback als er geen tekst is
                     logger.warning("Message has no text or caption")
                     is_signals_flow = False
+                in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False and "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False and "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False
+                in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
             
             # Haal market uit user_data of fallback naar 'forex'
             if context and hasattr(context, 'user_data'):
@@ -4124,6 +4748,9 @@ Happy Trading! 📈
             # Bepaal of we in de signals flow zitten of in de analyse flow
             # Check of het bericht een foto is (heeft caption) of tekst bericht
             is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
             is_signals_flow = False
             
             if is_photo_message:
@@ -4141,6 +4768,81 @@ Happy Trading! 📈
                     # Fallback als er geen tekst is
                     logger.warning("Message has no text or caption")
                     is_signals_flow = False
+                in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False and "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False and "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False
+                in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
             
             # Haal market uit user_data of fallback naar 'forex'
             if context and hasattr(context, 'user_data'):
@@ -4257,6 +4959,9 @@ Happy Trading! 📈
             # Bepaal of we in de signals flow zitten of in de analyse flow
             # Check of het bericht een foto is (heeft caption) of tekst bericht
             is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
             is_signals_flow = False
             
             if is_photo_message:
@@ -4274,6 +4979,81 @@ Happy Trading! 📈
                     # Fallback als er geen tekst is
                     logger.warning("Message has no text or caption")
                     is_signals_flow = False
+                in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False and "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False and "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False
+                in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
             
             # Haal market uit user_data of fallback naar 'forex'
             if context and hasattr(context, 'user_data'):
@@ -4390,6 +5170,9 @@ Happy Trading! 📈
             # Bepaal of we in de signals flow zitten of in de analyse flow
             # Check of het bericht een foto is (heeft caption) of tekst bericht
             is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
             is_signals_flow = False
             
             if is_photo_message:
@@ -4407,6 +5190,81 @@ Happy Trading! 📈
                     # Fallback als er geen tekst is
                     logger.warning("Message has no text or caption")
                     is_signals_flow = False
+                in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False and "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False and "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False
+                in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
             
             # Haal market uit user_data of fallback naar 'forex'
             if context and hasattr(context, 'user_data'):
@@ -4523,6 +5381,9 @@ Happy Trading! 📈
             # Bepaal of we in de signals flow zitten of in de analyse flow
             # Check of het bericht een foto is (heeft caption) of tekst bericht
             is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
             is_signals_flow = False
             
             if is_photo_message:
@@ -4540,6 +5401,81 @@ Happy Trading! 📈
                     # Fallback als er geen tekst is
                     logger.warning("Message has no text or caption")
                     is_signals_flow = False
+                in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False and "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False and "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False
+                in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
             
             # Haal market uit user_data of fallback naar 'forex'
             if context and hasattr(context, 'user_data'):
@@ -4656,6 +5592,9 @@ Happy Trading! 📈
             # Bepaal of we in de signals flow zitten of in de analyse flow
             # Check of het bericht een foto is (heeft caption) of tekst bericht
             is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
             is_signals_flow = False
             
             if is_photo_message:
@@ -4673,6 +5612,81 @@ Happy Trading! 📈
                     # Fallback als er geen tekst is
                     logger.warning("Message has no text or caption")
                     is_signals_flow = False
+                in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False and "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False and "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False
+                in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
             
             # Haal market uit user_data of fallback naar 'forex'
             if context and hasattr(context, 'user_data'):
@@ -4789,6 +5803,9 @@ Happy Trading! 📈
             # Bepaal of we in de signals flow zitten of in de analyse flow
             # Check of het bericht een foto is (heeft caption) of tekst bericht
             is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
             is_signals_flow = False
             
             if is_photo_message:
@@ -4806,6 +5823,81 @@ Happy Trading! 📈
                     # Fallback als er geen tekst is
                     logger.warning("Message has no text or caption")
                     is_signals_flow = False
+                in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False and "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False and "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False
+                in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
             
             # Haal market uit user_data of fallback naar 'forex'
             if context and hasattr(context, 'user_data'):
@@ -4922,6 +6014,9 @@ Happy Trading! 📈
             # Bepaal of we in de signals flow zitten of in de analyse flow
             # Check of het bericht een foto is (heeft caption) of tekst bericht
             is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
             is_signals_flow = False
             
             if is_photo_message:
@@ -4939,6 +6034,81 @@ Happy Trading! 📈
                     # Fallback als er geen tekst is
                     logger.warning("Message has no text or caption")
                     is_signals_flow = False
+                in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False and "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False and "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False
+                in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
             
             # Haal market uit user_data of fallback naar 'forex'
             if context and hasattr(context, 'user_data'):
@@ -5055,6 +6225,9 @@ Happy Trading! 📈
             # Bepaal of we in de signals flow zitten of in de analyse flow
             # Check of het bericht een foto is (heeft caption) of tekst bericht
             is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
             is_signals_flow = False
             
             if is_photo_message:
@@ -5072,6 +6245,81 @@ Happy Trading! 📈
                     # Fallback als er geen tekst is
                     logger.warning("Message has no text or caption")
                     is_signals_flow = False
+                in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False and "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False and "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False
+                in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
             
             # Haal market uit user_data of fallback naar 'forex'
             if context and hasattr(context, 'user_data'):
@@ -5188,6 +6436,9 @@ Happy Trading! 📈
             # Bepaal of we in de signals flow zitten of in de analyse flow
             # Check of het bericht een foto is (heeft caption) of tekst bericht
             is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
             is_signals_flow = False
             
             if is_photo_message:
@@ -5205,6 +6456,81 @@ Happy Trading! 📈
                     # Fallback als er geen tekst is
                     logger.warning("Message has no text or caption")
                     is_signals_flow = False
+                in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False and "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False and "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False
+                in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
             
             # Haal market uit user_data of fallback naar 'forex'
             if context and hasattr(context, 'user_data'):
@@ -5321,6 +6647,9 @@ Happy Trading! 📈
             # Bepaal of we in de signals flow zitten of in de analyse flow
             # Check of het bericht een foto is (heeft caption) of tekst bericht
             is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
             is_signals_flow = False
             
             if is_photo_message:
@@ -5338,6 +6667,81 @@ Happy Trading! 📈
                     # Fallback als er geen tekst is
                     logger.warning("Message has no text or caption")
                     is_signals_flow = False
+                in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False and "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False and "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False
+                in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
             
             # Haal market uit user_data of fallback naar 'forex'
             if context and hasattr(context, 'user_data'):
@@ -5454,6 +6858,9 @@ Happy Trading! 📈
             # Bepaal of we in de signals flow zitten of in de analyse flow
             # Check of het bericht een foto is (heeft caption) of tekst bericht
             is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
             is_signals_flow = False
             
             if is_photo_message:
@@ -5471,6 +6878,81 @@ Happy Trading! 📈
                     # Fallback als er geen tekst is
                     logger.warning("Message has no text or caption")
                     is_signals_flow = False
+                in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False and "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False and "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False
+                in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
             
             # Haal market uit user_data of fallback naar 'forex'
             if context and hasattr(context, 'user_data'):
@@ -5587,6 +7069,9 @@ Happy Trading! 📈
             # Bepaal of we in de signals flow zitten of in de analyse flow
             # Check of het bericht een foto is (heeft caption) of tekst bericht
             is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
             is_signals_flow = False
             
             if is_photo_message:
@@ -5604,6 +7089,81 @@ Happy Trading! 📈
                     # Fallback als er geen tekst is
                     logger.warning("Message has no text or caption")
                     is_signals_flow = False
+                in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False and "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False and "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False
+                in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
             
             # Haal market uit user_data of fallback naar 'forex'
             if context and hasattr(context, 'user_data'):
@@ -5720,6 +7280,9 @@ Happy Trading! 📈
             # Bepaal of we in de signals flow zitten of in de analyse flow
             # Check of het bericht een foto is (heeft caption) of tekst bericht
             is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
             is_signals_flow = False
             
             if is_photo_message:
@@ -5737,6 +7300,81 @@ Happy Trading! 📈
                     # Fallback als er geen tekst is
                     logger.warning("Message has no text or caption")
                     is_signals_flow = False
+                in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False and "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False and "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False
+                in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
             
             # Haal market uit user_data of fallback naar 'forex'
             if context and hasattr(context, 'user_data'):
@@ -5853,6 +7491,9 @@ Happy Trading! 📈
             # Bepaal of we in de signals flow zitten of in de analyse flow
             # Check of het bericht een foto is (heeft caption) of tekst bericht
             is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
             is_signals_flow = False
             
             if is_photo_message:
@@ -5870,6 +7511,81 @@ Happy Trading! 📈
                     # Fallback als er geen tekst is
                     logger.warning("Message has no text or caption")
                     is_signals_flow = False
+                in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False and "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False and "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False
+                in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
             
             # Haal market uit user_data of fallback naar 'forex'
             if context and hasattr(context, 'user_data'):
@@ -5986,6 +7702,9 @@ Happy Trading! 📈
             # Bepaal of we in de signals flow zitten of in de analyse flow
             # Check of het bericht een foto is (heeft caption) of tekst bericht
             is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
             is_signals_flow = False
             
             if is_photo_message:
@@ -6003,6 +7722,81 @@ Happy Trading! 📈
                     # Fallback als er geen tekst is
                     logger.warning("Message has no text or caption")
                     is_signals_flow = False
+                in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False and "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False and "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False
+                in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
             
             # Haal market uit user_data of fallback naar 'forex'
             if context and hasattr(context, 'user_data'):
@@ -6107,4 +7901,23 @@ Happy Trading! 📈
         )
         
         return CHOOSE_INSTRUMENT
-            is_signals_flow =
+            # Bepaal of we in de signals flow zitten of in de analyse flow
+            # Check of het bericht een foto is (heeft caption) of tekst bericht
+            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
+            is_signals_flow = False
+            
+            if is_photo_message:
+                # Als het een foto is, kijk in de caption voor aanwijzingen
+                caption = query.message.caption or ""
+                is_signals_flow = "signals" in caption.lower()
+                logger.info(f"Message is a photo with caption: {caption}")
+            else:
+                # Als het een tekstbericht is, kijk in de message text
+                message_text = getattr(query.message, 'text', '')
+                if message_text:
+                    is_signals_flow = "trading signals" in message_text.lower()
+                    logger.info(f"Message is text: {message_text[:50]}...")
+                else:
+                    # Fallback als er geen tekst is
+                    logger.warning("Message has no text or caption")
+                    is_signals_flow = False
