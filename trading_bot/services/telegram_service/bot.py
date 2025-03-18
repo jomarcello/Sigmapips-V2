@@ -1507,48 +1507,44 @@ To regain access to all features and trading signals, please reactivate your sub
         query = update.callback_query
         
         try:
-            # Beantwoord de callback query om de "wachtende" status te verwijderen
+            # Answer the callback query to remove the "waiting" status
             await query.answer()
             
-            # Bepaal of we in de signals flow zitten of in de analyse flow
-            # Check of het bericht een foto is (heeft caption) of tekst bericht
-            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
-            is_signals_flow = False
+            # Determine if we're in signals flow or analysis flow based on callback data
+            callback_data = query.data
+            is_signals_flow = "signals" in callback_data.lower() if callback_data else False
             
-            if is_photo_message:
-                # Als het een foto is, kijk in de caption voor aanwijzingen
-                caption = query.message.caption or ""
-                is_signals_flow = "signals" in caption.lower()
-                logger.info(f"Message is a photo with caption: {caption}")
-            else:
-                # Als het een tekstbericht is, kijk in de message text
-                message_text = getattr(query.message, 'text', '')
-                if message_text:
-                    is_signals_flow = "trading signals" in message_text.lower()
-                    logger.info(f"Message is text: {message_text[:50]}...")
-                else:
-                    # Fallback als er geen tekst is
-                    logger.warning("Message has no text or caption")
-                    is_signals_flow = False
-            
-            # Haal market uit user_data of fallback naar 'forex'
+            # Get market from user_data or fallback to 'forex'
             if context and hasattr(context, 'user_data'):
                 market = context.user_data.get('market', 'forex')
                 in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
             else:
-                # Fallback waarden
                 market = 'forex'
                 in_signals_flow = is_signals_flow
             
             logger.info(f"Back to market: market={market}, in_signals_flow={in_signals_flow}")
             
-            # Kies het juiste keyboard op basis van de flow
+            # Choose the appropriate keyboard based on the flow
             if in_signals_flow:
                 keyboard = MARKET_KEYBOARD_SIGNALS
                 text = "Select a market for trading signals:"
             else:
                 keyboard = MARKET_KEYBOARD
                 text = "Select a market for technical analysis:"
+            
+            # Update the message
+            try:
+                await query.edit_message_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            except Exception as edit_error:
+                logger.error(f"Error updating message: {str(edit_error)}")
+                # Send a new message as fallback
+                await query.message.reply_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
             
             # Werk het bericht bij
             try:
@@ -3187,48 +3183,44 @@ Happy Trading! 📈
         query = update.callback_query
         
         try:
-            # Beantwoord de callback query om de "wachtende" status te verwijderen
+            # Answer the callback query to remove the "waiting" status
             await query.answer()
             
-            # Bepaal of we in de signals flow zitten of in de analyse flow
-            # Check of het bericht een foto is (heeft caption) of tekst bericht
-            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
-            is_signals_flow = False
+            # Determine if we're in signals flow or analysis flow based on callback data
+            callback_data = query.data
+            is_signals_flow = "signals" in callback_data.lower() if callback_data else False
             
-            if is_photo_message:
-                # Als het een foto is, kijk in de caption voor aanwijzingen
-                caption = query.message.caption or ""
-                is_signals_flow = "signals" in caption.lower()
-                logger.info(f"Message is a photo with caption: {caption}")
-            else:
-                # Als het een tekstbericht is, kijk in de message text
-                message_text = getattr(query.message, 'text', '')
-                if message_text:
-                    is_signals_flow = "trading signals" in message_text.lower()
-                    logger.info(f"Message is text: {message_text[:50]}...")
-                else:
-                    # Fallback als er geen tekst is
-                    logger.warning("Message has no text or caption")
-                    is_signals_flow = False
-            
-            # Haal market uit user_data of fallback naar 'forex'
+            # Get market from user_data or fallback to 'forex'
             if context and hasattr(context, 'user_data'):
                 market = context.user_data.get('market', 'forex')
                 in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
             else:
-                # Fallback waarden
                 market = 'forex'
                 in_signals_flow = is_signals_flow
             
             logger.info(f"Back to market: market={market}, in_signals_flow={in_signals_flow}")
             
-            # Kies het juiste keyboard op basis van de flow
+            # Choose the appropriate keyboard based on the flow
             if in_signals_flow:
                 keyboard = MARKET_KEYBOARD_SIGNALS
                 text = "Select a market for trading signals:"
             else:
                 keyboard = MARKET_KEYBOARD
                 text = "Select a market for technical analysis:"
+            
+            # Update the message
+            try:
+                await query.edit_message_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            except Exception as edit_error:
+                logger.error(f"Error updating message: {str(edit_error)}")
+                # Send a new message as fallback
+                await query.message.reply_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
             
             # Werk het bericht bij
             try:
@@ -3320,48 +3312,44 @@ Happy Trading! 📈
         query = update.callback_query
         
         try:
-            # Beantwoord de callback query om de "wachtende" status te verwijderen
+            # Answer the callback query to remove the "waiting" status
             await query.answer()
             
-            # Bepaal of we in de signals flow zitten of in de analyse flow
-            # Check of het bericht een foto is (heeft caption) of tekst bericht
-            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
-            is_signals_flow = False
+            # Determine if we're in signals flow or analysis flow based on callback data
+            callback_data = query.data
+            is_signals_flow = "signals" in callback_data.lower() if callback_data else False
             
-            if is_photo_message:
-                # Als het een foto is, kijk in de caption voor aanwijzingen
-                caption = query.message.caption or ""
-                is_signals_flow = "signals" in caption.lower()
-                logger.info(f"Message is a photo with caption: {caption}")
-            else:
-                # Als het een tekstbericht is, kijk in de message text
-                message_text = getattr(query.message, 'text', '')
-                if message_text:
-                    is_signals_flow = "trading signals" in message_text.lower()
-                    logger.info(f"Message is text: {message_text[:50]}...")
-                else:
-                    # Fallback als er geen tekst is
-                    logger.warning("Message has no text or caption")
-                    is_signals_flow = False
-            
-            # Haal market uit user_data of fallback naar 'forex'
+            # Get market from user_data or fallback to 'forex'
             if context and hasattr(context, 'user_data'):
                 market = context.user_data.get('market', 'forex')
                 in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
             else:
-                # Fallback waarden
                 market = 'forex'
                 in_signals_flow = is_signals_flow
             
             logger.info(f"Back to market: market={market}, in_signals_flow={in_signals_flow}")
             
-            # Kies het juiste keyboard op basis van de flow
+            # Choose the appropriate keyboard based on the flow
             if in_signals_flow:
                 keyboard = MARKET_KEYBOARD_SIGNALS
                 text = "Select a market for trading signals:"
             else:
                 keyboard = MARKET_KEYBOARD
                 text = "Select a market for technical analysis:"
+            
+            # Update the message
+            try:
+                await query.edit_message_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            except Exception as edit_error:
+                logger.error(f"Error updating message: {str(edit_error)}")
+                # Send a new message as fallback
+                await query.message.reply_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
             
             # Werk het bericht bij
             try:
@@ -3453,48 +3441,44 @@ Happy Trading! 📈
         query = update.callback_query
         
         try:
-            # Beantwoord de callback query om de "wachtende" status te verwijderen
+            # Answer the callback query to remove the "waiting" status
             await query.answer()
             
-            # Bepaal of we in de signals flow zitten of in de analyse flow
-            # Check of het bericht een foto is (heeft caption) of tekst bericht
-            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
-            is_signals_flow = False
+            # Determine if we're in signals flow or analysis flow based on callback data
+            callback_data = query.data
+            is_signals_flow = "signals" in callback_data.lower() if callback_data else False
             
-            if is_photo_message:
-                # Als het een foto is, kijk in de caption voor aanwijzingen
-                caption = query.message.caption or ""
-                is_signals_flow = "signals" in caption.lower()
-                logger.info(f"Message is a photo with caption: {caption}")
-            else:
-                # Als het een tekstbericht is, kijk in de message text
-                message_text = getattr(query.message, 'text', '')
-                if message_text:
-                    is_signals_flow = "trading signals" in message_text.lower()
-                    logger.info(f"Message is text: {message_text[:50]}...")
-                else:
-                    # Fallback als er geen tekst is
-                    logger.warning("Message has no text or caption")
-                    is_signals_flow = False
-            
-            # Haal market uit user_data of fallback naar 'forex'
+            # Get market from user_data or fallback to 'forex'
             if context and hasattr(context, 'user_data'):
                 market = context.user_data.get('market', 'forex')
                 in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
             else:
-                # Fallback waarden
                 market = 'forex'
                 in_signals_flow = is_signals_flow
             
             logger.info(f"Back to market: market={market}, in_signals_flow={in_signals_flow}")
             
-            # Kies het juiste keyboard op basis van de flow
+            # Choose the appropriate keyboard based on the flow
             if in_signals_flow:
                 keyboard = MARKET_KEYBOARD_SIGNALS
                 text = "Select a market for trading signals:"
             else:
                 keyboard = MARKET_KEYBOARD
                 text = "Select a market for technical analysis:"
+            
+            # Update the message
+            try:
+                await query.edit_message_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            except Exception as edit_error:
+                logger.error(f"Error updating message: {str(edit_error)}")
+                # Send a new message as fallback
+                await query.message.reply_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
             
             # Werk het bericht bij
             try:
@@ -3586,48 +3570,44 @@ Happy Trading! 📈
         query = update.callback_query
         
         try:
-            # Beantwoord de callback query om de "wachtende" status te verwijderen
+            # Answer the callback query to remove the "waiting" status
             await query.answer()
             
-            # Bepaal of we in de signals flow zitten of in de analyse flow
-            # Check of het bericht een foto is (heeft caption) of tekst bericht
-            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
-            is_signals_flow = False
+            # Determine if we're in signals flow or analysis flow based on callback data
+            callback_data = query.data
+            is_signals_flow = "signals" in callback_data.lower() if callback_data else False
             
-            if is_photo_message:
-                # Als het een foto is, kijk in de caption voor aanwijzingen
-                caption = query.message.caption or ""
-                is_signals_flow = "signals" in caption.lower()
-                logger.info(f"Message is a photo with caption: {caption}")
-            else:
-                # Als het een tekstbericht is, kijk in de message text
-                message_text = getattr(query.message, 'text', '')
-                if message_text:
-                    is_signals_flow = "trading signals" in message_text.lower()
-                    logger.info(f"Message is text: {message_text[:50]}...")
-                else:
-                    # Fallback als er geen tekst is
-                    logger.warning("Message has no text or caption")
-                    is_signals_flow = False
-            
-            # Haal market uit user_data of fallback naar 'forex'
+            # Get market from user_data or fallback to 'forex'
             if context and hasattr(context, 'user_data'):
                 market = context.user_data.get('market', 'forex')
                 in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
             else:
-                # Fallback waarden
                 market = 'forex'
                 in_signals_flow = is_signals_flow
             
             logger.info(f"Back to market: market={market}, in_signals_flow={in_signals_flow}")
             
-            # Kies het juiste keyboard op basis van de flow
+            # Choose the appropriate keyboard based on the flow
             if in_signals_flow:
                 keyboard = MARKET_KEYBOARD_SIGNALS
                 text = "Select a market for trading signals:"
             else:
                 keyboard = MARKET_KEYBOARD
                 text = "Select a market for technical analysis:"
+            
+            # Update the message
+            try:
+                await query.edit_message_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            except Exception as edit_error:
+                logger.error(f"Error updating message: {str(edit_error)}")
+                # Send a new message as fallback
+                await query.message.reply_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
             
             # Werk het bericht bij
             try:
@@ -3719,48 +3699,44 @@ Happy Trading! 📈
         query = update.callback_query
         
         try:
-            # Beantwoord de callback query om de "wachtende" status te verwijderen
+            # Answer the callback query to remove the "waiting" status
             await query.answer()
             
-            # Bepaal of we in de signals flow zitten of in de analyse flow
-            # Check of het bericht een foto is (heeft caption) of tekst bericht
-            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
-            is_signals_flow = False
+            # Determine if we're in signals flow or analysis flow based on callback data
+            callback_data = query.data
+            is_signals_flow = "signals" in callback_data.lower() if callback_data else False
             
-            if is_photo_message:
-                # Als het een foto is, kijk in de caption voor aanwijzingen
-                caption = query.message.caption or ""
-                is_signals_flow = "signals" in caption.lower()
-                logger.info(f"Message is a photo with caption: {caption}")
-            else:
-                # Als het een tekstbericht is, kijk in de message text
-                message_text = getattr(query.message, 'text', '')
-                if message_text:
-                    is_signals_flow = "trading signals" in message_text.lower()
-                    logger.info(f"Message is text: {message_text[:50]}...")
-                else:
-                    # Fallback als er geen tekst is
-                    logger.warning("Message has no text or caption")
-                    is_signals_flow = False
-            
-            # Haal market uit user_data of fallback naar 'forex'
+            # Get market from user_data or fallback to 'forex'
             if context and hasattr(context, 'user_data'):
                 market = context.user_data.get('market', 'forex')
                 in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
             else:
-                # Fallback waarden
                 market = 'forex'
                 in_signals_flow = is_signals_flow
             
             logger.info(f"Back to market: market={market}, in_signals_flow={in_signals_flow}")
             
-            # Kies het juiste keyboard op basis van de flow
+            # Choose the appropriate keyboard based on the flow
             if in_signals_flow:
                 keyboard = MARKET_KEYBOARD_SIGNALS
                 text = "Select a market for trading signals:"
             else:
                 keyboard = MARKET_KEYBOARD
                 text = "Select a market for technical analysis:"
+            
+            # Update the message
+            try:
+                await query.edit_message_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            except Exception as edit_error:
+                logger.error(f"Error updating message: {str(edit_error)}")
+                # Send a new message as fallback
+                await query.message.reply_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
             
             # Werk het bericht bij
             try:
@@ -3852,48 +3828,44 @@ Happy Trading! 📈
         query = update.callback_query
         
         try:
-            # Beantwoord de callback query om de "wachtende" status te verwijderen
+            # Answer the callback query to remove the "waiting" status
             await query.answer()
             
-            # Bepaal of we in de signals flow zitten of in de analyse flow
-            # Check of het bericht een foto is (heeft caption) of tekst bericht
-            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
-            is_signals_flow = False
+            # Determine if we're in signals flow or analysis flow based on callback data
+            callback_data = query.data
+            is_signals_flow = "signals" in callback_data.lower() if callback_data else False
             
-            if is_photo_message:
-                # Als het een foto is, kijk in de caption voor aanwijzingen
-                caption = query.message.caption or ""
-                is_signals_flow = "signals" in caption.lower()
-                logger.info(f"Message is a photo with caption: {caption}")
-            else:
-                # Als het een tekstbericht is, kijk in de message text
-                message_text = getattr(query.message, 'text', '')
-                if message_text:
-                    is_signals_flow = "trading signals" in message_text.lower()
-                    logger.info(f"Message is text: {message_text[:50]}...")
-                else:
-                    # Fallback als er geen tekst is
-                    logger.warning("Message has no text or caption")
-                    is_signals_flow = False
-            
-            # Haal market uit user_data of fallback naar 'forex'
+            # Get market from user_data or fallback to 'forex'
             if context and hasattr(context, 'user_data'):
                 market = context.user_data.get('market', 'forex')
                 in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
             else:
-                # Fallback waarden
                 market = 'forex'
                 in_signals_flow = is_signals_flow
             
             logger.info(f"Back to market: market={market}, in_signals_flow={in_signals_flow}")
             
-            # Kies het juiste keyboard op basis van de flow
+            # Choose the appropriate keyboard based on the flow
             if in_signals_flow:
                 keyboard = MARKET_KEYBOARD_SIGNALS
                 text = "Select a market for trading signals:"
             else:
                 keyboard = MARKET_KEYBOARD
                 text = "Select a market for technical analysis:"
+            
+            # Update the message
+            try:
+                await query.edit_message_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            except Exception as edit_error:
+                logger.error(f"Error updating message: {str(edit_error)}")
+                # Send a new message as fallback
+                await query.message.reply_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
             
             # Werk het bericht bij
             try:
@@ -3985,48 +3957,44 @@ Happy Trading! 📈
         query = update.callback_query
         
         try:
-            # Beantwoord de callback query om de "wachtende" status te verwijderen
+            # Answer the callback query to remove the "waiting" status
             await query.answer()
             
-            # Bepaal of we in de signals flow zitten of in de analyse flow
-            # Check of het bericht een foto is (heeft caption) of tekst bericht
-            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
-            is_signals_flow = False
+            # Determine if we're in signals flow or analysis flow based on callback data
+            callback_data = query.data
+            is_signals_flow = "signals" in callback_data.lower() if callback_data else False
             
-            if is_photo_message:
-                # Als het een foto is, kijk in de caption voor aanwijzingen
-                caption = query.message.caption or ""
-                is_signals_flow = "signals" in caption.lower()
-                logger.info(f"Message is a photo with caption: {caption}")
-            else:
-                # Als het een tekstbericht is, kijk in de message text
-                message_text = getattr(query.message, 'text', '')
-                if message_text:
-                    is_signals_flow = "trading signals" in message_text.lower()
-                    logger.info(f"Message is text: {message_text[:50]}...")
-                else:
-                    # Fallback als er geen tekst is
-                    logger.warning("Message has no text or caption")
-                    is_signals_flow = False
-            
-            # Haal market uit user_data of fallback naar 'forex'
+            # Get market from user_data or fallback to 'forex'
             if context and hasattr(context, 'user_data'):
                 market = context.user_data.get('market', 'forex')
                 in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
             else:
-                # Fallback waarden
                 market = 'forex'
                 in_signals_flow = is_signals_flow
             
             logger.info(f"Back to market: market={market}, in_signals_flow={in_signals_flow}")
             
-            # Kies het juiste keyboard op basis van de flow
+            # Choose the appropriate keyboard based on the flow
             if in_signals_flow:
                 keyboard = MARKET_KEYBOARD_SIGNALS
                 text = "Select a market for trading signals:"
             else:
                 keyboard = MARKET_KEYBOARD
                 text = "Select a market for technical analysis:"
+            
+            # Update the message
+            try:
+                await query.edit_message_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            except Exception as edit_error:
+                logger.error(f"Error updating message: {str(edit_error)}")
+                # Send a new message as fallback
+                await query.message.reply_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
             
             # Werk het bericht bij
             try:
@@ -4118,48 +4086,44 @@ Happy Trading! 📈
         query = update.callback_query
         
         try:
-            # Beantwoord de callback query om de "wachtende" status te verwijderen
+            # Answer the callback query to remove the "waiting" status
             await query.answer()
             
-            # Bepaal of we in de signals flow zitten of in de analyse flow
-            # Check of het bericht een foto is (heeft caption) of tekst bericht
-            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
-            is_signals_flow = False
+            # Determine if we're in signals flow or analysis flow based on callback data
+            callback_data = query.data
+            is_signals_flow = "signals" in callback_data.lower() if callback_data else False
             
-            if is_photo_message:
-                # Als het een foto is, kijk in de caption voor aanwijzingen
-                caption = query.message.caption or ""
-                is_signals_flow = "signals" in caption.lower()
-                logger.info(f"Message is a photo with caption: {caption}")
-            else:
-                # Als het een tekstbericht is, kijk in de message text
-                message_text = getattr(query.message, 'text', '')
-                if message_text:
-                    is_signals_flow = "trading signals" in message_text.lower()
-                    logger.info(f"Message is text: {message_text[:50]}...")
-                else:
-                    # Fallback als er geen tekst is
-                    logger.warning("Message has no text or caption")
-                    is_signals_flow = False
-            
-            # Haal market uit user_data of fallback naar 'forex'
+            # Get market from user_data or fallback to 'forex'
             if context and hasattr(context, 'user_data'):
                 market = context.user_data.get('market', 'forex')
                 in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
             else:
-                # Fallback waarden
                 market = 'forex'
                 in_signals_flow = is_signals_flow
             
             logger.info(f"Back to market: market={market}, in_signals_flow={in_signals_flow}")
             
-            # Kies het juiste keyboard op basis van de flow
+            # Choose the appropriate keyboard based on the flow
             if in_signals_flow:
                 keyboard = MARKET_KEYBOARD_SIGNALS
                 text = "Select a market for trading signals:"
             else:
                 keyboard = MARKET_KEYBOARD
                 text = "Select a market for technical analysis:"
+            
+            # Update the message
+            try:
+                await query.edit_message_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            except Exception as edit_error:
+                logger.error(f"Error updating message: {str(edit_error)}")
+                # Send a new message as fallback
+                await query.message.reply_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
             
             # Werk het bericht bij
             try:
@@ -4251,48 +4215,44 @@ Happy Trading! 📈
         query = update.callback_query
         
         try:
-            # Beantwoord de callback query om de "wachtende" status te verwijderen
+            # Answer the callback query to remove the "waiting" status
             await query.answer()
             
-            # Bepaal of we in de signals flow zitten of in de analyse flow
-            # Check of het bericht een foto is (heeft caption) of tekst bericht
-            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
-            is_signals_flow = False
+            # Determine if we're in signals flow or analysis flow based on callback data
+            callback_data = query.data
+            is_signals_flow = "signals" in callback_data.lower() if callback_data else False
             
-            if is_photo_message:
-                # Als het een foto is, kijk in de caption voor aanwijzingen
-                caption = query.message.caption or ""
-                is_signals_flow = "signals" in caption.lower()
-                logger.info(f"Message is a photo with caption: {caption}")
-            else:
-                # Als het een tekstbericht is, kijk in de message text
-                message_text = getattr(query.message, 'text', '')
-                if message_text:
-                    is_signals_flow = "trading signals" in message_text.lower()
-                    logger.info(f"Message is text: {message_text[:50]}...")
-                else:
-                    # Fallback als er geen tekst is
-                    logger.warning("Message has no text or caption")
-                    is_signals_flow = False
-            
-            # Haal market uit user_data of fallback naar 'forex'
+            # Get market from user_data or fallback to 'forex'
             if context and hasattr(context, 'user_data'):
                 market = context.user_data.get('market', 'forex')
                 in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
             else:
-                # Fallback waarden
                 market = 'forex'
                 in_signals_flow = is_signals_flow
             
             logger.info(f"Back to market: market={market}, in_signals_flow={in_signals_flow}")
             
-            # Kies het juiste keyboard op basis van de flow
+            # Choose the appropriate keyboard based on the flow
             if in_signals_flow:
                 keyboard = MARKET_KEYBOARD_SIGNALS
                 text = "Select a market for trading signals:"
             else:
                 keyboard = MARKET_KEYBOARD
                 text = "Select a market for technical analysis:"
+            
+            # Update the message
+            try:
+                await query.edit_message_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            except Exception as edit_error:
+                logger.error(f"Error updating message: {str(edit_error)}")
+                # Send a new message as fallback
+                await query.message.reply_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
             
             # Werk het bericht bij
             try:
@@ -4384,48 +4344,44 @@ Happy Trading! 📈
         query = update.callback_query
         
         try:
-            # Beantwoord de callback query om de "wachtende" status te verwijderen
+            # Answer the callback query to remove the "waiting" status
             await query.answer()
             
-            # Bepaal of we in de signals flow zitten of in de analyse flow
-            # Check of het bericht een foto is (heeft caption) of tekst bericht
-            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
-            is_signals_flow = False
+            # Determine if we're in signals flow or analysis flow based on callback data
+            callback_data = query.data
+            is_signals_flow = "signals" in callback_data.lower() if callback_data else False
             
-            if is_photo_message:
-                # Als het een foto is, kijk in de caption voor aanwijzingen
-                caption = query.message.caption or ""
-                is_signals_flow = "signals" in caption.lower()
-                logger.info(f"Message is a photo with caption: {caption}")
-            else:
-                # Als het een tekstbericht is, kijk in de message text
-                message_text = getattr(query.message, 'text', '')
-                if message_text:
-                    is_signals_flow = "trading signals" in message_text.lower()
-                    logger.info(f"Message is text: {message_text[:50]}...")
-                else:
-                    # Fallback als er geen tekst is
-                    logger.warning("Message has no text or caption")
-                    is_signals_flow = False
-            
-            # Haal market uit user_data of fallback naar 'forex'
+            # Get market from user_data or fallback to 'forex'
             if context and hasattr(context, 'user_data'):
                 market = context.user_data.get('market', 'forex')
                 in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
             else:
-                # Fallback waarden
                 market = 'forex'
                 in_signals_flow = is_signals_flow
             
             logger.info(f"Back to market: market={market}, in_signals_flow={in_signals_flow}")
             
-            # Kies het juiste keyboard op basis van de flow
+            # Choose the appropriate keyboard based on the flow
             if in_signals_flow:
                 keyboard = MARKET_KEYBOARD_SIGNALS
                 text = "Select a market for trading signals:"
             else:
                 keyboard = MARKET_KEYBOARD
                 text = "Select a market for technical analysis:"
+            
+            # Update the message
+            try:
+                await query.edit_message_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            except Exception as edit_error:
+                logger.error(f"Error updating message: {str(edit_error)}")
+                # Send a new message as fallback
+                await query.message.reply_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
             
             # Werk het bericht bij
             try:
@@ -4517,48 +4473,44 @@ Happy Trading! 📈
         query = update.callback_query
         
         try:
-            # Beantwoord de callback query om de "wachtende" status te verwijderen
+            # Answer the callback query to remove the "waiting" status
             await query.answer()
             
-            # Bepaal of we in de signals flow zitten of in de analyse flow
-            # Check of het bericht een foto is (heeft caption) of tekst bericht
-            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
-            is_signals_flow = False
+            # Determine if we're in signals flow or analysis flow based on callback data
+            callback_data = query.data
+            is_signals_flow = "signals" in callback_data.lower() if callback_data else False
             
-            if is_photo_message:
-                # Als het een foto is, kijk in de caption voor aanwijzingen
-                caption = query.message.caption or ""
-                is_signals_flow = "signals" in caption.lower()
-                logger.info(f"Message is a photo with caption: {caption}")
-            else:
-                # Als het een tekstbericht is, kijk in de message text
-                message_text = getattr(query.message, 'text', '')
-                if message_text:
-                    is_signals_flow = "trading signals" in message_text.lower()
-                    logger.info(f"Message is text: {message_text[:50]}...")
-                else:
-                    # Fallback als er geen tekst is
-                    logger.warning("Message has no text or caption")
-                    is_signals_flow = False
-            
-            # Haal market uit user_data of fallback naar 'forex'
+            # Get market from user_data or fallback to 'forex'
             if context and hasattr(context, 'user_data'):
                 market = context.user_data.get('market', 'forex')
                 in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
             else:
-                # Fallback waarden
                 market = 'forex'
                 in_signals_flow = is_signals_flow
             
             logger.info(f"Back to market: market={market}, in_signals_flow={in_signals_flow}")
             
-            # Kies het juiste keyboard op basis van de flow
+            # Choose the appropriate keyboard based on the flow
             if in_signals_flow:
                 keyboard = MARKET_KEYBOARD_SIGNALS
                 text = "Select a market for trading signals:"
             else:
                 keyboard = MARKET_KEYBOARD
                 text = "Select a market for technical analysis:"
+            
+            # Update the message
+            try:
+                await query.edit_message_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            except Exception as edit_error:
+                logger.error(f"Error updating message: {str(edit_error)}")
+                # Send a new message as fallback
+                await query.message.reply_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
             
             # Werk het bericht bij
             try:
@@ -4650,48 +4602,44 @@ Happy Trading! 📈
         query = update.callback_query
         
         try:
-            # Beantwoord de callback query om de "wachtende" status te verwijderen
+            # Answer the callback query to remove the "waiting" status
             await query.answer()
             
-            # Bepaal of we in de signals flow zitten of in de analyse flow
-            # Check of het bericht een foto is (heeft caption) of tekst bericht
-            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
-            is_signals_flow = False
+            # Determine if we're in signals flow or analysis flow based on callback data
+            callback_data = query.data
+            is_signals_flow = "signals" in callback_data.lower() if callback_data else False
             
-            if is_photo_message:
-                # Als het een foto is, kijk in de caption voor aanwijzingen
-                caption = query.message.caption or ""
-                is_signals_flow = "signals" in caption.lower()
-                logger.info(f"Message is a photo with caption: {caption}")
-            else:
-                # Als het een tekstbericht is, kijk in de message text
-                message_text = getattr(query.message, 'text', '')
-                if message_text:
-                    is_signals_flow = "trading signals" in message_text.lower()
-                    logger.info(f"Message is text: {message_text[:50]}...")
-                else:
-                    # Fallback als er geen tekst is
-                    logger.warning("Message has no text or caption")
-                    is_signals_flow = False
-            
-            # Haal market uit user_data of fallback naar 'forex'
+            # Get market from user_data or fallback to 'forex'
             if context and hasattr(context, 'user_data'):
                 market = context.user_data.get('market', 'forex')
                 in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
             else:
-                # Fallback waarden
                 market = 'forex'
                 in_signals_flow = is_signals_flow
             
             logger.info(f"Back to market: market={market}, in_signals_flow={in_signals_flow}")
             
-            # Kies het juiste keyboard op basis van de flow
+            # Choose the appropriate keyboard based on the flow
             if in_signals_flow:
                 keyboard = MARKET_KEYBOARD_SIGNALS
                 text = "Select a market for trading signals:"
             else:
                 keyboard = MARKET_KEYBOARD
                 text = "Select a market for technical analysis:"
+            
+            # Update the message
+            try:
+                await query.edit_message_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            except Exception as edit_error:
+                logger.error(f"Error updating message: {str(edit_error)}")
+                # Send a new message as fallback
+                await query.message.reply_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
             
             # Werk het bericht bij
             try:
@@ -4783,48 +4731,44 @@ Happy Trading! 📈
         query = update.callback_query
         
         try:
-            # Beantwoord de callback query om de "wachtende" status te verwijderen
+            # Answer the callback query to remove the "waiting" status
             await query.answer()
             
-            # Bepaal of we in de signals flow zitten of in de analyse flow
-            # Check of het bericht een foto is (heeft caption) of tekst bericht
-            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
-            is_signals_flow = False
+            # Determine if we're in signals flow or analysis flow based on callback data
+            callback_data = query.data
+            is_signals_flow = "signals" in callback_data.lower() if callback_data else False
             
-            if is_photo_message:
-                # Als het een foto is, kijk in de caption voor aanwijzingen
-                caption = query.message.caption or ""
-                is_signals_flow = "signals" in caption.lower()
-                logger.info(f"Message is a photo with caption: {caption}")
-            else:
-                # Als het een tekstbericht is, kijk in de message text
-                message_text = getattr(query.message, 'text', '')
-                if message_text:
-                    is_signals_flow = "trading signals" in message_text.lower()
-                    logger.info(f"Message is text: {message_text[:50]}...")
-                else:
-                    # Fallback als er geen tekst is
-                    logger.warning("Message has no text or caption")
-                    is_signals_flow = False
-            
-            # Haal market uit user_data of fallback naar 'forex'
+            # Get market from user_data or fallback to 'forex'
             if context and hasattr(context, 'user_data'):
                 market = context.user_data.get('market', 'forex')
                 in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
             else:
-                # Fallback waarden
                 market = 'forex'
                 in_signals_flow = is_signals_flow
             
             logger.info(f"Back to market: market={market}, in_signals_flow={in_signals_flow}")
             
-            # Kies het juiste keyboard op basis van de flow
+            # Choose the appropriate keyboard based on the flow
             if in_signals_flow:
                 keyboard = MARKET_KEYBOARD_SIGNALS
                 text = "Select a market for trading signals:"
             else:
                 keyboard = MARKET_KEYBOARD
                 text = "Select a market for technical analysis:"
+            
+            # Update the message
+            try:
+                await query.edit_message_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            except Exception as edit_error:
+                logger.error(f"Error updating message: {str(edit_error)}")
+                # Send a new message as fallback
+                await query.message.reply_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
             
             # Werk het bericht bij
             try:
@@ -4916,48 +4860,44 @@ Happy Trading! 📈
         query = update.callback_query
         
         try:
-            # Beantwoord de callback query om de "wachtende" status te verwijderen
+            # Answer the callback query to remove the "waiting" status
             await query.answer()
             
-            # Bepaal of we in de signals flow zitten of in de analyse flow
-            # Check of het bericht een foto is (heeft caption) of tekst bericht
-            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
-            is_signals_flow = False
+            # Determine if we're in signals flow or analysis flow based on callback data
+            callback_data = query.data
+            is_signals_flow = "signals" in callback_data.lower() if callback_data else False
             
-            if is_photo_message:
-                # Als het een foto is, kijk in de caption voor aanwijzingen
-                caption = query.message.caption or ""
-                is_signals_flow = "signals" in caption.lower()
-                logger.info(f"Message is a photo with caption: {caption}")
-            else:
-                # Als het een tekstbericht is, kijk in de message text
-                message_text = getattr(query.message, 'text', '')
-                if message_text:
-                    is_signals_flow = "trading signals" in message_text.lower()
-                    logger.info(f"Message is text: {message_text[:50]}...")
-                else:
-                    # Fallback als er geen tekst is
-                    logger.warning("Message has no text or caption")
-                    is_signals_flow = False
-            
-            # Haal market uit user_data of fallback naar 'forex'
+            # Get market from user_data or fallback to 'forex'
             if context and hasattr(context, 'user_data'):
                 market = context.user_data.get('market', 'forex')
                 in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
             else:
-                # Fallback waarden
                 market = 'forex'
                 in_signals_flow = is_signals_flow
             
             logger.info(f"Back to market: market={market}, in_signals_flow={in_signals_flow}")
             
-            # Kies het juiste keyboard op basis van de flow
+            # Choose the appropriate keyboard based on the flow
             if in_signals_flow:
                 keyboard = MARKET_KEYBOARD_SIGNALS
                 text = "Select a market for trading signals:"
             else:
                 keyboard = MARKET_KEYBOARD
                 text = "Select a market for technical analysis:"
+            
+            # Update the message
+            try:
+                await query.edit_message_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            except Exception as edit_error:
+                logger.error(f"Error updating message: {str(edit_error)}")
+                # Send a new message as fallback
+                await query.message.reply_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
             
             # Werk het bericht bij
             try:
@@ -5049,48 +4989,44 @@ Happy Trading! 📈
         query = update.callback_query
         
         try:
-            # Beantwoord de callback query om de "wachtende" status te verwijderen
+            # Answer the callback query to remove the "waiting" status
             await query.answer()
             
-            # Bepaal of we in de signals flow zitten of in de analyse flow
-            # Check of het bericht een foto is (heeft caption) of tekst bericht
-            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
-            is_signals_flow = False
+            # Determine if we're in signals flow or analysis flow based on callback data
+            callback_data = query.data
+            is_signals_flow = "signals" in callback_data.lower() if callback_data else False
             
-            if is_photo_message:
-                # Als het een foto is, kijk in de caption voor aanwijzingen
-                caption = query.message.caption or ""
-                is_signals_flow = "signals" in caption.lower()
-                logger.info(f"Message is a photo with caption: {caption}")
-            else:
-                # Als het een tekstbericht is, kijk in de message text
-                message_text = getattr(query.message, 'text', '')
-                if message_text:
-                    is_signals_flow = "trading signals" in message_text.lower()
-                    logger.info(f"Message is text: {message_text[:50]}...")
-                else:
-                    # Fallback als er geen tekst is
-                    logger.warning("Message has no text or caption")
-                    is_signals_flow = False
-            
-            # Haal market uit user_data of fallback naar 'forex'
+            # Get market from user_data or fallback to 'forex'
             if context and hasattr(context, 'user_data'):
                 market = context.user_data.get('market', 'forex')
                 in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
             else:
-                # Fallback waarden
                 market = 'forex'
                 in_signals_flow = is_signals_flow
             
             logger.info(f"Back to market: market={market}, in_signals_flow={in_signals_flow}")
             
-            # Kies het juiste keyboard op basis van de flow
+            # Choose the appropriate keyboard based on the flow
             if in_signals_flow:
                 keyboard = MARKET_KEYBOARD_SIGNALS
                 text = "Select a market for trading signals:"
             else:
                 keyboard = MARKET_KEYBOARD
                 text = "Select a market for technical analysis:"
+            
+            # Update the message
+            try:
+                await query.edit_message_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            except Exception as edit_error:
+                logger.error(f"Error updating message: {str(edit_error)}")
+                # Send a new message as fallback
+                await query.message.reply_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
             
             # Werk het bericht bij
             try:
@@ -5182,48 +5118,44 @@ Happy Trading! 📈
         query = update.callback_query
         
         try:
-            # Beantwoord de callback query om de "wachtende" status te verwijderen
+            # Answer the callback query to remove the "waiting" status
             await query.answer()
             
-            # Bepaal of we in de signals flow zitten of in de analyse flow
-            # Check of het bericht een foto is (heeft caption) of tekst bericht
-            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
-            is_signals_flow = False
+            # Determine if we're in signals flow or analysis flow based on callback data
+            callback_data = query.data
+            is_signals_flow = "signals" in callback_data.lower() if callback_data else False
             
-            if is_photo_message:
-                # Als het een foto is, kijk in de caption voor aanwijzingen
-                caption = query.message.caption or ""
-                is_signals_flow = "signals" in caption.lower()
-                logger.info(f"Message is a photo with caption: {caption}")
-            else:
-                # Als het een tekstbericht is, kijk in de message text
-                message_text = getattr(query.message, 'text', '')
-                if message_text:
-                    is_signals_flow = "trading signals" in message_text.lower()
-                    logger.info(f"Message is text: {message_text[:50]}...")
-                else:
-                    # Fallback als er geen tekst is
-                    logger.warning("Message has no text or caption")
-                    is_signals_flow = False
-            
-            # Haal market uit user_data of fallback naar 'forex'
+            # Get market from user_data or fallback to 'forex'
             if context and hasattr(context, 'user_data'):
                 market = context.user_data.get('market', 'forex')
                 in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
             else:
-                # Fallback waarden
                 market = 'forex'
                 in_signals_flow = is_signals_flow
             
             logger.info(f"Back to market: market={market}, in_signals_flow={in_signals_flow}")
             
-            # Kies het juiste keyboard op basis van de flow
+            # Choose the appropriate keyboard based on the flow
             if in_signals_flow:
                 keyboard = MARKET_KEYBOARD_SIGNALS
                 text = "Select a market for trading signals:"
             else:
                 keyboard = MARKET_KEYBOARD
                 text = "Select a market for technical analysis:"
+            
+            # Update the message
+            try:
+                await query.edit_message_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            except Exception as edit_error:
+                logger.error(f"Error updating message: {str(edit_error)}")
+                # Send a new message as fallback
+                await query.message.reply_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
             
             # Werk het bericht bij
             try:
@@ -5315,48 +5247,44 @@ Happy Trading! 📈
         query = update.callback_query
         
         try:
-            # Beantwoord de callback query om de "wachtende" status te verwijderen
+            # Answer the callback query to remove the "waiting" status
             await query.answer()
             
-            # Bepaal of we in de signals flow zitten of in de analyse flow
-            # Check of het bericht een foto is (heeft caption) of tekst bericht
-            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
-            is_signals_flow = False
+            # Determine if we're in signals flow or analysis flow based on callback data
+            callback_data = query.data
+            is_signals_flow = "signals" in callback_data.lower() if callback_data else False
             
-            if is_photo_message:
-                # Als het een foto is, kijk in de caption voor aanwijzingen
-                caption = query.message.caption or ""
-                is_signals_flow = "signals" in caption.lower()
-                logger.info(f"Message is a photo with caption: {caption}")
-            else:
-                # Als het een tekstbericht is, kijk in de message text
-                message_text = getattr(query.message, 'text', '')
-                if message_text:
-                    is_signals_flow = "trading signals" in message_text.lower()
-                    logger.info(f"Message is text: {message_text[:50]}...")
-                else:
-                    # Fallback als er geen tekst is
-                    logger.warning("Message has no text or caption")
-                    is_signals_flow = False
-            
-            # Haal market uit user_data of fallback naar 'forex'
+            # Get market from user_data or fallback to 'forex'
             if context and hasattr(context, 'user_data'):
                 market = context.user_data.get('market', 'forex')
                 in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
             else:
-                # Fallback waarden
                 market = 'forex'
                 in_signals_flow = is_signals_flow
             
             logger.info(f"Back to market: market={market}, in_signals_flow={in_signals_flow}")
             
-            # Kies het juiste keyboard op basis van de flow
+            # Choose the appropriate keyboard based on the flow
             if in_signals_flow:
                 keyboard = MARKET_KEYBOARD_SIGNALS
                 text = "Select a market for trading signals:"
             else:
                 keyboard = MARKET_KEYBOARD
                 text = "Select a market for technical analysis:"
+            
+            # Update the message
+            try:
+                await query.edit_message_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            except Exception as edit_error:
+                logger.error(f"Error updating message: {str(edit_error)}")
+                # Send a new message as fallback
+                await query.message.reply_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
             
             # Werk het bericht bij
             try:
@@ -5448,48 +5376,44 @@ Happy Trading! 📈
         query = update.callback_query
         
         try:
-            # Beantwoord de callback query om de "wachtende" status te verwijderen
+            # Answer the callback query to remove the "waiting" status
             await query.answer()
             
-            # Bepaal of we in de signals flow zitten of in de analyse flow
-            # Check of het bericht een foto is (heeft caption) of tekst bericht
-            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
-            is_signals_flow = False
+            # Determine if we're in signals flow or analysis flow based on callback data
+            callback_data = query.data
+            is_signals_flow = "signals" in callback_data.lower() if callback_data else False
             
-            if is_photo_message:
-                # Als het een foto is, kijk in de caption voor aanwijzingen
-                caption = query.message.caption or ""
-                is_signals_flow = "signals" in caption.lower()
-                logger.info(f"Message is a photo with caption: {caption}")
-            else:
-                # Als het een tekstbericht is, kijk in de message text
-                message_text = getattr(query.message, 'text', '')
-                if message_text:
-                    is_signals_flow = "trading signals" in message_text.lower()
-                    logger.info(f"Message is text: {message_text[:50]}...")
-                else:
-                    # Fallback als er geen tekst is
-                    logger.warning("Message has no text or caption")
-                    is_signals_flow = False
-            
-            # Haal market uit user_data of fallback naar 'forex'
+            # Get market from user_data or fallback to 'forex'
             if context and hasattr(context, 'user_data'):
                 market = context.user_data.get('market', 'forex')
                 in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
             else:
-                # Fallback waarden
                 market = 'forex'
                 in_signals_flow = is_signals_flow
             
             logger.info(f"Back to market: market={market}, in_signals_flow={in_signals_flow}")
             
-            # Kies het juiste keyboard op basis van de flow
+            # Choose the appropriate keyboard based on the flow
             if in_signals_flow:
                 keyboard = MARKET_KEYBOARD_SIGNALS
                 text = "Select a market for trading signals:"
             else:
                 keyboard = MARKET_KEYBOARD
                 text = "Select a market for technical analysis:"
+            
+            # Update the message
+            try:
+                await query.edit_message_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            except Exception as edit_error:
+                logger.error(f"Error updating message: {str(edit_error)}")
+                # Send a new message as fallback
+                await query.message.reply_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
             
             # Werk het bericht bij
             try:
@@ -5581,48 +5505,44 @@ Happy Trading! 📈
         query = update.callback_query
         
         try:
-            # Beantwoord de callback query om de "wachtende" status te verwijderen
+            # Answer the callback query to remove the "waiting" status
             await query.answer()
             
-            # Bepaal of we in de signals flow zitten of in de analyse flow
-            # Check of het bericht een foto is (heeft caption) of tekst bericht
-            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
-            is_signals_flow = False
+            # Determine if we're in signals flow or analysis flow based on callback data
+            callback_data = query.data
+            is_signals_flow = "signals" in callback_data.lower() if callback_data else False
             
-            if is_photo_message:
-                # Als het een foto is, kijk in de caption voor aanwijzingen
-                caption = query.message.caption or ""
-                is_signals_flow = "signals" in caption.lower()
-                logger.info(f"Message is a photo with caption: {caption}")
-            else:
-                # Als het een tekstbericht is, kijk in de message text
-                message_text = getattr(query.message, 'text', '')
-                if message_text:
-                    is_signals_flow = "trading signals" in message_text.lower()
-                    logger.info(f"Message is text: {message_text[:50]}...")
-                else:
-                    # Fallback als er geen tekst is
-                    logger.warning("Message has no text or caption")
-                    is_signals_flow = False
-            
-            # Haal market uit user_data of fallback naar 'forex'
+            # Get market from user_data or fallback to 'forex'
             if context and hasattr(context, 'user_data'):
                 market = context.user_data.get('market', 'forex')
                 in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
             else:
-                # Fallback waarden
                 market = 'forex'
                 in_signals_flow = is_signals_flow
             
             logger.info(f"Back to market: market={market}, in_signals_flow={in_signals_flow}")
             
-            # Kies het juiste keyboard op basis van de flow
+            # Choose the appropriate keyboard based on the flow
             if in_signals_flow:
                 keyboard = MARKET_KEYBOARD_SIGNALS
                 text = "Select a market for trading signals:"
             else:
                 keyboard = MARKET_KEYBOARD
                 text = "Select a market for technical analysis:"
+            
+            # Update the message
+            try:
+                await query.edit_message_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            except Exception as edit_error:
+                logger.error(f"Error updating message: {str(edit_error)}")
+                # Send a new message as fallback
+                await query.message.reply_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
             
             # Werk het bericht bij
             try:
@@ -5714,48 +5634,44 @@ Happy Trading! 📈
         query = update.callback_query
         
         try:
-            # Beantwoord de callback query om de "wachtende" status te verwijderen
+            # Answer the callback query to remove the "waiting" status
             await query.answer()
             
-            # Bepaal of we in de signals flow zitten of in de analyse flow
-            # Check of het bericht een foto is (heeft caption) of tekst bericht
-            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
-            is_signals_flow = False
+            # Determine if we're in signals flow or analysis flow based on callback data
+            callback_data = query.data
+            is_signals_flow = "signals" in callback_data.lower() if callback_data else False
             
-            if is_photo_message:
-                # Als het een foto is, kijk in de caption voor aanwijzingen
-                caption = query.message.caption or ""
-                is_signals_flow = "signals" in caption.lower()
-                logger.info(f"Message is a photo with caption: {caption}")
-            else:
-                # Als het een tekstbericht is, kijk in de message text
-                message_text = getattr(query.message, 'text', '')
-                if message_text:
-                    is_signals_flow = "trading signals" in message_text.lower()
-                    logger.info(f"Message is text: {message_text[:50]}...")
-                else:
-                    # Fallback als er geen tekst is
-                    logger.warning("Message has no text or caption")
-                    is_signals_flow = False
-            
-            # Haal market uit user_data of fallback naar 'forex'
+            # Get market from user_data or fallback to 'forex'
             if context and hasattr(context, 'user_data'):
                 market = context.user_data.get('market', 'forex')
                 in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
             else:
-                # Fallback waarden
                 market = 'forex'
                 in_signals_flow = is_signals_flow
             
             logger.info(f"Back to market: market={market}, in_signals_flow={in_signals_flow}")
             
-            # Kies het juiste keyboard op basis van de flow
+            # Choose the appropriate keyboard based on the flow
             if in_signals_flow:
                 keyboard = MARKET_KEYBOARD_SIGNALS
                 text = "Select a market for trading signals:"
             else:
                 keyboard = MARKET_KEYBOARD
                 text = "Select a market for technical analysis:"
+            
+            # Update the message
+            try:
+                await query.edit_message_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            except Exception as edit_error:
+                logger.error(f"Error updating message: {str(edit_error)}")
+                # Send a new message as fallback
+                await query.message.reply_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
             
             # Werk het bericht bij
             try:
@@ -5847,48 +5763,44 @@ Happy Trading! 📈
         query = update.callback_query
         
         try:
-            # Beantwoord de callback query om de "wachtende" status te verwijderen
+            # Answer the callback query to remove the "waiting" status
             await query.answer()
             
-            # Bepaal of we in de signals flow zitten of in de analyse flow
-            # Check of het bericht een foto is (heeft caption) of tekst bericht
-            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
-            is_signals_flow = False
+            # Determine if we're in signals flow or analysis flow based on callback data
+            callback_data = query.data
+            is_signals_flow = "signals" in callback_data.lower() if callback_data else False
             
-            if is_photo_message:
-                # Als het een foto is, kijk in de caption voor aanwijzingen
-                caption = query.message.caption or ""
-                is_signals_flow = "signals" in caption.lower()
-                logger.info(f"Message is a photo with caption: {caption}")
-            else:
-                # Als het een tekstbericht is, kijk in de message text
-                message_text = getattr(query.message, 'text', '')
-                if message_text:
-                    is_signals_flow = "trading signals" in message_text.lower()
-                    logger.info(f"Message is text: {message_text[:50]}...")
-                else:
-                    # Fallback als er geen tekst is
-                    logger.warning("Message has no text or caption")
-                    is_signals_flow = False
-            
-            # Haal market uit user_data of fallback naar 'forex'
+            # Get market from user_data or fallback to 'forex'
             if context and hasattr(context, 'user_data'):
                 market = context.user_data.get('market', 'forex')
                 in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
             else:
-                # Fallback waarden
                 market = 'forex'
                 in_signals_flow = is_signals_flow
             
             logger.info(f"Back to market: market={market}, in_signals_flow={in_signals_flow}")
             
-            # Kies het juiste keyboard op basis van de flow
+            # Choose the appropriate keyboard based on the flow
             if in_signals_flow:
                 keyboard = MARKET_KEYBOARD_SIGNALS
                 text = "Select a market for trading signals:"
             else:
                 keyboard = MARKET_KEYBOARD
                 text = "Select a market for technical analysis:"
+            
+            # Update the message
+            try:
+                await query.edit_message_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            except Exception as edit_error:
+                logger.error(f"Error updating message: {str(edit_error)}")
+                # Send a new message as fallback
+                await query.message.reply_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
             
             # Werk het bericht bij
             try:
@@ -5980,48 +5892,44 @@ Happy Trading! 📈
         query = update.callback_query
         
         try:
-            # Beantwoord de callback query om de "wachtende" status te verwijderen
+            # Answer the callback query to remove the "waiting" status
             await query.answer()
             
-            # Bepaal of we in de signals flow zitten of in de analyse flow
-            # Check of het bericht een foto is (heeft caption) of tekst bericht
-            is_photo_message = hasattr(query.message, 'photo') and query.message.photo
-            is_signals_flow = False
+            # Determine if we're in signals flow or analysis flow based on callback data
+            callback_data = query.data
+            is_signals_flow = "signals" in callback_data.lower() if callback_data else False
             
-            if is_photo_message:
-                # Als het een foto is, kijk in de caption voor aanwijzingen
-                caption = query.message.caption or ""
-                is_signals_flow = "signals" in caption.lower()
-                logger.info(f"Message is a photo with caption: {caption}")
-            else:
-                # Als het een tekstbericht is, kijk in de message text
-                message_text = getattr(query.message, 'text', '')
-                if message_text:
-                    is_signals_flow = "trading signals" in message_text.lower()
-                    logger.info(f"Message is text: {message_text[:50]}...")
-                else:
-                    # Fallback als er geen tekst is
-                    logger.warning("Message has no text or caption")
-                    is_signals_flow = False
-            
-            # Haal market uit user_data of fallback naar 'forex'
+            # Get market from user_data or fallback to 'forex'
             if context and hasattr(context, 'user_data'):
                 market = context.user_data.get('market', 'forex')
                 in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
             else:
-                # Fallback waarden
                 market = 'forex'
                 in_signals_flow = is_signals_flow
             
             logger.info(f"Back to market: market={market}, in_signals_flow={in_signals_flow}")
             
-            # Kies het juiste keyboard op basis van de flow
+            # Choose the appropriate keyboard based on the flow
             if in_signals_flow:
                 keyboard = MARKET_KEYBOARD_SIGNALS
                 text = "Select a market for trading signals:"
             else:
                 keyboard = MARKET_KEYBOARD
                 text = "Select a market for technical analysis:"
+            
+            # Update the message
+            try:
+                await query.edit_message_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            except Exception as edit_error:
+                logger.error(f"Error updating message: {str(edit_error)}")
+                # Send a new message as fallback
+                await query.message.reply_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
             
             # Werk het bericht bij
             try:
