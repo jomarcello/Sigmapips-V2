@@ -469,7 +469,6 @@ class TelegramService:
             self.application = Application.builder().bot(self.bot).build()
             
             # Initialiseer de services
-            self.chart = ChartService()
             self.sentiment = MarketSentimentService()
             self.calendar = EconomicCalendarService()
             
@@ -827,25 +826,35 @@ To regain access to all features and trading signals, please reactivate your sub
                 context.user_data['analysis_type'] = 'sentiment'
                 context.user_data['current_state'] = CHOOSE_INSTRUMENT
             
-            # Maak speciale keyboards voor sentiment analyse
-            FOREX_SENTIMENT_KEYBOARD = [
+            # Create sentiment-specific keyboard
+            SENTIMENT_KEYBOARD = [
                 [
                     InlineKeyboardButton("EURUSD", callback_data="direct_sentiment_EURUSD"),
-                    InlineKeyboardButton("GBPUSD", callback_data="direct_sentiment_GBPUSD"),
-                    InlineKeyboardButton("USDJPY", callback_data="direct_sentiment_USDJPY")
+                    InlineKeyboardButton("GBPUSD", callback_data="direct_sentiment_GBPUSD")
+                ],
+                [
+                    InlineKeyboardButton("USDJPY", callback_data="direct_sentiment_USDJPY"),
+                    InlineKeyboardButton("USDCHF", callback_data="direct_sentiment_USDCHF")
                 ],
                 [
                     InlineKeyboardButton("AUDUSD", callback_data="direct_sentiment_AUDUSD"),
-                    InlineKeyboardButton("USDCAD", callback_data="direct_sentiment_USDCAD"),
-                    InlineKeyboardButton("EURGBP", callback_data="direct_sentiment_EURGBP")
+                    InlineKeyboardButton("USDCAD", callback_data="direct_sentiment_USDCAD")
+                ],
+                [
+                    InlineKeyboardButton("EURGBP", callback_data="direct_sentiment_EURGBP"),
+                    InlineKeyboardButton("EURJPY", callback_data="direct_sentiment_EURJPY")
+                ],
+                [
+                    InlineKeyboardButton("XAUUSD", callback_data="direct_sentiment_XAUUSD"),
+                    InlineKeyboardButton("XAGUSD", callback_data="direct_sentiment_XAGUSD")
                 ],
                 [InlineKeyboardButton("⬅️ Back to Analysis", callback_data="back_to_analysis")]
             ]
             
-            # Toon direct de forex instrumenten voor sentiment analyse
+            # Show independent sentiment analysis options
             await query.edit_message_text(
-                text="Select a forex pair for sentiment analysis:",
-                reply_markup=InlineKeyboardMarkup(FOREX_SENTIMENT_KEYBOARD)
+                text="Select an instrument for sentiment analysis:",
+                reply_markup=InlineKeyboardMarkup(SENTIMENT_KEYBOARD)
             )
             
             return CHOOSE_INSTRUMENT
@@ -1129,14 +1138,34 @@ To regain access to all features and trading signals, please reactivate your sub
             # Save market in user_data
             if context and hasattr(context, 'user_data'):
                 context.user_data['market'] = market
-                analysis_type = context.user_data.get('analysis_type', 'technical')
+                # Preserve the analysis type from the previous context or default to sentiment
+                analysis_type = context.user_data.get('analysis_type', 'sentiment')
                 logger.info(f"Market callback: market={market}, analysis_type={analysis_type}")
             else:
-                # Fallback als er geen context is
-                analysis_type = 'technical'
-                logger.info(f"Market callback zonder context: market={market}, fallback analysis_type={analysis_type}")
+                # Default to sentiment analysis when no context
+                analysis_type = 'sentiment'
+                logger.info(f"Market callback zonder context: market={market}, using analysis_type={analysis_type}")
             
-            # Toon het juiste instrument keyboard op basis van de markt
+            # For sentiment analysis, show the sentiment-specific keyboard
+            if analysis_type == 'sentiment':
+                SENTIMENT_KEYBOARD = [
+                    [
+                        InlineKeyboardButton("EURUSD", callback_data="direct_sentiment_EURUSD"),
+                        InlineKeyboardButton("GBPUSD", callback_data="direct_sentiment_GBPUSD")
+                    ],
+                    [
+                        InlineKeyboardButton("USDJPY", callback_data="direct_sentiment_USDJPY"),
+                        InlineKeyboardButton("XAUUSD", callback_data="direct_sentiment_XAUUSD")
+                    ],
+                    [InlineKeyboardButton("⬅️ Back to Analysis", callback_data="back_to_analysis")]
+                ]
+                await query.edit_message_text(
+                    text="Select an instrument for sentiment analysis:",
+                    reply_markup=InlineKeyboardMarkup(SENTIMENT_KEYBOARD)
+                )
+                return CHOOSE_INSTRUMENT
+            
+            # For other analysis types, show the regular market-based keyboards
             if market == 'forex':
                 await query.edit_message_text(
                     text=f"Select a forex pair for {analysis_type} analysis:",
@@ -1220,6 +1249,11 @@ To regain access to all features and trading signals, please reactivate your sub
             # Log the instrument
             logger.info(f"Instrument callback voor analyse: instrument={instrument}")
             
+            # Get analysis type from context or default to technical
+            analysis_type = 'technical'
+            if context and hasattr(context, 'user_data'):
+                analysis_type = context.user_data.get('analysis_type', 'technical')
+            
             # Bepaal de markt op basis van het instrument
             market = "forex"  # Default
             if "USD" in instrument or "EUR" in instrument or "GBP" in instrument or "JPY" in instrument or "CAD" in instrument:
@@ -1231,9 +1265,13 @@ To regain access to all features and trading signals, please reactivate your sub
             elif "XAU" in instrument or "XTI" in instrument:
                 market = "commodities"
             
-            # Show technical analysis with fullscreen=True
-            logger.info(f"Toon technische analyse voor {instrument}")
-            return await self.show_technical_analysis(update, context, instrument, fullscreen=True)
+            # Route to appropriate analysis based on type
+            if analysis_type == 'sentiment':
+                logger.info(f"Toon sentiment analyse voor {instrument}")
+                return await self.show_sentiment_analysis(update, context, instrument)
+            else:
+                logger.info(f"Toon technische analyse voor {instrument}")
+                return await self.show_technical_analysis(update, context, instrument, fullscreen=True)
         except Exception as e:
             logger.error(f"Error in instrument_callback: {str(e)}")
             return MENU
@@ -1977,40 +2015,14 @@ The {instrument} {direction.lower()} signal shows a promising setup with defined
                     return SHOW_RESULT
                 
             elif query.data.startswith("direct_sentiment_"):
-                parts = query.data.split("direct_sentiment_")[1].split("_")
-                instrument = parts[0]
+                instrument = query.data.replace("direct_sentiment_", "")
                 logger.info(f"Direct sentiment analysis for {instrument}")
-                
-                try:
-                    # Store current context for back navigation
-                    if context and hasattr(context, 'user_data'):
-                        context.user_data['last_instrument'] = instrument
-                        context.user_data['last_analysis'] = 'sentiment'
-                    
-                    # Show sentiment analysis
-                    return await self.show_sentiment_analysis(update, context, instrument, from_signal=True)
-                except Exception as e:
-                    logger.error(f"Error showing sentiment analysis: {str(e)}")
-                    await query.answer("Sorry, there was an error showing the sentiment analysis. Please try again.")
-                    return CHOOSE_ANALYSIS
+                return await self.show_sentiment_analysis(update, context, instrument, from_signal=True)
                 
             elif query.data.startswith("direct_calendar_"):
-                parts = query.data.split("direct_calendar_")[1].split("_")
-                instrument = parts[0]
+                instrument = query.data.replace("direct_calendar_", "")
                 logger.info(f"Direct calendar analysis for {instrument}")
-                
-                try:
-                    # Store current context for back navigation
-                    if context and hasattr(context, 'user_data'):
-                        context.user_data['last_instrument'] = instrument
-                        context.user_data['last_analysis'] = 'calendar'
-                    
-                    # Show economic calendar
-                    return await self.show_economic_calendar(update, context, instrument, from_signal=True)
-                except Exception as e:
-                    logger.error(f"Error showing economic calendar: {str(e)}")
-                    await query.answer("Sorry, there was an error showing the economic calendar. Please try again.")
-                    return CHOOSE_ANALYSIS
+                return await self.show_economic_calendar(update, context, instrument, from_signal=True)
                 
             elif query.data.startswith("back_to_signal"):
                 try:
@@ -2301,15 +2313,29 @@ The {instrument} {direction.lower()} signal shows a promising setup with defined
             # Debug logging
             logger.info(f"show_sentiment_analysis aangeroepen voor instrument: {instrument}, from_signal: {from_signal}")
             
-            # Toon een laadmelding als die nog niet is getoond
-            if not from_signal:
-                try:
-                    await query.edit_message_text(
-                        text=f"Getting market sentiment for {instrument}...",
-                        reply_markup=None
-                    )
-                except Exception as e:
-                    logger.warning(f"Could not edit message: {str(e)}")
+            # Get fresh sentiment data from service
+            sentiment_data = await self.sentiment.get_market_sentiment(instrument)
+            
+            # Format sentiment message
+            sentiment_msg = f"""
+📊 **{instrument} Market Sentiment Analysis**
+
+- Bullish/Bearish Ratio: {sentiment_data['bullish_percentage']}% / {100 - sentiment_data['bullish_percentage']}%
+- Market Trend: {sentiment_data['trend_strength']}
+- Volatility Level: {sentiment_data['volatility']}
+- Key Support: {sentiment_data['support_level']}
+- Key Resistance: {sentiment_data['resistance_level']}
+
+**Trading Recommendation:**
+{sentiment_data['recommendation']}
+"""
+
+            # Update message with sentiment analysis
+            await query.edit_message_text(
+                text=sentiment_msg,
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_to_analysis")]]),
+                parse_mode=ParseMode.MARKDOWN
+            )
             
             try:
                 # Probeer sentiment analyse op te halen
@@ -2386,38 +2412,18 @@ The {instrument} {direction.lower()} signal shows a promising setup with defined
             if from_signal:
                 back_button = InlineKeyboardButton("⬅️ Back to Signal", callback_data=f"back_to_signal_{instrument}")
             
-            # Store current state and instrument
-            if context and hasattr(context, 'user_data'):
-                context.user_data['current_instrument'] = instrument
-                context.user_data['current_state'] = SHOW_RESULT
-                context.user_data['analysis_type'] = 'sentiment'
-
             # Toon sentiment analyse
-            try:
-                await query.edit_message_text(
-                    text=sentiment,
-                    reply_markup=InlineKeyboardMarkup([[back_button]]),
-                    parse_mode=ParseMode.HTML
-                )
-                return SHOW_RESULT
-            except Exception as edit_error:
-                logger.error(f"Error editing message: {str(edit_error)}")
-                # Fallback: send as new message
-                await query.message.reply_text(
-                    text=sentiment,
-                    reply_markup=InlineKeyboardMarkup([[back_button]]),
-                    parse_mode=ParseMode.HTML
-                )
-                return SHOW_RESULT
+            await query.edit_message_text(
+                text=sentiment,
+                reply_markup=InlineKeyboardMarkup([[back_button]]),
+                parse_mode=ParseMode.HTML
+            )
+            
+            return SHOW_RESULT
         except Exception as e:
             logger.error(f"Error in show_sentiment_analysis: {str(e)}")
             logger.exception(e)  # Log de volledige stacktrace
-            # Send error message
-            await query.message.reply_text(
-                text=f"❌ Error analyzing sentiment for {instrument}. Please try again.",
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_menu")]])
-            )
-            return MENU
+            # Stuur een nieuw bericht als fallback
             try:
                 await query.message.reply_text(
                     text=f"Error getting sentiment for {instrument}. Please try again.",
@@ -2452,36 +2458,26 @@ The {instrument} {direction.lower()} signal shows a promising setup with defined
             if from_signal:
                 back_button = InlineKeyboardButton("⬅️ Back to Signal", callback_data=f"back_to_signal_{instrument}")
             
-            # Store current state and instrument
-            if context and hasattr(context, 'user_data'):
-                context.user_data['current_instrument'] = instrument
-                context.user_data['current_state'] = SHOW_RESULT
-                context.user_data['analysis_type'] = 'calendar'
-
             # Toon economische kalender
-            try:
-                await query.edit_message_text(
-                    text=calendar,
-                    reply_markup=InlineKeyboardMarkup([[back_button]]),
-                    parse_mode=ParseMode.HTML
-                )
-                return SHOW_RESULT
-            except Exception as edit_error:
-                logger.error(f"Error editing message: {str(edit_error)}")
-                # Fallback: send as new message
-                await query.message.reply_text(
-                    text=calendar,
-                    reply_markup=InlineKeyboardMarkup([[back_button]]),
-                    parse_mode=ParseMode.HTML
-                )
-                return SHOW_RESULT
+            await query.edit_message_text(
+                text=calendar,
+                reply_markup=InlineKeyboardMarkup([[back_button]]),
+                parse_mode=ParseMode.HTML
+            )
+            
+            return SHOW_RESULT
         except Exception as e:
             logger.error(f"Error in show_economic_calendar: {str(e)}")
-            # Send error message
-            await query.message.reply_text(
-                text=f"❌ Error getting economic calendar for {instrument}. Please try again.",
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_menu")]])
-            )
+            # Stuur een nieuw bericht als fallback
+            try:
+                await query.message.reply_text(
+                    text=f"Error getting economic calendar for {instrument}. Please try again.",
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("⬅️ Back", callback_data="back_menu")
+                    ]])
+                )
+            except:
+                pass
             return MENU
 
     async def cancel_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -2647,6 +2643,9 @@ The {instrument} {direction.lower()} signal shows a promising setup with defined
         
         try:
             # Beantwoord de callback query om de "wachtende" status te verwijderen
+            await query.answer()
+            
+            # Answer callback query immediately to prevent timeout
             await query.answer()
             
             # Extract instrument from callback data
