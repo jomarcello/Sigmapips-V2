@@ -2,6 +2,7 @@ import logging
 import aiohttp
 import os
 import json
+import random
 from typing import Dict, Any, Optional
 
 logger = logging.getLogger(__name__)
@@ -41,14 +42,26 @@ class MarketSentimentService:
             logger.info(f"Getting market sentiment for {instrument} ({market})")
             
             if self.use_mock:
-                sentiment_score = 0.5
+                # Generate more dynamic mock data based on instrument type
+                market = self._guess_market_from_instrument(instrument)
+                
+                # Generate sentiment based on market type
+                if market == 'crypto':
+                    sentiment_score = random.uniform(0.6, 0.8)  # Crypto tends to be more bullish
+                elif market == 'commodities':
+                    sentiment_score = random.uniform(0.4, 0.7)  # Commodities can be volatile
+                else:
+                    sentiment_score = random.uniform(0.3, 0.7)  # Forex and indices more balanced
+                
                 bullish_percentage = int(sentiment_score * 100)
+                trend_strength = 'Strong' if abs(sentiment_score - 0.5) > 0.3 else 'Moderate' if abs(sentiment_score - 0.5) > 0.1 else 'Weak'
+                
                 return {
-                    'overall_sentiment': 'neutral',
-                    'sentiment_score': sentiment_score,
+                    'overall_sentiment': 'bullish' if sentiment_score > 0.6 else 'bearish' if sentiment_score < 0.4 else 'neutral',
+                    'sentiment_score': round(sentiment_score, 2),
                     'bullish_percentage': bullish_percentage,
-                    'trend_strength': 'Moderate',
-                    'volatility': 'Moderate',
+                    'trend_strength': trend_strength,
+                    'volatility': random.choice(['High', 'Moderate', 'Low']),
                     'support_level': 'See analysis for details',
                     'resistance_level': 'See analysis for details',
                     'recommendation': 'See analysis for detailed trading recommendations',
@@ -189,7 +202,27 @@ class MarketSentimentService:
     
     def _get_mock_sentiment(self, instrument: str) -> str:
         """Generate mock sentiment data for testing"""
-        return self._get_fallback_sentiment({'instrument': instrument})
+        market = self._guess_market_from_instrument(instrument)
+        sentiment_score = random.uniform(0.3, 0.7)
+        trend = 'upward' if sentiment_score > 0.5 else 'downward'
+        volatility = random.choice(['high', 'moderate', 'low'])
+        
+        analysis = f"""<b>{instrument} Market Analysis</b>
+
+<b>Market Direction:</b>
+The {instrument} is showing a {trend} trend with {volatility} volatility. Price action indicates {'momentum building' if sentiment_score > 0.6 else 'potential reversal' if sentiment_score < 0.4 else 'consolidation'}.
+
+<b>Key Factors:</b>
+• Market Type: {market.capitalize()}
+• Trend Strength: {'Strong' if abs(sentiment_score - 0.5) > 0.3 else 'Moderate' if abs(sentiment_score - 0.5) > 0.1 else 'Weak'}
+• Volatility: {volatility.capitalize()}
+
+<b>Trading Recommendation:</b>
+{'Consider long positions with tight stops' if sentiment_score > 0.6 else 'Watch for short opportunities' if sentiment_score < 0.4 else 'Wait for clearer directional signals'}
+
+Remember to always use proper risk management and follow your trading plan."""
+        
+        return analysis
     
     def _get_fallback_sentiment(self, signal: Dict[str, Any]) -> str:
         """Fallback sentiment analysis"""
