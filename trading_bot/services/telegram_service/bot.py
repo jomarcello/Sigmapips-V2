@@ -1126,12 +1126,13 @@ To regain access to all features and trading signals, please reactivate your sub
             # Save market in user_data
             if context and hasattr(context, 'user_data'):
                 context.user_data['market'] = market
-                analysis_type = context.user_data.get('analysis_type', 'technical')
+                # Preserve the analysis type from the previous context or default to sentiment
+                analysis_type = context.user_data.get('analysis_type', 'sentiment')
                 logger.info(f"Market callback: market={market}, analysis_type={analysis_type}")
             else:
-                # Fallback als er geen context is
-                analysis_type = 'technical'
-                logger.info(f"Market callback zonder context: market={market}, fallback analysis_type={analysis_type}")
+                # Default to sentiment analysis when no context
+                analysis_type = 'sentiment'
+                logger.info(f"Market callback zonder context: market={market}, using analysis_type={analysis_type}")
             
             # For sentiment analysis, show the sentiment-specific keyboard
             if analysis_type == 'sentiment':
