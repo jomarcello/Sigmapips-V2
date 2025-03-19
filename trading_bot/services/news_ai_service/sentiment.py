@@ -1,5 +1,6 @@
 import logging
 import random
+import os
 from typing import Dict, Any, List
 
 logger = logging.getLogger(__name__)
@@ -7,39 +8,47 @@ logger = logging.getLogger(__name__)
 class MarketSentimentService:
     """Service for analyzing market sentiment"""
     
+    def __init__(self):
+        """Initialize the market sentiment service"""
+        self.api_key = os.getenv("DEEPSEEK_API_KEY")
+        self.api_url = "https://api.deepseek.ai/v1/chat/completions"
+        self.headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json"
+        }
+        
+        # If no API key is provided, we'll use mock data
+        self.use_mock = not self.api_key
+        if self.use_mock:
+            logger.warning("No DeepSeek API key found, using mock data")
+    
     async def get_market_sentiment(self, instrument):
         """Get market sentiment for a specific instrument"""
         try:
-            logger.info(f"Getting market sentiment for {instrument} (forex)")
+            logger.info(f"Getting market sentiment for {instrument}")
             
-            # Hier zou je normaal gesproken een API aanroepen of een model gebruiken
-            # Voor nu gebruiken we een eenvoudige mock implementatie
-            
-            # Bepaal het sentiment op basis van het instrument
-            # In een echte implementatie zou je hier externe data gebruiken
-            if instrument.startswith('BTC') or instrument.startswith('ETH'):
-                # Crypto sentiment is vaak bullish
-                return {
-                    'overall_sentiment': 'bullish',
-                    'sentiment_score': 0.75,
-                    'source': 'mock_data'
-                }
-            elif instrument.startswith('XAU') or instrument.startswith('GOLD'):
-                # Goud sentiment is gemengd
-                return {
-                    'overall_sentiment': 'neutral',
-                    'sentiment_score': 0.5,
-                    'source': 'mock_data'
-                }
-            else:
-                # Voor andere instrumenten, genereer willekeurig sentiment
-                sentiments = ['bullish', 'bearish', 'neutral']
-                sentiment = random.choice(sentiments)
-                score = random.uniform(0.3, 0.8)
+            if self.use_mock:
+                # Generate sentiment based on instrument type
+                if instrument.startswith(('BTC', 'ETH')):
+                    sentiment_score = random.uniform(0.6, 0.8)  # Crypto tends to be bullish
+                elif instrument.startswith(('XAU', 'GOLD')):
+                    sentiment_score = random.uniform(0.4, 0.7)  # Commodities can be volatile
+                else:
+                    sentiment_score = random.uniform(0.3, 0.7)  # Forex and indices more balanced
+                
+                bullish_percentage = int(sentiment_score * 100)
+                trend_strength = 'Strong' if abs(sentiment_score - 0.5) > 0.3 else 'Moderate' if abs(sentiment_score - 0.5) > 0.1 else 'Weak'
                 
                 return {
-                    'overall_sentiment': sentiment,
-                    'sentiment_score': score,
+                    'overall_sentiment': 'bullish' if sentiment_score > 0.6 else 'bearish' if sentiment_score < 0.4 else 'neutral',
+                    'sentiment_score': round(sentiment_score, 2),
+                    'bullish_percentage': bullish_percentage,
+                    'trend_strength': trend_strength,
+                    'volatility': random.choice(['High', 'Moderate', 'Low']),
+                    'support_level': 'See analysis for details',
+                    'resistance_level': 'See analysis for details',
+                    'recommendation': 'See analysis for detailed trading recommendations',
+                    'analysis': self._get_mock_sentiment(instrument),
                     'source': 'mock_data'
                 }
                 
@@ -115,4 +124,4 @@ class MarketSentimentService:
         except Exception as e:
             logger.error(f"Error in get_market_sentiment: {str(e)}")
             logger.exception(e)
-            return f"<b>Error getting sentiment for {instrument}</b>\n\nSorry, we couldn't retrieve the market sentiment at this time. Please try again later." 
+            return f"<b>Error getting sentiment for {instrument}</b>\n\nSorry, we couldn't retrieve the market sentiment at this time. Please try again later."
