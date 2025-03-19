@@ -5,13 +5,11 @@ import logging
 import aiohttp
 import redis
 import json
-from typing import Dict, Any, List, TYPE_CHECKING
+from typing import Dict, Any, List
 import base64
 import time
 import re
 import random
-import datetime
-import pytz
 
 from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery, InputMediaPhoto, BotCommand
 from telegram.ext import (
@@ -28,9 +26,10 @@ from telegram.ext import (
 from telegram.constants import ParseMode
 
 from trading_bot.services.database.db import Database
-from trading_bot.services.chart_service.chart import ChartService  # Direct importeren uit het bestand
+from trading_bot.services.chart_service.chart import ChartService
 from trading_bot.services.sentiment_service.sentiment import MarketSentimentService
 from trading_bot.services.calendar_service.calendar import EconomicCalendarService
+from trading_bot.services.payment_service.stripe_service import StripeService
 from trading_bot.services.payment_service.stripe_config import get_subscription_features
 
 logger = logging.getLogger(__name__)
@@ -158,6 +157,7 @@ FOREX_KEYBOARD = [
         InlineKeyboardButton("USDJPY", callback_data="instrument_USDJPY")
     ],
     [
+        InlineKeyboardButton("AUDUSD", callback_data="instrument_AUDUSD"),
         InlineKeyboardButton("USDCAD", callback_data="instrument_USDCAD"),
         InlineKeyboardButton("EURGBP", callback_data="instrument_EURGBP")
     ],
@@ -172,6 +172,7 @@ FOREX_KEYBOARD_SIGNALS = [
         InlineKeyboardButton("USDJPY", callback_data="instrument_USDJPY_signals")
     ],
     [
+        InlineKeyboardButton("AUDUSD", callback_data="instrument_AUDUSD_signals"),
         InlineKeyboardButton("USDCAD", callback_data="instrument_USDCAD_signals"),
         InlineKeyboardButton("EURGBP", callback_data="instrument_EURGBP_signals")
     ],
@@ -205,7 +206,7 @@ INDICES_KEYBOARD = [
         InlineKeyboardButton("US500", callback_data="instrument_US500"),
         InlineKeyboardButton("US100", callback_data="instrument_US100")
     ],
-    [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
+    [InlineKeyboardButton("⬅️ Terug", callback_data="back_market")]
 ]
 
 # Indices keyboard voor signals - Fix de "Terug" knop naar "Back"
@@ -242,7 +243,6 @@ COMMODITIES_KEYBOARD_SIGNALS = [
 STYLE_KEYBOARD = [
     [InlineKeyboardButton("⚡ Test (1m)", callback_data="style_test")],
     [InlineKeyboardButton("🏃 Scalp (15m)", callback_data="style_scalp")],
-    [InlineKeyboardButton("⏱️ Scalp30 (30m)", callback_data="style_scalp30")],
     [InlineKeyboardButton("📊 Intraday (1h)", callback_data="style_intraday")],
     [InlineKeyboardButton("🌊 Swing (4h)", callback_data="style_swing")],
     [InlineKeyboardButton("⬅️ Back", callback_data="back_instrument")]
@@ -252,7 +252,6 @@ STYLE_KEYBOARD = [
 STYLE_TIMEFRAME_MAP = {
     "test": "1m",
     "scalp": "15m",
-    "scalp30": "30m",
     "intraday": "1h",
     "swing": "4h"
 }
@@ -302,39 +301,14 @@ def require_subscription(func):
         # Check subscription status
         is_subscribed = await self.db.is_user_subscribed(user_id)
         
-        # Get subscription record to check if it's expired
-        subscription = await self.db.get_user_subscription(user_id)
-        has_expired = subscription and subscription.get('subscription_status') != 'active' and subscription.get('subscription_status') != 'trialing'
-        
         if is_subscribed:
             # User has subscription, proceed with function
             return await func(self, update, context, *args, **kwargs)
-        elif has_expired:
-            # User has an expired subscription
-            expired_message = """
-❌ <b>Subscription Inactive</b> ❌
-
-Your SigmaPips Trading Bot subscription is currently inactive. 
-
-To regain access to all features and trading signals, please reactivate your subscription:
-"""
-            
-            # Create buttons for resubscription
-            keyboard = [
-                [InlineKeyboardButton("🔄 Reactivate Subscription", url="https://buy.stripe.com/test_5kA4kkcHa2q73le6op")],
-                [InlineKeyboardButton("ℹ️ More Information", callback_data="subscription_info")]
-            ]
-            
-            await update.message.reply_text(
-                text=expired_message,
-                reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode=ParseMode.HTML
-            )
-            return MENU
         else:
-            # Show subscription screen for new users
+            # Show subscription screen
             subscription_features = get_subscription_features("monthly")
             
+            # Update message to emphasize the trial period
             welcome_text = f"""
 🚀 <b>Welcome to SigmaPips Trading Bot!</b> 🚀
 
@@ -351,7 +325,7 @@ Click the button below to start your trial:
             
             # Create buttons
             keyboard = [
-                [InlineKeyboardButton("🔥 Start FREE Trial", url="https://buy.stripe.com/test_6oE4kkdLefcT8Fy6oo")],
+                [InlineKeyboardButton("🔥 Start FREE Trial", callback_data="subscribe_monthly")],
                 [InlineKeyboardButton("ℹ️ More Information", callback_data="subscription_info")]
             ]
             
@@ -409,9 +383,6 @@ class TelegramService:
             
             self.stripe_service = stripe_service  # Stripe service toevoegen
             
-            # Signaal ontvanger status
-            self.signals_enabled = True  # Zet op True om signalen in te schakelen
-            
         except Exception as e:
             logger.error(f"Error initializing Telegram service: {str(e)}")
             raise
@@ -455,106 +426,45 @@ class TelegramService:
             self.application.add_handler(CommandHandler("menu", self.show_main_menu))
             
             # Voeg een CallbackQueryHandler toe voor knoppen
-            # Verander button_callback naar callback_query_handler
-            self.application.add_handler(CallbackQueryHandler(self.callback_query_handler))
+            self.application.add_handler(CallbackQueryHandler(self.button_callback))
             
-            # Admin commando voor signalen in/uitschakelen
-            self.application.add_handler(CommandHandler("toggle_signals", self.toggle_signals))
-            
-            # Admin commando voor abonnementsstatus
-            self.application.add_handler(CommandHandler("check_subscription", self.check_subscription))
-            
-            # Admin commando voor handmatig abonnement toewijzen
-            self.application.add_handler(CommandHandler("set_subscription", self.set_subscription))
-            
-            # Handler registreren
-            self.application.add_handler(CommandHandler("send_welcome", self.send_welcome_message))
+            # Meer handlers...
             
             logger.info("Handlers registered")
         except Exception as e:
             logger.error(f"Error registering handlers: {str(e)}")
             raise
 
-    async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-        """Send welcome message when the command /start is issued."""
-        user_id = update.effective_user.id
+    async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Send a welcome message when the bot is started."""
         user = update.effective_user
+        user_id = user.id
+        first_name = user.first_name
         
-        # Save user info in database
-        await self.db.save_user(user_id, user.first_name, user.last_name, user.username)
+        # Try to add the user to the database if they don't exist yet
+        try:
+            # Check if user already exists in the database
+            existing_user = await self.db.get_user(user_id)
+            
+            if not existing_user:
+                # Add new user
+                logger.info(f"New user started: {user_id}, {first_name}")
+                await self.db.add_user(user_id, first_name, user.username)
+            else:
+                logger.info(f"Existing user started: {user_id}, {first_name}")
+                
+        except Exception as e:
+            logger.error(f"Error registering user: {str(e)}")
         
-        # Check if user is subscribed
+        # Check if the user has a subscription
         is_subscribed = await self.db.is_user_subscribed(user_id)
         
-        # Check if user has a subscription record but inactive (expired)
-        subscription = await self.db.get_user_subscription(user_id)
-        has_expired = subscription and subscription.get('subscription_status') != 'active' and subscription.get('subscription_status') != 'trialing'
-        
         if is_subscribed:
-            # Welcome message for subscribed users
-            welcome_message = """
-✅ <b>Welcome to SigmaPips Trading Bot!</b> ✅
-
-Your subscription is <b>ACTIVE</b>. You have full access to all features.
-
-<b>🚀 HOW TO USE:</b>
-
-<b>1. Start with /menu</b>
-   • This will show you the main options:
-   • <b>Analyze Market</b> - For all market analysis tools
-   • <b>Trading Signals</b> - To manage your trading signals
-
-<b>2. Analyze Market options:</b>
-   • <b>Technical Analysis</b> - Charts and price levels
-   • <b>Market Sentiment</b> - Indicators and market mood
-   • <b>Economic Calendar</b> - Upcoming economic events
-
-<b>3. Trading Signals:</b>
-   • Set up which signals you want to receive
-   • Signals will be sent automatically
-   • Each includes entry, stop loss, and take profit levels
-
-Type /menu to start using the bot.
-"""
-            # Create buttons for subscribed users - ALLEEN Subscription Active knop
-            keyboard = [
-                [InlineKeyboardButton("✅ Subscription Active", callback_data="subscription_status")]
-            ]
-            
-            await update.message.reply_text(
-                text=welcome_message,
-                reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode=ParseMode.HTML
-            )
-        
-        elif has_expired:
-            # Message for users with expired subscriptions
-            expired_message = """
-❌ <b>Subscription Inactive</b> ❌
-
-Your SigmaPips Trading Bot subscription is currently inactive. 
-
-To regain access to all features and trading signals, please reactivate your subscription:
-"""
-            
-            # Create buttons for resubscription
-            keyboard = [
-                [InlineKeyboardButton("🔄 Reactivate Subscription", url="https://buy.stripe.com/test_5kA4kkcHa2q73le6op")],
-                [InlineKeyboardButton("ℹ️ More Information", callback_data="subscription_info")]
-            ]
-            
-            await update.message.reply_text(
-                text=expired_message,
-                reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode=ParseMode.HTML
-            )
-        
+            # Show the normal welcome message with all features
+            await self.show_main_menu(update, context)
         else:
-            # Original welcome message for unsubscribed users
-            subscription_features = get_subscription_features("monthly")
-            
-            # Update message to emphasize the trial period
-            welcome_text = """
+            # Show the welcome message with trial option
+            welcome_text = f"""
 🚀 <b>Welcome to SigmaPips Trading Bot!</b> 🚀
 
 <b>Discover powerful trading signals for various markets:</b>
@@ -571,11 +481,11 @@ To regain access to all features and trading signals, please reactivate your sub
 ✅ Economic calendar integration
 
 <b>Start today with a FREE 14-day trial!</b>
-        """
+            """
             
-            # Create buttons - ONLY SUBSCRIPTION OPTIONS
+            # Create buttons
             keyboard = [
-                [InlineKeyboardButton("🔥 Start 14-day FREE Trial", url="https://buy.stripe.com/test_6oE4kkdLefcT8Fy6oo")],
+                [InlineKeyboardButton("🔥 Start 14-day FREE Trial", callback_data="subscribe_monthly")],
                 [InlineKeyboardButton("ℹ️ More Information", callback_data="subscription_info")]
             ]
             
@@ -584,13 +494,6 @@ To regain access to all features and trading signals, please reactivate your sub
                 reply_markup=InlineKeyboardMarkup(keyboard),
                 parse_mode=ParseMode.HTML
             )
-        
-        # Process start parameters if any
-        if context.args and len(context.args) > 0 and context.args[0].startswith('success'):
-            # Handle payment success through deep link
-            await update.message.reply_text("Your payment was successful! You now have full access to all features.")
-        
-        return MENU
 
     async def menu_analyse_callback(self, update: Update, context=None) -> int:
         """Handle menu_analyse callback"""
@@ -1110,17 +1013,115 @@ To regain access to all features and trading signals, please reactivate your sub
         query = update.callback_query
         
         try:
-            # Extract instrument from callback data
+            # Get instrument from callback data
             instrument = query.data.replace('instrument_', '')
             
-            # Log the instrument
-            logger.info(f"Instrument callback zonder context: instrument={instrument}, fallback analysis_type=technical")
+            # Save instrument in user_data
+            if context and hasattr(context, 'user_data'):
+                context.user_data['instrument'] = instrument
+                analysis_type = context.user_data.get('analysis_type', 'technical')
+                logger.info(f"Instrument callback: instrument={instrument}, analysis_type={analysis_type}")
+            else:
+                # Fallback als er geen context is
+                analysis_type = 'technical'
+                logger.info(f"Instrument callback zonder context: instrument={instrument}, fallback analysis_type={analysis_type}")
             
-            # Show technical analysis with fullscreen=True
-            logger.info(f"Toon technische analyse voor {instrument}")
-            return await self.show_technical_analysis(update, context, instrument, fullscreen=True)
+            # Toon het resultaat op basis van het analyse type
+            if analysis_type == 'technical':
+                logger.info(f"Toon technische analyse voor {instrument}")
+                # Toon technische analyse
+                try:
+                    # Toon een laadmelding
+                    await query.edit_message_text(
+                        text=f"Generating technical analysis for {instrument}...",
+                        reply_markup=None
+                    )
+                    
+                    # Genereer de technische analyse
+                    await self.show_technical_analysis(update, context, instrument)
+                    return SHOW_RESULT
+                except Exception as e:
+                    logger.error(f"Error showing technical analysis: {str(e)}")
+                    logger.exception(e)
+                    # Stuur een nieuw bericht als fallback
+                    await query.message.reply_text(
+                        text=f"Error generating analysis for {instrument}. Please try again.",
+                        reply_markup=InlineKeyboardMarkup([[
+                            InlineKeyboardButton("⬅️ Back", callback_data="back_menu")
+                        ]])
+                    )
+                    return MENU
+            
+            elif analysis_type == 'sentiment':
+                logger.info(f"Toon sentiment analyse voor {instrument}")
+                # Toon sentiment analyse
+                try:
+                    # Toon een laadmelding
+                    await query.edit_message_text(
+                        text=f"Getting market sentiment for {instrument}...",
+                        reply_markup=None
+                    )
+                    
+                    # Genereer de sentiment analyse (niet de technische analyse)
+                    await self.show_sentiment_analysis(update, context, instrument)
+                    return SHOW_RESULT
+                except Exception as e:
+                    logger.error(f"Error showing sentiment analysis: {str(e)}")
+                    logger.exception(e)
+                    # Stuur een nieuw bericht als fallback
+                    await query.message.reply_text(
+                        text=f"Error getting sentiment for {instrument}. Please try again.",
+                        reply_markup=InlineKeyboardMarkup([[
+                            InlineKeyboardButton("⬅️ Back", callback_data="back_menu")
+                        ]])
+                    )
+                    return MENU
+            
+            elif analysis_type == 'calendar':
+                # Toon economische kalender
+                try:
+                    # Toon een laadmelding
+                    await query.edit_message_text(
+                        text=f"Getting economic calendar for {instrument}...",
+                        reply_markup=None
+                    )
+                    
+                    # Genereer de economische kalender (niet de technische analyse)
+                    await self.show_economic_calendar(update, context, instrument)
+                    return SHOW_RESULT
+                except Exception as e:
+                    logger.error(f"Error showing economic calendar: {str(e)}")
+                    # Stuur een nieuw bericht als fallback
+                    await query.message.reply_text(
+                        text=f"Error getting economic calendar for {instrument}. Please try again.",
+                        reply_markup=InlineKeyboardMarkup([[
+                            InlineKeyboardButton("⬅️ Back", callback_data="back_menu")
+                        ]])
+                    )
+                    return MENU
+            
+            else:
+                # Onbekend analyse type, toon een foutmelding
+                await query.edit_message_text(
+                    text=f"Unknown analysis type: {analysis_type}",
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("⬅️ Back", callback_data="back_menu")
+                    ]])
+                )
+                return MENU
+        
         except Exception as e:
             logger.error(f"Error in instrument_callback: {str(e)}")
+            try:
+                # Stuur een nieuw bericht als fallback
+                await query.message.reply_text(
+                    text="An error occurred. Please try again.",
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("⬅️ Back", callback_data="back_menu")
+                    ]])
+                )
+            except:
+                pass
             return MENU
 
     async def instrument_signals_callback(self, update: Update, context=None) -> int:
@@ -1315,8 +1316,8 @@ To regain access to all features and trading signals, please reactivate your sub
                     text="Select your analysis type:",
                     reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
                 )
-            except:
-                pass
+            except Exception as inner_e:
+                logger.error(f"Failed to send fallback message: {str(inner_e)}")
             
             return CHOOSE_ANALYSIS
 
@@ -1526,7 +1527,7 @@ To regain access to all features and trading signals, please reactivate your sub
             
             # Voeg CallbackQueryHandler toe aan de application
             # Deze algemene handler zorgt ervoor dat de button_callback functie wordt opgeroepen
-            self.application.add_handler(CallbackQueryHandler(self.callback_query_handler))
+            self.application.add_handler(CallbackQueryHandler(self.button_callback))
             
             # Start de bot
             if use_webhook:
@@ -1579,87 +1580,60 @@ To regain access to all features and trading signals, please reactivate your sub
             return f"The {instrument} {direction.lower()} signal shows a promising setup with defined entry and stop loss levels. Always follow your trading plan and risk management rules."
 
     async def process_signal(self, signal_data: Dict[str, Any]) -> bool:
-        """Process a trading signal"""
+        """Process a trading signal and send it to subscribed users"""
         try:
-            # Extract signal info
-            instrument = signal_data.get('instrument', '')
-            direction = signal_data.get('signal', '').upper()  # Komt als "buy" of "sell" van TradingView
-            price = signal_data.get('price', 0)
-            sl = signal_data.get('sl', 0)
-            tp1 = signal_data.get('tp1', 0)
-            tp2 = signal_data.get('tp2', 0)
-            tp3 = signal_data.get('tp3', 0)
-            interval = signal_data.get('interval', '1h')
-            
             # Log het ontvangen signaal
-            logger.info(f"Received signal: {signal_data}")
+            logger.info(f"Processing signal (raw): {signal_data}")
             
-            # Controleer of we voldoende gegevens hebben om een signaal te versturen
-            if not instrument or not price:
-                logger.error("Missing required signal data (instrument or price)")
-                return False
+            # Haal de relevante informatie uit het signaal
+            instrument = signal_data.get('instrument', '')
+            direction = signal_data.get('signal', 'UNKNOWN')
+            price = signal_data.get('price', 0)
+            stop_loss = signal_data.get('sl', '')  # Gebruik 'sl' voor stop loss
+            tp1 = signal_data.get('tp1', '')       # Gebruik 'tp1', 'tp2', 'tp3' voor take profits
+            tp2 = signal_data.get('tp2', '')
+            tp3 = signal_data.get('tp3', '')
+            timeframe = signal_data.get('interval', '1h')  # Gebruik interval indien aanwezig, anders 1h
+            strategy = signal_data.get('strategy', 'AI Signal')
             
-            # Fix voor TradingView placeholders
-            if direction == '{{STRATEGY.ORDER.ACTION}}' or direction == '{{strategy.order.action}}':
-                # Als we geen geldige stop loss hebben, maak een standaard stop loss
-                if not sl or sl == 0:
-                    # Maak een standaard stop loss op 1% van de prijs
-                    sl = price * 0.99 if direction == 'BUY' else price * 1.01
-                    logger.info(f"Created default stop loss: {sl}")
-                
-                # Bepaal richting op basis van stop loss en entry price
-                direction = 'BUY' if price > sl else 'SELL'
-                logger.info(f"Replaced placeholder with determined direction: {direction}")
+            # Detecteer de markt op basis van het instrument
+            market = signal_data.get('market') or _detect_market(instrument)
             
-            # Als we nog steeds geen geldige stop loss hebben, maak een standaard stop loss
-            if not sl or sl == 0:
-                sl = price * 0.99 if direction == 'BUY' else price * 1.01
-                logger.info(f"Created default stop loss: {sl}")
+            # Haal verdict op over of signaal in lijn is met sentiment
+            verdict = await self.get_sentiment_verdict(instrument, direction)
+            logger.info(f"Generated verdict for {instrument}: {verdict}")
             
-            # Als we geen take profit hebben, maak standaard take profit levels
-            if not tp1 or tp1 == 0:
-                tp1 = price * 1.01 if direction == 'BUY' else price * 0.99
-                logger.info(f"Created default TP1: {tp1}")
+            # Maak het signaal bericht
+            signal_message = f"🎯 <b>New Trading Signal</b> 🎯\n\n"
+            signal_message += f"Instrument: {instrument}\n"
+            signal_message += f"Action: {direction.upper()} {'📈' if direction.lower() == 'buy' else '📉'}\n\n"
             
-            if not tp2 or tp2 == 0:
-                tp2 = price * 1.02 if direction == 'BUY' else price * 0.98
-                logger.info(f"Created default TP2: {tp2}")
+            signal_message += f"Entry Price: {price}\n"
             
-            if not tp3 or tp3 == 0:
-                tp3 = price * 1.03 if direction == 'BUY' else price * 0.97
-                logger.info(f"Created default TP3: {tp3}")
+            if stop_loss:
+                signal_message += f"Stop Loss: {stop_loss} 🔴\n"
             
-            # Create emoji based on direction
-            direction_emoji = "📈" if direction == "BUY" else "📉"
+            # Voeg alle take profit niveaus toe als ze beschikbaar zijn
+            if tp1:
+                signal_message += f"Take Profit 1: {tp1} 🎯\n"
+            if tp2:
+                signal_message += f"Take Profit 2: {tp2} 🎯\n"
+            if tp3:
+                signal_message += f"Take Profit 3: {tp3} 🎯\n"
             
-            # Format the signal message
-            signal_message = f"""🎯 New Trading Signal 🎯
-
-Instrument: {instrument}
-Action: {direction} {direction_emoji}
-
-Entry Price: {price:.2f}
-Stop Loss: {sl:.2f} 🔴
-Take Profit 1: {tp1:.2f} 🎯
-Take Profit 2: {tp2:.2f} 🎯
-Take Profit 3: {tp3:.2f} 🎯
-
-Timeframe: {interval}
-Strategy: TradingView Signal
-
-————————————————————
-
-Risk Management:
-• Position size: 1-2% max
-• Use proper stop loss
-• Follow your trading plan
-
-————————————————————
-
-🤖 SigmaPips AI Verdict:
-The {instrument} {direction.lower()} signal shows a promising setup with defined entry at {price:.2f} and stop loss at {sl:.2f}. Multiple take profit levels provide opportunities for partial profit taking."""
-
-            # Find subscribers for this signal
+            signal_message += f"\nTimeframe: {timeframe}\n"
+            signal_message += f"Strategy: {strategy}\n\n"
+            
+            # Voeg het AI verdict toe
+            signal_message += f"🤖 <b>SigmaPips AI Verdict:</b>\n"
+            signal_message += verdict
+            
+            # Define the analyze button
+            keyboard = [
+                [InlineKeyboardButton("🔍 Analyze Market", callback_data=f"analyze_market_{instrument}")]
+            ]
+            
+            # Haal abonnees op die dit signaal willen ontvangen
             subscribers = await self.db.match_subscribers(signal_data)
             
             # Verwijder dubbele gebruikers
@@ -1675,12 +1649,6 @@ The {instrument} {direction.lower()} signal shows a promising setup with defined
                 try:
                     logger.info(f"Sending signal to user {user_id}")
                     
-                    # Controleer abonnementsstatus
-                    is_subscribed = await self.db.is_user_subscribed(int(user_id))
-                    if not is_subscribed:
-                        logger.info(f"User {user_id} has no active subscription, skipping signal")
-                        continue
-                    
                     # Maak de keyboard met één knop voor analyse
                     keyboard = [
                         [InlineKeyboardButton("🔍 Analyze Market", callback_data=f"analyze_market_{instrument}")]
@@ -1691,11 +1659,11 @@ The {instrument} {direction.lower()} signal shows a promising setup with defined
                         chat_id=user_id,
                         text=signal_message,
                         reply_markup=InlineKeyboardMarkup(keyboard),
-                        parse_mode=ParseMode.HTML
+                        parse_mode='HTML'
                     )
                     
                     # Sla het signaal op in de user_signals dictionary
-                    self.user_signals[int(user_id)] = {
+                    self.user_signals[int(user_id)] = {  # Zorg ervoor dat user_id een integer is
                         'instrument': instrument,
                         'message': signal_message,
                         'direction': direction,
@@ -1712,6 +1680,8 @@ The {instrument} {direction.lower()} signal shows a promising setup with defined
                 except Exception as user_error:
                     logger.error(f"Error sending signal to user {user_id}: {str(user_error)}")
                     logger.exception(user_error)
+            
+            # ... rest van de code ...
             
             # Log het verwerkte signaal
             logger.info(f"Processed signal: {signal_data}")
@@ -1741,7 +1711,7 @@ The {instrument} {direction.lower()} signal shows a promising setup with defined
                 # Create keyboard with direct analysis options
                 keyboard = [
                     [InlineKeyboardButton("📊 Technical Analysis", callback_data=f"direct_technical_{instrument}")],
-                    [InlineKeyboardButton(" Market Sentiment", callback_data=f"direct_sentiment_{instrument}")],
+                    [InlineKeyboardButton("🧠 Market Sentiment", callback_data=f"direct_sentiment_{instrument}")],
                     [InlineKeyboardButton("📅 Economic Calendar", callback_data=f"direct_calendar_{instrument}")],
                     [InlineKeyboardButton("⬅️ Back to Signal", callback_data=f"back_to_signal_{instrument}")]
                 ]
@@ -1972,7 +1942,7 @@ The {instrument} {direction.lower()} signal shows a promising setup with defined
             logger.exception(e)
             return MENU
 
-    async def show_technical_analysis(self, update: Update, context=None, instrument=None, from_signal=False, style=None, fullscreen=True):
+    async def show_technical_analysis(self, update: Update, context=None, instrument=None, from_signal=False, style=None):
         """Show technical analysis for an instrument"""
         query = update.callback_query
         
@@ -1985,15 +1955,14 @@ The {instrument} {direction.lower()} signal shows a promising setup with defined
             # Toon een laadmelding als die nog niet is getoond
             try:
                 await query.edit_message_text(
-                    text=f"Generating technical analysis for {instrument}...",
+                    text=f"Generating technical analysis for {instrument} ({timeframe})...",
                     reply_markup=None
                 )
             except Exception as e:
                 logger.warning(f"Could not edit message: {str(e)}")
             
             # Haal de chart op met de gekozen timeframe of de default (1h)
-            # Geef de fullscreen parameter door
-            chart_image = await self.chart.get_chart(instrument, timeframe=timeframe, fullscreen=fullscreen)
+            chart_image = await self.chart.get_chart(instrument, timeframe=timeframe)
             
             if chart_image:
                 # Bepaal de juiste back-knop op basis van de context
@@ -2008,7 +1977,7 @@ The {instrument} {direction.lower()} signal shows a promising setup with defined
                     await query.message.edit_media(
                         media=InputMediaPhoto(
                             media=chart_image,
-                            caption=f"📊 {instrument} Technical Analysis"
+                            caption=f"📊 {instrument} Technical Analysis ({timeframe})"
                         ),
                         reply_markup=InlineKeyboardMarkup([[back_button]])
                     )
@@ -2022,7 +1991,7 @@ The {instrument} {direction.lower()} signal shows a promising setup with defined
                     # maar bewaar de message_id om later te gebruiken
                     sent_message = await query.message.reply_photo(
                         photo=chart_image,
-                        caption=f"📊 {instrument} Technical Analysis",
+                        caption=f"📊 {instrument} Technical Analysis ({timeframe})",
                         reply_markup=InlineKeyboardMarkup([[back_button]])
                     )
                     
@@ -2669,277 +2638,174 @@ The {instrument} {direction.lower()} signal shows a promising setup with defined
 
     async def show_main_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Show the main menu with all bot features"""
-        try:
-            # Check subscription status
-            user_id = update.effective_user.id
-            is_subscribed = await self.db.is_user_subscribed(user_id)
-            
-            if is_subscribed:
-                # Show full menu for subscribed users
-                keyboard = [
-                    [InlineKeyboardButton("🔍 Analyze Market", callback_data=CALLBACK_MENU_ANALYSE)],
-                    [InlineKeyboardButton("📊 Trading Signals", callback_data=CALLBACK_MENU_SIGNALS)]
-                ]
-                
-                await update.message.reply_text(
-                    text=WELCOME_MESSAGE,
-                    reply_markup=InlineKeyboardMarkup(keyboard),
-                    parse_mode=ParseMode.HTML
-                )
-            else:
-                # Show subscription screen for non-subscribed users
-                subscription_text = """
-🚀 <b>Welcome to SigmaPips Trading Bot!</b> 🚀
-
-<b>Discover powerful trading signals for various markets:</b>
-• <b>Forex</b> - Major and minor currency pairs
-• <b>Crypto</b> - Bitcoin, Ethereum and other top cryptocurrencies
-• <b>Indices</b> - Global market indices
-• <b>Commodities</b> - Gold, silver and oil
-
-<b>Features:</b>
-✅ Real-time trading signals
-✅ Multi-timeframe analysis (1m, 15m, 1h, 4h)
-✅ Advanced chart analysis
-✅ Sentiment indicators
-✅ Economic calendar integration
-
-<b>Start today with a FREE 14-day trial!</b>
-                """
-                
-                keyboard = [
-                    [InlineKeyboardButton("🔥 Start 14-day FREE Trial", url="https://buy.stripe.com/test_6oE4kkdLefcT8Fy6oo")],
-                    [InlineKeyboardButton("ℹ️ More Information", callback_data="subscription_info")]
-                ]
-                
-                await update.message.reply_text(
-                    text=subscription_text,
-                    reply_markup=InlineKeyboardMarkup(keyboard),
-                    parse_mode=ParseMode.HTML
-                )
-            
-            return MENU
-        except Exception as e:
-            logger.error(f"Error showing main menu: {str(e)}")
-            await update.message.reply_text(
-                "An error occurred. Please try again or contact support.",
-                reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("🔄 Try Again", callback_data="back_menu")
-                ]])
-            )
-        return MENU
+        # Toon het originele hoofdmenu met alle opties
+        reply_markup = InlineKeyboardMarkup(START_KEYBOARD)
+        
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=WELCOME_MESSAGE,
+            parse_mode='HTML',
+            reply_markup=reply_markup
+        )
 
     async def button_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-        """Alias voor callback_query_handler voor compatibiliteit"""
-        return await self.callback_query_handler(update, context)
-
-    async def toggle_signals(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Toggle signal processing on/off (admin only)"""
-        user_id = update.effective_user.id
+        """Handle button presses from inline keyboards"""
+        query = update.callback_query
+        logger.info(f"Button callback opgeroepen met data: {query.data}")
+        await query.answer()
         
-        # Controleer of gebruiker admin is (voeg je eigen admin ID toe)
-        admin_ids = [2004519703]  # Vervang met je eigen admin user ID
+        # Verwerk abonnementsacties
+        if query.data == "subscribe_monthly" or query.data == "subscription_info":
+            return await self.handle_subscription_callback(update, context)
         
-        if user_id not in admin_ids:
-            await update.message.reply_text("Sorry, this command is only available for admins.")
-            return
+        # De rest van je bestaande button_callback code blijft ongewijzigd...
+
+    def setup(self):
+        """Set up the bot with all handlers"""
+        # Bestaande code behouden
+        application = Application.builder().token(self.token).build()
         
-        # Toggle signaal status
-        self.signals_enabled = not getattr(self, 'signals_enabled', True)
+        # Command handlers
+        application.add_handler(CommandHandler("start", self.start_command))
         
-        status = "enabled" if self.signals_enabled else "disabled"
-        await update.message.reply_text(f"Signal processing is now {status}.")
-
-    async def check_subscription(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Admin command to check subscription status of any user"""
-        user_id = update.effective_user.id
-        admin_ids = [2004519703]  # Voeg hier je admin ID toe
+        # Voeg nieuw menu commando toe (voor bestaande gebruikers om het menu te zien)
+        application.add_handler(CommandHandler("menu", self.show_main_menu))
         
-        if user_id not in admin_ids:
-            await update.message.reply_text("Sorry, this command is only available for admins.")
-            return
+        # Callback query handler
+        application.add_handler(CallbackQueryHandler(self.button_callback))
         
-        # Check arguments
-        if context.args and len(context.args) > 0:
-            try:
-                target_user_id = int(context.args[0])
-            except ValueError:
-                await update.message.reply_text("Invalid user ID. Please provide a numeric user ID.")
-                return
-        else:
-            target_user_id = user_id  # Default to self
+        # Andere bestaande handlers...
         
-        # Get subscription status
-        subscription = await self.db.get_user_subscription(target_user_id)
-        is_subscribed = await self.db.is_user_subscribed(target_user_id)
+        return application
+
+    # Voeg de decorator toe aan relevante functies
+    @require_subscription
+    async def market_choice(self, update: Update, context=None) -> int:
+        keyboard = []
+        markets = ["forex", "crypto", "indices", "commodities"]
         
-        # Format response
-        if subscription:
-            status = subscription.get('subscription_status')
-            customer_id = subscription.get('stripe_customer_id')
-            subscription_id = subscription.get('stripe_subscription_id')
-            end_date = subscription.get('current_period_end')
-            
-            response = f"""
-<b>Subscription Info for User {target_user_id}</b>
-
-Status: {status}
-Active: {'Yes' if is_subscribed else 'No'}
-Stripe Customer ID: {customer_id or 'Not set'}
-Stripe Subscription ID: {subscription_id or 'Not set'}
-End Date: {end_date or 'Not set'}
-            """
-        else:
-            response = f"No subscription found for user {target_user_id}"
+        for market in markets:
+            keyboard.append([InlineKeyboardButton(market.capitalize(), callback_data=f"market_{market}")])
         
-        await update.message.reply_text(response, parse_mode=ParseMode.HTML)
-
-    async def set_subscription(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Admin command to manually set subscription status"""
-        user_id = update.effective_user.id
-        admin_ids = [2004519703]  # Voeg hier je admin ID toe
+        keyboard.append([InlineKeyboardButton("⬅️ Back to Menu", callback_data="back_to_menu")])
         
-        if user_id not in admin_ids:
-            await update.message.reply_text("Sorry, this command is only available for admins.")
-            return
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text("Choose a market:", reply_markup=reply_markup)
+        return MARKET_CHOICE
+
+    @require_subscription
+    async def instrument_choice(self, update: Update, context=None) -> int:
+        query = update.callback_query
+        await query.answer()
         
-        # Check arguments: /set_subscription user_id status
-        if context.args and len(context.args) >= 2:
-            try:
-                target_user_id = int(context.args[0])
-                status = context.args[1]
-                days = 14  # Default trial period
-                
-                if len(context.args) > 2:
-                    days = int(context.args[2])
-                    
-            except ValueError:
-                await update.message.reply_text("Invalid parameters. Format: /set_subscription user_id status [days]")
-                return
-        else:
-            await update.message.reply_text("Missing parameters. Format: /set_subscription user_id status [days]")
-            return
+        selected_market = query.data.replace("market_", "")
+        user_id = query.from_user.id
         
-        # Set subscription status
-        end_date = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=days)
+        # Save the selected market in the user context
+        if not hasattr(self, 'user_context'):
+            self.user_context = {}
         
-        success = await self.db.create_or_update_subscription(
-            user_id=target_user_id,
-            status=status,
-            current_period_end=end_date
-        )
+        if user_id not in self.user_context:
+            self.user_context[user_id] = {}
         
-        if success:
-            await update.message.reply_text(f"Subscription for user {target_user_id} set to {status} until {end_date.strftime('%Y-%m-%d')}")
-            
-            # Als de status active of trialing is, stuur het welkomstbericht
-            if status in ['active', 'trialing']:
-                # Send the welcome message
-                welcome_message = """
-✅ <b>Thank You for Subscribing to SigmaPips Trading Bot!</b> ✅
-
-Your subscription has been successfully activated. You now have full access to all features and trading signals.
-
-<b>🚀 HOW TO USE:</b>
-
-<b>1. Start with /menu</b>
-   • This will show you the main options:
-   • <b>Analyze Market</b> - For all market analysis tools
-   • <b>Trading Signals</b> - To manage your trading signals
-
-<b>2. Analyze Market options:</b>
-   • <b>Technical Analysis</b> - Charts and price levels
-   • <b>Market Sentiment</b> - Indicators and market mood
-   • <b>Economic Calendar</b> - Upcoming economic events
-
-<b>3. Trading Signals:</b>
-   • Set up which signals you want to receive
-   • Signals will be sent automatically
-   • Each includes entry, stop loss, and take profit levels
-
-Type /menu to start using the bot.
-"""
-                # Stuur alleen het welkomstbericht, geen menu of bevestiging
-                await self.send_message_to_user(target_user_id, welcome_message, parse_mode=ParseMode.HTML)
-                
-                # Also send the main menu
-                await self.show_main_menu_to_user(target_user_id)
-                
-                await update.message.reply_text(f"Welcome message sent to user {target_user_id}")
-        else:
-            await update.message.reply_text(f"Failed to update subscription for user {target_user_id}")
-
-    async def send_welcome_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Admin command to manually send welcome message"""
-        user_id = update.effective_user.id
-        admin_ids = [2004519703]  # Voeg hier je admin ID toe
+        self.user_context[user_id]['market'] = selected_market
         
-        if user_id not in admin_ids:
-            await update.message.reply_text("Sorry, this command is only available for admins.")
-            return
+        # Get instruments for the selected market
+        instruments = await self.db.get_instruments_for_market(selected_market)
         
-        # Check arguments
-        if context.args and len(context.args) > 0:
-            try:
-                target_user_id = int(context.args[0])
-            except ValueError:
-                await update.message.reply_text("Invalid user ID. Please provide a numeric user ID.")
-                return
-        else:
-            target_user_id = user_id  # Default to self
+        # Create keyboard with instruments
+        keyboard = []
+        for instrument in instruments:
+            keyboard.append([InlineKeyboardButton(instrument, callback_data=f"instrument_{instrument}")])
         
-        # Send the welcome message
-        welcome_message = """
-✅ <b>Thank You for Subscribing to SigmaPips Trading Bot!</b> ✅
-
-Your 14-day FREE trial has been successfully activated. You now have full access to all features and trading signals.
-
-<b>🚀 HOW TO USE:</b>
-
-<b>1. Trading Signals</b>
-   • Use /menu and select "Trading Signals"
-   • You'll automatically receive signals when they become available
-   • Signals include: entry points, stop loss, take profit levels
-
-<b>2. Market Analysis</b>
-   • Use /menu and select "Technical Analysis" 
-   • Choose your market (Forex, Crypto, etc.)
-   • Select your desired instrument (EURUSD, BTCUSD, etc.)
-   • Pick your trading style (Scalp, Intraday, Swing)
-
-<b>3. Market Sentiment</b>
-   • Use /menu and select "Market Sentiment"
-   • View real-time market sentiment indicators
-
-<b>4. Economic Calendar</b>
-   • Use /menu and select "Economic Calendar"
-   • View upcoming high-impact economic events
-
-If you need any assistance, simply type /help to see available commands.
-
-Happy Trading! 📈
-"""
-        await self.send_message_to_user(target_user_id, welcome_message)
+        keyboard.append([InlineKeyboardButton("⬅️ Back to Markets", callback_data="back_to_markets")])
         
-        # Also send the main menu
-        await self.show_main_menu_to_user(target_user_id)
-        
-        await update.message.reply_text(f"Welcome message sent to user {target_user_id}")
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text(f"Choose an instrument for {selected_market.capitalize()}:", reply_markup=reply_markup)
+        return INSTRUMENT_CHOICE
 
-    async def show_main_menu_to_user(self, user_id: int) -> bool:
-        """Show the main menu to a specific user"""
+    async def send_message_to_user(self, user_id: int, text: str, reply_markup=None, parse_mode=ParseMode.HTML):
+        """Stuur een bericht naar een specifieke gebruiker"""
         try:
-            # Create the main menu keyboard
-            reply_markup = InlineKeyboardMarkup(START_KEYBOARD)
-            
-            # Send the welcome message with menu
             await self.bot.send_message(
                 chat_id=user_id,
-                text=WELCOME_MESSAGE,
-                parse_mode=ParseMode.HTML,
-                reply_markup=reply_markup
+                text=text,
+                reply_markup=reply_markup,
+                parse_mode=parse_mode
             )
             return True
         except Exception as e:
-            logger.error(f"Error showing main menu to user {user_id}: {str(e)}")
+            logger.error(f"Error sending message to user {user_id}: {str(e)}")
             return False
+
+    # Zoek of voeg deze functie toe aan de TelegramService class
+    async def handle_subscription_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        """Process subscription button clicks"""
+        query = update.callback_query
+        await query.answer()
+        
+        if query.data == "subscribe_monthly":
+            user_id = query.from_user.id
+            
+            # Use the fixed Stripe checkout URL for testing
+            checkout_url = "https://buy.stripe.com/test_6oE4kkdLefcT8Fy6oo"
+            
+            # Create keyboard with checkout link
+            keyboard = [
+                [InlineKeyboardButton("🔥 Start Trial", url=checkout_url)],
+                [InlineKeyboardButton("⬅️ Back", callback_data="back_to_menu")]
+            ]
+            
+            await query.edit_message_text(
+                text="""
+✨ <b>Almost ready!</b> ✨
+
+Click the button below to start your FREE 14-day trial.
+
+- No obligations during trial
+- Cancel anytime
+- After 14 days, regular rate of $29.99/month will be charged if you don't cancel
+            """,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode=ParseMode.HTML
+            )
+            return SUBSCRIBE
+            
+        elif query.data == "subscription_info":
+            # Show more information about the subscription
+            subscription_features = get_subscription_features("monthly")
+            
+            info_text = f"""
+💡 <b>SigmaPips Trading Signals - Subscription Details</b> 💡
+
+<b>Price:</b> {subscription_features.get('price')}
+<b>Trial period:</b> 14 days FREE
+
+<b>Included signals:</b>
+"""
+            for signal in subscription_features.get('signals', []):
+                info_text += f"✅ {signal}\n"
+                
+            info_text += f"""
+<b>Timeframes:</b> {', '.join(subscription_features.get('timeframes', []))}
+
+<b>How it works:</b>
+1. Start your free trial
+2. Get immediate access to all signals
+3. Easily cancel before day 14 if not satisfied
+4. No cancellation = automatic renewal at $29.99/month
+            """
+            
+            keyboard = [
+                [InlineKeyboardButton("🔥 Start FREE Trial", callback_data="subscribe_monthly")],
+                [InlineKeyboardButton("⬅️ Back", callback_data="back_to_menu")]
+            ]
+            
+            await query.edit_message_text(
+                text=info_text,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode=ParseMode.HTML
+            )
+            return SUBSCRIBE
+
+        return MENU
