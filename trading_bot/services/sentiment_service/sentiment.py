@@ -41,9 +41,17 @@ class MarketSentimentService:
             logger.info(f"Getting market sentiment for {instrument} ({market})")
             
             if self.use_mock:
+                sentiment_score = 0.5
+                bullish_percentage = int(sentiment_score * 100)
                 return {
                     'overall_sentiment': 'neutral',
-                    'sentiment_score': 0.5,
+                    'sentiment_score': sentiment_score,
+                    'bullish_percentage': bullish_percentage,
+                    'trend_strength': 'Moderate',
+                    'volatility': 'Moderate',
+                    'support_level': 'See analysis for details',
+                    'resistance_level': 'See analysis for details',
+                    'recommendation': 'See analysis for detailed trading recommendations',
                     'analysis': self._get_mock_sentiment(instrument),
                     'source': 'mock_data'
                 }
@@ -111,9 +119,26 @@ class MarketSentimentService:
                         elif 'bearish' in content.lower():
                             sentiment_score = 0.3
                         
+                        # Convert sentiment score to bullish percentage
+                        bullish_percentage = int(sentiment_score * 100)
+                        
+                        # Extract trend and volatility from content
+                        trend_strength = 'Strong' if abs(sentiment_score - 0.5) > 0.3 else 'Moderate' if abs(sentiment_score - 0.5) > 0.1 else 'Weak'
+                        volatility = 'High' if 'volatil' in content.lower() else 'Moderate'
+                        
+                        # Extract support and resistance levels
+                        support_level = 'Current market level' if 'support' not in content.lower() else 'See analysis for details'
+                        resistance_level = 'Current market level' if 'resistance' not in content.lower() else 'See analysis for details'
+                        
                         return {
                             'overall_sentiment': 'bullish' if sentiment_score > 0.6 else 'bearish' if sentiment_score < 0.4 else 'neutral',
                             'sentiment_score': sentiment_score,
+                            'bullish_percentage': bullish_percentage,
+                            'trend_strength': trend_strength,
+                            'volatility': volatility,
+                            'support_level': support_level,
+                            'resistance_level': resistance_level,
+                            'recommendation': 'See analysis for detailed trading recommendations',
                             'analysis': content,
                             'source': 'deepseek'
                         }
@@ -123,6 +148,12 @@ class MarketSentimentService:
                         return {
                             'overall_sentiment': 'neutral',
                             'sentiment_score': 0.5,
+                            'bullish_percentage': 50,
+                            'trend_strength': 'Weak',
+                            'volatility': 'Moderate',
+                            'support_level': 'See analysis for details',
+                            'resistance_level': 'See analysis for details',
+                            'recommendation': 'See analysis for detailed trading recommendations',
                             'analysis': fallback,
                             'source': 'fallback'
                         }
@@ -133,6 +164,12 @@ class MarketSentimentService:
             return {
                 'overall_sentiment': 'neutral',
                 'sentiment_score': 0.5,
+                'bullish_percentage': 50,
+                'trend_strength': 'Weak',
+                'volatility': 'Moderate',
+                'support_level': 'See analysis for details',
+                'resistance_level': 'See analysis for details',
+                'recommendation': 'See analysis for detailed trading recommendations',
                 'analysis': fallback,
                 'source': 'error_fallback'
             }
