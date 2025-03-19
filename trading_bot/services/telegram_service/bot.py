@@ -834,7 +834,19 @@ To regain access to all features and trading signals, please reactivate your sub
                 ],
                 [
                     InlineKeyboardButton("USDJPY", callback_data="direct_sentiment_USDJPY"),
-                    InlineKeyboardButton("XAUUSD", callback_data="direct_sentiment_XAUUSD")
+                    InlineKeyboardButton("USDCHF", callback_data="direct_sentiment_USDCHF")
+                ],
+                [
+                    InlineKeyboardButton("AUDUSD", callback_data="direct_sentiment_AUDUSD"),
+                    InlineKeyboardButton("USDCAD", callback_data="direct_sentiment_USDCAD")
+                ],
+                [
+                    InlineKeyboardButton("EURGBP", callback_data="direct_sentiment_EURGBP"),
+                    InlineKeyboardButton("EURJPY", callback_data="direct_sentiment_EURJPY")
+                ],
+                [
+                    InlineKeyboardButton("XAUUSD", callback_data="direct_sentiment_XAUUSD"),
+                    InlineKeyboardButton("XAGUSD", callback_data="direct_sentiment_XAGUSD")
                 ],
                 [InlineKeyboardButton("⬅️ Back to Analysis", callback_data="back_to_analysis")]
             ]
@@ -2622,6 +2634,9 @@ The {instrument} {direction.lower()} signal shows a promising setup with defined
         
         try:
             # Beantwoord de callback query om de "wachtende" status te verwijderen
+            await query.answer()
+            
+            # Answer callback query immediately to prevent timeout
             await query.answer()
             
             # Extract instrument from callback data
