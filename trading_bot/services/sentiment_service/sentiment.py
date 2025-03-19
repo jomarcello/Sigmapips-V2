@@ -12,7 +12,7 @@ class MarketSentimentService:
     def __init__(self):
         """Initialize the market sentiment service"""
         self.api_key = os.getenv("DEEPSEEK_API_KEY")
-        self.api_url = "https://api.deepseek.com/v1/chat/completions"
+        self.api_url = "https://api.deepseek.ai/v1/chat/completions"
         self.headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json"
