@@ -23,7 +23,7 @@ class MarketSentimentService:
         if self.use_mock:
             logger.warning("No DeepSeek API key found, using mock data")
     
-    async def get_market_sentiment(self, instrument_or_signal) -> str:
+    async def get_market_sentiment(self, instrument_or_signal) -> Dict[str, Any]:
         """Get market sentiment analysis"""
         try:
             # Handle both string and dictionary input
@@ -41,7 +41,12 @@ class MarketSentimentService:
             logger.info(f"Getting market sentiment for {instrument} ({market})")
             
             if self.use_mock:
-                return self._get_mock_sentiment(instrument)
+                return {
+                    'overall_sentiment': 'neutral',
+                    'sentiment_score': 0.5,
+                    'analysis': self._get_mock_sentiment(instrument),
+                    'source': 'mock_data'
+                }
             
             # Create prompt for DeepSeek
             prompt = f"""Analyze the current market sentiment and latest news for {instrument}. Include both technical analysis and fundamental factors.
@@ -98,16 +103,39 @@ class MarketSentimentService:
                 async with session.post(self.api_url, json=payload, headers=self.headers) as response:
                     if response.status == 200:
                         data = await response.json()
-                        return data['choices'][0]['message']['content']
+                        content = data['choices'][0]['message']['content']
+                        # Determine sentiment from content
+                        sentiment_score = 0.5  # Default neutral
+                        if 'bullish' in content.lower():
+                            sentiment_score = 0.7
+                        elif 'bearish' in content.lower():
+                            sentiment_score = 0.3
+                        
+                        return {
+                            'overall_sentiment': 'bullish' if sentiment_score > 0.6 else 'bearish' if sentiment_score < 0.4 else 'neutral',
+                            'sentiment_score': sentiment_score,
+                            'analysis': content,
+                            'source': 'deepseek'
+                        }
                     else:
                         logger.error(f"DeepSeek API error: {response.status}")
-                        return self._get_fallback_sentiment(signal)
+                        fallback = self._get_fallback_sentiment(signal)
+                        return {
+                            'overall_sentiment': 'neutral',
+                            'sentiment_score': 0.5,
+                            'analysis': fallback,
+                            'source': 'fallback'
+                        }
         
         except Exception as e:
             logger.error(f"Error getting sentiment: {str(e)}")
-            if isinstance(instrument_or_signal, str):
-                return self._get_fallback_sentiment({'instrument': instrument_or_signal})
-            return self._get_fallback_sentiment(instrument_or_signal)
+            fallback = self._get_fallback_sentiment(instrument_or_signal if isinstance(instrument_or_signal, dict) else {'instrument': instrument_or_signal})
+            return {
+                'overall_sentiment': 'neutral',
+                'sentiment_score': 0.5,
+                'analysis': fallback,
+                'source': 'error_fallback'
+            }
     
     def _guess_market_from_instrument(self, instrument: str) -> str:
         """Guess market type from instrument symbol"""
@@ -154,4 +182,4 @@ The market is showing neutral sentiment with mixed signals. Current price action
 • Risk Management: Use proper position sizing and tight stops
 
 <b>Conclusion:</b>
-Maintain cautious approach until market direction becomes clearer.""" 
+Maintain cautious approach until market direction becomes clearer."""
