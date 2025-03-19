@@ -1,3 +1,1 @@
-from .bot import TelegramService
-
-__all__ = ['TelegramService']
+from .telegram_service.bot import TelegramService
