@@ -12,7 +12,7 @@ class EconomicCalendarService:
         """Initialize calendar service"""
         # Get API key from environment variable or use fallback
         self.api_key = os.getenv("DEEPSEEK_API_KEY", "your-deepseek-api-key")
-        self.api_url = "https://api.deepseek.com/v1/chat/completions"
+        self.api_url = "https://api.deepseek.ai/v1/chat/completions"
         self.headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json"
