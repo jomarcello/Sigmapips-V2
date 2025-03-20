@@ -1,5 +1,6 @@
 import random
-from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton, ParseMode
+from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
+from telegram.constants import ParseMode
 from telegram.ext import CallbackContext
 from trading_bot.services.telegram_service.states import SHOW_RESULT, MENU
 from trading_bot.services.telegram_service.logger import logger
