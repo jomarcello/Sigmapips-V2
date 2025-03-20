@@ -88,7 +88,7 @@ class MarketSentimentService:
 Provide factual, data-driven analysis with specific numbers and dates."""
 
             perplexity_payload = {
-                "model": "sonar-medium-online",
+                "model": "sonar-medium-chat",
                 "messages": [{
                     "role": "system",
                     "content": "You are a professional market analyst. Provide factual, data-driven analysis with specific numbers, levels and recent events."
@@ -96,29 +96,46 @@ Provide factual, data-driven analysis with specific numbers and dates."""
                     "role": "user",
                     "content": perplexity_prompt
                 }],
-                "temperature": 0.1
+                "temperature": 0.1,
+                "max_tokens": 2048
             }
 
             market_data = ""
             async with aiohttp.ClientSession() as session:
-                async with session.post(self.perplexity_url, json=perplexity_payload, headers=self.perplexity_headers) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        market_data = data['choices'][0]['message']['content']
-                    else:
-                        logger.error(f"Perplexity API error: {response.status}")
-                        return {
-                            'overall_sentiment': 'neutral',
-                            'sentiment_score': 0.5,
-                            'bullish_percentage': 50,
-                            'trend_strength': 'Weak',
-                            'volatility': 'Moderate',
-                            'support_level': 'See analysis for details',
-                            'resistance_level': 'See analysis for details',
-                            'recommendation': 'See analysis for detailed trading recommendations',
-                            'analysis': self._get_fallback_sentiment(signal),
-                            'source': 'perplexity_error_fallback'
-                        }
+                try:
+                    async with session.post(self.perplexity_url, json=perplexity_payload, headers=self.perplexity_headers) as response:
+                        if response.status == 200:
+                            data = await response.json()
+                            market_data = data['choices'][0]['message']['content']
+                        else:
+                            error_data = await response.text()
+                            logger.error(f"Perplexity API error {response.status}: {error_data}")
+                            return {
+                                'overall_sentiment': 'neutral',
+                                'sentiment_score': 0.5,
+                                'bullish_percentage': 50,
+                                'trend_strength': 'Moderate',
+                                'volatility': 'Moderate',
+                                'support_level': 'See analysis for details',
+                                'resistance_level': 'See analysis for details',
+                                'recommendation': 'Wait for clearer market signals',
+                                'analysis': self._get_mock_sentiment(instrument),
+                                'source': 'perplexity_error_fallback'
+                            }
+                except Exception as e:
+                    logger.error(f"Error calling Perplexity API: {str(e)}")
+                    return {
+                        'overall_sentiment': 'neutral',
+                        'sentiment_score': 0.5,
+                        'bullish_percentage': 50,
+                        'trend_strength': 'Moderate',
+                        'volatility': 'Moderate',
+                        'support_level': 'See analysis for details',
+                        'resistance_level': 'See analysis for details',
+                        'recommendation': 'Wait for clearer market signals',
+                        'analysis': self._get_mock_sentiment(instrument),
+                        'source': 'perplexity_error_fallback'
+                    }
 
             # Then format with DeepSeek
             deepseek_prompt = f"""Using the following market data, create a structured market analysis for {instrument}:
