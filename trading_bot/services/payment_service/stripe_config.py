@@ -21,7 +21,8 @@ SUBSCRIPTION_FEATURES = {
         "trial_days": 14,
         "signals": ["Forex", "Crypto", "Commodities", "Indices"],
         "analysis": True,
-        "timeframes": ["1m", "15m", "1h", "4h"]
+        "timeframes": ["1m", "15m", "1h", "4h"],
+        "payment_link": "https://buy.stripe.com/3cs3eF9Hu9256NW9AA"  # Nieuwe subscriptions
     }
 }
 
