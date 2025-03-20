@@ -172,6 +172,14 @@ class StripeService:
     async def handle_payment_failed(self, event_data: Dict[str, Any]) -> bool:
         """Verwerk een payment_intent.payment_failed of invoice.payment_failed event"""
         try:
+            # Voeg meer robuuste error handling toe
+            if not event_data or not event_data.get('customer'):
+                logger.error("Invalid payment failed event data")
+                return False
+            
+            # Voeg meer logging toe voor productie debugging
+            logger.error(f"Payment failed for customer {event_data['customer']}: {event_data.get('failure_message')}")
+            
             # Haal de klant-ID op
             customer_id = event_data.get('customer')
             if not customer_id:
@@ -202,7 +210,7 @@ We were unable to process your payment and your subscription is now inactive.
 
 To continue using SigmaPips Trading Bot, please update your payment method:
 
-<b>👉 <a href="https://buy.stripe.com/test_5kA4kkcHa2q73le6op">Click Here to Reactivate Your Subscription</a></b>
+<b>👉 <a href="https://sigmapips-v2-production.up.railway.app/reactivate-subscription">Click Here to Reactivate Your Subscription</a></b>
 
 Need help? Type /help for assistance.
 """
