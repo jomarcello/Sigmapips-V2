@@ -4,13 +4,13 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# Stripe API configuration
-stripe.api_key = os.getenv("STRIPE_LIVE_SECRET_KEY", "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")  # Live secret key
-STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_LIVE_WEBHOOK_SECRET", "whsec_S2YNWS0GYZGDVoCEy0B94vvhqGaOmKoR")  # Live webhook secret
+# Stripe API configuratie
+stripe.api_key = os.getenv("STRIPE_LIVE_SECRET_KEY")
+STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_LIVE_WEBHOOK_SECRET")
 
-# Constants for Stripe products and prices
+# Constants voor Stripe producten en prijzen
 SUBSCRIPTION_PRICES = {
-    "monthly": os.getenv("STRIPE_LIVE_PRICE_ID", "price_1R2RNYFKZxUuVABSpzqFQPrD"),  # Live price ID
+    "monthly": os.getenv("STRIPE_LIVE_PRICE_ID"),
 }
 
 # Product features for the subscription
