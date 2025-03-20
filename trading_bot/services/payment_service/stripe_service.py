@@ -210,7 +210,7 @@ We were unable to process your payment and your subscription is now inactive.
 
 To continue using SigmaPips Trading Bot, please update your payment method:
 
-<b>👉 <a href="https://sigmapips-v2-production.up.railway.app/reactivate-subscription">Click Here to Reactivate Your Subscription</a></b>
+<b>👉 <a href="https://buy.stripe.com/9AQcPf3j63HL5JS145">Click Here to Reactivate Your Subscription</a></b>
 
 Need help? Type /help for assistance.
 """
