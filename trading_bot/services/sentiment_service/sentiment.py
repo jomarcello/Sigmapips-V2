@@ -107,7 +107,18 @@ Provide factual, data-driven analysis with specific numbers and dates."""
                         market_data = data['choices'][0]['message']['content']
                     else:
                         logger.error(f"Perplexity API error: {response.status}")
-                        return self._get_fallback_sentiment(signal)
+                        return {
+                            'overall_sentiment': 'neutral',
+                            'sentiment_score': 0.5,
+                            'bullish_percentage': 50,
+                            'trend_strength': 'Weak',
+                            'volatility': 'Moderate',
+                            'support_level': 'See analysis for details',
+                            'resistance_level': 'See analysis for details',
+                            'recommendation': 'See analysis for detailed trading recommendations',
+                            'analysis': self._get_fallback_sentiment(signal),
+                            'source': 'perplexity_error_fallback'
+                        }
 
             # Then format with DeepSeek
             deepseek_prompt = f"""Using the following market data, create a structured market analysis for {instrument}:
@@ -238,12 +249,13 @@ Format the analysis as follows:
         else:
             return 'forex'  # Default to forex
     
-    def _get_mock_sentiment(self, instrument: str) -> str:
+    def _get_mock_sentiment(self, instrument: str) -> Dict[str, Any]:
         """Generate mock sentiment data for testing"""
         market = self._guess_market_from_instrument(instrument)
         sentiment_score = random.uniform(0.3, 0.7)
         trend = 'upward' if sentiment_score > 0.5 else 'downward'
         volatility = random.choice(['high', 'moderate', 'low'])
+        bullish_percentage = int(sentiment_score * 100)
         
         analysis = f"""<b>{instrument} Market Analysis</b>
 
@@ -260,12 +272,23 @@ The {instrument} is showing a {trend} trend with {volatility} volatility. Price 
 
 Remember to always use proper risk management and follow your trading plan."""
         
-        return analysis
+        return {
+            'overall_sentiment': 'bullish' if sentiment_score > 0.6 else 'bearish' if sentiment_score < 0.4 else 'neutral',
+            'sentiment_score': round(sentiment_score, 2),
+            'bullish_percentage': bullish_percentage,
+            'trend_strength': 'Strong' if abs(sentiment_score - 0.5) > 0.3 else 'Moderate' if abs(sentiment_score - 0.5) > 0.1 else 'Weak',
+            'volatility': volatility.capitalize(),
+            'support_level': 'See analysis for details',
+            'resistance_level': 'See analysis for details',
+            'recommendation': 'Consider long positions' if sentiment_score > 0.6 else 'Watch for shorts' if sentiment_score < 0.4 else 'Wait for signals',
+            'analysis': analysis,
+            'source': 'mock_data'
+        }
     
-    def _get_fallback_sentiment(self, signal: Dict[str, Any]) -> str:
+    def _get_fallback_sentiment(self, signal: Dict[str, Any]) -> Dict[str, Any]:
         """Fallback sentiment analysis"""
         symbol = signal.get('instrument', 'Unknown')
-        return f"""<b>{symbol} Market Analysis</b>
+        analysis = f"""<b>{symbol} Market Analysis</b>
 
 <b>Market Direction:</b>
 The market is showing neutral sentiment with mixed signals. Current price action suggests a consolidation phase.
@@ -279,15 +302,17 @@ The market is showing neutral sentiment with mixed signals. Current price action
   - Psychological level
 
 <b>Risk Factors:</b>
-• Market Volatility: Increased uncertainty in current conditions
-• Technical Signals: Mixed indicators showing conflicting signals
-• Data Availability: Limited market data affecting analysis
-• External Factors: General market conditions remain uncertain
+• Market Volatility: Increased uncertainty in current conditions"""
 
-<b>Trading Strategy:</b>
-• Short Term: Wait for clearer signals before entering positions
-• Long Term: Monitor key levels for potential trend changes
-• Risk Management: Use proper position sizing and tight stops
-
-<b>Conclusion:</b>
-Maintain cautious approach until market direction becomes clearer."""
+        return {
+            'overall_sentiment': 'neutral',
+            'sentiment_score': 0.5,
+            'bullish_percentage': 50,
+            'trend_strength': 'Weak',
+            'volatility': 'Moderate',
+            'support_level': 'See analysis for details',
+            'resistance_level': 'See analysis for details',
+            'recommendation': 'Wait for clearer market signals',
+            'analysis': analysis,
+            'source': 'fallback'
+        }
