@@ -1,5 +1,5 @@
 # Core packages
-python-telegram-bot==20.6
+python-telegram-bot==20.3
 aiohttp==3.8.5
 python-dotenv==1.0.0
 fastapi==0.105.0
@@ -36,6 +36,3 @@ lxml==4.9.3
 # Vector database
 pinecone-client
 requests
-
-# Payments
-stripe>=5.0.0
