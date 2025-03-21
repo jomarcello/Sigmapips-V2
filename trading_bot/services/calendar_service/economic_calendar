@@ -1,0 +1,269 @@
+import os
+import logging
+import time
+from datetime import datetime, timedelta
+from typing import List, Dict, Any, Optional
+
+logger = logging.getLogger(__name__)
+
+class EconomicCalendarService:
+    def __init__(self):
+        """Initialize Economic Calendar Service"""
+        self.cache = {}
+        self.cache_ttl = 3600  # 1 hour cache TTL (in seconds)
+        self.last_updated = 0
+        self.calendar_data = None
+        logger.info("EconomicCalendarService initialized")
+
+    async def get_economic_calendar(self) -> str:
+        """Get economic calendar for next 7 days"""
+        try:
+            current_time = time.time()
+            
+            # Check if we need to refresh the data
+            if not self.calendar_data or (current_time - self.last_updated > self.cache_ttl):
+                # Fetch data from external API
+                calendar_data = await self._fetch_economic_calendar()
+                self.calendar_data = calendar_data
+                self.last_updated = current_time
+                logger.info("Economic calendar data refreshed")
+            else:
+                logger.info("Using cached economic calendar data")
+            
+            # Format the calendar data into a nice HTML message
+            return self._format_calendar_data(self.calendar_data)
+        except Exception as e:
+            logger.error(f"Error getting economic calendar: {str(e)}")
+            return self._get_fallback_calendar()
+            
+    async def get_instrument_calendar(self, instrument: str) -> str:
+        """Get economic calendar events related to a specific instrument"""
+        try:
+            # First, get the full calendar
+            if not self.calendar_data:
+                await self.get_economic_calendar()
+            
+            # Determine which currency/asset to look for based on the instrument
+            currencies = self._extract_currencies_from_instrument(instrument)
+            
+            # Format the header with the instrument name
+            result = f"<b>📅 Economic Calendar for {instrument}</b>\n\n"
+            
+            # If we can't determine relevant currencies, return the full calendar
+            if not currencies:
+                return result + "<i>Showing all economic events:</i>\n\n" + self._format_calendar_data(self.calendar_data)
+                
+            # Filter calendar data to only include events relevant to the instrument
+            filtered_events = self._filter_events_by_currencies(self.calendar_data, currencies)
+            
+            # If no relevant events found
+            if not filtered_events:
+                result += f"No major economic events related to {instrument} in the upcoming days.\n\n"
+                result += "<i>Showing general market events instead:</i>\n\n"
+                # Include a few important general events as fallback
+                important_events = self._get_important_events(self.calendar_data)
+                if important_events:
+                    result += self._format_calendar_data(important_events)
+                else:
+                    result += "No major economic events scheduled in the near future."
+            else:
+                # Format the filtered events
+                result += self._format_calendar_data(filtered_events)
+                
+            return result
+        except Exception as e:
+            logger.error(f"Error getting instrument calendar for {instrument}: {str(e)}")
+            return self._get_fallback_instrument_calendar(instrument)
+    
+    def _extract_currencies_from_instrument(self, instrument: str) -> list:
+        """Extract relevant currencies from an instrument name"""
+        # Common currency codes
+        currencies = ["USD", "EUR", "GBP", "JPY", "AUD", "NZD", "CAD", "CHF"]
+        
+        # Remove non-alphanumeric characters
+        clean_instrument = ''.join(c for c in instrument if c.isalnum())
+        
+        # Find all currencies in the instrument name
+        found_currencies = []
+        for currency in currencies:
+            if currency in clean_instrument:
+                found_currencies.append(currency)
+                
+        # If it's a crypto pair like BTCUSD
+        if "BTC" in clean_instrument:
+            found_currencies.append("BTC")
+        if "ETH" in clean_instrument:
+            found_currencies.append("ETH")
+            
+        # If it's gold or silver
+        if "XAU" in clean_instrument or "GOLD" in clean_instrument:
+            found_currencies.append("GOLD")
+        if "XAG" in clean_instrument or "SILVER" in clean_instrument:
+            found_currencies.append("SILVER")
+            
+        # Special cases for indices
+        if "US30" in clean_instrument or "US500" in clean_instrument or "US100" in clean_instrument:
+            found_currencies.append("USD")
+            
+        return found_currencies
+    
+    def _filter_events_by_currencies(self, events: list, currencies: list) -> list:
+        """Filter economic events to only include those relevant to specified currencies"""
+        if not events or not currencies:
+            return []
+            
+        filtered = []
+        for event in events:
+            # Check if the event is related to any of the currencies
+            currency = event.get('currency', '')
+            if any(c in currency for c in currencies):
+                filtered.append(event)
+                
+        return filtered
+    
+    def _get_important_events(self, events: list, limit: int = 5) -> list:
+        """Get the most important economic events"""
+        if not events:
+            return []
+            
+        # Sort by importance (high to low)
+        important = sorted(events, key=lambda x: x.get('importance', 0), reverse=True)
+        
+        # Return top N events
+        return important[:limit]
+    
+    async def _fetch_economic_calendar(self) -> list:
+        """Fetch economic calendar data from external API"""
+        # This would typically call an external API
+        # For now, return mock data
+        return [
+            {
+                'date': datetime.now() + timedelta(days=1),
+                'time': '10:00',
+                'currency': 'USD',
+                'event': 'Non-Farm Payrolls',
+                'importance': 3,  # High importance
+                'forecast': '200K',
+                'previous': '190K'
+            },
+            {
+                'date': datetime.now() + timedelta(days=2),
+                'time': '14:30',
+                'currency': 'EUR',
+                'event': 'ECB Interest Rate Decision',
+                'importance': 3,
+                'forecast': '4.50%',
+                'previous': '4.50%'
+            },
+            {
+                'date': datetime.now() + timedelta(days=2),
+                'time': '16:00',
+                'currency': 'GBP',
+                'event': 'BOE Monetary Policy Report',
+                'importance': 2,  # Medium importance
+                'forecast': 'N/A',
+                'previous': 'N/A'
+            },
+            {
+                'date': datetime.now() + timedelta(days=3),
+                'time': '08:00',
+                'currency': 'JPY',
+                'event': 'GDP Growth Rate QoQ',
+                'importance': 2,
+                'forecast': '0.3%',
+                'previous': '0.2%'
+            },
+            {
+                'date': datetime.now() + timedelta(days=4),
+                'time': '12:15',
+                'currency': 'USD',
+                'event': 'Core Inflation Rate',
+                'importance': 3,
+                'forecast': '2.8%',
+                'previous': '2.7%'
+            }
+        ]
+    
+    def _format_calendar_data(self, calendar_data: list) -> str:
+        """Format calendar data into a readable message"""
+        if not calendar_data:
+            return "No economic events scheduled in the near future."
+            
+        # Group events by date
+        events_by_date = {}
+        for event in calendar_data:
+            date = event.get('date')
+            if isinstance(date, datetime):
+                date_str = date.strftime("%Y-%m-%d")
+            else:
+                date_str = str(date)
+                
+            if date_str not in events_by_date:
+                events_by_date[date_str] = []
+            events_by_date[date_str].append(event)
+            
+        # Format the output
+        result = ""
+        for date_str, events in sorted(events_by_date.items()):
+            # Format the date
+            try:
+                date = datetime.strptime(date_str, "%Y-%m-%d")
+                formatted_date = date.strftime("%A, %B %d")
+            except:
+                formatted_date = date_str
+                
+            result += f"<b>{formatted_date}</b>\n"
+            
+            # Add events for this date
+            for event in events:
+                importance = "🔴" if event.get('importance') == 3 else "🟠" if event.get('importance') == 2 else "🟢"
+                currency = event.get('currency', '')
+                event_name = event.get('event', '')
+                time = event.get('time', '')
+                forecast = event.get('forecast', 'N/A')
+                previous = event.get('previous', 'N/A')
+                
+                result += f"{importance} {time} {currency}: {event_name}\n"
+                result += f"   Forecast: {forecast} | Previous: {previous}\n\n"
+                
+        return result
+    
+    def _get_fallback_calendar(self) -> str:
+        """Get fallback calendar in case of API failure"""
+        return """<b>📅 Economic Calendar</b>
+
+<i>Unable to fetch real-time economic calendar data. Here are some key events:</i>
+
+<b>Thursday, July 18</b>
+🔴 12:30 USD: Initial Jobless Claims
+   Forecast: 230K | Previous: 222K
+
+<b>Friday, July 19</b>
+🟠 10:00 EUR: Consumer Confidence Flash
+   Forecast: -14.0 | Previous: -14.7
+
+<b>Monday, July 22</b>
+🟠 14:45 USD: S&P Global Manufacturing PMI
+   Forecast: 51.0 | Previous: 51.2
+
+<b>Wednesday, July 24</b>
+🔴 16:00 USD: New Home Sales
+   Forecast: 645K | Previous: 630K
+"""
+    
+    def _get_fallback_instrument_calendar(self, instrument: str) -> str:
+        """Get fallback instrument-specific calendar"""
+        currencies = self._extract_currencies_from_instrument(instrument)
+        currency_text = " and ".join(currencies) if currencies else instrument
+        
+        return f"""<b>📅 Economic Calendar for {instrument}</b>
+
+<i>Unable to fetch real-time calendar data for {currency_text}. Here are some general market events:</i>
+
+<b>This Week</b>
+🔴 Central Bank Decisions
+🟠 Inflation Reports
+🟢 Employment Data
+
+Check back later for updated information.
+""" 
