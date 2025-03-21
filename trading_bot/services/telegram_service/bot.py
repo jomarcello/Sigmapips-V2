@@ -1614,15 +1614,23 @@ Consider checking financial news sources for more accurate information.
                 
             # Initialize the application in all cases
             await self.application.initialize()
+            
+            # Controleer of we moeten forceren om polling te gebruiken
+            force_polling = os.getenv("FORCE_POLLING", "false").lower() == "true"
+            if force_polling:
+                logger.info("FORCE_POLLING is set to true, using polling mode instead of webhook")
+                use_webhook = False
                 
-            if use_webhook:
+            if use_webhook and not force_polling:
                 # Configureer webhook settings
                 webhook_url = os.getenv("WEBHOOK_URL")
                 webhook_port = int(os.getenv("PORT", "8000"))
                 webhook_path = os.getenv("WEBHOOK_PATH", "/webhook")
                 
                 if not webhook_url:
-                    logger.warning("WEBHOOK_URL not set, webhook configuration skipped")
+                    logger.warning("WEBHOOK_URL not set, falling back to polling mode")
+                    # Start polling mode instead
+                    await self._setup_polling_mode()
                 else:    
                     logger.info(f"Setting up webhook configuration with URL {webhook_url}, port {webhook_port}, path {webhook_path}")
                     
@@ -1631,30 +1639,18 @@ Consider checking financial news sources for more accurate information.
                     self.webhook_url = webhook_url
                     self.webhook_port = webhook_port
                 
-                # Set commands
-                await self.bot.set_my_commands([
-                    BotCommand("start", "Start the bot and show main menu"),
-                    BotCommand("menu", "Show main menu"),
-                    BotCommand("help", "Show help information")
-                ])
+                    # Set commands
+                    await self.bot.set_my_commands([
+                        BotCommand("start", "Start the bot and show main menu"),
+                        BotCommand("menu", "Show main menu"),
+                        BotCommand("help", "Show help information")
+                    ])
                 
-                logger.info("Bot initialized with webhook configuration")
-                
+                    logger.info("Bot initialized with webhook configuration")
             else:
-                # For polling mode, we'll create a separate task to run polling
-                logger.info("Bot initialized for polling mode")
-                
-                # Instead of running polling directly, we'll advise to run it separately
-                # because mixing FastAPI's event loop with polling can be problematic
-                
-                # Set commands
-                await self.bot.set_my_commands([
-                    BotCommand("start", "Start the bot and show main menu"),
-                    BotCommand("menu", "Show main menu"),
-                    BotCommand("help", "Show help information")
-                ])
-                
-                logger.info("Bot initialized for polling mode - polling should be started separately")
+                # For polling mode
+                logger.info("Using polling mode as requested")
+                await self._setup_polling_mode()
                 
             self.bot_started = True
             
@@ -1662,75 +1658,40 @@ Consider checking financial news sources for more accurate information.
             logger.error(f"Error initializing bot: {str(e)}")
             logger.exception(e)
             raise
-            
-    async def process_update(self, update_data: dict):
-        """Process updates from webhook"""
+    
+    async def _setup_polling_mode(self):
+        """Set up the bot for polling mode"""
         try:
-            logger.info(f"Processing update: {update_data}")
+            # Set commands
+            await self.bot.set_my_commands([
+                BotCommand("start", "Start the bot and show main menu"),
+                BotCommand("menu", "Show main menu"),
+                BotCommand("help", "Show help information")
+            ])
             
-            # Controleer of de update al is verwerkt
-            update_id = update_data.get('update_id')
-            if update_id in self.processed_updates:
-                logger.info(f"Update {update_id} already processed, skipping")
-                return
-                
-            # Convert dictionary to Update object
-            update = Update.de_json(data=update_data, bot=self.bot)
-            if not update:
-                logger.error("Failed to parse update")
-                return
-                
-            # Process the update
-            await self.application.process_update(update)
+            # Start polling in a separate task
+            import asyncio
+            asyncio.create_task(self._start_polling_background())
             
-            # Mark as processed
-            self.processed_updates.add(update_id)
-            
-            # Trim processed_updates set if it gets too large
-            if len(self.processed_updates) > 1000:
-                # Keep only the 500 most recent updates
-                self.processed_updates = set(sorted(self.processed_updates)[-500:])
-                
+            logger.info("Bot initialized for polling mode")
         except Exception as e:
-            logger.error(f"Error processing update: {str(e)}")
-            logger.exception(e)
-
-    async def setup_webhook(self, app):
-        """Set up webhook for FastAPI application"""
-        try:
-            if not hasattr(self, 'webhook_path') or not self.webhook_url:
-                logger.warning("Webhook configuration is incomplete. Cannot set up webhook.")
-                return
-                
-            logger.info(f"Setting up webhook at {self.webhook_path} with URL {self.webhook_url}")
-            
-            # Import FastAPI dependencies
-            from fastapi import Request
-            
-            # Define the webhook endpoint in the FastAPI app
-            @app.post(self.webhook_path)
-            async def telegram_webhook(request: Request):
-                """Handle webhook updates from Telegram"""
-                try:
-                    # Parse the JSON data from the request
-                    update_data = await request.json()
-                    
-                    # Process the update
-                    await self.process_update(update_data)
-                    return {"status": "ok"}
-                except Exception as e:
-                    logger.error(f"Error processing webhook: {str(e)}")
-                    return {"status": "error", "message": str(e)}
-            
-            # Set the webhook URL in Telegram
-            await self.bot.set_webhook(url=self.webhook_url)
-            
-            logger.info(f"Webhook set up successfully at {self.webhook_url}")
-            
-        except Exception as e:
-            logger.error(f"Error setting up webhook: {str(e)}")
+            logger.error(f"Error setting up polling mode: {str(e)}")
             logger.exception(e)
             raise
+            
+    async def _start_polling_background(self):
+        """Start polling in a non-blocking way"""
+        try:
+            logger.info("Starting polling in background task")
+            
+            # The correct method in python-telegram-bot v20+ is run_polling
+            # Since it's not an async method, we don't use await
+            self.application.run_polling(drop_pending_updates=True, close_loop=False, allowed_updates=None)
+            
+            logger.info("Polling started successfully")
+        except Exception as e:
+            logger.error(f"Error starting polling: {str(e)}")
+            logger.exception(e)
 
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Send a help message when the command /help is issued."""
@@ -1851,3 +1812,72 @@ Consider checking financial news sources for more accurate information.
         except Exception as e:
             logger.error(f"Error getting signal subscribers: {str(e)}")
             return []
+
+    async def process_update(self, update_data: dict):
+        """Process updates from webhook"""
+        try:
+            logger.info(f"Processing update: {update_data}")
+            
+            # Controleer of de update al is verwerkt
+            update_id = update_data.get('update_id')
+            if update_id in self.processed_updates:
+                logger.info(f"Update {update_id} already processed, skipping")
+                return
+                
+            # Convert dictionary to Update object
+            update = Update.de_json(data=update_data, bot=self.bot)
+            if not update:
+                logger.error("Failed to parse update")
+                return
+                
+            # Process the update
+            await self.application.process_update(update)
+            
+            # Mark as processed
+            self.processed_updates.add(update_id)
+            
+            # Trim processed_updates set if it gets too large
+            if len(self.processed_updates) > 1000:
+                # Keep only the 500 most recent updates
+                self.processed_updates = set(sorted(self.processed_updates)[-500:])
+                
+        except Exception as e:
+            logger.error(f"Error processing update: {str(e)}")
+            logger.exception(e)
+
+    async def setup_webhook(self, app):
+        """Set up webhook for FastAPI application"""
+        try:
+            if not hasattr(self, 'webhook_path') or not self.webhook_url:
+                logger.warning("Webhook configuration is incomplete. Cannot set up webhook.")
+                return
+                
+            logger.info(f"Setting up webhook at {self.webhook_path} with URL {self.webhook_url}")
+            
+            # Import FastAPI dependencies
+            from fastapi import Request
+            
+            # Define the webhook endpoint in the FastAPI app
+            @app.post(self.webhook_path)
+            async def telegram_webhook(request: Request):
+                """Handle webhook updates from Telegram"""
+                try:
+                    # Parse the JSON data from the request
+                    update_data = await request.json()
+                    
+                    # Process the update
+                    await self.process_update(update_data)
+                    return {"status": "ok"}
+                except Exception as e:
+                    logger.error(f"Error processing webhook: {str(e)}")
+                    return {"status": "error", "message": str(e)}
+            
+            # Set the webhook URL in Telegram
+            await self.bot.set_webhook(url=self.webhook_url)
+            
+            logger.info(f"Webhook set up successfully at {self.webhook_url}")
+            
+        except Exception as e:
+            logger.error(f"Error setting up webhook: {str(e)}")
+            logger.exception(e)
+            raise
