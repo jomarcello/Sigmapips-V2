@@ -1254,9 +1254,37 @@ class TelegramService:
         logger.info(f"Button callback opgeroepen met data: {query.data}")
         await query.answer()
         
+        # Handle menu_analyse callback
+        if query.data == "menu_analyse":
+            return await self.menu_analyse_callback(update, context)
+            
+        # Handle menu_signals callback
+        if query.data == "menu_signals":
+            return await self.menu_signals_callback(update, context)
+        
+        # Handle back buttons
+        if query.data == "back_menu":
+            return await self.back_menu_callback(update, context)
+            
+        if query.data == "back_to_analysis" or query.data == "back_analysis":
+            return await self.analysis_callback(update, context)
+            
+        if query.data == "back_market":
+            return await self.back_market_callback(update, context)
+            
+        if query.data == "back_instrument":
+            return await self.back_instrument_callback(update, context)
+            
+        if query.data == "back_signals":
+            return await self.market_signals_callback(update, context)
+        
         # Verwerk abonnementsacties
         if query.data == "subscribe_monthly" or query.data == "subscription_info":
             return await self.handle_subscription_callback(update, context)
+        
+        # Analysis type handlers
+        if query.data.startswith("analysis_"):
+            return await self.analysis_choice(update, context)
         
         # Verwerk instrument keuzes met specifiek type (chart, sentiment, calendar)
         if "_chart" in query.data or "_sentiment" in query.data or "_calendar" in query.data:
@@ -1268,8 +1296,26 @@ class TelegramService:
         if query.data.startswith("market_"):
             return await self.market_callback(update, context)
         
-        # Rest van de callback afhandeling...
-        # De rest van je bestaande button_callback code blijft ongewijzigd...
+        # Signals handlers
+        if query.data == "signals_add" or query.data == CALLBACK_SIGNALS_ADD:
+            return await self.signals_add_callback(update, context)
+            
+        if query.data == "signals_manage" or query.data == CALLBACK_SIGNALS_MANAGE:
+            return await self.signals_manage_callback(update, context)
+        
+        # Log unhandled callbacks
+        logger.warning(f"Unhandled callback data: {query.data}")
+        
+        # Default: return to main menu
+        try:
+            await query.edit_message_text(
+                text="Command not recognized. Returning to main menu.",
+                reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
+            )
+        except Exception as e:
+            logger.error(f"Error showing default menu: {str(e)}")
+            
+        return MENU
 
     def setup(self):
         """Set up the bot with all handlers"""
@@ -1278,14 +1324,13 @@ class TelegramService:
         
         # Command handlers
         application.add_handler(CommandHandler("start", self.start_command))
-        
-        # Voeg nieuw menu commando toe (voor bestaande gebruikers om het menu te zien)
         application.add_handler(CommandHandler("menu", self.show_main_menu))
+        application.add_handler(CommandHandler("help", self.help_command))
         
-        # Callback query handler
+        # Callback query handler for all button presses
         application.add_handler(CallbackQueryHandler(self.button_callback))
         
-        # Andere bestaande handlers...
+        self.application = application
         
         return application
 
@@ -1914,3 +1959,210 @@ Consider checking financial news sources for more accurate information.
             logger.error(f"Error setting up webhook: {str(e)}")
             logger.exception(e)
             raise
+
+    async def back_menu_callback(self, update: Update, context=None) -> int:
+        """Handle back_menu callback to return to the main menu"""
+        query = update.callback_query
+        
+        try:
+            # Show the main menu
+            await query.edit_message_text(
+                text=WELCOME_MESSAGE,
+                reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
+                parse_mode=ParseMode.HTML
+            )
+            
+            return MENU
+        except Exception as e:
+            logger.error(f"Error in back_menu_callback: {str(e)}")
+            try:
+                await query.message.reply_text(
+                    text=WELCOME_MESSAGE,
+                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
+                    parse_mode=ParseMode.HTML
+                )
+                return MENU
+            except Exception as inner_e:
+                logger.error(f"Failed to recover from error: {str(inner_e)}")
+                return MENU
+                
+    async def back_market_callback(self, update: Update, context=None) -> int:
+        """Handle back_market callback to return to market selection"""
+        query = update.callback_query
+        
+        try:
+            # Get the analysis type if stored in context
+            analysis_type = context.user_data.get('analysis_type', 'technical') if context and hasattr(context, 'user_data') else 'technical'
+            
+            # Show appropriate message based on analysis type
+            if analysis_type == 'technical':
+                message_text = "Select a market for technical analysis:"
+            elif analysis_type == 'sentiment':
+                message_text = "Select a market for sentiment analysis:"
+            else:
+                message_text = "Select a market:"
+                
+            # Show the market selection
+            await query.edit_message_text(
+                text=message_text,
+                reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
+            )
+            
+            return CHOOSE_MARKET
+        except Exception as e:
+            logger.error(f"Error in back_market_callback: {str(e)}")
+            try:
+                await query.message.reply_text(
+                    text="Select a market:",
+                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
+                )
+                return CHOOSE_MARKET
+            except Exception as inner_e:
+                logger.error(f"Failed to recover from error: {str(inner_e)}")
+                return MENU
+                
+    async def back_instrument_callback(self, update: Update, context=None) -> int:
+        """Handle back_instrument callback to return to instrument selection"""
+        query = update.callback_query
+        
+        try:
+            # Default to forex keyboard if no market specified
+            market = context.user_data.get('market', 'forex') if context and hasattr(context, 'user_data') else 'forex'
+            analysis_type = context.user_data.get('analysis_type', 'technical') if context and hasattr(context, 'user_data') else 'technical'
+            
+            # Choose the appropriate keyboard based on market and analysis type
+            message_text = f"Select an instrument for {market} "
+            keyboard = FOREX_KEYBOARD  # Default
+            
+            if market == 'forex':
+                if analysis_type == 'technical':
+                    keyboard = FOREX_KEYBOARD
+                    message_text += "technical analysis:"
+                elif analysis_type == 'sentiment':
+                    keyboard = FOREX_SENTIMENT_KEYBOARD
+                    message_text += "sentiment analysis:"
+                elif analysis_type == 'calendar':
+                    keyboard = FOREX_CALENDAR_KEYBOARD
+                    message_text += "economic calendar:"
+                else:
+                    keyboard = FOREX_KEYBOARD
+                    message_text += "analysis:"
+            elif market == 'crypto':
+                if analysis_type == 'technical':
+                    keyboard = CRYPTO_KEYBOARD
+                    message_text += "technical analysis:"
+                elif analysis_type == 'sentiment':
+                    keyboard = CRYPTO_SENTIMENT_KEYBOARD
+                    message_text += "sentiment analysis:"
+                else:
+                    keyboard = CRYPTO_KEYBOARD
+                    message_text += "analysis:"
+            elif market == 'indices':
+                keyboard = INDICES_KEYBOARD
+                message_text += "analysis:"
+            elif market == 'commodities':
+                keyboard = COMMODITIES_KEYBOARD
+                message_text += "analysis:"
+                
+            # Show the instrument selection
+            await query.edit_message_text(
+                text=message_text,
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            
+            return CHOOSE_INSTRUMENT
+        except Exception as e:
+            logger.error(f"Error in back_instrument_callback: {str(e)}")
+            try:
+                await query.message.reply_text(
+                    text="Select an instrument:",
+                    reply_markup=InlineKeyboardMarkup(FOREX_KEYBOARD)  # Default to forex
+                )
+                return CHOOSE_INSTRUMENT
+            except Exception as inner_e:
+                logger.error(f"Failed to recover from error: {str(inner_e)}")
+                return MENU
+                
+    async def signals_add_callback(self, update: Update, context=None) -> int:
+        """Handle signals_add callback to add new signal preferences"""
+        query = update.callback_query
+        
+        try:
+            # Show market selection for signals
+            await query.edit_message_text(
+                text="Select a market for trading signals:",
+                reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD_SIGNALS)
+            )
+            
+            return CHOOSE_MARKET
+        except Exception as e:
+            logger.error(f"Error in signals_add_callback: {str(e)}")
+            try:
+                await query.message.reply_text(
+                    text="Select a market for trading signals:",
+                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD_SIGNALS)
+                )
+                return CHOOSE_MARKET
+            except Exception as inner_e:
+                logger.error(f"Failed to recover from error: {str(inner_e)}")
+                return MENU
+                
+    async def signals_manage_callback(self, update: Update, context=None) -> int:
+        """Handle signals_manage callback to manage signal preferences"""
+        query = update.callback_query
+        
+        try:
+            # Get user's current subscriptions
+            user_id = update.effective_user.id
+            preferences = await self.db.get_subscriber_preferences(user_id)
+            
+            if not preferences:
+                # No subscriptions yet
+                await query.edit_message_text(
+                    text="You don't have any signal subscriptions yet. Add some first!",
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("➕ Add Signal Pairs", callback_data=CALLBACK_SIGNALS_ADD)],
+                        [InlineKeyboardButton("⬅️ Back to Menu", callback_data=CALLBACK_BACK_MENU)]
+                    ])
+                )
+                return CHOOSE_SIGNALS
+            
+            # Format current subscriptions
+            message = "<b>Your Signal Subscriptions:</b>\n\n"
+            
+            for i, pref in enumerate(preferences, 1):
+                market = pref.get('market', 'unknown')
+                instrument = pref.get('instrument', 'unknown')
+                timeframe = pref.get('timeframe', 'ALL')
+                
+                message += f"{i}. {market.upper()} - {instrument} ({timeframe})\n"
+            
+            # Add buttons to manage subscriptions
+            keyboard = [
+                [InlineKeyboardButton("➕ Add More", callback_data=CALLBACK_SIGNALS_ADD)],
+                [InlineKeyboardButton("🗑️ Remove Subscriptions", callback_data="remove_subscriptions")],
+                [InlineKeyboardButton("⬅️ Back", callback_data=CALLBACK_BACK_SIGNALS)]
+            ]
+            
+            await query.edit_message_text(
+                text=message,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode=ParseMode.HTML
+            )
+            
+            return CHOOSE_SIGNALS
+        except Exception as e:
+            logger.error(f"Error in signals_manage_callback: {str(e)}")
+            logger.exception(e)
+            
+            try:
+                await query.edit_message_text(
+                    text="An error occurred while retrieving your subscriptions. Please try again.",
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("⬅️ Back", callback_data=CALLBACK_BACK_SIGNALS)]
+                    ])
+                )
+                return CHOOSE_SIGNALS
+            except Exception as inner_e:
+                logger.error(f"Failed to recover from error: {str(inner_e)}")
+                return MENU
