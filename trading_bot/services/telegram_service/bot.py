@@ -65,13 +65,13 @@ WELCOME_MESSAGE = """
 I'm your AI-powered trading assistant, designed to help you make better trading decisions.
 
 📊 <b>My Services:</b>
-• <b>Technical Analysis</b> - Get real-time chart analysis and key levels
+- <b>Technical Analysis</b> - Get real-time chart analysis and key levels
 
-• <b>Market Sentiment</b> - Understand market sentiment and trends
+- <b>Market Sentiment</b> - Understand market sentiment and trends
 
-• <b>Economic Calendar</b> - Stay updated on market-moving events
+- <b>Economic Calendar</b> - Stay updated on market-moving events
 
-• <b>Trading Signals</b> - Receive precise entry/exit points for your favorite pairs
+- <b>Trading Signals</b> - Receive precise entry/exit points for your favorite pairs
 
 Select an option below to get started:
 """
@@ -83,9 +83,9 @@ SUBSCRIPTION_WELCOME_MESSAGE = """
 To access all features, you need a subscription:
 
 📊 <b>Trading Signals Subscription - $29.99/month</b>
-• Access to all trading signals (Forex, Crypto, Commodities, Indices)
-• Advanced timeframe analysis (1m, 15m, 1h, 4h)
-• Detailed chart analysis for each signal
+- Access to all trading signals (Forex, Crypto, Commodities, Indices)
+- Advanced timeframe analysis (1m, 15m, 1h, 4h)
+- Detailed chart analysis for each signal
 
 Click the button below to subscribe:
 """
@@ -427,10 +427,10 @@ To regain access to all features and trading signals, please reactivate your sub
 To access all features, you need a subscription:
 
 📊 <b>Trading Signals Subscription - $29.99/month</b>
-• <b>Start with a FREE 14-day trial!</b>
-• Access to all trading signals (Forex, Crypto, Commodities, Indices)
-• Advanced timeframe analysis (1m, 15m, 1h, 4h)
-• Detailed chart analysis for each signal
+- <b>Start with a FREE 14-day trial!</b>
+- Access to all trading signals (Forex, Crypto, Commodities, Indices)
+- Advanced timeframe analysis (1m, 15m, 1h, 4h)
+- Detailed chart analysis for each signal
 
 Click the button below to start your trial:
             """
@@ -508,14 +508,14 @@ class TelegramService:
 <b>Overall Sentiment:</b> {overall} {emoji}
 
 <b>Sentiment Breakdown:</b>
-• Bullish: {bullish_score}%
-• Bearish: {bearish_score}%
-• Trend Strength: {sentiment_data.get('trend_strength', 'Moderate')}
-• Volatility: {sentiment_data.get('volatility', 'Moderate')}
+- Bullish: {bullish_score}%
+- Bearish: {bearish_score}%
+- Trend Strength: {sentiment_data.get('trend_strength', 'Moderate')}
+- Volatility: {sentiment_data.get('volatility', 'Moderate')}
 
 <b>Key Levels:</b>
-• Support: {sentiment_data.get('support_level', 'Not available')}
-• Resistance: {sentiment_data.get('resistance_level', 'Not available')}
+- Support: {sentiment_data.get('support_level', 'Not available')}
+- Resistance: {sentiment_data.get('resistance_level', 'Not available')}
 
 <b>Trading Recommendation:</b>
 {sentiment_data.get('recommendation', 'Wait for clearer market signals')}
@@ -547,8 +547,8 @@ class TelegramService:
 <b>Overall Sentiment:</b> {overall} {emoji}
 
 <b>Sentiment Breakdown:</b>
-• Bullish: {bullish_score}%
-• Bearish: {bearish_score}%
+- Bullish: {bullish_score}%
+- Bearish: {bearish_score}%
 
 <b>Market Analysis:</b>
 The current sentiment for {instrument} is neutral, with mixed signals in the market. Please check back later for updated analysis."""
@@ -594,19 +594,19 @@ Your subscription is <b>ACTIVE</b>. You have full access to all features.
 <b>🚀 HOW TO USE:</b>
 
 <b>1. Start with /menu</b>
-   • This will show you the main options:
-   • <b>Analyze Market</b> - For all market analysis tools
-   • <b>Trading Signals</b> - To manage your trading signals
+   - This will show you the main options:
+   - <b>Analyze Market</b> - For all market analysis tools
+   - <b>Trading Signals</b> - To manage your trading signals
 
 <b>2. Analyze Market options:</b>
-   • <b>Technical Analysis</b> - Charts and price levels
-   • <b>Market Sentiment</b> - Indicators and market mood
-   • <b>Economic Calendar</b> - Upcoming economic events
+   - <b>Technical Analysis</b> - Charts and price levels
+   - <b>Market Sentiment</b> - Indicators and market mood
+   - <b>Economic Calendar</b> - Upcoming economic events
 
 <b>3. Trading Signals:</b>
-   • Set up which signals you want to receive
-   • Signals will be sent automatically
-   • Each includes entry, stop loss, and take profit levels
+   - Set up which signals you want to receive
+   - Signals will be sent automatically
+   - Each includes entry, stop loss, and take profit levels
 
 Type /menu to start using the bot.
 """
@@ -652,10 +652,10 @@ To regain access to all features and trading signals, please reactivate your sub
 🚀 <b>Welcome to SigmaPips Trading Bot!</b> 🚀
 
 <b>Discover powerful trading signals for various markets:</b>
-• <b>Forex</b> - Major and minor currency pairs
-• <b>Crypto</b> - Bitcoin, Ethereum and other top cryptocurrencies
-• <b>Indices</b> - Global market indices
-• <b>Commodities</b> - Gold, silver and oil
+- <b>Forex</b> - Major and minor currency pairs
+- <b>Crypto</b> - Bitcoin, Ethereum and other top cryptocurrencies
+- <b>Indices</b> - Global market indices
+- <b>Commodities</b> - Gold, silver and oil
 
 <b>Features:</b>
 ✅ Real-time trading signals
@@ -763,10 +763,10 @@ To regain access to all features and trading signals, please reactivate your sub
 To access all features, you need a subscription:
 
 📊 <b>Trading Signals Subscription - $29.99/month</b>
-• <b>Start with a FREE 14-day trial!</b>
-• Access to all trading signals (Forex, Crypto, Commodities, Indices)
-• Advanced timeframe analysis (1m, 15m, 1h, 4h)
-• Detailed chart analysis for each signal
+- <b>Start with a FREE 14-day trial!</b>
+- Access to all trading signals (Forex, Crypto, Commodities, Indices)
+- Advanced timeframe analysis (1m, 15m, 1h, 4h)
+- Detailed chart analysis for each signal
 
 Click the button below to start your trial:
             """
@@ -819,10 +819,14 @@ Click the button below to start your trial:
                     f"Take Profit 1: {tp1:.2f} 🎯\n"
                     f"Take Profit 2: {tp2:.2f} 🎯\n"
                     f"Take Profit 3: {tp3:.2f} 🎯\n\n"
-                    f"Timeframe: {interval}\n"
+                )
+
+                welcome_message = f"""Timeframe: {interval}\n
                     f"Strategy: TradingView Signal\n\n"
                     f"-------------------\n\n"
                     f"Risk Management:\n"
+                )
+
                     f"- Position size: 1-2% max\n"
                     f"- Use proper stop loss\n"
                     f"- Follow your trading plan\n\n"
@@ -837,7 +841,7 @@ Click the button below to start your trial:
                 await update.message.reply_text(f"No signal available for {instrument} ({interval}, {style}).")
 
     async def get_signal_data(self, instrument: str, interval: str, style: str) -> Dict[str, Any]:
-        """Get signal data for a given instrument, interval, and style"""
+        """Get signal data for a given instrument, interval, and style."""
         # Implementation details omitted for brevity
         pass
 
@@ -1176,19 +1180,19 @@ Your subscription is <b>ACTIVE</b>. You have full access to all features.
 <b>🚀 HOW TO USE:</b>
 
 <b>1. Start with /menu</b>
-   • This will show you the main options:
-   • <b>Analyze Market</b> - For all market analysis tools
-   • <b>Trading Signals</b> - To manage your trading signals
+   - This will show you the main options:
+   - <b>Analyze Market</b> - For all market analysis tools
+   - <b>Trading Signals</b> - To manage your trading signals
 
 <b>2. Analyze Market options:</b>
-   • <b>Technical Analysis</b> - Charts and price levels
-   • <b>Market Sentiment</b> - Indicators and market mood
-   • <b>Economic Calendar</b> - Upcoming economic events
+   - <b>Technical Analysis</b> - Charts and price levels
+   - <b>Market Sentiment</b> - Indicators and market mood
+   - <b>Economic Calendar</b> - Upcoming economic events
 
 <b>3. Trading Signals:</b>
-   • Set up which signals you want to receive
-   • Signals will be sent automatically
-   • Each includes entry, stop loss, and take profit levels
+   - Set up which signals you want to receive
+   - Signals will be sent automatically
+   - Each includes entry, stop loss, and take profit levels
 
 Type /menu to start using the bot.
 """
@@ -1234,10 +1238,10 @@ To regain access to all features and trading signals, please reactivate your sub
 🚀 <b>Welcome to SigmaPips Trading Bot!</b> 🚀
 
 <b>Discover powerful trading signals for various markets:</b>
-• <b>Forex</b> - Major and minor currency pairs
-• <b>Crypto</b> - Bitcoin, Ethereum and other top cryptocurrencies
-• <b>Indices</b> - Global market indices
-• <b>Commodities</b> - Gold, silver and oil
+- <b>Forex</b> - Major and minor currency pairs
+- <b>Crypto</b> - Bitcoin, Ethereum and other top cryptocurrencies
+- <b>Indices</b> - Global market indices
+- <b>Commodities</b> - Gold, silver and oil
 
 <b>Features:</b>
 ✅ Real-time trading signals
@@ -1304,20 +1308,20 @@ To regain access to all features and trading signals, please reactivate your sub
         # Start the bot
         self.application.run_polling()
 
-Timeframe: {interval}
+        welcome_message = f"""Timeframe: {interval}
 Strategy: TradingView Signal
 
-————————————————————
+------------------------------------------------
 
 Risk Management:
 - Position size: 1-2% max
 - Use proper stop loss
 - Follow your trading plan
 
-————————————————————
+------------------------------------------------
 
 🤖 SigmaPips AI Verdict:
-The {instrument} {direction.lower()} signal shows a promising setup with defined entry at {price:.2f} and stop loss at {sl:.2f}. Multiple take profit levels provide opportunities for partial profit taking."""
+The {instrument} {direction.lower()} signal shows a promising setup with defined entry at {price:.2f} and stop loss at {sl:.2f}. Multiple take profit levels provide opportunities for partial profit taking.""""""
 
 If you need any assistance, simply type /help to see available commands.
 
@@ -2953,20 +2957,20 @@ Happy Trading! 📈
             # Check if the message contains a photo
             has_photo = bool(query.message.photo)
             
-Timeframe: {interval}
+            welcome_message = f"""Timeframe: {interval}
 Strategy: TradingView Signal
 
-————————————————————
+------------------------------------------------
 
 Risk Management:
 - Position size: 1-2% max
 - Use proper stop loss
 - Follow your trading plan
 
-————————————————————
+------------------------------------------------
 
 🤖 SigmaPips AI Verdict:
-The {instrument} {direction.lower()} signal shows a promising setup with defined entry at {price:.2f} and stop loss at {sl:.2f}. Multiple take profit levels provide opportunities for partial profit taking."""
+The {instrument} {direction.lower()} signal shows a promising setup with defined entry at {price:.2f} and stop loss at {sl:.2f}. Multiple take profit levels provide opportunities for partial profit taking.""""""
 
 If you need any assistance, simply type /help to see available commands.
 
@@ -4583,20 +4587,20 @@ Happy Trading! 📈
             
             # Get market from user_data or fallback to 'forex'
             if context and hasattr(context, 'user_data'):
-Timeframe: {interval}
+            welcome_message = f"""Timeframe: {interval}
 Strategy: TradingView Signal
 
-————————————————————
+------------------------------------------------
 
 Risk Management:
-• Position size: 1-2% max
-• Use proper stop loss
-• Follow your trading plan
+- Position size: 1-2% max
+- Use proper stop loss
+- Follow your trading plan
 
-————————————————————
+------------------------------------------------
 
 🤖 SigmaPips AI Verdict:
-The {instrument} {direction.lower()} signal shows a promising setup with defined entry at {price:.2f} and stop loss at {sl:.2f}. Multiple take profit levels provide opportunities for partial profit taking."""
+The {instrument} {direction.lower()} signal shows a promising setup with defined entry at {price:.2f} and stop loss at {sl:.2f}. Multiple take profit levels provide opportunities for partial profit taking.""""""
 
 If you need any assistance, simply type /help to see available commands.
 
@@ -5977,13 +5981,13 @@ WELCOME_MESSAGE = """
 I'm your AI-powered trading assistant, designed to help you make better trading decisions.
 
 📊 <b>My Services:</b>
-• <b>Technical Analysis</b> - Get real-time chart analysis and key levels
+- <b>Technical Analysis</b> - Get real-time chart analysis and key levels
 
-• <b>Market Sentiment</b> - Understand market sentiment and trends
+- <b>Market Sentiment</b> - Understand market sentiment and trends
 
-• <b>Economic Calendar</b> - Stay updated on market-moving events
+- <b>Economic Calendar</b> - Stay updated on market-moving events
 
-• <b>Trading Signals</b> - Receive precise entry/exit points for your favorite pairs
+- <b>Trading Signals</b> - Receive precise entry/exit points for your favorite pairs
 
 Select an option below to get started:
 """
@@ -5995,9 +5999,9 @@ SUBSCRIPTION_WELCOME_MESSAGE = """
 To access all features, you need a subscription:
 
 📊 <b>Trading Signals Subscription - $29.99/month</b>
-• Access to all trading signals (Forex, Crypto, Commodities, Indices)
-• Advanced timeframe analysis (1m, 15m, 1h, 4h)
-• Detailed chart analysis for each signal
+- Access to all trading signals (Forex, Crypto, Commodities, Indices)
+- Advanced timeframe analysis (1m, 15m, 1h, 4h)
+- Detailed chart analysis for each signal
 
 Click the button below to subscribe:
 """
@@ -6339,10 +6343,10 @@ To regain access to all features and trading signals, please reactivate your sub
 To access all features, you need a subscription:
 
 📊 <b>Trading Signals Subscription - $29.99/month</b>
-• <b>Start with a FREE 14-day trial!</b>
-• Access to all trading signals (Forex, Crypto, Commodities, Indices)
-• Advanced timeframe analysis (1m, 15m, 1h, 4h)
-• Detailed chart analysis for each signal
+- <b>Start with a FREE 14-day trial!</b>
+- Access to all trading signals (Forex, Crypto, Commodities, Indices)
+- Advanced timeframe analysis (1m, 15m, 1h, 4h)
+- Detailed chart analysis for each signal
 
 Click the button below to start your trial:
             """
@@ -6420,14 +6424,14 @@ class TelegramService:
 <b>Overall Sentiment:</b> {overall} {emoji}
 
 <b>Sentiment Breakdown:</b>
-• Bullish: {bullish_score}%
-• Bearish: {bearish_score}%
-• Trend Strength: {sentiment_data.get('trend_strength', 'Moderate')}
-• Volatility: {sentiment_data.get('volatility', 'Moderate')}
+- Bullish: {bullish_score}%
+- Bearish: {bearish_score}%
+- Trend Strength: {sentiment_data.get('trend_strength', 'Moderate')}
+- Volatility: {sentiment_data.get('volatility', 'Moderate')}
 
 <b>Key Levels:</b>
-• Support: {sentiment_data.get('support_level', 'Not available')}
-• Resistance: {sentiment_data.get('resistance_level', 'Not available')}
+- Support: {sentiment_data.get('support_level', 'Not available')}
+- Resistance: {sentiment_data.get('resistance_level', 'Not available')}
 
 <b>Trading Recommendation:</b>
 {sentiment_data.get('recommendation', 'Wait for clearer market signals')}
@@ -6459,8 +6463,8 @@ class TelegramService:
 <b>Overall Sentiment:</b> {overall} {emoji}
 
 <b>Sentiment Breakdown:</b>
-• Bullish: {bullish_score}%
-• Bearish: {bearish_score}%
+- Bullish: {bullish_score}%
+- Bearish: {bearish_score}%
 
 <b>Market Analysis:</b>
 The current sentiment for {instrument} is neutral, with mixed signals in the market. Please check back later for updated analysis."""
@@ -6506,19 +6510,19 @@ Your subscription is <b>ACTIVE</b>. You have full access to all features.
 <b>🚀 HOW TO USE:</b>
 
 <b>1. Start with /menu</b>
-   • This will show you the main options:
-   • <b>Analyze Market</b> - For all market analysis tools
-   • <b>Trading Signals</b> - To manage your trading signals
+   - This will show you the main options:
+   - <b>Analyze Market</b> - For all market analysis tools
+   - <b>Trading Signals</b> - To manage your trading signals
 
 <b>2. Analyze Market options:</b>
-   • <b>Technical Analysis</b> - Charts and price levels
-   • <b>Market Sentiment</b> - Indicators and market mood
-   • <b>Economic Calendar</b> - Upcoming economic events
+   - <b>Technical Analysis</b> - Charts and price levels
+   - <b>Market Sentiment</b> - Indicators and market mood
+   - <b>Economic Calendar</b> - Upcoming economic events
 
 <b>3. Trading Signals:</b>
-   • Set up which signals you want to receive
-   • Signals will be sent automatically
-   • Each includes entry, stop loss, and take profit levels
+   - Set up which signals you want to receive
+   - Signals will be sent automatically
+   - Each includes entry, stop loss, and take profit levels
 
 Type /menu to start using the bot.
 """
@@ -6564,10 +6568,10 @@ To regain access to all features and trading signals, please reactivate your sub
 🚀 <b>Welcome to SigmaPips Trading Bot!</b> 🚀
 
 <b>Discover powerful trading signals for various markets:</b>
-• <b>Forex</b> - Major and minor currency pairs
-• <b>Crypto</b> - Bitcoin, Ethereum and other top cryptocurrencies
-• <b>Indices</b> - Global market indices
-• <b>Commodities</b> - Gold, silver and oil
+- <b>Forex</b> - Major and minor currency pairs
+- <b>Crypto</b> - Bitcoin, Ethereum and other top cryptocurrencies
+- <b>Indices</b> - Global market indices
+- <b>Commodities</b> - Gold, silver and oil
 
 <b>Features:</b>
 ✅ Real-time trading signals
@@ -6637,20 +6641,20 @@ To regain access to all features and trading signals, please reactivate your sub
                 f"Take Profit 3: {tp3:.2f} 🎯"
             )
 
-Timeframe: {interval}
+            welcome_message = f"""Timeframe: {interval}
 Strategy: TradingView Signal
 
-————————————————————
+------------------------------------------------
 
 Risk Management:
-• Position size: 1-2% max
-• Use proper stop loss
-• Follow your trading plan
+- Position size: 1-2% max
+- Use proper stop loss
+- Follow your trading plan
 
-————————————————————
+------------------------------------------------
 
 🤖 SigmaPips AI Verdict:
-The {instrument} {direction.lower()} signal shows a promising setup with defined entry at {price:.2f} and stop loss at {sl:.2f}. Multiple take profit levels provide opportunities for partial profit taking."""
+The {instrument} {direction.lower()} signal shows a promising setup with defined entry at {price:.2f} and stop loss at {sl:.2f}. Multiple take profit levels provide opportunities for partial profit taking.""""""
 
 If you need any assistance, simply type /help to see available commands.
 
@@ -8319,20 +8323,20 @@ Happy Trading! 📈
                     )
                 except Exception as edit_error:
                     logger.error(f"Error updating message: {str(edit_error)}")
-Timeframe: {interval}
+                    welcome_message = f"""Timeframe: {interval}
 Strategy: TradingView Signal
 
-————————————————————
+------------------------------------------------
 
 Risk Management:
-• Position size: 1-2% max
-• Use proper stop loss
-• Follow your trading plan
+- Position size: 1-2% max
+- Use proper stop loss
+- Follow your trading plan
 
-————————————————————
+------------------------------------------------
 
 🤖 SigmaPips AI Verdict:
-The {instrument} {direction.lower()} signal shows a promising setup with defined entry at {price:.2f} and stop loss at {sl:.2f}. Multiple take profit levels provide opportunities for partial profit taking."""
+The {instrument} {direction.lower()} signal shows a promising setup with defined entry at {price:.2f} and stop loss at {sl:.2f}. Multiple take profit levels provide opportunities for partial profit taking.""""""
 
 If you need any assistance, simply type /help to see available commands.
 
@@ -12287,13 +12291,13 @@ WELCOME_MESSAGE = """
 I'm your AI-powered trading assistant, designed to help you make better trading decisions.
 
 📊 <b>My Services:</b>
-• <b>Technical Analysis</b> - Get real-time chart analysis and key levels
+- <b>Technical Analysis</b> - Get real-time chart analysis and key levels
 
-• <b>Market Sentiment</b> - Understand market sentiment and trends
+- <b>Market Sentiment</b> - Understand market sentiment and trends
 
-• <b>Economic Calendar</b> - Stay updated on market-moving events
+- <b>Economic Calendar</b> - Stay updated on market-moving events
 
-• <b>Trading Signals</b> - Receive precise entry/exit points for your favorite pairs
+- <b>Trading Signals</b> - Receive precise entry/exit points for your favorite pairs
 
 Select an option below to get started:
 """
@@ -12305,9 +12309,9 @@ SUBSCRIPTION_WELCOME_MESSAGE = """
 To access all features, you need a subscription:
 
 📊 <b>Trading Signals Subscription - $29.99/month</b>
-• Access to all trading signals (Forex, Crypto, Commodities, Indices)
-• Advanced timeframe analysis (1m, 15m, 1h, 4h)
-• Detailed chart analysis for each signal
+- Access to all trading signals (Forex, Crypto, Commodities, Indices)
+- Advanced timeframe analysis (1m, 15m, 1h, 4h)
+- Detailed chart analysis for each signal
 
 Click the button below to subscribe:
 """
@@ -12649,10 +12653,10 @@ To regain access to all features and trading signals, please reactivate your sub
 To access all features, you need a subscription:
 
 📊 <b>Trading Signals Subscription - $29.99/month</b>
-• <b>Start with a FREE 14-day trial!</b>
-• Access to all trading signals (Forex, Crypto, Commodities, Indices)
-• Advanced timeframe analysis (1m, 15m, 1h, 4h)
-• Detailed chart analysis for each signal
+- <b>Start with a FREE 14-day trial!</b>
+- Access to all trading signals (Forex, Crypto, Commodities, Indices)
+- Advanced timeframe analysis (1m, 15m, 1h, 4h)
+- Detailed chart analysis for each signal
 
 Click the button below to start your trial:
             """
@@ -12820,19 +12824,19 @@ Your subscription is <b>ACTIVE</b>. You have full access to all features.
 <b>🚀 HOW TO USE:</b>
 
 <b>1. Start with /menu</b>
-   • This will show you the main options:
-   • <b>Analyze Market</b> - For all market analysis tools
-   • <b>Trading Signals</b> - To manage your trading signals
+   - This will show you the main options:
+   - <b>Analyze Market</b> - For all market analysis tools
+   - <b>Trading Signals</b> - To manage your trading signals
 
 <b>2. Analyze Market options:</b>
-   • <b>Technical Analysis</b> - Charts and price levels
-   • <b>Market Sentiment</b> - Indicators and market mood
-   • <b>Economic Calendar</b> - Upcoming economic events
+   - <b>Technical Analysis</b> - Charts and price levels
+   - <b>Market Sentiment</b> - Indicators and market mood
+   - <b>Economic Calendar</b> - Upcoming economic events
 
 <b>3. Trading Signals:</b>
-   • Set up which signals you want to receive
-   • Signals will be sent automatically
-   • Each includes entry, stop loss, and take profit levels
+   - Set up which signals you want to receive
+   - Signals will be sent automatically
+   - Each includes entry, stop loss, and take profit levels
 
 Type /menu to start using the bot.
 """
@@ -12878,10 +12882,10 @@ To regain access to all features and trading signals, please reactivate your sub
 🚀 <b>Welcome to SigmaPips Trading Bot!</b> 🚀
 
 <b>Discover powerful trading signals for various markets:</b>
-• <b>Forex</b> - Major and minor currency pairs
-• <b>Crypto</b> - Bitcoin, Ethereum and other top cryptocurrencies
-• <b>Indices</b> - Global market indices
-• <b>Commodities</b> - Gold, silver and oil
+- <b>Forex</b> - Major and minor currency pairs
+- <b>Crypto</b> - Bitcoin, Ethereum and other top cryptocurrencies
+- <b>Indices</b> - Global market indices
+- <b>Commodities</b> - Gold, silver and oil
 
 <b>Features:</b>
 ✅ Real-time trading signals
@@ -14036,20 +14040,20 @@ Take Profit 1: {tp1:.2f} 🎯
 Take Profit 2: {tp2:.2f} 🎯
 Take Profit 3: {tp3:.2f} 🎯
 
-Timeframe: {interval}
+welcome_message = f"""Timeframe: {interval}
 Strategy: TradingView Signal
 
-————————————————————
+------------------------------------------------
 
 Risk Management:
-• Position size: 1-2% max
-• Use proper stop loss
-• Follow your trading plan
+- Position size: 1-2% max
+- Use proper stop loss
+- Follow your trading plan
 
-————————————————————
+------------------------------------------------
 
 🤖 SigmaPips AI Verdict:
-The {instrument} {direction.lower()} signal shows a promising setup with defined entry at {price:.2f} and stop loss at {sl:.2f}. Multiple take profit levels provide opportunities for partial profit taking."""
+The {instrument} {direction.lower()} signal shows a promising setup with defined entry at {price:.2f} and stop loss at {sl:.2f}. Multiple take profit levels provide opportunities for partial profit taking.""""""
 
             # Find subscribers for this signal
             subscribers = await self.db.match_subscribers(signal_data)
@@ -14559,14 +14563,14 @@ The {instrument} {direction.lower()} signal shows a promising setup with defined
 <b>Overall Sentiment:</b> {overall} {emoji}
 
 <b>Sentiment Breakdown:</b>
-• Bullish: {bullish_score}%
-• Bearish: {bearish_score}%
-• Trend Strength: {sentiment_data.get('trend_strength', 'Moderate')}
-• Volatility: {sentiment_data.get('volatility', 'Moderate')}
+- Bullish: {bullish_score}%
+- Bearish: {bearish_score}%
+- Trend Strength: {sentiment_data.get('trend_strength', 'Moderate')}
+- Volatility: {sentiment_data.get('volatility', 'Moderate')}
 
 <b>Key Levels:</b>
-• Support: {sentiment_data.get('support_level', 'Not available')}
-• Resistance: {sentiment_data.get('resistance_level', 'Not available')}
+- Support: {sentiment_data.get('support_level', 'Not available')}
+- Resistance: {sentiment_data.get('resistance_level', 'Not available')}
 
 <b>Trading Recommendation:</b>
 {sentiment_data.get('recommendation', 'Wait for clearer market signals')}
@@ -14589,8 +14593,8 @@ The {instrument} {direction.lower()} signal shows a promising setup with defined
 <b>Overall Sentiment:</b> {overall} {emoji}
 
 <b>Sentiment Breakdown:</b>
-• Bullish: {bullish_score}%
-• Bearish: {bearish_score}%
+- Bullish: {bullish_score}%
+- Bearish: {bearish_score}%
 
 <b>Market Analysis:</b>
 The current sentiment for {instrument} is neutral, with mixed signals in the market. Please check back later for updated analysis."""
@@ -14896,8 +14900,8 @@ The current sentiment for {instrument} is neutral, with mixed signals in the mar
                 <b>Overall Sentiment:</b> {overall} {emoji}
                 
                 <b>Sentiment Breakdown:</b>
-                • Bullish: {bullish_score}%
-                • Bearish: {bearish_score}%
+                - Bullish: {bullish_score}%
+                - Bearish: {bearish_score}%
                 
                 <b>Market Analysis:</b>
                 The current sentiment for {instrument} is {overall.lower()}, with {bullish_score}% of traders showing bullish bias.
@@ -15332,19 +15336,19 @@ Your subscription has been successfully activated. You now have full access to a
 <b>🚀 HOW TO USE:</b>
 
 <b>1. Start with /menu</b>
-   • This will show you the main options:
-   • <b>Analyze Market</b> - For all market analysis tools
-   • <b>Trading Signals</b> - To manage your trading signals
+   - This will show you the main options:
+   - <b>Analyze Market</b> - For all market analysis tools
+   - <b>Trading Signals</b> - To manage your trading signals
 
 <b>2. Analyze Market options:</b>
-   • <b>Technical Analysis</b> - Charts and price levels
-   • <b>Market Sentiment</b> - Indicators and market mood
-   • <b>Economic Calendar</b> - Upcoming economic events
+   - <b>Technical Analysis</b> - Charts and price levels
+   - <b>Market Sentiment</b> - Indicators and market mood
+   - <b>Economic Calendar</b> - Upcoming economic events
 
 <b>3. Trading Signals:</b>
-   • Set up which signals you want to receive
-   • Signals will be sent automatically
-   • Each includes entry, stop loss, and take profit levels
+   - Set up which signals you want to receive
+   - Signals will be sent automatically
+   - Each includes entry, stop loss, and take profit levels
 
 Type /menu to start using the bot.
 """
@@ -15386,23 +15390,23 @@ Your 14-day FREE trial has been successfully activated. You now have full access
 <b>🚀 HOW TO USE:</b>
 
 <b>1. Trading Signals</b>
-   • Use /menu and select "Trading Signals"
-   • You'll automatically receive signals when they become available
-   • Signals include: entry points, stop loss, take profit levels
+   - Use /menu and select "Trading Signals"
+   - You'll automatically receive signals when they become available
+   - Signals include: entry points, stop loss, take profit levels
 
 <b>2. Market Analysis</b>
-   • Use /menu and select "Technical Analysis" 
-   • Choose your market (Forex, Crypto, etc.)
-   • Select your desired instrument (EURUSD, BTCUSD, etc.)
-   • Pick your trading style (Scalp, Intraday, Swing)
+   - Use /menu and select "Technical Analysis" 
+   - Choose your market (Forex, Crypto, etc.)
+   - Select your desired instrument (EURUSD, BTCUSD, etc.)
+   - Pick your trading style (Scalp, Intraday, Swing)
 
 <b>3. Market Sentiment</b>
-   • Use /menu and select "Market Sentiment"
-   • View real-time market sentiment indicators
+   - Use /menu and select "Market Sentiment"
+   - View real-time market sentiment indicators
 
 <b>4. Economic Calendar</b>
-   • Use /menu and select "Economic Calendar"
-   • View upcoming high-impact economic events
+   - Use /menu and select "Economic Calendar"
+   - View upcoming high-impact economic events
 
 If you need any assistance, simply type /help to see available commands.
 
