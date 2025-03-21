@@ -97,8 +97,8 @@ async def startup_event():
         # Initialize the services
         logger.info("Initializing services...")
         
-        # First initialize the database
-        await db.connect()
+        # No need to manually connect the database - it's done automatically in the constructor
+        # The log shows "Successfully connected to Supabase" already
         logger.info("Database initialized")
         
         # Initialize telegram service (don't start polling in webhook mode)
