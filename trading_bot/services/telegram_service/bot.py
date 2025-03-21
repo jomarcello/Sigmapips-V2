@@ -1741,3 +1741,113 @@ Consider checking financial news sources for more accurate information.
                 [InlineKeyboardButton("🏠 Main Menu", callback_data="back_menu")]
             ])
         )
+        
+    async def process_signal(self, signal_data: Dict[str, Any]) -> bool:
+        """Process trading signals received from API or webhook"""
+        try:
+            logger.info(f"Processing signal: {signal_data}")
+            
+            # Extract signal details
+            symbol = signal_data.get('symbol', '').upper()
+            direction = signal_data.get('direction', '').upper()
+            price = signal_data.get('price', 0)
+            stop_loss = signal_data.get('stop_loss', 0)
+            take_profit = signal_data.get('take_profit', 0)
+            timeframe = signal_data.get('timeframe', '1h')
+            notes = signal_data.get('notes', '')
+            market = signal_data.get('market', self._detect_market(symbol)).lower()
+            
+            # Valideer de signal data
+            if not symbol or not direction or not price:
+                logger.error(f"Invalid signal data: missing required fields")
+                return False
+                
+            # Format signal message
+            message = f"""
+📊 <b>NEW TRADING SIGNAL</b> 📊
+
+<b>Symbol:</b> {symbol}
+<b>Market:</b> {market.title()}
+<b>Direction:</b> {'🔴 SELL' if direction == 'SELL' else '🟢 BUY'}
+<b>Entry Price:</b> {price}
+<b>Stop Loss:</b> {stop_loss if stop_loss else 'Not specified'}
+<b>Take Profit:</b> {take_profit if take_profit else 'Not specified'}
+<b>Timeframe:</b> {timeframe}
+<b>Time:</b> {time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime())}
+
+{notes if notes else ''}
+"""
+            
+            # Haal subscribers op die dit signaal zouden moeten ontvangen
+            subscribers = await self._get_signal_subscribers(market, symbol)
+            
+            # Stuur het signaal naar relevante subscribers
+            send_count = 0
+            for user_id in subscribers:
+                try:
+                    # Stuur het bericht naar de gebruiker
+                    await self.bot.send_message(
+                        chat_id=user_id,
+                        text=message,
+                        parse_mode=ParseMode.HTML
+                    )
+                    send_count += 1
+                except Exception as e:
+                    logger.error(f"Error sending signal to user {user_id}: {str(e)}")
+            
+            logger.info(f"Signal sent to {send_count}/{len(subscribers)} subscribers")
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error processing signal: {str(e)}")
+            logger.exception(e)
+            return False
+            
+    def _detect_market(self, symbol: str) -> str:
+        """Detect market type from symbol"""
+        # Crypto markers
+        if symbol.endswith('USDT') or symbol.endswith('BTC') or symbol.endswith('ETH') or 'BTC' in symbol:
+            return 'crypto'
+            
+        # Forex markers
+        if all(c in symbol for c in ['USD', 'EUR', 'GBP', 'JPY', 'AUD', 'NZD', 'CAD', 'CHF']):
+            return 'forex'
+            
+        # Indices markers
+        if any(idx in symbol for idx in ['SPX', 'NDX', 'DJI', 'FTSE', 'DAX', 'CAC', 'NIKKEI']):
+            return 'indices'
+            
+        # Commodities markers
+        if any(com in symbol for com in ['GOLD', 'XAU', 'SILVER', 'XAG', 'OIL', 'GAS', 'USOIL']):
+            return 'commodities'
+            
+        # Default to forex
+        return 'forex'
+        
+    async def _get_signal_subscribers(self, market: str, symbol: str) -> List[int]:
+        """Get list of subscribers for a specific market and symbol"""
+        try:
+            # Haal alle subscribers op
+            all_subscribers = await self.db.get_subscribers()
+            
+            # Filter subscribers op basis van market en symbol
+            matching_subscribers = []
+            
+            for subscriber in all_subscribers:
+                # Haal preferences op voor deze subscriber
+                preferences = await self.db.get_subscriber_preferences(subscriber['user_id'])
+                
+                # Controleer of de subscriber geïnteresseerd is in deze market en symbol
+                for pref in preferences:
+                    if pref['market'].lower() == market.lower() and (
+                       pref['instrument'].upper() == symbol.upper() or 
+                       pref['instrument'] == 'ALL'):  # 'ALL' betekent dat ze alle signalen willen
+                        matching_subscribers.append(subscriber['user_id'])
+                        break
+            
+            return matching_subscribers
+            
+        except Exception as e:
+            logger.error(f"Error getting signal subscribers: {str(e)}")
+            return []
