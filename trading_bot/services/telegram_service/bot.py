@@ -10,6 +10,7 @@ import base64
 import time
 import re
 import random
+import threading
 
 from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery, InputMediaPhoto, BotCommand
 from telegram.ext import (
@@ -1669,28 +1670,41 @@ Consider checking financial news sources for more accurate information.
                 BotCommand("help", "Show help information")
             ])
             
-            # Start polling in a separate task
-            import asyncio
-            asyncio.create_task(self._start_polling_background())
+            # Start polling in a separate thread to avoid event loop issues
+            polling_thread = threading.Thread(target=self._start_polling_thread)
+            polling_thread.daemon = True
+            polling_thread.start()
             
-            logger.info("Bot initialized for polling mode")
+            logger.info("Bot initialized for polling mode in a separate thread")
         except Exception as e:
             logger.error(f"Error setting up polling mode: {str(e)}")
             logger.exception(e)
             raise
             
-    async def _start_polling_background(self):
-        """Start polling in a non-blocking way"""
+    def _start_polling_thread(self):
+        """Run polling in a separate thread to avoid event loop issues"""
         try:
-            logger.info("Starting polling in background task")
+            logger.info("Starting polling in separate thread")
             
-            # The correct method in python-telegram-bot v20+ is run_polling
-            # Since it's not an async method, we don't use await
-            self.application.run_polling(drop_pending_updates=True, close_loop=False, allowed_updates=None)
+            # Create a new event loop for this thread
+            import asyncio
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
             
-            logger.info("Polling started successfully")
+            # Set up a new Application instance for polling
+            from telegram.ext import ApplicationBuilder
+            polling_app = ApplicationBuilder().token(os.getenv("TELEGRAM_BOT_TOKEN")).build()
+            
+            # Copy the handlers from the main application
+            for handler in self.application.handlers.get(0, []):
+                polling_app.add_handler(handler)
+            
+            # Start polling (this will block the thread)
+            polling_app.run_polling(drop_pending_updates=True)
+            
+            logger.info("Polling thread finished")
         except Exception as e:
-            logger.error(f"Error starting polling: {str(e)}")
+            logger.error(f"Error in polling thread: {str(e)}")
             logger.exception(e)
 
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
