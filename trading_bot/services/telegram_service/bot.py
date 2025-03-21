@@ -2166,3 +2166,183 @@ Consider checking financial news sources for more accurate information.
             except Exception as inner_e:
                 logger.error(f"Failed to recover from error: {str(inner_e)}")
                 return MENU
+
+    async def show_technical_analysis(self, update: Update, context=None, instrument: str = None) -> int:
+        """Show technical analysis for a specific instrument"""
+        query = update.callback_query
+        
+        try:
+            # First, show a loading message
+            await query.edit_message_text(
+                text=f"Generating technical analysis for {instrument}. Please wait..."
+            )
+            
+            # Generate the chart using the chart service
+            try:
+                # Generate chart image
+                image_path = await self.chart.generate_chart(instrument, timeframe="1h")
+                
+                if not image_path or not os.path.exists(image_path):
+                    # If chart generation fails, send a text message
+                    logger.error(f"Failed to generate chart for {instrument}")
+                    await query.edit_message_text(
+                        text=f"Sorry, I couldn't generate a chart for {instrument} at this time. Please try again later.",
+                        reply_markup=InlineKeyboardMarkup([[
+                            InlineKeyboardButton("⬅️ Back", callback_data=f"back_to_signal_{instrument}")
+                        ]])
+                    )
+                    return MENU
+                
+                # Create caption with analysis
+                caption = f"<b>Technical Analysis for {instrument}</b>\n\n"
+                caption += f"<b>Timeframe:</b> 1 Hour\n"
+                caption += f"<b>Date:</b> {time.strftime('%Y-%m-%d %H:%M UTC', time.gmtime())}\n\n"
+                
+                # Add buttons for different actions
+                keyboard = [
+                    [InlineKeyboardButton("🔍 Different Timeframe", callback_data=f"timeframe_{instrument}")],
+                    [InlineKeyboardButton("⬅️ Back to Instrument", callback_data="back_instrument")]
+                ]
+                
+                # Send the chart with caption
+                with open(image_path, "rb") as chart_file:
+                    await query.message.reply_photo(
+                        photo=chart_file,
+                        caption=caption,
+                        reply_markup=InlineKeyboardMarkup(keyboard),
+                        parse_mode=ParseMode.HTML
+                    )
+                
+                # Delete the loading message
+                await query.edit_message_text(
+                    text=f"Here's your technical analysis for {instrument}:"
+                )
+                
+                # Clean up - delete the chart file
+                try:
+                    os.remove(image_path)
+                except Exception as e:
+                    logger.warning(f"Failed to delete chart file {image_path}: {str(e)}")
+                
+            except Exception as chart_error:
+                logger.error(f"Error generating chart: {str(chart_error)}")
+                await query.edit_message_text(
+                    text=f"Sorry, there was a problem generating the chart for {instrument}. Please try again later.",
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("⬅️ Back", callback_data="back_instrument")
+                    ]])
+                )
+            
+            return SHOW_RESULT
+            
+        except Exception as e:
+            logger.error(f"Error in show_technical_analysis: {str(e)}")
+            logger.exception(e)
+            
+            # Send fallback message
+            try:
+                await query.edit_message_text(
+                    text=f"Sorry, I couldn't analyze {instrument} at this time. Please try again later.",
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("⬅️ Back", callback_data="back_instrument")
+                    ]])
+                )
+            except Exception as inner_e:
+                logger.error(f"Failed to send fallback message: {str(inner_e)}")
+            
+            return MENU
+
+    async def show_sentiment_analysis(self, update: Update, context=None, instrument: str = None) -> int:
+        """Show sentiment analysis for a specific instrument"""
+        query = update.callback_query
+        
+        try:
+            # First, show a loading message
+            await query.edit_message_text(
+                text=f"Analyzing market sentiment for {instrument}. Please wait..."
+            )
+            
+            # Get sentiment analysis from the sentiment service
+            sentiment_data = await self.get_sentiment_analysis(instrument)
+            
+            # Create buttons for different actions
+            keyboard = [
+                [InlineKeyboardButton("🔄 Refresh Analysis", callback_data=f"refresh_sentiment_{instrument}")],
+                [InlineKeyboardButton("⬅️ Back to Instrument", callback_data="back_instrument")]
+            ]
+            
+            # Send the sentiment analysis
+            await query.edit_message_text(
+                text=sentiment_data,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode=ParseMode.HTML
+            )
+            
+            return SHOW_RESULT
+            
+        except Exception as e:
+            logger.error(f"Error in show_sentiment_analysis: {str(e)}")
+            logger.exception(e)
+            
+            # Send fallback message
+            try:
+                await query.edit_message_text(
+                    text=f"Sorry, I couldn't analyze sentiment for {instrument} at this time. Please try again later.",
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("⬅️ Back", callback_data="back_instrument")
+                    ]])
+                )
+            except Exception as inner_e:
+                logger.error(f"Failed to send fallback message: {str(inner_e)}")
+            
+            return MENU
+
+    async def show_economic_calendar(self, update: Update, context=None, instrument: str = None) -> int:
+        """Show economic calendar events for a specific instrument"""
+        query = update.callback_query
+        
+        try:
+            # First, show a loading message
+            await query.edit_message_text(
+                text=f"Fetching economic calendar events for {instrument}. Please wait..."
+            )
+            
+            # Get calendar data from the calendar service
+            calendar_data = await self.calendar.get_instrument_calendar(instrument)
+            
+            if not calendar_data:
+                calendar_data = f"<b>📅 Economic Calendar for {instrument}</b>\n\n" + \
+                                "No major economic events found for this instrument in the upcoming days.\n\n" + \
+                                "<i>Check back later for updates.</i>"
+            
+            # Create buttons for different actions
+            keyboard = [
+                [InlineKeyboardButton("🔄 Refresh Calendar", callback_data=f"refresh_calendar_{instrument}")],
+                [InlineKeyboardButton("⬅️ Back to Instrument", callback_data="back_instrument")]
+            ]
+            
+            # Send the calendar data
+            await query.edit_message_text(
+                text=calendar_data,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode=ParseMode.HTML
+            )
+            
+            return SHOW_RESULT
+            
+        except Exception as e:
+            logger.error(f"Error in show_economic_calendar: {str(e)}")
+            logger.exception(e)
+            
+            # Send fallback message
+            try:
+                await query.edit_message_text(
+                    text=f"Sorry, I couldn't fetch calendar events for {instrument} at this time. Please try again later.",
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("⬅️ Back", callback_data="back_instrument")
+                    ]])
+                )
+            except Exception as inner_e:
+                logger.error(f"Failed to send fallback message: {str(inner_e)}")
+            
+            return MENU
