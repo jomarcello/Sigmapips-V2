@@ -448,6 +448,9 @@ class TelegramService:
             # Voeg een CommandHandler toe voor /menu
             self.application.add_handler(CommandHandler("menu", self.show_main_menu))
             
+            # Voeg een CommandHandler toe voor /help
+            self.application.add_handler(CommandHandler("help", self.help_command))
+            
             # Voeg een CallbackQueryHandler toe voor knoppen
             self.application.add_handler(CallbackQueryHandler(self.button_callback))
             
@@ -1602,3 +1605,105 @@ Click the button below to start your FREE 14-day trial.
 <b>Note:</b> This is a fallback analysis as we couldn't fetch real-time data.
 Consider checking financial news sources for more accurate information.
 """
+
+    async def initialize(self, use_webhook=False):
+        """Initialize the bot and start polling or webhook"""
+        try:
+            if not self.application:
+                raise ValueError("Application not initialized")
+                
+            if use_webhook:
+                # Configureer webhook settings
+                webhook_url = os.getenv("WEBHOOK_URL")
+                webhook_port = int(os.getenv("PORT", "8000"))
+                webhook_path = os.getenv("WEBHOOK_PATH", "/webhook")
+                
+                if not webhook_url:
+                    logger.warning("WEBHOOK_URL not set, using polling instead")
+                    await self.application.initialize()
+                    await self.application.start_polling()
+                    self.bot_started = True
+                    return
+                    
+                logger.info(f"Starting webhook on port {webhook_port}, path {webhook_path}")
+                
+                # Initialize bot without starting polling
+                await self.application.initialize()
+                
+                # Webhook configuratie wordt nu in main.py gedaan
+                self.webhook_path = webhook_path
+                self.webhook_url = webhook_url
+                self.webhook_port = webhook_port
+                
+                # Set commands
+                await self.bot.set_my_commands([
+                    BotCommand("start", "Start the bot and show main menu"),
+                    BotCommand("menu", "Show main menu"),
+                    BotCommand("help", "Show help information")
+                ])
+                
+                logger.info("Bot initialized with webhook configuration")
+                
+            else:
+                # Use polling
+                logger.info("Starting bot in polling mode")
+                await self.application.initialize()
+                await self.application.start_polling()
+                
+                # Set commands
+                await self.bot.set_my_commands([
+                    BotCommand("start", "Start the bot and show main menu"),
+                    BotCommand("menu", "Show main menu"),
+                    BotCommand("help", "Show help information")
+                ])
+                
+                logger.info("Bot started in polling mode")
+                
+            self.bot_started = True
+            
+        except Exception as e:
+            logger.error(f"Error initializing bot: {str(e)}")
+            logger.exception(e)
+            raise
+            
+    async def process_update(self, update_data: dict):
+        """Process updates from webhook"""
+        try:
+            logger.info(f"Processing update: {update_data}")
+            
+            # Controleer of de update al is verwerkt
+            update_id = update_data.get('update_id')
+            if update_id in self.processed_updates:
+                logger.info(f"Update {update_id} already processed, skipping")
+                return
+                
+            # Convert dictionary to Update object
+            update = Update.de_json(data=update_data, bot=self.bot)
+            if not update:
+                logger.error("Failed to parse update")
+                return
+                
+            # Process the update
+            await self.application.process_update(update)
+            
+            # Mark as processed
+            self.processed_updates.add(update_id)
+            
+            # Trim processed_updates set if it gets too large
+            if len(self.processed_updates) > 1000:
+                # Keep only the 500 most recent updates
+                self.processed_updates = set(sorted(self.processed_updates)[-500:])
+                
+        except Exception as e:
+            logger.error(f"Error processing update: {str(e)}")
+            logger.exception(e)
+
+    async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Send a help message when the command /help is issued."""
+        await update.message.reply_text(
+            text=HELP_MESSAGE,
+            parse_mode=ParseMode.HTML,
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🏠 Main Menu", callback_data="back_menu")]
+            ])
+        )
