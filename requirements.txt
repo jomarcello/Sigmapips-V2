@@ -4,7 +4,7 @@ aiohttp==3.8.5
 python-dotenv==1.0.0
 fastapi==0.105.0
 uvicorn==0.24.0.post1
-httpx==0.25.1
+httpx==0.24.1
 stripe==7.5.0
 
 # Database
@@ -24,16 +24,16 @@ asyncio==3.4.3
 python-json-logger==2.0.7
 
 # Browser automation
-undetected-chromedriver==3.5.3
-selenium-stealth==1.0.6
-selenium-wire==5.1.0
+selenium==4.10.0
+pillow==9.5.0
+webdriver-manager==3.8.6
+playwright==1.40.0
 
-# Utils
-python-multipart==0.0.6
-beautifulsoup4==4.12.2
+# Data fetching
+yfinance==0.2.35
 lxml==4.9.3
 
-# Pinecone
+# Vector database
 pinecone-client
 requests
 
