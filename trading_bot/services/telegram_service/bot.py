@@ -1621,7 +1621,9 @@ Consider checking financial news sources for more accurate information.
                 if not webhook_url:
                     logger.warning("WEBHOOK_URL not set, using polling instead")
                     await self.application.initialize()
-                    await self.application.start_polling()
+                    # In v20, we need to use run_polling instead of start_polling
+                    # This is a non-async method so we don't await it
+                    self.application.run_polling(close_loop=False)
                     self.bot_started = True
                     return
                     
@@ -1648,7 +1650,9 @@ Consider checking financial news sources for more accurate information.
                 # Use polling
                 logger.info("Starting bot in polling mode")
                 await self.application.initialize()
-                await self.application.start_polling()
+                # In v20, we need to use run_polling instead of start_polling
+                # This is a non-async method so we don't await it
+                self.application.run_polling(close_loop=False)
                 
                 # Set commands
                 await self.bot.set_my_commands([
