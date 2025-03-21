@@ -6,6 +6,7 @@ from fastapi.responses import JSONResponse
 from dotenv import load_dotenv
 import stripe
 import time
+import asyncio
 
 # Configureer logging
 logging.basicConfig(level=logging.INFO)
@@ -101,20 +102,58 @@ async def startup_event():
         # The log shows "Successfully connected to Supabase" already
         logger.info("Database initialized")
         
-        # Initialize telegram service (don't start polling in webhook mode)
-        await telegram_service.initialize(use_webhook=True)
+        # First try in polling mode (safer option)
+        force_polling = os.getenv("FORCE_POLLING", "false").lower() == "true"
+        
+        # Initialize telegram service
+        await telegram_service.initialize(use_webhook=not force_polling)
         logger.info("Telegram service initialized")
         
-        # Setup the webhook route 
-        await telegram_service.setup_webhook(app)
-        logger.info("Webhook setup complete")
+        # Setup the webhook route only if not in forced polling mode
+        if not force_polling:
+            # Wait a short time for the initialization to complete
+            await asyncio.sleep(1)
+            await telegram_service.setup_webhook(app)
+            logger.info("Webhook setup complete")
+        else:
+            logger.info("Skipping webhook setup due to FORCE_POLLING=true")
         
     except Exception as e:
         logger.error(f"Error initializing services: {str(e)}")
         raise
 
-# De /webhook endpoint wordt nu beheerd door de TelegramService.setup_webhook methode
-# We houden alleen nog het signaal-specifieke deel
+# Define webhook routes
+
+@app.get("/webhook")
+async def webhook_info():
+    """Return webhook info"""
+    return {"status": "Telegram webhook endpoint", "info": "Use POST method to send updates"}
+
+@app.post("/webhook")
+async def telegram_webhook(request: Request):
+    """Handle Telegram webhook updates"""
+    try:
+        # Controleer of de service beschikbaar is
+        if not telegram_service:
+            raise HTTPException(status_code=503, detail="Telegram service not available")
+            
+        # Parse de JSON data
+        data = await request.json()
+        
+        # Controleer of het een Telegram update is (heeft 'update_id')
+        if 'update_id' in data:
+            # Log de ontvangen update
+            logger.info(f"Received Telegram update: {data.get('update_id')}")
+            
+            # Stuur de update naar de TelegramService voor verwerking
+            await telegram_service.process_update(data)
+            return JSONResponse(content={"status": "success"})
+        else:
+            # Als het geen Telegram update is, stuur door naar het signaal endpoint
+            return await tradingview_signal(request)
+    except Exception as e:
+        logger.error(f"Error processing webhook: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/tradingview-signal")
 async def tradingview_signal(request: Request):
