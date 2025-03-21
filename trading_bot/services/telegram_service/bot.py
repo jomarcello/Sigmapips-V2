@@ -1871,25 +1871,44 @@ Consider checking financial news sources for more accurate information.
             # Import FastAPI dependencies
             from fastapi import Request
             
-            # Define the webhook endpoint in the FastAPI app
-            @app.post(self.webhook_path)
-            async def telegram_webhook(request: Request):
-                """Handle webhook updates from Telegram"""
-                try:
-                    # Parse the JSON data from the request
-                    update_data = await request.json()
-                    
-                    # Process the update
-                    await self.process_update(update_data)
-                    return {"status": "ok"}
-                except Exception as e:
-                    logger.error(f"Error processing webhook: {str(e)}")
-                    return {"status": "error", "message": str(e)}
+            # Define the webhook endpoint in the FastAPI app - maar alleen als deze nog niet bestaat
+            if not any(route.path == self.webhook_path for route in app.routes):
+                @app.post(self.webhook_path)
+                async def telegram_webhook(request: Request):
+                    """Handle webhook updates from Telegram"""
+                    try:
+                        # Parse the JSON data from the request
+                        update_data = await request.json()
+                        
+                        # Process the update
+                        await self.process_update(update_data)
+                        return {"status": "ok"}
+                    except Exception as e:
+                        logger.error(f"Error processing webhook: {str(e)}")
+                        return {"status": "error", "message": str(e)}
             
             # Set the webhook URL in Telegram
-            await self.bot.set_webhook(url=self.webhook_url)
+            # Controleer of de webhook URL begint met https://
+            if not self.webhook_url.startswith("https://"):
+                self.webhook_url = "https://" + self.webhook_url
+                
+            # Zorg dat de webhook URL geen dubbele slashes bevat tussen domain en path
+            if self.webhook_url.endswith("/") and self.webhook_path.startswith("/"):
+                webhook_url = self.webhook_url + self.webhook_path[1:]
+            else:
+                webhook_url = self.webhook_url if self.webhook_url.endswith(self.webhook_path) else self.webhook_url + self.webhook_path
+                
+            logger.info(f"Setting webhook URL to: {webhook_url}")
+            await self.bot.set_webhook(url=webhook_url)
             
-            logger.info(f"Webhook set up successfully at {self.webhook_url}")
+            logger.info(f"Webhook set up successfully at {webhook_url}")
+            
+            # Get webhook info for debugging
+            try:
+                webhook_info = await self.bot.get_webhook_info()
+                logger.info(f"Current webhook info: {webhook_info}")
+            except Exception as e:
+                logger.error(f"Error getting webhook info: {str(e)}")
             
         except Exception as e:
             logger.error(f"Error setting up webhook: {str(e)}")
