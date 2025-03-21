@@ -683,11 +683,34 @@ For support, contact @SigmaPipsSupport
             logger.error(f"Error loading signals: {str(e)}")
             self.user_signals = {}
             
+    async def initialize(self, use_webhook=False):
+        """Initialize the bot with either polling or webhook"""
+        try:
+            # Register handlers
+            self._register_handlers()
+            
+            # Initialize the application
+            await self.application.initialize()
+            
+            # Always start the application (needed for both polling and webhook)
+            await self.application.start()
+            
+            if use_webhook:
+                # For webhook mode, we just initialize but don't start polling
+                logger.info("Telegram bot initialized for webhook use")
+            else:
+                # For polling mode, start the updater
+                await self.application.updater.start_polling()
+                logger.info("Telegram bot started with polling")
+                
+            return True
+        except Exception as e:
+            logger.error(f"Failed to initialize Telegram bot: {str(e)}")
+            raise
+    
     async def run(self):
-        """Start the Telegram bot"""
-        await self.application.initialize()
-        await self.application.start()
-        await self.application.updater.start_polling()
+        """Start the Telegram bot using polling (deprecated, use initialize instead)"""
+        await self.initialize(use_webhook=False)
         
         logger.info("Bot started polling")
         
@@ -697,3 +720,53 @@ For support, contact @SigmaPipsSupport
             await self.application.shutdown()
         except Exception as e:
             logger.error(f"Error stopping bot: {str(e)}")
+
+    async def process_update(self, update_data: Dict[str, Any]) -> bool:
+        """Process an update from the webhook"""
+        try:
+            # Convert the update data to an Update object
+            update = Update.de_json(data=update_data, bot=self.bot)
+            
+            # Check if we've already processed this update
+            update_id = update.update_id
+            if update_id in self.processed_updates:
+                logger.info(f"Skipping already processed update: {update_id}")
+                return True
+                
+            # Add the update to processed updates
+            self.processed_updates.add(update_id)
+            
+            # Keep the set size limited
+            if len(self.processed_updates) > 1000:
+                self.processed_updates = set(list(self.processed_updates)[-500:])
+                
+            # Process the update with the application
+            await self.application.process_update(update)
+            
+            return True
+        except Exception as e:
+            logger.error(f"Error processing update: {str(e)}")
+            return False
+            
+    async def set_webhook(self, url: str, secret_token: Optional[str] = None) -> bool:
+        """Set the webhook for the bot"""
+        try:
+            await self.bot.set_webhook(
+                url=url,
+                secret_token=secret_token
+            )
+            logger.info(f"Webhook set to {url}")
+            return True
+        except Exception as e:
+            logger.error(f"Error setting webhook: {str(e)}")
+            return False
+            
+    async def remove_webhook(self) -> bool:
+        """Remove the webhook for the bot"""
+        try:
+            await self.bot.delete_webhook()
+            logger.info("Webhook removed")
+            return True
+        except Exception as e:
+            logger.error(f"Error removing webhook: {str(e)}")
+            return False
