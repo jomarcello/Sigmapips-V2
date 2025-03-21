@@ -34,6 +34,472 @@ COMMODITIES = "commodities"
 
 # Timeframes
 TIMEFRAMES = {
+    "1m": "\u26A1 Test (1m)",       # Lightning bolt
+    "15m": "\U0001F3C3 Scalp (15m)",   # Runner
+    "30m": "\u23F1 Scalp (30m)",    # Timer
+    "1h": "\U0001F4CA Intraday (1h)",  # Chart
+    "4h": "\U0001F30A Intraday (4h)"   # Wave
+}
+
+# Configure logging
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
+logger = logging.getLogger(__name__)
+
+def require_subscription(func):
+    """Decorator to check if user has an active subscription"""
+    @wraps(func)
+    async def wrapper(self, update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
+        if not update.effective_user:
+            return
+
+        user_id = update.effective_user.id
+        is_subscribed = await self.check_subscription(user_id)
+
+        if not is_subscribed:
+            keyboard = self.keyboards.get_subscription_keyboard()
+            await update.effective_message.reply_text(
+                self.messages.SUBSCRIPTION_REQUIRED,
+                reply_markup=keyboard,
+                parse_mode='HTML'
+            )
+            return ConversationHandler.END
+
+        return await func(self, update, context, *args, **kwargs)
+    return wrapper
+
+class MessageTemplates:
+    WELCOME_ACTIVE = """
+\u2705 <b>Welcome to SigmaPips Trading Bot!</b> \u2705
+
+Your subscription is <b>ACTIVE</b>. You have full access to all features.
+
+<b>\U0001F680 HOW TO USE:</b>
+
+<b>1. Start with /menu</b>
+   - This will show you the main options:
+   - <b>Analyze Market</b> - For all market analysis tools
+   - <b>Trading Signals</b> - To manage your trading signals
+
+<b>2. Analyze Market options:</b>
+   - <b>Technical Analysis</b> - Charts and price levels
+   - <b>Market Sentiment</b> - Indicators and market mood
+   - <b>Economic Calendar</b> - Upcoming economic events
+
+<b>3. Trading Signals:</b>
+   - Set up which signals you want to receive
+   - Signals will be sent automatically
+   - Each includes entry, stop loss, and take profit levels
+
+Type /menu to start using the bot.
+"""
+
+    SUBSCRIPTION_INACTIVE = """
+\u274C <b>Subscription Inactive</b> \u274C
+
+Your SigmaPips Trading Bot subscription is currently inactive. 
+
+To regain access to all features and trading signals, please reactivate your subscription:
+"""
+
+    TRIAL_WELCOME = """
+\U0001F680 <b>Welcome to SigmaPips Trading Bot!</b> \U0001F680
+
+<b>Discover powerful trading signals for various markets:</b>
+- <b>Forex</b> - Major and minor currency pairs
+- <b>Crypto</b> - Bitcoin, Ethereum and other top cryptocurrencies
+- <b>Indices</b> - Global market indices
+- <b>Commodities</b> - Gold, silver and oil
+
+<b>Features:</b>
+\u2705 Real-time trading signals
+\u2705 Multi-timeframe analysis (1m, 15m, 1h, 4h)
+\u2705 Advanced chart analysis
+\u2705 Sentiment indicators
+\u2705 Economic calendar integration
+
+<b>Start today with a FREE 14-day trial!</b>
+Price: $29.99/month after trial
+"""
+
+    SUBSCRIPTION_REQUIRED = """
+\u26A0 <b>Subscription Required</b>
+
+This feature requires an active subscription.
+Start your 14-day FREE trial or subscribe now to access all features.
+
+Price: $29.99/month
+"""
+
+    @staticmethod
+    def get_signal_message(interval: str, instrument: str, direction: str, price: float, sl: float) -> str:
+        return f"""Timeframe: {interval}
+Strategy: TradingView Signal
+
+------------------------------------------------
+
+Risk Management:
+- Position size: 1-2% max
+- Use proper stop loss
+- Follow your trading plan
+
+------------------------------------------------
+
+\U0001F916 SigmaPips AI Verdict:
+The {instrument} {direction.lower()} signal shows a promising setup with defined entry at {price:.2f} and stop loss at {sl:.2f}. Multiple take profit levels provide opportunities for partial profit taking.
+
+If you need any assistance, simply type /help to see available commands.
+
+Happy Trading! \U0001F4C8
+"""
+
+class KeyboardFactory:
+    @staticmethod
+    def get_main_menu_keyboard() -> InlineKeyboardMarkup:
+        keyboard = [
+            [
+                InlineKeyboardButton("\U0001F50D Analyze Market", callback_data="menu_analyse"),
+                InlineKeyboardButton("\U0001F4CA Trading Signals", callback_data="menu_signals")
+            ]
+        ]
+        return InlineKeyboardMarkup(keyboard)
+
+    @staticmethod
+    def get_analysis_keyboard() -> InlineKeyboardMarkup:
+        keyboard = [
+            [
+                InlineKeyboardButton("\U0001F4C8 Technical Analysis", callback_data="analysis_technical"),
+                InlineKeyboardButton("\U0001F9E0 Market Sentiment", callback_data="analysis_sentiment")
+            ],
+            [
+                InlineKeyboardButton("\U0001F4C5 Economic Calendar", callback_data="analysis_calendar")
+            ],
+            [
+                InlineKeyboardButton("\u2B05 Back to Menu", callback_data="back_menu")
+            ]
+        ]
+        return InlineKeyboardMarkup(keyboard)
+
+    @staticmethod
+    def get_market_keyboard() -> InlineKeyboardMarkup:
+        keyboard = [
+            [
+                InlineKeyboardButton("\U0001F4B1 Forex", callback_data=f"market_{FOREX}"),
+                InlineKeyboardButton("\U0001F4B0 Crypto", callback_data=f"market_{CRYPTO}")
+            ],
+            [
+                InlineKeyboardButton("\U0001F4CA Indices", callback_data=f"market_{INDICES}"),
+                InlineKeyboardButton("\U0001F6E2 Commodities", callback_data=f"market_{COMMODITIES}")
+            ],
+            [
+                InlineKeyboardButton("\u2B05 Back", callback_data="back_menu")
+            ]
+        ]
+        return InlineKeyboardMarkup(keyboard)
+
+    @staticmethod
+    def get_timeframe_keyboard() -> InlineKeyboardMarkup:
+        keyboard = [
+            [InlineKeyboardButton(text, callback_data=f"timeframe_{tf}")]
+            for tf, text in TIMEFRAMES.items()
+        ]
+        keyboard.append([InlineKeyboardButton("\u2B05 Back", callback_data="back_instrument")])
+        return InlineKeyboardMarkup(keyboard)
+
+    @staticmethod
+    def get_subscription_keyboard() -> InlineKeyboardMarkup:
+        keyboard = [
+            [
+                InlineKeyboardButton("Start FREE Trial", callback_data="start_trial"),
+                InlineKeyboardButton("Subscribe $29.99/m", callback_data="subscribe")
+            ]
+        ]
+        return InlineKeyboardMarkup(keyboard)
+
+class SigmaPipsBot:
+    def __init__(self):
+        self.token = os.getenv("TELEGRAM_TOKEN", "YOUR_BOT_TOKEN")
+        self.messages = MessageTemplates()
+        self.keyboards = KeyboardFactory()
+        
+        # Initialize Redis client with fallback to no-op if Redis isn't available
+        try:
+            self.redis_client = redis.Redis(host='localhost', port=6379, db=0)
+            self.redis_client.ping()  # Test connection
+            self.redis_available = True
+        except (redis.ConnectionError, redis.exceptions.ConnectionError):
+            logger.warning("Redis connection failed - using in-memory storage")
+            self.redis_available = False
+            self.subscription_cache = {}  # Simple in-memory alternative
+        
+    async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        """Handle /start command"""
+        if not update.message or not update.effective_user:
+            return ConversationHandler.END
+            
+        user_id = update.effective_user.id
+        is_subscribed = await self.check_subscription(user_id)
+        
+        if is_subscribed:
+            keyboard = self.keyboards.get_main_menu_keyboard()
+            await update.message.reply_text(
+                self.messages.WELCOME_ACTIVE,
+                reply_markup=keyboard,
+                parse_mode='HTML'
+            )
+        else:
+            keyboard = self.keyboards.get_subscription_keyboard()
+            await update.message.reply_text(
+                self.messages.TRIAL_WELCOME,
+                reply_markup=keyboard,
+                parse_mode='HTML'
+            )
+        return MENU
+
+    @require_subscription
+    async def menu_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        """Handle /menu command"""
+        if not update.message:
+            return ConversationHandler.END
+            
+        keyboard = self.keyboards.get_main_menu_keyboard()
+        await update.message.reply_text(
+            "Please select an option:",
+            reply_markup=keyboard
+        )
+        return MENU
+
+    async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle /help command"""
+        if not update.message:
+            return
+            
+        help_text = """
+Available commands:
+/start - Setup and welcome
+/menu - Main menu
+/help - Show this help message
+/manage - Manage preferences
+
+For support, contact @SigmaPipsSupport
+"""
+        await update.message.reply_text(help_text)
+
+    @require_subscription
+    async def analyze_market_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        """Handle analyze market button"""
+        query = update.callback_query
+        if not query:
+            return ConversationHandler.END
+            
+        await query.answer()
+        keyboard = self.keyboards.get_analysis_keyboard()
+        await query.edit_message_text(
+            text="Choose analysis type:",
+            reply_markup=keyboard
+        )
+        return ANALYZE_MARKET
+
+    @require_subscription
+    async def technical_analysis_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        """Handle technical analysis selection"""
+        query = update.callback_query
+        if not query:
+            return ConversationHandler.END
+            
+        await query.answer()
+        keyboard = self.keyboards.get_market_keyboard()
+        await query.edit_message_text(
+            text="Select market type:",
+            reply_markup=keyboard
+        )
+        return SELECT_MARKET
+        
+    async def back_to_menu_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        """Handle back to menu button"""
+        query = update.callback_query
+        if not query:
+            return ConversationHandler.END
+            
+        await query.answer()
+        keyboard = self.keyboards.get_main_menu_keyboard()
+        await query.edit_message_text(
+            text="Please select an option:",
+            reply_markup=keyboard
+        )
+        return MENU
+        
+    async def menu_signals_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        """Handle trading signals menu button"""
+        query = update.callback_query
+        if not query:
+            return ConversationHandler.END
+            
+        await query.answer()
+        # Create a signals keyboard here
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("Add Signals", callback_data="signals_add")],
+            [InlineKeyboardButton("Manage Signals", callback_data="signals_manage")],
+            [InlineKeyboardButton("\u2B05 Back to Menu", callback_data="back_menu")]
+        ])
+        await query.edit_message_text(
+            text="Trading Signals Menu:",
+            reply_markup=keyboard
+        )
+        return TRADING_SIGNALS
+
+    async def market_selected_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        """Handle market selection"""
+        query = update.callback_query
+        if not query or not query.data:
+            return ConversationHandler.END
+            
+        await query.answer()
+        market_type = query.data.split("_")[1]
+        
+        # Store the selected market type
+        context.user_data["market_type"] = market_type
+        
+        # Create dynamic keyboard based on market type
+        instruments = self.get_instruments_for_market(market_type)
+        keyboard = []
+        
+        # Create rows with 2 buttons each
+        for i in range(0, len(instruments), 2):
+            row = []
+            for j in range(2):
+                if i + j < len(instruments):
+                    instrument = instruments[i + j]
+                    row.append(InlineKeyboardButton(
+                        instrument, 
+                        callback_data=f"instrument_{instrument}"
+                    ))
+            keyboard.append(row)
+            
+        # Add back button
+        keyboard.append([InlineKeyboardButton("\u2B05 Back", callback_data="back_market")])
+        
+        await query.edit_message_text(
+            text=f"Select {market_type} instrument:",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return SELECT_INSTRUMENT
+
+    def get_instruments_for_market(self, market_type: str) -> List[str]:
+        """Get available instruments for a market type"""
+        if market_type == FOREX:
+            return ["EURUSD", "GBPUSD", "USDJPY", "AUDUSD"]
+        elif market_type == CRYPTO:
+            return ["BTCUSD", "ETHUSD", "XRPUSD", "SOLUSD"] 
+        elif market_type == INDICES:
+            return ["US500", "US30", "US100", "UK100"]
+        elif market_type == COMMODITIES:
+            return ["XAUUSD", "XTIUSD"]
+        return []
+
+    async def error_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle errors"""
+        logger.error(f"Error: {context.error}")
+
+    async def check_subscription(self, user_id: int) -> bool:
+        """Check if user has active subscription"""
+        # For testing, return True for everyone
+        return True
+        
+        if not self.redis_available:
+            # Fall back to in-memory if Redis not available
+            return self.subscription_cache.get(user_id, False)
+            
+        # In real implementation, check Redis/DB
+        subscription_key = f"subscription:{user_id}"
+        return bool(self.redis_client.get(subscription_key))
+
+    async def start_bot(self) -> None:
+        """Start the Telegram bot"""
+        self.application = Application.builder().token(self.token).build()
+        
+        # Create conversation handler
+        conv_handler = ConversationHandler(
+            entry_points=[
+                CommandHandler("start", self.start_command),
+                CommandHandler("menu", self.menu_command)
+            ],
+            states={
+                MENU: [
+                    CallbackQueryHandler(self.analyze_market_callback, pattern="^menu_analyse$"),
+                    CallbackQueryHandler(self.menu_signals_callback, pattern="^menu_signals$")
+                ],
+                ANALYZE_MARKET: [
+                    CallbackQueryHandler(self.technical_analysis_callback, pattern="^analysis_technical$"),
+                    CallbackQueryHandler(self.back_to_menu_callback, pattern="^back_menu$")
+                ],
+                SELECT_MARKET: [
+                    CallbackQueryHandler(
+                        self.market_selected_callback,
+                        pattern=f"^market_({FOREX}|{CRYPTO}|{INDICES}|{COMMODITIES})$"
+                    ),
+                    CallbackQueryHandler(self.back_to_menu_callback, pattern="^back_menu$")
+                ],
+                SELECT_INSTRUMENT: [
+                    CallbackQueryHandler(self.back_to_menu_callback, pattern="^back_market$")
+                ],
+                TRADING_SIGNALS: [
+                    CallbackQueryHandler(self.back_to_menu_callback, pattern="^back_menu$")
+                ]
+            },
+            fallbacks=[CommandHandler("help", self.help_command)]
+        )
+        
+        # Add handlers
+        self.application.add_handler(conv_handler)
+        self.application.add_handler(CommandHandler("help", self.help_command))
+        
+        # Add error handler
+        self.application.add_error_handler(self.error_handler)
+        
+        # Start the bot
+        await self.application.run_polling()
+
+if __name__ == "__main__":
+    bot = SigmaPipsBot()
+    asyncio.run(bot.start_bot()) import os
+import ssl
+import asyncio
+import logging
+import aiohttp
+import redis
+import json
+from typing import Dict, Any, List, Optional
+from datetime import datetime
+from decimal import Decimal
+from functools import wraps
+
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery, BotCommand
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    CallbackQueryHandler,
+    ConversationHandler,
+    ContextTypes,
+    MessageHandler,
+    filters
+)
+from telegram.constants import ParseMode
+
+# States for ConversationHandler
+(MENU, ANALYZE_MARKET, TRADING_SIGNALS, SELECT_MARKET, 
+ SELECT_INSTRUMENT, SELECT_TIMEFRAME, CONFIRM_SIGNAL) = range(7)
+
+# Market Types
+FOREX = "forex"
+CRYPTO = "crypto"
+INDICES = "indices"
+COMMODITIES = "commodities"
+
+# Timeframes
+TIMEFRAMES = {
     "1m": "⚡ Test (1m)",
     "15m": "🏃 Scalp (15m)",
     "30m": "⏱️ Scalp (30m)",
