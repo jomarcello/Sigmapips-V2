@@ -3,16 +3,12 @@ import ssl
 import asyncio
 import logging
 import aiohttp
-import redis
 import json
-from typing import Dict, Any, List, Optional
-import base64
 import time
-import re
 import random
-import threading
 import datetime
 import traceback
+import threading
 
 from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery, InputMediaPhoto, BotCommand
 from telegram.ext import (
@@ -31,7 +27,7 @@ from telegram.constants import ParseMode
 from trading_bot.services.database.db import Database
 from trading_bot.services.chart_service.chart import ChartService
 from trading_bot.services.sentiment_service.sentiment import MarketSentimentService
-from trading_bot.services.calendar_service.calendar import EconomicCalendarService
+from trading_bot.services.calendar_service import EconomicCalendarService
 from trading_bot.services.payment_service.stripe_service import StripeService
 from trading_bot.services.payment_service.stripe_config import get_subscription_features
 from fastapi import Request, HTTPException, status
