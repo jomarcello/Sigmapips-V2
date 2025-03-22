@@ -9,6 +9,7 @@ import random
 import datetime
 import traceback
 import threading
+from typing import Dict
 
 from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery, InputMediaPhoto, BotCommand
 from telegram.ext import (
