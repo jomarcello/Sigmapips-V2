@@ -6,6 +6,7 @@ import random
 from typing import Dict, Any, Optional
 import asyncio
 import socket
+import re
 
 logger = logging.getLogger("market_sentiment")
 
@@ -38,148 +39,143 @@ class MarketSentimentService:
             
         self.use_mock = not self.deepseek_api_key
     
-    async def get_market_sentiment(self, instrument_or_signal) -> Dict[str, Any]:
-        """Get market sentiment analysis using Tavily for news search and DeepSeek for formatting"""
-        try:
-            # Handle both string and dictionary input
-            if isinstance(instrument_or_signal, str):
-                # Convert instrument string to signal dictionary
-                signal = {
-                    'instrument': instrument_or_signal,
-                    'market': self._guess_market_from_instrument(instrument_or_signal)
-                }
-            else:
-                signal = instrument_or_signal
-            
-            instrument = signal.get('instrument', '')
-            market = signal.get('market', 'forex')
-            logger.info(f"Getting market sentiment for {instrument} ({market})")
-            
-            if self.use_mock:
-                logger.info("Using mock data for sentiment analysis")
-                return self._get_mock_sentiment_data(instrument)
-            
-            # First step: Use Tavily to search for recent news and market data
-            market_data = await self._get_tavily_news(instrument, market)
-            if not market_data:
-                logger.warning(f"Failed to get Tavily news for {instrument}, using fallback")
-                return self._get_fallback_sentiment(signal)
-            
-            # Second step: Try to use DeepSeek to format the news into a structured message
-            try:
-                formatted_analysis = await self._format_with_deepseek(instrument, market, market_data)
-                
-                if formatted_analysis:
-                    logger.info(f"Successfully formatted analysis with DeepSeek for {instrument}")
-                    # Extract sentiment metrics from the formatted analysis
-                    sentiment_score = 0.5  # Default neutral
-                    
-                    # Determine sentiment based on keywords
-                    lower_analysis = formatted_analysis.lower()
-                    if "bullish" in lower_analysis or "upward trend" in lower_analysis or "positive outlook" in lower_analysis:
-                        sentiment_score = 0.7
-                    elif "bearish" in lower_analysis or "downward trend" in lower_analysis or "negative outlook" in lower_analysis:
-                        sentiment_score = 0.3
-                    
-                    bullish_percentage = int(sentiment_score * 100)
-                    trend_strength = 'Strong' if abs(sentiment_score - 0.5) > 0.3 else 'Moderate' if abs(sentiment_score - 0.5) > 0.1 else 'Weak'
-                    
-                    return {
-                        'overall_sentiment': 'bullish' if sentiment_score > 0.6 else 'bearish' if sentiment_score < 0.4 else 'neutral',
-                        'sentiment_score': sentiment_score,
-                        'bullish_percentage': bullish_percentage,
-                        'trend_strength': trend_strength,
-                        'volatility': 'High' if 'volatil' in lower_analysis else 'Moderate',
-                        'support_level': 'See analysis for details',
-                        'resistance_level': 'See analysis for details',
-                        'recommendation': 'See analysis for detailed trading recommendations',
-                        'analysis': formatted_analysis,
-                        'source': 'tavily_deepseek'
-                    }
-            except Exception as deepseek_error:
-                logger.error(f"DeepSeek formatting error: {str(deepseek_error)}")
-                # Continue with Tavily data only
-            
-            # If DeepSeek failed, use the Tavily data directly with minimal formatting
-            logger.warning(f"Using Tavily data directly for {instrument}")
-            
-            # Basic sentiment analysis on the raw Tavily data
-            sentiment_score = 0.5  # Default neutral
-            lower_data = market_data.lower()
-            
-            # Count positive and negative sentiment words
-            positive_words = ["bullish", "positive", "increase", "rise", "grow", "upward", "higher", "gain"]
-            negative_words = ["bearish", "negative", "decrease", "fall", "drop", "downward", "lower", "loss"]
-            
-            positive_count = sum(lower_data.count(word) for word in positive_words)
-            negative_count = sum(lower_data.count(word) for word in negative_words)
-            
-            # Adjust sentiment score based on word counts
-            if positive_count > negative_count:
-                sentiment_score = 0.5 + min((positive_count - negative_count) / 10, 0.3)
-            elif negative_count > positive_count:
-                sentiment_score = 0.5 - min((negative_count - positive_count) / 10, 0.3)
-            
-            bullish_percentage = int(sentiment_score * 100)
-            
-            return {
-                'overall_sentiment': 'bullish' if sentiment_score > 0.6 else 'bearish' if sentiment_score < 0.4 else 'neutral',
-                'sentiment_score': sentiment_score,
-                'bullish_percentage': bullish_percentage,
-                'trend_strength': 'Moderate',
-                'volatility': 'Moderate',
-                'support_level': 'See analysis for details',
-                'resistance_level': 'See analysis for details',
-                'recommendation': 'See analysis for trading recommendations',
-                'analysis': market_data,
-                'source': 'tavily_only'
-            }
+    async def get_market_sentiment(self, instrument: str, market_type: Optional[str] = None) -> Optional[str]:
+        """Get market sentiment for a given instrument"""
+        logger.info(f"Getting market sentiment for {instrument} ({market_type or 'unknown'})")
         
+        if market_type is None:
+            # Determine market type from instrument if not provided
+            market_type = self._detect_market_type(instrument)
+        
+        search_query = None
+        market_type = market_type.lower()
+        
+        if market_type == "forex":
+            search_query = f"recent news about {instrument} forex currency pair market analysis price movement"
+        elif market_type == "crypto":
+            search_query = f"recent news about {instrument} cryptocurrency market analysis price movement"
+        elif market_type == "indices":
+            search_query = f"recent news about {instrument} stock index market analysis price movement"
+        elif market_type == "commodities":
+            search_query = f"recent news about {instrument} commodity market analysis price movement"
+        else:
+            search_query = f"recent news about {instrument} market analysis price movement"
+        
+        # Try to get data from Tavily first
+        tavily_data = await self._get_tavily_news(search_query)
+        
+        # If Tavily fails, try alternative news sources
+        if not tavily_data:
+            logger.warning(f"Tavily search failed, trying alternative news sources for {instrument}")
+            alternative_data = await self._get_alternative_news(instrument, market_type)
+            
+            if alternative_data:
+                # Use alternative news with DeepSeek API if available
+                try:
+                    if await self._check_deepseek_connectivity():
+                        logger.info(f"Using alternative news with DeepSeek API for {instrument}")
+                        response = await self._get_deepseek_sentiment(alternative_data, instrument)
+                        if response:
+                            # Success path - we got a response from DeepSeek
+                            return response
+                    
+                    # If DeepSeek API fails or is not available, use the alternative data directly
+                    logger.info(f"Using alternative news directly for {instrument}")
+                    return self._format_data_manually(alternative_data, instrument)
+                except Exception as e:
+                    logger.error(f"Error using alternative news with DeepSeek: {str(e)}")
+                    logger.exception(e)
+                    return self._format_data_manually(alternative_data, instrument)
+            
+            # If both Tavily and alternative news fail, use fallback
+            return self._get_fallback_sentiment(instrument)
+        
+        # If Tavily succeeds, try to format with DeepSeek
+        try:
+            if await self._check_deepseek_connectivity():
+                logger.info(f"Using Tavily news with DeepSeek API for {instrument}")
+                response = await self._get_deepseek_sentiment(tavily_data, instrument)
+                if response:
+                    return response
+            
+            # If DeepSeek API fails, format the Tavily data manually
+            logger.info(f"Using Tavily news directly for {instrument}")
+            return self._format_data_manually(tavily_data, instrument)
         except Exception as e:
-            logger.error(f"Error getting sentiment: {str(e)}")
+            logger.error(f"Error processing sentiment with DeepSeek: {str(e)}")
             logger.exception(e)
-            return self._get_fallback_sentiment(instrument_or_signal if isinstance(instrument_or_signal, dict) else {'instrument': instrument_or_signal})
+            return self._format_data_manually(tavily_data, instrument)
+            
+    def _format_data_manually(self, news_content: str, instrument: str) -> str:
+        """Format market data manually when DeepSeek API fails"""
+        try:
+            logger.info(f"Manually formatting market data for {instrument}")
+            
+            # Create a simple sentiment analysis based on keywords in the news content
+            positive_keywords = [
+                'bullish', 'gain', 'up', 'rise', 'growth', 'positive', 'surge', 
+                'rally', 'outperform', 'increase', 'higher', 'strong', 'advance'
+            ]
+            
+            negative_keywords = [
+                'bearish', 'loss', 'down', 'fall', 'decline', 'negative', 'drop', 
+                'plunge', 'underperform', 'decrease', 'lower', 'weak', 'retreat'
+            ]
+            
+            # Count instances of positive and negative keywords
+            positive_count = sum(1 for word in positive_keywords if word in news_content.lower())
+            negative_count = sum(1 for word in negative_keywords if word in news_content.lower())
+            
+            # Determine sentiment based on keyword counts
+            if positive_count > negative_count:
+                sentiment = "Bullish"
+                sentiment_score = min(90, 50 + (positive_count - negative_count) * 5)
+            elif negative_count > positive_count:
+                sentiment = "Bearish"
+                sentiment_score = max(10, 50 - (negative_count - positive_count) * 5)
+            else:
+                sentiment = "Neutral"
+                sentiment_score = 50
+            
+            # Format the result
+            result = f"<b>Market Sentiment Analysis for {instrument}</b>\n\n"
+            result += f"<b>Overall Sentiment:</b> {sentiment} ({sentiment_score}%)\n\n"
+            result += f"<b>Recent Market Information:</b>\n\n"
+            
+            # Extract key information from the content (first 500 characters)
+            content_preview = news_content[:800] + "..." if len(news_content) > 800 else news_content
+            result += content_preview
+            
+            # Add source note
+            result += "\n\n<i>This analysis is based on data from public financial news sources.</i>"
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error formatting market data manually: {str(e)}")
+            logger.exception(e)
+            return self._get_fallback_sentiment(instrument)
     
-    async def _get_tavily_news(self, instrument: str, market: str) -> str:
+    async def _get_tavily_news(self, search_query: str) -> str:
         """Use Tavily API to get latest news and market data"""
-        logger.info(f"Searching for {instrument} news using Tavily API")
+        logger.info(f"Searching for news using Tavily API")
         
         # Check if API key is configured
         if not self.tavily_api_key:
             logger.error("Tavily API key is not configured")
             return None
             
-        # Create search query based on market type
-        if market == 'forex':
-            search_query = f"recent news about {instrument} forex currency pair market analysis price movement"
-        elif market == 'crypto':
-            search_query = f"recent news about {instrument} cryptocurrency price analysis market trends"
-        elif market == 'indices':
-            search_query = f"recent news about {instrument} stock index market analysis trends"
-        elif market == 'commodities':
-            search_query = f"recent news about {instrument} commodity price analysis market trends"
-        else:
-            search_query = f"recent news about {instrument} market analysis price trends"
-        
-        # Define financial domains for more focused results
-        domains = [
-            "bloomberg.com", "reuters.com", "investing.com", "cnbc.com", 
-            "forexlive.com", "fxstreet.com", "marketwatch.com", 
-            "forbes.com", "wsj.com", "ft.com", "tradingview.com"
-        ]
-        
         # Use our Tavily client to make the API call
         try:
             response = await self.tavily_client.search(
                 query=search_query,
                 search_depth="basic",
                 include_answer=True,
-                include_domains=domains,
                 max_results=5
             )
             
             if response:
-                return self._process_tavily_response(json.dumps(response), instrument)
+                return self._process_tavily_response(json.dumps(response))
             else:
                 logger.error("Tavily search returned no results")
                 return None
@@ -189,19 +185,19 @@ class MarketSentimentService:
             logger.exception(e)
             return None
             
-    def _process_tavily_response(self, response_text: str, instrument: str) -> str:
+    def _process_tavily_response(self, response_text: str) -> str:
         """Process the Tavily API response and extract useful information"""
         try:
             data = json.loads(response_text)
             
             # Structure for the formatted response
-            formatted_text = f"Market Analysis for {instrument}:\n\n"
+            formatted_text = f"Market Analysis:\n\n"
             
             # Extract the generated answer if available
             if data and "answer" in data and data["answer"]:
                 answer = data["answer"]
                 formatted_text += f"Summary: {answer}\n\n"
-                logger.info(f"Successfully received answer from Tavily for {instrument}")
+                logger.info("Successfully received answer from Tavily")
                 
             # Extract results for more comprehensive information
             if "results" in data and data["results"]:
@@ -217,13 +213,13 @@ class MarketSentimentService:
                     formatted_text += f"Source: {url}\n"
                     formatted_text += f"Relevance: {score:.2f}\n"
                 
-                logger.info(f"Successfully processed {len(data['results'])} results from Tavily for {instrument}")
+                logger.info(f"Successfully processed {len(data['results'])} results from Tavily")
                 return formatted_text
             
             # If no answer and no results but we have response content
             if response_text and len(response_text) > 20:
                 logger.warning(f"Unusual Tavily response format, but using raw content")
-                return f"Market data for {instrument}:\n\n{response_text[:2000]}"
+                return f"Market data:\n\n{response_text[:2000]}"
                 
             logger.error(f"Unexpected Tavily API response format: {response_text[:200]}...")
             return None
@@ -262,7 +258,7 @@ class MarketSentimentService:
             
             if not deepseek_available:
                 logger.warning("DeepSeek API is unreachable, using manual formatting")
-                return self._format_data_manually(instrument, market_data)
+                return self._format_data_manually(market_data, instrument)
             
             # Prepare headers with authentication - sanitize API key first
             sanitized_api_key = self.deepseek_api_key.strip()
@@ -336,168 +332,16 @@ If certain information is not available in the market data, make reasonable assu
                         
                         # Log the specific error for debugging
                         logger.error(f"DeepSeek API error: {response.status}, details: {response_text}")
-                        return self._format_data_manually(instrument, market_data)
+                        return self._format_data_manually(market_data, instrument)
                 except (aiohttp.ClientError, asyncio.TimeoutError) as e:
                     logger.error(f"DeepSeek API client/timeout error: {str(e)}")
-                    return self._format_data_manually(instrument, market_data)
+                    return self._format_data_manually(market_data, instrument)
                     
         except Exception as e:
             logger.error(f"Error calling DeepSeek API: {str(e)}")
             logger.exception(e)
-            return self._format_data_manually(instrument, market_data)
+            return self._format_data_manually(market_data, instrument)
             
-    def _format_data_manually(self, instrument: str, market_data: str) -> str:
-        """Format the market data manually when DeepSeek API fails"""
-        logger.info(f"Formatting market data manually for {instrument}")
-        
-        # Extract key information from the market data
-        lines = market_data.strip().split('\n')
-        title_line = f"<b>🎯 {instrument} Market Analysis</b>"
-        
-        # Improved sentiment detection with keyword counting and weighting
-        bullish_keywords = ["bullish", "uptrend", "upward", "rise", "increase", "gains", "strengthen", "higher", "positive", "up"]
-        bearish_keywords = ["bearish", "downtrend", "downward", "fall", "decrease", "retreating", "weaken", "lower", "negative", "down"]
-        
-        # Count occurrences with context
-        bullish_count = 0
-        bearish_count = 0
-        
-        # Check for keywords in context
-        for keyword in bullish_keywords:
-            bullish_count += market_data.lower().count(keyword)
-        
-        for keyword in bearish_keywords:
-            bearish_count += market_data.lower().count(keyword)
-        
-        # Determine sentiment based on keyword counts
-        if bullish_count > bearish_count * 1.5:
-            sentiment = "bullish"
-        elif bearish_count > bullish_count * 1.5:
-            sentiment = "bearish"
-        else:
-            # Check for specific phrases that strongly indicate direction
-            if "downward trend" in market_data.lower() or "under pressure" in market_data.lower():
-                sentiment = "bearish"
-            elif "upward trend" in market_data.lower() or "gaining strength" in market_data.lower():
-                sentiment = "bullish"
-            else:
-                sentiment = "neutral"
-        
-        # Look for explicit sentiment statements
-        if "bearish momentum" in market_data.lower() or "likely to remain under pressure" in market_data.lower():
-            sentiment = "bearish"
-        elif "bullish momentum" in market_data.lower() or "likely to strengthen" in market_data.lower():
-            sentiment = "bullish"
-        
-        # Log the sentiment detection
-        logger.info(f"Detected sentiment for {instrument}: {sentiment} (bullish count: {bullish_count}, bearish count: {bearish_count})")
-        
-        # Prepare the analysis
-        analysis = f"{title_line}\n\n"
-        analysis += f"<b>📈 Market Direction:</b>\n"
-        analysis += f"The {instrument} is currently showing {sentiment} sentiment based on recent market data and analysis.\n\n"
-        
-        analysis += "<b>📰 Latest News & Events:</b>\n"
-        
-        # Try to extract 2-3 bullet points from the raw data
-        news_items = []
-        for line in lines:
-            line = line.strip()
-            # Look for sentences that contain market-related terms
-            if (line and len(line) > 20 and "." in line and 
-                not line.startswith(("Source:", "http", "www")) and
-                any(term in line.lower() for term in ["market", "price", "trading", "economy", "dollar", "euro", "rate", "fed", "ecb"])):
-                news_items.append(f"• {line}")
-                if len(news_items) >= 3:
-                    break
-        
-        # If we couldn't extract enough news items, use the raw data
-        if len(news_items) < 2:
-            # Just use the first 3 paragraphs as bullet points
-            news_text = " ".join(lines)
-            paragraphs = [p.strip() for p in news_text.split('.') if len(p.strip()) > 20]
-            for i, para in enumerate(paragraphs[:3]):
-                news_items.append(f"• {para}.")
-                if len(news_items) >= 3:
-                    break
-        
-        analysis += "\n".join(news_items) + "\n\n"
-        
-        # Extract potential support and resistance levels from the text
-        support_level = None
-        resistance_level = None
-        
-        # Look for specific numeric levels mentioned in the text
-        import re
-        price_pattern = r'(\d+\.\d{4})'
-        matches = re.findall(price_pattern, market_data)
-        
-        if matches and len(matches) >= 2:
-            # Sort prices to get potential support and resistance
-            prices = sorted([float(p) for p in matches])
-            mid_price = sum(prices) / len(prices)
-            
-            # Use mentioned levels if they exist
-            if "support" in market_data.lower() and "resistance" in market_data.lower():
-                for i in range(len(lines)):
-                    if "support" in lines[i].lower():
-                        support_matches = re.findall(price_pattern, lines[i])
-                        if support_matches:
-                            support_level = support_matches[0]
-                    if "resistance" in lines[i].lower():
-                        resistance_matches = re.findall(price_pattern, lines[i])
-                        if resistance_matches:
-                            resistance_level = resistance_matches[0]
-            
-            # Default to lowest and highest found prices if specific levels not mentioned
-            if not support_level:
-                support_level = f"{prices[0]:.4f}"
-            if not resistance_level:
-                resistance_level = f"{prices[-1]:.4f}"
-        
-        # Add key levels section with real data when possible
-        analysis += "<b>🎯 Key Levels:</b>\n"
-        analysis += "• Support Levels:\n"
-        if support_level:
-            analysis += f"  - {support_level} (Mentioned in analysis)\n"
-        else:
-            analysis += "  - Check recent lows for potential support\n"
-            
-        analysis += "• Resistance Levels:\n"
-        if resistance_level:
-            analysis += f"  - {resistance_level} (Mentioned in analysis)\n"
-        else:
-            analysis += "  - Check recent highs for potential resistance\n\n"
-        
-        # Extract risk factors when available
-        analysis += "<b>⚠️ Risk Factors:</b>\n"
-        risk_factors_found = False
-        
-        for i in range(len(lines)):
-            if any(term in lines[i].lower() for term in ["risk", "uncertainty", "tension", "concern"]):
-                analysis += f"• {lines[i].strip()}\n"
-                risk_factors_found = True
-                break
-        
-        if not risk_factors_found:
-            analysis += "• Market volatility could increase with upcoming economic data releases\n"
-            analysis += "• Global events and central bank decisions may impact price action\n\n"
-        else:
-            analysis += "\n"
-        
-        # Add conclusion based on sentiment
-        analysis += "<b>💡 Conclusion:</b>\n"
-        if sentiment == "bullish":
-            analysis += "Consider potential long opportunities with appropriate risk management.\n"
-        elif sentiment == "bearish":
-            analysis += "Watch for possible short opportunities while managing risk carefully.\n"
-        else:
-            analysis += "Monitor the market for clearer directional signals before taking positions.\n"
-        
-        analysis += "\n<i>Analysis generated based on recent market data.</i>"
-        
-        return analysis
-    
     def _guess_market_from_instrument(self, instrument: str) -> str:
         """Guess market type from instrument symbol"""
         if instrument.startswith(('XAU', 'XAG', 'OIL', 'USOIL', 'BRENT')):
@@ -557,10 +401,9 @@ The {instrument} is showing a {trend} trend with {volatility} volatility. Price 
             'source': 'mock_data'
         }
     
-    def _get_fallback_sentiment(self, signal: Dict[str, Any]) -> Dict[str, Any]:
+    def _get_fallback_sentiment(self, instrument: str) -> Dict[str, Any]:
         """Fallback sentiment analysis"""
-        symbol = signal.get('instrument', 'Unknown')
-        analysis = f"""<b>🎯 {symbol} Market Analysis</b>
+        analysis = f"""<b>🎯 {instrument} Market Analysis</b>
 
 <b>📈 Market Direction:</b>
 The market is showing neutral sentiment with mixed signals. Current price action suggests a consolidation phase.
@@ -598,45 +441,336 @@ Wait for clearer market signals before taking new positions.
             'source': 'fallback'
         }
 
+    async def _get_alternative_news(self, instrument: str, market: str) -> str:
+        """Alternative news source when Tavily API fails"""
+        logger.info(f"Using alternative news source for {instrument}")
+        
+        try:
+            # Construct appropriate URLs based on market and instrument
+            urls = []
+            
+            if market == 'forex':
+                # Common forex news sources
+                urls = [
+                    f"https://www.forexlive.com/tag/{instrument}/",
+                    f"https://www.fxstreet.com/rates-charts/{instrument.lower()}-chart",
+                    f"https://finance.yahoo.com/quote/{instrument}=X/"
+                ]
+            elif market == 'crypto':
+                # Crypto news sources
+                crypto_symbol = instrument.replace('USD', '')
+                urls = [
+                    f"https://finance.yahoo.com/quote/{crypto_symbol}-USD/",
+                    f"https://www.coindesk.com/price/{crypto_symbol.lower()}/",
+                    f"https://www.tradingview.com/symbols/CRYPTO-{crypto_symbol}USD/"
+                ]
+            elif market == 'indices':
+                # Indices news sources
+                index_map = {
+                    'US30': 'DJI',
+                    'US500': 'GSPC',
+                    'US100': 'NDX'
+                }
+                index_symbol = index_map.get(instrument, instrument)
+                urls = [
+                    f"https://finance.yahoo.com/quote/^{index_symbol}/",
+                    f"https://www.marketwatch.com/investing/index/{index_symbol.lower()}"
+                ]
+            elif market == 'commodities':
+                # Commodities news sources
+                commodity_map = {
+                    'XAUUSD': 'gold',
+                    'GOLD': 'gold',
+                    'XAGUSD': 'silver',
+                    'SILVER': 'silver',
+                    'USOIL': 'oil',
+                    'OIL': 'oil'
+                }
+                commodity = commodity_map.get(instrument, instrument.lower())
+                urls = [
+                    f"https://www.marketwatch.com/investing/commodity/{commodity}",
+                    f"https://finance.yahoo.com/quote/{instrument}/"
+                ]
+            
+            # Fetch data from each URL
+            result_text = f"Market Analysis for {instrument}:\n\n"
+            successful_fetches = 0
+            
+            async with aiohttp.ClientSession() as session:
+                fetch_tasks = []
+                for url in urls:
+                    fetch_tasks.append(self._fetch_url_content(session, url))
+                
+                results = await asyncio.gather(*fetch_tasks, return_exceptions=True)
+                
+                for i, content in enumerate(results):
+                    if isinstance(content, Exception):
+                        logger.warning(f"Failed to fetch {urls[i]}: {str(content)}")
+                        continue
+                    
+                    if content:
+                        result_text += f"Source: {urls[i]}\n"
+                        result_text += f"{content}\n\n"
+                        successful_fetches += 1
+            
+            if successful_fetches == 0:
+                logger.warning(f"No alternative sources available for {instrument}")
+                return None
+                
+            return result_text
+            
+        except Exception as e:
+            logger.error(f"Error getting alternative news: {str(e)}")
+            logger.exception(e)
+            return None
+            
+    async def _fetch_url_content(self, session, url):
+        """Fetch content from a URL and extract relevant text"""
+        try:
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36"
+            }
+            
+            timeout = aiohttp.ClientTimeout(total=10)
+            async with session.get(url, headers=headers, timeout=timeout) as response:
+                if response.status != 200:
+                    return None
+                
+                html = await response.text()
+                
+                # Extract the most relevant content based on the URL
+                if "yahoo.com" in url:
+                    return self._extract_yahoo_content(html, url)
+                elif "forexlive.com" in url:
+                    return self._extract_forexlive_content(html)
+                elif "fxstreet.com" in url:
+                    return self._extract_fxstreet_content(html)
+                elif "marketwatch.com" in url:
+                    return self._extract_marketwatch_content(html)
+                elif "coindesk.com" in url:
+                    return self._extract_coindesk_content(html)
+                else:
+                    # Basic content extraction
+                    return self._extract_basic_content(html)
+                    
+        except Exception as e:
+            logger.error(f"Error fetching {url}: {str(e)}")
+            return None
+            
+    def _extract_yahoo_content(self, html, url):
+        """Extract relevant content from Yahoo Finance"""
+        try:
+            # Extract price information
+            price_match = re.search(r'data-symbol="[^"]+" data-field="regularMarketPrice" value="([^"]+)"', html)
+            change_match = re.search(r'data-symbol="[^"]+" data-field="regularMarketChange" value="([^"]+)"', html)
+            change_percent_match = re.search(r'data-symbol="[^"]+" data-field="regularMarketChangePercent" value="([^"]+)"', html)
+            
+            content = "Current Market Data:\n"
+            
+            if price_match:
+                content += f"Price: {price_match.group(1)}\n"
+            
+            if change_match and change_percent_match:
+                change = float(change_match.group(1))
+                change_percent = float(change_percent_match.group(1))
+                direction = "▲" if change > 0 else "▼"
+                content += f"Change: {direction} {abs(change):.4f} ({abs(change_percent):.2f}%)\n"
+            
+            # Extract news headlines
+            news_matches = re.findall(r'<h3 class="Mb\(5px\)">(.*?)</h3>', html)
+            if news_matches:
+                content += "\nRecent News:\n"
+                for i, headline in enumerate(news_matches[:3]):
+                    # Clean up HTML tags
+                    headline = re.sub(r'<[^>]+>', '', headline).strip()
+                    content += f"• {headline}\n"
+            
+            return content
+        except Exception as e:
+            logger.error(f"Error extracting Yahoo content: {str(e)}")
+            return "Price and market data available at Yahoo Finance"
+            
+    def _extract_forexlive_content(self, html):
+        """Extract relevant content from ForexLive"""
+        try:
+            # Extract article titles
+            article_matches = re.findall(r'<h2 class="article-title">(.*?)</h2>', html)
+            
+            if not article_matches:
+                return "Latest forex news and analysis available at ForexLive."
+                
+            content = "Recent Forex News:\n"
+            for i, article in enumerate(article_matches[:3]):
+                # Clean up HTML tags
+                article = re.sub(r'<[^>]+>', '', article).strip()
+                content += f"• {article}\n"
+                
+            return content
+        except Exception as e:
+            logger.error(f"Error extracting ForexLive content: {str(e)}")
+            return "Latest forex news and analysis available at ForexLive."
+    
+    def _extract_fxstreet_content(self, html):
+        """Extract relevant content from FXStreet"""
+        try:
+            # Extract price information
+            price_match = re.search(r'<span class="price">(.*?)</span>', html)
+            change_match = re.search(r'<span class="change-points[^"]*">(.*?)</span>', html)
+            
+            content = "Current Market Data:\n"
+            
+            if price_match:
+                content += f"Price: {price_match.group(1).strip()}\n"
+            
+            if change_match:
+                content += f"Change: {change_match.group(1).strip()}\n"
+            
+            # Extract technical indicators if available
+            if '<div class="technical-indicators">' in html:
+                content += "\nTechnical Indicators Summary:\n"
+                if "bullish" in html.lower():
+                    content += "• Overall trend appears bullish\n"
+                elif "bearish" in html.lower():
+                    content += "• Overall trend appears bearish\n"
+                else:
+                    content += "• Mixed technical signals\n"
+            
+            return content
+        except Exception as e:
+            logger.error(f"Error extracting FXStreet content: {str(e)}")
+            return "Currency charts and analysis available at FXStreet."
+    
+    def _extract_marketwatch_content(self, html):
+        """Extract relevant content from MarketWatch"""
+        try:
+            # Extract price information
+            price_match = re.search(r'<bg-quote[^>]*>([^<]+)</bg-quote>', html)
+            change_match = re.search(r'<bg-quote[^>]*field="change"[^>]*>([^<]+)</bg-quote>', html)
+            change_percent_match = re.search(r'<bg-quote[^>]*field="percentchange"[^>]*>([^<]+)</bg-quote>', html)
+            
+            content = "Current Market Data:\n"
+            
+            if price_match:
+                content += f"Price: {price_match.group(1).strip()}\n"
+            
+            if change_match and change_percent_match:
+                content += f"Change: {change_match.group(1).strip()} ({change_percent_match.group(1).strip()})\n"
+            
+            # Extract news headlines
+            news_matches = re.findall(r'<h3 class="article__headline">(.*?)</h3>', html)
+            if news_matches:
+                content += "\nRecent News:\n"
+                for i, headline in enumerate(news_matches[:3]):
+                    # Clean up HTML tags
+                    headline = re.sub(r'<[^>]+>', '', headline).strip()
+                    content += f"• {headline}\n"
+            
+            return content
+        except Exception as e:
+            logger.error(f"Error extracting MarketWatch content: {str(e)}")
+            return "Market data and news available at MarketWatch."
+    
+    def _extract_coindesk_content(self, html):
+        """Extract relevant content from CoinDesk"""
+        try:
+            # Extract price information
+            price_match = re.search(r'<span class="price-large">([^<]+)</span>', html)
+            change_match = re.search(r'<span class="percent-change-medium[^"]*">([^<]+)</span>', html)
+            
+            content = "Current Cryptocurrency Data:\n"
+            
+            if price_match:
+                content += f"Price: {price_match.group(1).strip()}\n"
+            
+            if change_match:
+                content += f"24h Change: {change_match.group(1).strip()}\n"
+            
+            # Extract news headlines
+            news_matches = re.findall(r'<h4 class="heading">(.*?)</h4>', html)
+            if news_matches:
+                content += "\nRecent News:\n"
+                for i, headline in enumerate(news_matches[:3]):
+                    # Clean up HTML tags
+                    headline = re.sub(r'<[^>]+>', '', headline).strip()
+                    content += f"• {headline}\n"
+            
+            return content
+        except Exception as e:
+            logger.error(f"Error extracting CoinDesk content: {str(e)}")
+            return "Cryptocurrency data and news available at CoinDesk."
+    
+    def _extract_basic_content(self, html):
+        """Basic content extraction for other sites"""
+        try:
+            # Remove scripts, styles and other tags that don't contain useful content
+            html = re.sub(r'<script[^>]*>.*?</script>', '', html, flags=re.DOTALL)
+            html = re.sub(r'<style[^>]*>.*?</style>', '', html, flags=re.DOTALL)
+            
+            # Extract title
+            title_match = re.search(r'<title[^>]*>(.*?)</title>', html)
+            title = title_match.group(1).strip() if title_match else "Market Information"
+            
+            # Find paragraphs with relevant financial keywords
+            financial_keywords = ['market', 'price', 'trend', 'analysis', 'forecast', 'technical', 'support', 'resistance']
+            paragraphs = re.findall(r'<p[^>]*>(.*?)</p>', html, flags=re.DOTALL)
+            
+            content = f"{title}\n\n"
+            
+            relevant_paragraphs = []
+            for p in paragraphs:
+                p_text = re.sub(r'<[^>]+>', '', p).strip()
+                if p_text and any(keyword in p_text.lower() for keyword in financial_keywords):
+                    relevant_paragraphs.append(p_text)
+            
+            if relevant_paragraphs:
+                for i, p in enumerate(relevant_paragraphs[:3]):
+                    content += f"{p}\n\n"
+            else:
+                content += "Visit the page for detailed market information and analysis."
+            
+            return content
+        except Exception as e:
+            logger.error(f"Error extracting basic content: {str(e)}")
+            return "Market information available. Visit the source for details."
+
 class TavilyClient:
     """A simple wrapper for the Tavily API that handles errors properly"""
     
     def __init__(self, api_key):
         """Initialize with the API key"""
-        self.api_key = api_key.strip() if api_key else None
-        self.base_url = "https://api.tavily.com/v1"
+        self.api_key = api_key
+        self.base_url = "https://api.tavily.com"
         
     async def search(self, query, search_depth="basic", include_answer=True, 
-                     include_domains=None, max_results=5):
-        """Perform a search query and handle errors properly"""
+                   include_images=False, max_results=5):
+        """
+        Search the Tavily API with the given query
+        """
         if not self.api_key:
             logger.error("No Tavily API key provided")
             return None
             
         # Sanitize the API key
-        api_key = self.api_key.replace('\n', '').replace('\r', '')
+        api_key = self.api_key.strip() if self.api_key else ""
         
-        # Prepare the payload
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        }
+        
         payload = {
-            "api_key": api_key,
             "query": query,
             "search_depth": search_depth,
             "include_answer": include_answer,
+            "include_images": include_images,
             "max_results": max_results
         }
         
-        # Add optional parameters
-        if include_domains:
-            payload["include_domains"] = include_domains
-            
-        # Minimal headers to avoid security issues
-        headers = {"Content-Type": "application/json"}
+        logger.info(f"Calling Tavily API with query: {query}")
         timeout = aiohttp.ClientTimeout(total=20)
         
-        logger.info(f"Calling Tavily API with query: {query}")
-        
-        try:
-            async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession() as session:
+            try:
                 async with session.post(
                     f"{self.base_url}/search", 
                     headers=headers,
@@ -654,7 +788,7 @@ class TavilyClient:
                     
                     logger.error(f"Tavily API error: {response.status}, {response_text[:200]}...")
                     return None
-        except Exception as e:
-            logger.error(f"Error in Tavily API call: {str(e)}")
-            logger.exception(e)
-            return None
+            except Exception as e:
+                logger.error(f"Error in Tavily API call: {str(e)}")
+                logger.exception(e)
+                return None
