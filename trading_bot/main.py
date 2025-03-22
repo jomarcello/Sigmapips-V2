@@ -127,10 +127,11 @@ async def startup_event():
 
 # Define webhook routes
 
-@app.get("/webhook")
-async def webhook_info():
-    """Return webhook info"""
-    return {"status": "Telegram webhook endpoint", "info": "Use POST method to send updates"}
+# Comment out this route as it conflicts with the telegram webhook
+# @app.get("/webhook")
+# async def webhook_info():
+#     """Return webhook info"""
+#     return {"status": "Telegram webhook endpoint", "info": "Use POST method to send updates"}
 
 @app.post("/tradingview-signal")
 async def tradingview_signal(request: Request):
