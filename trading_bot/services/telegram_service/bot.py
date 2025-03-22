@@ -392,6 +392,10 @@ class TelegramService:
         self.proxy_url = proxy_url
         self.bot = None  # Will be initialized in setup()
         
+        # Signal handling attributes
+        self.signals_enabled = True  # Enable signals by default
+        self.user_signals = {}  # Initialize user signals dict
+        
         # Set API keys in environment variables
         os.environ["PERPLEXITY_API_KEY"] = PERPLEXITY_API_KEY
         os.environ["DEEPSEEK_API_KEY"] = DEEPSEEK_API_KEY
@@ -413,9 +417,6 @@ class TelegramService:
         # Cache for sentiment analysis
         self.sentiment_cache = {}
         self.sentiment_cache_ttl = 60 * 60  # 1 hour in seconds
-        
-        # Signal storage
-        self.user_signals = {}
         
         # Start the bot
         try:
