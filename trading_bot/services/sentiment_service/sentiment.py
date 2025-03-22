@@ -25,7 +25,6 @@ class MarketSentimentService:
         }
         
         self.tavily_headers = {
-            "Authorization": f"Bearer {self.tavily_api_key}",
             "Content-Type": "application/json"
         }
         
@@ -147,90 +146,63 @@ class MarketSentimentService:
             search_query = f"recent news about {instrument} market analysis price trends"
         
         try:
+            # Simpler approach: directly use Tavily API with api_key as query parameter
             async with aiohttp.ClientSession() as session:
-                # Updated payload structure for Tavily API
+                # Construct the URL with API key as query parameter
+                url = f"{self.tavily_url}?api_key={self.tavily_api_key}"
+                
+                # Create a simple payload
                 payload = {
-                    "api_key": self.tavily_api_key,  # Include API key in the payload
                     "query": search_query,
-                    "search_depth": "advanced",
-                    "include_answer": True,
-                    "include_domains": ["bloomberg.com", "reuters.com", "investing.com", "cnbc.com", "forexlive.com", "fxstreet.com"],
-                    "exclude_domains": [],
-                    "max_tokens": 8000,
-                    "max_results": 10
+                    "search_depth": "basic",  # Changed to basic for faster response
+                    "include_answer": True
                 }
                 
                 logger.info(f"Calling Tavily API with query: {search_query}")
                 
-                # Try with API key in the header first
-                headers = {"Content-Type": "application/json"}
-                if self.tavily_api_key:
-                    headers["X-Api-Key"] = self.tavily_api_key
-                
                 timeout = aiohttp.ClientTimeout(total=15)
                 
-                # First attempt: Try with X-Api-Key header 
+                # Make the request
                 try:
                     async with session.post(
-                        self.tavily_url, 
-                        headers=headers,
-                        json={"query": search_query, "search_depth": "advanced", "include_answer": True},
-                        timeout=timeout
-                    ) as response:
-                        response_text = await response.text()
-                        logger.info(f"Tavily API response status (header auth): {response.status}")
-                        
-                        if response.status == 200:
-                            return self._process_tavily_response(response_text, instrument)
-                        else:
-                            logger.warning(f"First attempt with X-Api-Key header failed: {response.status}")
-                except Exception as e:
-                    logger.warning(f"Error in first attempt: {str(e)}")
-                
-                # Second attempt: Try with Authorization header
-                try:
-                    async with session.post(
-                        self.tavily_url, 
-                        headers={"Authorization": f"Bearer {self.tavily_api_key}", "Content-Type": "application/json"},
-                        json={"query": search_query, "search_depth": "advanced", "include_answer": True},
-                        timeout=timeout
-                    ) as response:
-                        response_text = await response.text()
-                        logger.info(f"Tavily API response status (bearer auth): {response.status}")
-                        
-                        if response.status == 200:
-                            return self._process_tavily_response(response_text, instrument)
-                        else:
-                            logger.warning(f"Second attempt with Bearer token failed: {response.status}")
-                except Exception as e:
-                    logger.warning(f"Error in second attempt: {str(e)}")
-                
-                # Third attempt: Try with API key in payload
-                try:
-                    del headers["X-Api-Key"]
-                    payload = {
-                        "api_key": self.tavily_api_key,
-                        "query": search_query,
-                        "search_depth": "advanced",
-                        "include_answer": True
-                    }
-                    
-                    async with session.post(
-                        self.tavily_url, 
+                        url,
                         headers={"Content-Type": "application/json"},
                         json=payload,
                         timeout=timeout
                     ) as response:
                         response_text = await response.text()
-                        logger.info(f"Tavily API response status (payload auth): {response.status}")
+                        logger.info(f"Tavily API response status: {response.status}")
                         
                         if response.status == 200:
                             return self._process_tavily_response(response_text, instrument)
                         else:
-                            logger.error(f"All Tavily API auth methods failed. Final status: {response.status}, details: {response_text}")
-                            return None
+                            # Try an alternative approach with API key in the body
+                            try:
+                                logger.warning(f"First attempt failed with status {response.status}, trying with API key in body")
+                                payload["api_key"] = self.tavily_api_key
+                                
+                                async with session.post(
+                                    self.tavily_url,
+                                    headers={"Content-Type": "application/json"},
+                                    json=payload,
+                                    timeout=timeout
+                                ) as alt_response:
+                                    alt_response_text = await alt_response.text()
+                                    logger.info(f"Tavily API alternate response status: {alt_response.status}")
+                                    
+                                    if alt_response.status == 200:
+                                        return self._process_tavily_response(alt_response_text, instrument)
+                                    else:
+                                        logger.error(f"All Tavily API attempts failed. Final status: {alt_response.status}, details: {alt_response_text}")
+                                        return None
+                                        
+                            except Exception as e:
+                                logger.error(f"Error in alternative attempt: {str(e)}")
+                                logger.error(f"Original response error: {response.status}, details: {response_text}")
+                                return None
+                                
                 except Exception as e:
-                    logger.error(f"Error in third attempt: {str(e)}")
+                    logger.error(f"Error in primary attempt: {str(e)}")
                     return None
                     
         except Exception as e:
