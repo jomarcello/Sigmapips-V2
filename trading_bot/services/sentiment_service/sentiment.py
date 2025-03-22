@@ -17,7 +17,7 @@ class MarketSentimentService:
         self.tavily_api_key = os.getenv("TAVILY_API_KEY")
         
         self.deepseek_url = "https://api.deepseek.ai/v1/chat/completions"
-        self.tavily_url = "https://api.tavily.com/search"
+        self.tavily_url = "https://api.tavily.com/v1/search"
         
         self.deepseek_headers = {
             "Authorization": f"Bearer {self.deepseek_api_key}",
@@ -29,10 +29,21 @@ class MarketSentimentService:
             "Content-Type": "application/json"
         }
         
+        # Log API key status (without revealing full keys)
+        if self.tavily_api_key:
+            masked_key = self.tavily_api_key[:6] + "..." + self.tavily_api_key[-4:] if len(self.tavily_api_key) > 10 else "***"
+            logger.info(f"Tavily API key is configured: {masked_key}")
+        else:
+            logger.warning("No Tavily API key found")
+        
         # If no DeepSeek API key is provided, we'll use mock data
-        self.use_mock = not self.deepseek_api_key
-        if self.use_mock:
+        if self.deepseek_api_key:
+            masked_key = self.deepseek_api_key[:6] + "..." + self.deepseek_api_key[-4:] if len(self.deepseek_api_key) > 10 else "***"
+            logger.info(f"DeepSeek API key is configured: {masked_key}")
+        else:
             logger.warning("No DeepSeek API key found, using mock data")
+            
+        self.use_mock = not self.deepseek_api_key
     
     async def get_market_sentiment(self, instrument_or_signal) -> Dict[str, Any]:
         """Get market sentiment analysis using Tavily for news search and DeepSeek for formatting"""
@@ -118,6 +129,15 @@ class MarketSentimentService:
         """Use Tavily API to get latest news and market data"""
         logger.info(f"Searching for {instrument} news using Tavily API")
         
+        # Check if API key is configured
+        if not self.tavily_api_key:
+            logger.error("Tavily API key is not configured")
+            return None
+            
+        # Sanity check the API key format
+        if not self.tavily_api_key.startswith("sk-"):
+            logger.warning(f"Tavily API key may have incorrect format (should start with 'sk-')")
+        
         # Create search query based on market type
         if market == 'forex':
             search_query = f"recent news about {instrument} forex currency pair market analysis price movement"
@@ -144,50 +164,35 @@ class MarketSentimentService:
                 
                 logger.info(f"Calling Tavily API with query: {search_query}")
                 
-                async with session.post(self.tavily_url, json=payload) as response:
+                # Use shorter timeout
+                timeout = aiohttp.ClientTimeout(total=15)
+                
+                # First, try with api_key in payload
+                async with session.post(self.tavily_url, json=payload, timeout=timeout) as response:
                     response_text = await response.text()
                     logger.info(f"Tavily API response status: {response.status}")
                     logger.info(f"Tavily API response: {response_text[:200]}...")  # Log first 200 chars
                     
-                    if response.status == 200:
-                        data = json.loads(response_text)
+                    if response.status == 401:
+                        # If unauthorized, try with auth header instead
+                        logger.warning("Tavily API returned 401 with api_key in payload, trying with Authorization header instead")
+                        del payload["api_key"]
                         
-                        # Extract the generated answer
-                        if data and "answer" in data:
-                            answer = data["answer"]
-                            logger.info(f"Successfully received answer from Tavily for {instrument}")
+                        async with session.post(
+                            self.tavily_url, 
+                            headers=self.tavily_headers,
+                            json=payload, 
+                            timeout=timeout
+                        ) as retry_response:
+                            retry_response_text = await retry_response.text()
+                            logger.info(f"Tavily API retry response status: {retry_response.status}")
+                            logger.info(f"Tavily API retry response: {retry_response_text[:200]}...")
                             
-                            # Also extract results for more comprehensive information
-                            if "results" in data:
-                                results_text = "\n\nMore details from search results:\n"
-                                for idx, result in enumerate(data["results"][:5]):  # Limit to top 5 results
-                                    title = result.get("title", "No Title")
-                                    content = result.get("content", "No Content").strip()
-                                    url = result.get("url", "")
-                                    
-                                    results_text += f"\n{idx+1}. {title}\n"
-                                    results_text += f"{content[:300]}...\n"  # Limit content length
-                                    results_text += f"Source: {url}\n"
-                                
-                                combined_text = answer + results_text
-                                return combined_text
-                            
-                            return answer
-                        
-                        # If no answer but we have search results
-                        elif data and "results" in data and data["results"]:
-                            results_text = "Recent market information:\n\n"
-                            for idx, result in enumerate(data["results"][:8]):  # Get top 8 results
-                                title = result.get("title", "No Title")
-                                content = result.get("content", "No Content").strip()
-                                url = result.get("url", "")
-                                
-                                results_text += f"{idx+1}. {title}\n"
-                                results_text += f"{content[:300]}...\n"  # Limit content length
-                                results_text += f"Source: {url}\n\n"
-                            
-                            logger.info(f"Successfully received search results from Tavily for {instrument}")
-                            return results_text
+                            if retry_response.status == 200:
+                                return self._process_tavily_response(retry_response_text, instrument)
+                    
+                    elif response.status == 200:
+                        return self._process_tavily_response(response_text, instrument)
                     
                     logger.error(f"Tavily API error: {response.status}, details: {response_text}")
                     return None
@@ -195,6 +200,55 @@ class MarketSentimentService:
         except Exception as e:
             logger.error(f"Error calling Tavily API: {str(e)}")
             logger.exception(e)  # Add stack trace for more detailed error information
+            return None
+            
+    def _process_tavily_response(self, response_text: str, instrument: str) -> str:
+        """Process the Tavily API response and extract useful information"""
+        try:
+            data = json.loads(response_text)
+            
+            # Extract the generated answer
+            if data and "answer" in data:
+                answer = data["answer"]
+                logger.info(f"Successfully received answer from Tavily for {instrument}")
+                
+                # Also extract results for more comprehensive information
+                if "results" in data:
+                    results_text = "\n\nMore details from search results:\n"
+                    for idx, result in enumerate(data["results"][:5]):  # Limit to top 5 results
+                        title = result.get("title", "No Title")
+                        content = result.get("content", "No Content").strip()
+                        url = result.get("url", "")
+                        
+                        results_text += f"\n{idx+1}. {title}\n"
+                        results_text += f"{content[:300]}...\n"  # Limit content length
+                        results_text += f"Source: {url}\n"
+                    
+                    combined_text = answer + results_text
+                    return combined_text
+                
+                return answer
+            
+            # If no answer but we have search results
+            elif data and "results" in data and data["results"]:
+                results_text = "Recent market information:\n\n"
+                for idx, result in enumerate(data["results"][:8]):  # Get top 8 results
+                    title = result.get("title", "No Title")
+                    content = result.get("content", "No Content").strip()
+                    url = result.get("url", "")
+                    
+                    results_text += f"{idx+1}. {title}\n"
+                    results_text += f"{content[:300]}...\n"  # Limit content length
+                    results_text += f"Source: {url}\n\n"
+                
+                logger.info(f"Successfully received search results from Tavily for {instrument}")
+                return results_text
+                
+            logger.error(f"Unexpected Tavily API response format: {response_text[:200]}...")
+            return None
+                
+        except json.JSONDecodeError:
+            logger.error(f"Invalid JSON response from Tavily: {response_text[:200]}...")
             return None
     
     async def _format_with_deepseek(self, instrument: str, market: str, market_data: str) -> str:
