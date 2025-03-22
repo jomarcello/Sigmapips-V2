@@ -108,6 +108,10 @@ async def startup_event():
         # First try in polling mode (safer option)
         force_polling = os.getenv("FORCE_POLLING", "false").lower() == "true"
         
+        # Log environment variables
+        webhook_url = os.getenv("WEBHOOK_URL", "")
+        logger.info(f"WEBHOOK_URL from environment: '{webhook_url}'")
+        
         # Initialize telegram service
         await telegram_service.initialize(use_webhook=not force_polling)
         logger.info("Telegram service initialized")
@@ -116,8 +120,18 @@ async def startup_event():
         if not force_polling:
             # Wait a short time for the initialization to complete
             await asyncio.sleep(1)
+            logger.info("Setting up webhook...")
             await telegram_service.setup_webhook(app)
-            logger.info("Webhook setup complete")
+            logger.info("Webhook setup completed")
+            
+            # Verify webhook info from Telegram
+            webhook_info = await telegram_service.bot.get_webhook_info()
+            logger.info(f"Telegram webhook info: URL={webhook_info.url}, pending_updates={webhook_info.pending_update_count}, has_custom_certificate={webhook_info.has_custom_certificate}")
+            
+            # Log the routes registered in the app to verify what endpoints exist
+            routes = [{"path": route.path, "name": route.name, "methods": [method for method in route.methods]} 
+                     for route in app.routes]
+            logger.info(f"Registered routes: {json.dumps(routes)}")
         else:
             logger.info("Skipping webhook setup due to FORCE_POLLING=true")
         
