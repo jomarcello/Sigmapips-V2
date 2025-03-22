@@ -1969,6 +1969,12 @@ Click the button below to start your FREE 14-day trial.
                 base_url = "https://api.sigmapips.com"
                 logger.warning(f"WEBHOOK_URL not set. Using default: {base_url}")
             
+            # Prevent duplicate webhook path by checking if base_url already ends with webhook_path
+            if base_url.endswith(webhook_path):
+                # Remove the duplicate webhook path from base URL
+                base_url = base_url[:-len(webhook_path)]
+                logger.info(f"Removed duplicate webhook path from base URL: {base_url}")
+            
             # Build the complete webhook URL
             webhook_url = f"{base_url}{webhook_path}"
             logger.info(f"Setting webhook URL to: {webhook_url}")
