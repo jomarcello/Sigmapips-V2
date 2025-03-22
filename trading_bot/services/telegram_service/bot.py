@@ -1935,91 +1935,77 @@ Click the button below to start your FREE 14-day trial.
             return []
 
     async def process_update(self, update_data: dict):
-        """Process updates from webhook"""
+        """Process an update from the Telegram webhook."""
         try:
-            logger.info(f"Processing update: {update_data}")
-            
-            # Controleer of de update al is verwerkt
-            update_id = update_data.get('update_id')
-            if update_id in self.processed_updates:
-                logger.info(f"Update {update_id} already processed, skipping")
-                return
-                
-            # Convert dictionary to Update object
+            # Parse the update
             update = Update.de_json(data=update_data, bot=self.bot)
-            if not update:
-                logger.error("Failed to parse update")
-                return
-                
-            # Process the update
-            await self.application.process_update(update)
+            logger.info(f"Received Telegram update: {update.update_id}")
             
-            # Mark as processed
-            self.processed_updates.add(update_id)
-            
-            # Trim processed_updates set if it gets too large
-            if len(self.processed_updates) > 1000:
-                # Keep only the 500 most recent updates
-                self.processed_updates = set(sorted(self.processed_updates)[-500:])
-                
+            # Verwerk de update met een timeout-afhandeling
+            try:
+                # Proces de update met een timeout
+                await asyncio.wait_for(
+                    self.application.process_update(update),
+                    timeout=30.0  # 30 seconden timeout
+                )
+            except asyncio.TimeoutError:
+                logger.warning(f"Update {update.update_id} processing timed out, continuing with next update")
+            except Exception as e:
+                logger.error(f"Error processing update: {str(e)}")
+                logger.error(traceback.format_exc())
         except Exception as e:
-            logger.error(f"Error processing update: {str(e)}")
-            logger.exception(e)
+            logger.error(f"Failed to process update data: {str(e)}")
+            logger.error(traceback.format_exc())
 
     async def setup_webhook(self, app):
-        """Set up webhook for FastAPI application"""
+        """Set up the FastAPI webhook for Telegram."""
+        
+        # Verhoog de verbindingslimieten voor de bot tijdens webhook gebruik
+        if getattr(self.bot.request, 'connection_pool_size', None) is None:
+            # Configureer een betere HTTP client voor de webhook bot
+            request = HTTPXRequest(
+                connection_pool_size=30,     # Verhoog aantal connecties voor webhook
+                connect_timeout=15.0,        # Verhoog connect timeout
+                read_timeout=45.0,           # Verhoog read timeout
+                write_timeout=30.0,          # Verhoog write timeout
+                pool_timeout=45.0,           # Verhoog pool timeout
+            )
+            # Update de bot met verbeterde HTTP client
+            self.bot._request = request
+
+        # Setup de webhook
+        webhook_url = f"{self.webhook_url}{self.webhook_path}"
+        
         try:
-            if not hasattr(self, 'webhook_path') or not self.webhook_url:
-                logger.warning("Webhook configuration is incomplete. Cannot set up webhook.")
-                return
-                
-            logger.info(f"Setting up webhook at {self.webhook_path} with URL {self.webhook_url}")
-            
-            # Import FastAPI dependencies
-            from fastapi import Request
-            
-            # Define the webhook endpoint in the FastAPI app - maar alleen als deze nog niet bestaat
-            if not any(route.path == self.webhook_path for route in app.routes):
-                @app.post(self.webhook_path)
-                async def telegram_webhook(request: Request):
-                    """Handle webhook updates from Telegram"""
-                    try:
-                        # Parse the JSON data from the request
-                        update_data = await request.json()
-                        
-                        # Process the update
-                        await self.process_update(update_data)
-                        return {"status": "ok"}
-                    except Exception as e:
-                        logger.error(f"Error processing webhook: {str(e)}")
-                        return {"status": "error", "message": str(e)}
-            
-            # Set the webhook URL in Telegram
-            # Controleer of de webhook URL begint met https://
-            if not self.webhook_url.startswith("https://"):
-                self.webhook_url = "https://" + self.webhook_url
-                
-            # Zorg dat de webhook URL geen dubbele slashes bevat tussen domain en path
-            if self.webhook_url.endswith("/") and self.webhook_path.startswith("/"):
-                webhook_url = self.webhook_url + self.webhook_path[1:]
+            # Set the webhook with more robust settings
+            webhook_info = await self.bot.get_webhook_info()
+            if webhook_info.url != webhook_url:
+                logger.info(f"Setting webhook to {webhook_url}")
+                await self.bot.set_webhook(url=webhook_url, 
+                                         allowed_updates=["message", "callback_query", "my_chat_member"],
+                                         drop_pending_updates=True,
+                                         max_connections=20)
             else:
-                webhook_url = self.webhook_url if self.webhook_url.endswith(self.webhook_path) else self.webhook_url + self.webhook_path
+                logger.info(f"Webhook already set to {webhook_url}")
                 
-            logger.info(f"Setting webhook URL to: {webhook_url}")
-            await self.bot.set_webhook(url=webhook_url)
-            
-            logger.info(f"Webhook set up successfully at {webhook_url}")
-            
-            # Get webhook info for debugging
-            try:
-                webhook_info = await self.bot.get_webhook_info()
-                logger.info(f"Current webhook info: {webhook_info}")
-            except Exception as e:
-                logger.error(f"Error getting webhook info: {str(e)}")
-            
+            @app.post(self.webhook_path)
+            async def telegram_webhook(request: Request):
+                try:
+                    update_data = await request.json()
+                    
+                    # Maak een nieuwe taak om de update te verwerken zodat we direct kunnen
+                    # antwoorden op de webhook om timeouts te voorkomen
+                    asyncio.create_task(self.process_update(update_data))
+                    
+                    return {"status": "ok"}
+                except Exception as e:
+                    logger.error(f"Error in webhook handler: {str(e)}")
+                    logger.error(traceback.format_exc())
+                    return {"status": "error", "message": str(e)}
+                    
         except Exception as e:
             logger.error(f"Error setting up webhook: {str(e)}")
-            logger.exception(e)
+            logger.error(traceback.format_exc())
             raise
 
     async def back_menu_callback(self, update: Update, context=None) -> int:
