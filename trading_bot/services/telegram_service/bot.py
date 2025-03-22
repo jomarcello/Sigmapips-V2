@@ -1850,7 +1850,7 @@ Click the button below to start your FREE 14-day trial.
                 return
                 
             # Process the update
-            await self.app.process_update(update)
+            await self.application.process_update(update)
             
             # Mark as processed
             self.processed_updates.add(update_id)
