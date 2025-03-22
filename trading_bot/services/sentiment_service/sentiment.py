@@ -45,7 +45,7 @@ class MarketSentimentService:
         
         if market_type is None:
             # Determine market type from instrument if not provided
-            market_type = self._detect_market_type(instrument)
+            market_type = self._guess_market_from_instrument(instrument)
         
         search_query = None
         market_type = market_type.lower()
