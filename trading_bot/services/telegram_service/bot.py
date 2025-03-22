@@ -369,6 +369,7 @@ Click the button below to start your trial:
 # API Keys
 PERPLEXITY_API_KEY = "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"
 DEEPSEEK_API_KEY = "72df8ae1c5dd4d95b6a54c09bcf1b39e"
+TAVILY_API_KEY = "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"
 
 class TelegramService:
     def __init__(self, db: Database, stripe_service=None):
@@ -379,6 +380,7 @@ class TelegramService:
         # Set API keys in environment variables
         os.environ["PERPLEXITY_API_KEY"] = PERPLEXITY_API_KEY
         os.environ["DEEPSEEK_API_KEY"] = DEEPSEEK_API_KEY
+        os.environ["TAVILY_API_KEY"] = TAVILY_API_KEY
         
         # API services
         self.chart = ChartService()  # Chart generation service
