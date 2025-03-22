@@ -518,13 +518,13 @@ class TelegramService:
         
         # Try to add the user to the database if they don't exist yet
         try:
-            # Check if user already exists in the database
-            existing_user = await self.db.get_user(user_id)
+            # Get user subscription since we can't check if user exists directly
+            existing_subscription = await self.db.get_user_subscription(user_id)
             
-            if not existing_user:
+            if not existing_subscription:
                 # Add new user
                 logger.info(f"New user started: {user_id}, {first_name}")
-                await self.db.add_user(user_id, first_name, user.username)
+                await self.db.save_user(user_id, first_name, None, user.username)
             else:
                 logger.info(f"Existing user started: {user_id}, {first_name}")
                 
@@ -1325,7 +1325,7 @@ class TelegramService:
             reply_markup=reply_markup
         )
 
-    async def button_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    async def button_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
         """Handle button presses from inline keyboards"""
         query = update.callback_query
         logger.info(f"Button callback opgeroepen met data: {query.data}")
@@ -1425,6 +1425,18 @@ class TelegramService:
         
         self.application = application
         
+        # Initialize the application synchronously using a loop
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_closed():
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+            loop.run_until_complete(self.application.initialize())
+            logger.info("Application initialized successfully")
+        except Exception as e:
+            logger.error(f"Error initializing application: {str(e)}")
+            logger.exception(e)
+            
         return application
 
     # Voeg de decorator toe aan relevante functies
@@ -1729,6 +1741,13 @@ Click the button below to start your FREE 14-day trial.
             # Create application if not already done
             if not self.application:
                 self.setup()
+            else:
+                # Make sure the application is initialized
+                try:
+                    await self.application.initialize()
+                    logger.info("Application initialized from initialize method")
+                except Exception as e:
+                    logger.error(f"Error initializing application: {str(e)}")
                 
             # Register all handlers
             self._register_handlers()
@@ -1939,17 +1958,39 @@ Click the button below to start your FREE 14-day trial.
                     await self.help_command(update, None)
                     return
             
-            # Verwerk de update met een timeout-afhandeling
+            # Check if this is a callback query (button press)
+            if update.callback_query:
+                logger.info(f"Received callback query: {update.callback_query.data}")
+                await self.button_callback(update, None)
+                return
+            
+            # Try to process the update with the application if it's initialized
             try:
-                # Proces de update met een timeout
-                await asyncio.wait_for(
-                    self.application.process_update(update),
-                    timeout=30.0  # 30 seconden timeout
-                )
-            except asyncio.TimeoutError:
-                logger.warning(f"Update {update.update_id} processing timed out, continuing with next update")
+                # First check if the application is initialized
+                if self.application:
+                    try:
+                        # Process the update with a timeout
+                        await asyncio.wait_for(
+                            self.application.process_update(update),
+                            timeout=30.0  # 30 seconds timeout
+                        )
+                    except RuntimeError as re:
+                        if "not initialized" in str(re).lower():
+                            logger.warning("Application not initialized, trying to initialize it")
+                            try:
+                                await self.application.initialize()
+                                await self.application.process_update(update)
+                            except Exception as init_e:
+                                logger.error(f"Failed to initialize application on-the-fly: {str(init_e)}")
+                    except asyncio.TimeoutError:
+                        logger.warning(f"Update {update.update_id} processing timed out, continuing with next update")
+                    except Exception as e:
+                        logger.error(f"Error processing update with application: {str(e)}")
+                        logger.error(traceback.format_exc())
+                else:
+                    logger.warning("Application not available to process update")
             except Exception as e:
-                logger.error(f"Error processing update: {str(e)}")
+                logger.error(f"Error in update processing: {str(e)}")
                 logger.error(traceback.format_exc())
         except Exception as e:
             logger.error(f"Failed to process update data: {str(e)}")
