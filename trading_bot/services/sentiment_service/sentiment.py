@@ -106,7 +106,7 @@ class MarketSentimentService:
             logger.exception(e)
             return self._format_data_manually(tavily_data, instrument)
             
-    def _format_data_manually(self, news_content: str, instrument: str) -> str:
+    def _format_data_manually(self, news_content: str, instrument: str) -> Dict[str, Any]:
         """Format market data manually when DeepSeek API fails"""
         try:
             logger.info(f"Manually formatting market data for {instrument}")
@@ -138,18 +138,30 @@ class MarketSentimentService:
                 sentiment_score = 50
             
             # Format the result
-            result = f"<b>Market Sentiment Analysis for {instrument}</b>\n\n"
-            result += f"<b>Overall Sentiment:</b> {sentiment} ({sentiment_score}%)\n\n"
-            result += f"<b>Recent Market Information:</b>\n\n"
+            analysis = f"<b>Market Sentiment Analysis for {instrument}</b>\n\n"
+            analysis += f"<b>Overall Sentiment:</b> {sentiment} ({sentiment_score}%)\n\n"
+            analysis += f"<b>Recent Market Information:</b>\n\n"
             
             # Extract key information from the content (first 500 characters)
             content_preview = news_content[:800] + "..." if len(news_content) > 800 else news_content
-            result += content_preview
+            analysis += content_preview
             
             # Add source note
-            result += "\n\n<i>This analysis is based on data from public financial news sources.</i>"
+            analysis += "\n\n<i>This analysis is based on data from public financial news sources.</i>"
             
-            return result
+            # Return a dictionary similar to what _get_mock_sentiment_data returns
+            return {
+                'overall_sentiment': sentiment.lower(),
+                'sentiment_score': sentiment_score / 100,
+                'bullish_percentage': sentiment_score,
+                'trend_strength': 'Strong' if abs(sentiment_score - 50) > 20 else 'Moderate' if abs(sentiment_score - 50) > 10 else 'Weak',
+                'volatility': 'Moderate',
+                'support_level': 'See analysis for details',
+                'resistance_level': 'See analysis for details',
+                'recommendation': 'Consider long positions' if sentiment_score > 60 else 'Watch for shorts' if sentiment_score < 40 else 'Wait for signals',
+                'analysis': analysis,
+                'source': 'alternative_data'
+            }
             
         except Exception as e:
             logger.error(f"Error formatting market data manually: {str(e)}")
@@ -732,6 +744,80 @@ Wait for clearer market signals before taking new positions.
         except Exception as e:
             logger.error(f"Error extracting basic content: {str(e)}")
             return "Market information available. Visit the source for details."
+
+    async def _check_deepseek_connectivity(self) -> bool:
+        """Check if the DeepSeek API is reachable"""
+        logger.info("Checking DeepSeek API connectivity")
+        try:
+            # Simple socket connection test
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(3)  # Quick 3-second timeout
+            # Try to connect to api.deepseek.ai on port 443 (HTTPS)
+            result = sock.connect_ex(('api.deepseek.ai', 443))
+            sock.close()
+            
+            if result == 0:  # Port is open, connection successful
+                logger.info("DeepSeek API connectivity test successful")
+                return True
+            else:
+                logger.warning(f"DeepSeek API connectivity test failed with result: {result}")
+                return False
+        except socket.error as e:
+            logger.warning(f"DeepSeek API socket connection failed: {str(e)}")
+            return False
+
+    async def _get_deepseek_sentiment(self, market_data: str, instrument: str) -> Dict[str, Any]:
+        """Use DeepSeek to analyze market sentiment and return structured data"""
+        try:
+            # First format the data with DeepSeek
+            formatted_content = await self._format_with_deepseek(instrument, 
+                                                               self._guess_market_from_instrument(instrument), 
+                                                               market_data)
+            
+            if not formatted_content:
+                logger.warning(f"DeepSeek formatting failed for {instrument}, using manual formatting")
+                return self._format_data_manually(market_data, instrument)
+                
+            # Extract sentiment information from the formatted content
+            sentiment_score = 50  # Default neutral
+            
+            # Determine sentiment based on content
+            if "bullish" in formatted_content.lower() or "upward" in formatted_content.lower():
+                overall_sentiment = "bullish"
+                # Estimate a bullish score between 60-90 based on language strength
+                if "strongly" in formatted_content.lower() or "very" in formatted_content.lower():
+                    sentiment_score = 85
+                else:
+                    sentiment_score = 70
+            elif "bearish" in formatted_content.lower() or "downward" in formatted_content.lower():
+                overall_sentiment = "bearish"
+                # Estimate a bearish score between 10-40 based on language strength
+                if "strongly" in formatted_content.lower() or "very" in formatted_content.lower():
+                    sentiment_score = 15
+                else:
+                    sentiment_score = 30
+            else:
+                overall_sentiment = "neutral"
+                sentiment_score = 50
+                
+            # Return structured data
+            return {
+                'overall_sentiment': overall_sentiment,
+                'sentiment_score': sentiment_score / 100,
+                'bullish_percentage': sentiment_score,
+                'trend_strength': 'Strong' if abs(sentiment_score - 50) > 20 else 'Moderate' if abs(sentiment_score - 50) > 10 else 'Weak',
+                'volatility': 'Moderate',
+                'support_level': 'See analysis for details',
+                'resistance_level': 'See analysis for details',
+                'recommendation': 'Consider long positions' if sentiment_score > 60 else 'Watch for shorts' if sentiment_score < 40 else 'Wait for signals',
+                'analysis': formatted_content,
+                'source': 'deepseek'
+            }
+            
+        except Exception as e:
+            logger.error(f"Error getting DeepSeek sentiment: {str(e)}")
+            logger.exception(e)
+            return self._format_data_manually(market_data, instrument)
 
 class TavilyClient:
     """A simple wrapper for the Tavily API that handles errors properly"""
