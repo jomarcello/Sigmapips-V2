@@ -394,19 +394,30 @@ os.environ["TAVILY_API_KEY"] = TAVILY_API_KEY
 
 class TelegramService:
     def __init__(self, db: Database, stripe_service=None, bot_token: Optional[str] = None, proxy_url: Optional[str] = None):
-        """Initialize the Telegram bot service"""
-        self.db = db  # Database connection
-        self.stripe_service = stripe_service  # Payment service
+        """Initialize the Telegram service"""
+        self.db = db
+        self.stripe_service = stripe_service
         
-        # The API keys are already set globally, no need to reinitialize them here
-        # Just ensure they're in the environment
-        if 'TAVILY_API_KEY' not in os.environ or not os.environ['TAVILY_API_KEY']:
-            logger.warning("Tavily API key not found in environment variables")
-            
-        # Initialize the bot token
+        # Initialize API configurations
         self.bot_token = bot_token or os.getenv("TELEGRAM_BOT_TOKEN")
-        self.proxy_url = proxy_url
-        self.bot = None  # Will be initialized in setup()
+        self.token = self.bot_token  # Aliased for backward compatibility
+        
+        # Webhook configuration
+        self.webhook_url = os.getenv("WEBHOOK_URL", "")
+        self.webhook_path = os.getenv("WEBHOOK_PATH", "/webhook")
+        
+        # Configure custom request handler with improved connection settings
+        request = HTTPXRequest(
+            connection_pool_size=20,  # Verhoog aantal beschikbare connecties
+            connect_timeout=10.0,     # Verhoog connect timeout
+            read_timeout=30.0,        # Verhoog read timeout
+            write_timeout=20.0,       # Verhoog write timeout
+            pool_timeout=30.0,        # Verhoog pool timeout
+        )
+        
+        # Initialize the bot directly with connection pool settings
+        self.bot = Bot(token=self.bot_token, request=request)
+        self.application = None  # Will be initialized in setup()
         
         # Signal handling attributes
         self.signals_enabled = True  # Enable signals by default
@@ -421,7 +432,6 @@ class TelegramService:
         asyncio.create_task(self.chart.initialize())
         
         # Bot application initialization
-        self.application = None
         self.persistence = None
         self.bot_started = False
         
@@ -1403,17 +1413,8 @@ class TelegramService:
 
     def setup(self):
         """Set up the bot with all handlers"""
-        # Configure custom request handler with improved connection settings
-        request = HTTPXRequest(
-            connection_pool_size=20,     # Verhoog aantal beschikbare connecties
-            connect_timeout=10.0,        # Verhoog connect timeout
-            read_timeout=30.0,           # Verhoog read timeout
-            write_timeout=20.0,          # Verhoog write timeout
-            pool_timeout=30.0,           # Verhoog pool timeout om wachten op connecties toe te staan
-        )
-        
-        # Build application with custom request handler
-        application = Application.builder().token(self.token).request(request).build()
+        # Build application with the existing bot instance
+        application = Application.builder().bot(self.bot).build()
         
         # Command handlers
         application.add_handler(CommandHandler("start", self.start_command))
@@ -1960,33 +1961,23 @@ Click the button below to start your FREE 14-day trial.
     async def setup_webhook(self, app):
         """Set up the FastAPI webhook for Telegram."""
         
-        # Verhoog de verbindingslimieten voor de bot tijdens webhook gebruik
-        if getattr(self.bot.request, 'connection_pool_size', None) is None:
-            # Configureer een betere HTTP client voor de webhook bot
-            request = HTTPXRequest(
-                connection_pool_size=30,     # Verhoog aantal connecties voor webhook
-                connect_timeout=15.0,        # Verhoog connect timeout
-                read_timeout=45.0,           # Verhoog read timeout
-                write_timeout=30.0,          # Verhoog write timeout
-                pool_timeout=45.0,           # Verhoog pool timeout
-            )
-            # Update de bot met verbeterde HTTP client
-            self.bot._request = request
-
-        # Setup de webhook
+        # Webhook URL samenstellen
         webhook_url = f"{self.webhook_url}{self.webhook_path}"
+        logger.info(f"Setting up webhook at {webhook_url}")
         
         try:
-            # Set the webhook with more robust settings
-            webhook_info = await self.bot.get_webhook_info()
-            if webhook_info.url != webhook_url:
+            # Direct de webhook instellen zonder eerst info op te halen
+            # Dit vermijdt het probleem met de HTTPXRequest object
+            try:
                 logger.info(f"Setting webhook to {webhook_url}")
                 await self.bot.set_webhook(url=webhook_url, 
-                                         allowed_updates=["message", "callback_query", "my_chat_member"],
-                                         drop_pending_updates=True,
-                                         max_connections=20)
-            else:
-                logger.info(f"Webhook already set to {webhook_url}")
+                                        allowed_updates=["message", "callback_query", "my_chat_member"],
+                                        drop_pending_updates=True,
+                                        max_connections=20)
+                logger.info("Webhook set successfully")
+            except Exception as e:
+                logger.error(f"Error setting webhook: {str(e)}")
+                logger.error(traceback.format_exc())
                 
             @app.post(self.webhook_path)
             async def telegram_webhook(request: Request):
