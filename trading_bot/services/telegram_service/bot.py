@@ -368,8 +368,8 @@ Click the button below to start your trial:
 
 # API Keys
 PERPLEXITY_API_KEY = "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"
-DEEPSEEK_API_KEY = "72df8ae1c5dd4d95b6a54c09bcf1b39e"
-TAVILY_API_KEY = "sk-274ea5952e7e4b87aba4b14de3990c7d"
+DEEPSEEK_API_KEY = "sk-274ea5952e7e4b87aba4b14de3990c7d"
+TAVILY_API_KEY = "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"  # Updated Tavily key
 
 class TelegramService:
     def __init__(self, db: Database, stripe_service=None, bot_token: Optional[str] = None, proxy_url: Optional[str] = None):
@@ -380,7 +380,7 @@ class TelegramService:
         # API keys
         PERPLEXITY_API_KEY = os.getenv("PERPLEXITY_API_KEY", "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")
         DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "sk-274ea5952e7e4b87aba4b14de3990c7d")  # This is the DeepSeek API key
-        TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "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")  # Use the original Tavily key
+        TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "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")  # Updated Tavily key
         
         # Set environment variables for the API keys
         os.environ["PERPLEXITY_API_KEY"] = PERPLEXITY_API_KEY
