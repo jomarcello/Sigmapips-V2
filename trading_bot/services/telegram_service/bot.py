@@ -1403,6 +1403,11 @@ class TelegramService:
         query = update.callback_query
         data = query.data
         
+        # Check if this is actually a market selection (e.g., market_forex_sentiment) instead of an instrument
+        if data.startswith('market_'):
+            logger.info(f"Redirecting market selection to market_callback: {data}")
+            return await self.market_callback(update, context)
+        
         # Extract instrument from callback data
         parts = data.split('_')
         instrument = parts[1]
