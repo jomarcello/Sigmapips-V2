@@ -241,11 +241,11 @@ INDICES_KEYBOARD_SIGNALS = [
 # Commodities keyboard voor analyse
 COMMODITIES_KEYBOARD = [
     [
-        InlineKeyboardButton("XAUUSD", callback_data="instrument_XAUUSD"),
-        InlineKeyboardButton("XAGUSD", callback_data="instrument_XAGUSD"),
-        InlineKeyboardButton("USOIL", callback_data="instrument_USOIL")
+        InlineKeyboardButton("GOLD", callback_data="instrument_XAUUSD"),
+        InlineKeyboardButton("SILVER", callback_data="instrument_XAGUSD"),
+        InlineKeyboardButton("OIL", callback_data="instrument_USOIL")
     ],
-    [InlineKeyboardButton("⬅️ Terug", callback_data="back_market")]
+    [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
 ]
 
 # Commodities keyboard voor signals - Fix de "Terug" knop naar "Back"
@@ -971,11 +971,25 @@ class TelegramService:
                     keyboard = CRYPTO_KEYBOARD
                     message_text += "analysis:"
             elif market == 'indices':
-                keyboard = INDICES_KEYBOARD
-                message_text += "analysis:"
+                if analysis_type == 'technical':
+                    keyboard = INDICES_KEYBOARD
+                    message_text += "technical analysis:"
+                elif analysis_type == 'sentiment':
+                    keyboard = INDICES_SENTIMENT_KEYBOARD
+                    message_text += "sentiment analysis:"
+                else:
+                    keyboard = INDICES_KEYBOARD
+                    message_text += "analysis:"
             elif market == 'commodities':
-                keyboard = COMMODITIES_KEYBOARD
-                message_text += "analysis:"
+                if analysis_type == 'technical':
+                    keyboard = COMMODITIES_KEYBOARD
+                    message_text += "technical analysis:"
+                elif analysis_type == 'sentiment':
+                    keyboard = COMMODITIES_SENTIMENT_KEYBOARD
+                    message_text += "sentiment analysis:"
+                else:
+                    keyboard = COMMODITIES_KEYBOARD
+                    message_text += "analysis:"
             else:
                 # Onbekende markt, toon een foutmelding
                 await query.edit_message_text(
@@ -1385,8 +1399,9 @@ class TelegramService:
                 return CHOOSE_TIMEFRAME
             elif analysis_type == "sentiment":
                 logger.info(f"Toon sentiment analyse voor {instrument}")
+                # Always use show_sentiment_analysis for sentiment, never show_technical_analysis
                 await self.show_sentiment_analysis(update, context, instrument)
-                return CHOOSE_TIMEFRAME
+                return SHOW_RESULT
             elif analysis_type == "calendar":
                 logger.info(f"Toon economische kalender voor {instrument}")
                 await self.show_economic_calendar(update, context, instrument)
@@ -2341,3 +2356,23 @@ Click the button below to start your FREE 14-day trial.
                 logger.error(f"Failed to send fallback message: {str(inner_e)}")
             
             return MENU
+
+# Indices keyboard voor sentiment analyse
+INDICES_SENTIMENT_KEYBOARD = [
+    [
+        InlineKeyboardButton("US30", callback_data="instrument_US30_sentiment"),
+        InlineKeyboardButton("US500", callback_data="instrument_US500_sentiment"),
+        InlineKeyboardButton("US100", callback_data="instrument_US100_sentiment")
+    ],
+    [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
+]
+
+# Commodities keyboard voor sentiment analyse
+COMMODITIES_SENTIMENT_KEYBOARD = [
+    [
+        InlineKeyboardButton("GOLD", callback_data="instrument_XAUUSD_sentiment"),
+        InlineKeyboardButton("SILVER", callback_data="instrument_XAGUSD_sentiment"),
+        InlineKeyboardButton("OIL", callback_data="instrument_USOIL_sentiment")
+    ],
+    [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
+]
