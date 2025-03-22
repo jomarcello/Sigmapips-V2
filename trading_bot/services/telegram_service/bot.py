@@ -402,9 +402,19 @@ class TelegramService:
         self.bot_token = bot_token or os.getenv("TELEGRAM_BOT_TOKEN")
         self.token = self.bot_token  # Aliased for backward compatibility
         
-        # Webhook configuration
+        # Webhook configuration - ensure we have just one /webhook, not nested paths
+        webhook_path = os.getenv("WEBHOOK_PATH", "/webhook")
+        # Remove duplicated slashes and normalize path format
+        self.webhook_path = webhook_path.replace("//", "/")
+        if self.webhook_path.endswith("/"):
+            self.webhook_path = self.webhook_path[:-1]
+        if not self.webhook_path.startswith("/"):
+            self.webhook_path = "/" + self.webhook_path
+            
         self.webhook_url = os.getenv("WEBHOOK_URL", "")
-        self.webhook_path = os.getenv("WEBHOOK_PATH", "/webhook")
+        # Normalize URL: remove trailing slash to avoid double slashes when combined with path
+        if self.webhook_url.endswith("/"):
+            self.webhook_url = self.webhook_url[:-1]
         
         # Configure custom request handler with improved connection settings
         request = HTTPXRequest(
@@ -1962,15 +1972,15 @@ Click the button below to start your FREE 14-day trial.
         """Set up the FastAPI webhook for Telegram."""
         
         # Webhook URL samenstellen
-        webhook_url = f"{self.webhook_url}{self.webhook_path}"
-        logger.info(f"Setting up webhook at {webhook_url}")
+        full_webhook_url = f"{self.webhook_url}{self.webhook_path}"
+        logger.info(f"Setting up webhook at path '{self.webhook_path}' with full URL '{full_webhook_url}'")
         
         try:
             # Direct de webhook instellen zonder eerst info op te halen
             # Dit vermijdt het probleem met de HTTPXRequest object
             try:
-                logger.info(f"Setting webhook to {webhook_url}")
-                await self.bot.set_webhook(url=webhook_url, 
+                logger.info(f"Setting webhook to {full_webhook_url}")
+                await self.bot.set_webhook(url=full_webhook_url, 
                                         allowed_updates=["message", "callback_query", "my_chat_member"],
                                         drop_pending_updates=True,
                                         max_connections=20)
@@ -1982,6 +1992,7 @@ Click the button below to start your FREE 14-day trial.
             @app.post(self.webhook_path)
             async def telegram_webhook(request: Request):
                 try:
+                    logger.debug(f"Received webhook request at {self.webhook_path}")
                     update_data = await request.json()
                     
                     # Maak een nieuwe taak om de update te verwerken zodat we direct kunnen
