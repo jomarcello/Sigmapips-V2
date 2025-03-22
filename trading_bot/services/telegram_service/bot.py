@@ -510,7 +510,7 @@ class TelegramService:
         
         logger.info("All handlers registered successfully")
 
-    async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> None:
         """Send a welcome message when the bot is started."""
         user = update.effective_user
         user_id = user.id
@@ -1310,12 +1310,15 @@ class TelegramService:
             
             return MENU
 
-    async def show_main_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    async def show_main_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> None:
         """Show the main menu with all bot features"""
         # Toon het originele hoofdmenu met alle opties
         reply_markup = InlineKeyboardMarkup(START_KEYBOARD)
         
-        await context.bot.send_message(
+        # Use context.bot if available, otherwise use self.bot
+        bot = context.bot if context is not None else self.bot
+        
+        await bot.send_message(
             chat_id=update.effective_chat.id,
             text=WELCOME_MESSAGE,
             parse_mode='HTML',
@@ -1793,7 +1796,7 @@ Click the button below to start your FREE 14-day trial.
             logger.error(f"Error in polling thread: {str(e)}")
             logger.exception(e)
 
-    async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> None:
         """Send a help message when the command /help is issued."""
         await update.message.reply_text(
             text=HELP_MESSAGE,
@@ -1925,7 +1928,7 @@ Click the button below to start your FREE 14-day trial.
                 command = update.message.text.split(' ')[0].lower()
                 logger.info(f"Received command: {command}")
                 
-                # Direct command handling
+                # Direct command handling with None context (will use self.bot internally)
                 if command == '/start':
                     await self.start_command(update, None)
                     return
