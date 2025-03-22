@@ -153,6 +153,15 @@ MARKET_KEYBOARD = [
     [InlineKeyboardButton("⬅️ Back", callback_data="back_analysis")]
 ]
 
+# Market keyboard specifiek voor sentiment analyse
+MARKET_SENTIMENT_KEYBOARD = [
+    [InlineKeyboardButton("Forex", callback_data="market_forex")],
+    [InlineKeyboardButton("Crypto", callback_data="market_crypto")],
+    [InlineKeyboardButton("Commodities", callback_data="market_commodities")],
+    [InlineKeyboardButton("Indices", callback_data="market_indices")],
+    [InlineKeyboardButton("⬅️ Back", callback_data="back_analysis")]
+]
+
 # Forex keyboard voor technical analyse
 FOREX_KEYBOARD = [
     [
@@ -659,7 +668,7 @@ class TelegramService:
             # Show market selection for sentiment analysis
             await query.edit_message_text(
                 text="Select a market for sentiment analysis:",
-                reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
+                reply_markup=InlineKeyboardMarkup(MARKET_SENTIMENT_KEYBOARD)
             )
             
             return CHOOSE_MARKET
@@ -1097,7 +1106,7 @@ class TelegramService:
                 # Show market selection for sentiment analysis
                 await query.edit_message_text(
                     text="Select a market for sentiment analysis:",
-                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
+                    reply_markup=InlineKeyboardMarkup(MARKET_SENTIMENT_KEYBOARD)
                 )
                 return CHOOSE_MARKET
                 
