@@ -1,219 +1,247 @@
 // Verbeterde foutafhandeling en module import
-let playwright;
-try {
-    // Probeer eerst lokaal geïnstalleerde module
-    playwright = require('playwright');
-    console.log("Using locally installed playwright module");
-} catch (e) {
-    try {
-        // Probeer globaal geïnstalleerde module
-        const globalModulePath = require('child_process')
-            .execSync('npm root -g')
-            .toString()
-            .trim();
-        playwright = require(`${globalModulePath}/playwright`);
-        console.log("Using globally installed playwright module");
-    } catch (e2) {
-        console.error('Geen Playwright module gevonden. Installeer met: npm install playwright');
-        process.exit(1);
-    }
-}
+const fs = require('fs');
+const { execSync } = require('child_process');
 
 // Haal de argumenten op
 const url = process.argv[2];
 const outputPath = process.argv[3];
-const sessionId = process.argv[4]; // Voeg session ID toe als derde argument
-const fullscreen = process.argv[5] === 'fullscreen'; // Controleer of fullscreen is ingeschakeld
+const sessionId = process.argv[4] || '';
+const fullscreen = process.argv[5] === 'fullscreen';
 
-if (!url || !outputPath) {
-    console.error('Usage: node screenshot.js <url> <outputPath> [sessionId] [fullscreen]');
+// Log de argumenten voor debugging
+console.log(`URL: ${url}`);
+console.log(`Output path: ${outputPath}`);
+console.log(`Session ID: ${sessionId ? 'Provided' : 'Not provided'}`);
+console.log(`Fullscreen: ${fullscreen}`);
+
+// Controleer of Playwright is geïnstalleerd, zo niet, installeer het
+try {
+  // Probeer eerst of playwright al beschikbaar is
+  require.resolve('playwright');
+  console.log("Playwright module is already installed");
+} catch (e) {
+  console.log("Installing Playwright...");
+  try {
+    execSync('npm install playwright --no-save', { stdio: 'inherit' });
+    console.log("Playwright installed successfully");
+  } catch (installError) {
+    console.error("Failed to install Playwright:", installError);
     process.exit(1);
+  }
 }
 
+// Nu kunnen we playwright importeren
 const { chromium } = require('playwright');
 
 (async () => {
+  let browser;
+  try {
+    console.log(`Taking screenshot of ${url} and saving to ${outputPath} (fullscreen: ${fullscreen})`);
+    
+    // Start een browser
+    browser = await chromium.launch({
+      headless: true,
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-web-security']
+    });
+    
+    // Maak een nieuwe context en pagina
+    const context = await browser.newContext({
+      viewport: { width: 1280, height: 800 },
+      deviceScaleFactor: 1,
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+    });
+    
+    // Voeg cookies toe als er een session ID is
+    if (sessionId) {
+      await context.addCookies([
+        {
+          name: 'sessionid',
+          value: sessionId,
+          domain: '.tradingview.com',
+          path: '/',
+        }
+      ]);
+      console.log('Added TradingView session cookie');
+    }
+    
+    const page = await context.newPage();
+    
+    // Navigeer naar de URL met een minder strenge wachttoestand
+    console.log(`Navigating to ${url}`);
     try {
-        console.log(`Taking screenshot of ${url} and saving to ${outputPath} (fullscreen: ${fullscreen})`);
+      // Gebruik domcontentloaded in plaats van networkidle
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      console.log('Page loaded (domcontentloaded)');
+      
+      // Stel localStorage waarden in om meldingen uit te schakelen
+      console.log('Setting localStorage values to disable notifications...');
+      await page.evaluate(() => {
+        // Stel release channel in op stable
+        localStorage.setItem('tv_release_channel', 'stable');
         
-        // Start een browser
-        const browser = await chromium.launch({
-            headless: true,
-            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
+        // Schakel versie meldingen uit
+        localStorage.setItem('tv_alert', 'dont_show');
+        
+        // Schakel nieuwe functie hints uit
+        localStorage.setItem('feature_hint_shown', 'true');
+        
+        // Stel in dat de nieuwe versie al is weergegeven
+        localStorage.setItem('tv_twitter_notification', 'true');
+        localStorage.setItem('tv_changelog_notification', 'true');
+        
+        // Schakel privacy meldingen uit
+        localStorage.setItem('TVPrivacySettingsAccepted', 'true');
+        
+        // Onthoud gebruikersvoorkeuren
+        localStorage.setItem('UserPreferences', '{"hiddenMarketBanners":{}}');
+        
+        // Schakel update meldingen uit
+        localStorage.setItem('tv_alert_dialog_chart_v5', 'true');
+      });
+      
+      // Wacht extra tijd voor de pagina om te laden
+      console.log('Waiting additional time for page to render...');
+      await page.waitForTimeout(10000);
+    } catch (navError) {
+      console.error('Navigation error:', navError);
+      // Probeer toch door te gaan, misschien is de pagina gedeeltelijk geladen
+      console.log('Continuing despite navigation error...');
+    }
+    
+    // Als het een TradingView URL is, wacht dan op de chart
+    if (url.includes('tradingview.com')) {
+      console.log('Waiting for TradingView chart to load...');
+      
+      // Zoek en verwijder de update meldingen
+      console.log('Checking for update notifications...');
+      try {
+        // Specifieke behandeling voor TradingView v5 update melding
+        console.log('Checking for TradingView v5 update dialog...');
+        const hasV5Dialog = await page.evaluate(() => {
+          // Zoek naar de v5 dialog op verschillende manieren
+          const dialogSelectors = [
+            '.tv-dialog__modal-container',
+            '.js-dialog',
+            '[data-dialog-name="chart-new-features"]',
+            '.tv-dialog'
+          ];
+          
+          for (const selector of dialogSelectors) {
+            const dialogs = document.querySelectorAll(selector);
+            for (const dialog of dialogs) {
+              // Controleer of deze dialog de v5 update melding is
+              if (
+                dialog.innerText.includes('TradingView has been updated') ||
+                dialog.innerText.includes('Got it, thanks') ||
+                dialog.innerText.includes('Chart V5') ||
+                dialog.innerText.includes('New version') ||
+                dialog.innerText.includes('Got it')
+              ) {
+                // Zoek naar knoppen in de dialog
+                const buttons = dialog.querySelectorAll('button');
+                for (const button of buttons) {
+                  if (
+                    button.innerText.includes('Got it') ||
+                    button.innerText.includes('OK') ||
+                    button.innerText.includes('Thanks')
+                  ) {
+                    console.log('Clicking v5 update dialog button:', button.innerText);
+                    button.click();
+                    return true;
+                  }
+                }
+                
+                // Als er geen specifieke knop is gevonden, probeer de dialog te sluiten
+                const closeButton = dialog.querySelector('.tv-dialog__close-button, .close-button');
+                if (closeButton) {
+                  console.log('Clicking close button on dialog');
+                  closeButton.click();
+                  return true;
+                }
+              }
+            }
+          }
+          
+          return false;
         });
         
-        // Open een nieuwe pagina met grotere viewport voor fullscreen
-        const context = await browser.newContext({
-            locale: 'en-US', // Stel de locale in op Engels
-            timezoneId: 'Europe/Amsterdam', // Stel de tijdzone in op Amsterdam
-            viewport: { width: 1920, height: 1080 } // Stel een grotere viewport in
+        if (hasV5Dialog) {
+          console.log('Successfully handled TradingView v5 update dialog');
+          // Wacht even om de dialoog te laten verdwijnen
+          await page.waitForTimeout(1000);
+        } else {
+          console.log('No TradingView v5 update dialog found');
+        }
+        
+        // Zoek en klik op alle "Got it" of "Thanks" knoppen
+        await page.evaluate(() => {
+          // Zoek elementen met tekst "Got it" of "Thanks"
+          const elements = Array.from(document.querySelectorAll('button, a, div'));
+          const gotItElements = elements.filter(el => 
+            el.innerText && (
+              el.innerText.includes('Got it') || 
+              el.innerText.includes('Thanks') || 
+              el.innerText.includes('OK')
+            )
+          );
+          
+          // Klik op alle gevonden elementen
+          gotItElements.forEach(el => {
+            console.log('Clicking on element with text:', el.innerText);
+            el.click();
+          });
+          
+          // Zoek ook naar close buttons zonder specifieke tekst
+          const closeButtons = Array.from(document.querySelectorAll('.tv-dialog__close-button, .close-button, .close-icon'));
+          closeButtons.forEach(btn => btn.click());
         });
-        
-        // Voeg cookies toe als er een session ID is
-        if (sessionId) {
-            console.log(`Using session ID: ${sessionId.substring(0, 5)}...`);
-            
-            // Voeg de session cookie direct toe zonder eerst naar TradingView te gaan
-            await context.addCookies([
-                {
-                    name: 'sessionid',
-                    value: sessionId,
-                    domain: '.tradingview.com',
-                    path: '/',
-                    httpOnly: true,
-                    secure: true,
-                    sameSite: 'Lax'
-                },
-                {
-                    name: 'language',
-                    value: 'en',
-                    domain: '.tradingview.com',
-                    path: '/'
-                }
-            ]);
-        }
-        
-        // Open een nieuwe pagina voor de screenshot
-        const page = await context.newPage();
-        
-        // Stel een langere timeout in
-        page.setDefaultTimeout(180000); // 3 minuten timeout
-        
-        try {
-            // Ga naar de URL
-            console.log(`Navigating to ${url}...`);
-            await page.goto(url, {
-                waitUntil: 'domcontentloaded',
-                timeout: 120000 // 2 minuten timeout voor navigatie
-            });
-            
-            // Wacht een langere tijd om de pagina en indicators te laten laden
-            console.log('Waiting for page and indicators to render...');
-            await page.waitForTimeout(30000); // 30 seconden wachten voor betere stabiliteit
-            
-            // Controleer of we zijn ingelogd
-            const isLoggedIn = await page.evaluate(() => {
-                return document.body.innerText.includes('Log out') || 
-                       document.body.innerText.includes('Account') ||
-                       document.querySelector('.tv-header__user-menu-button') !== null;
-            });
-            
-            console.log(`Logged in status: ${isLoggedIn}`);
-            
-            // Als fullscreen is ingeschakeld, verberg UI-elementen
-            if (fullscreen) {
-                console.log('Removing UI elements for fullscreen...');
-                await page.evaluate(() => {
-                    // Verberg de header
-                    const header = document.querySelector('.tv-header');
-                    if (header) header.style.display = 'none';
-                    
-                    // Verberg de toolbar
-                    const toolbar = document.querySelector('.tv-main-panel__toolbar');
-                    if (toolbar) toolbar.style.display = 'none';
-                    
-                    // Verberg de zijbalk
-                    const sidebar = document.querySelector('.tv-side-toolbar');
-                    if (sidebar) sidebar.style.display = 'none';
-                    
-                    // Verberg andere UI-elementen
-                    const panels = document.querySelectorAll('.layout__area--left, .layout__area--right');
-                    panels.forEach(panel => {
-                        if (panel) panel.style.display = 'none';
-                    });
-                    
-                    // Maximaliseer de chart
-                    const chart = document.querySelector('.chart-container');
-                    if (chart) {
-                        chart.style.width = '100vw';
-                        chart.style.height = '100vh';
-                    }
-                    
-                    // Verberg de footer
-                    const footer = document.querySelector('footer');
-                    if (footer) footer.style.display = 'none';
-                    
-                    // Verberg de statusbalk
-                    const statusBar = document.querySelector('.tv-main-panel__statuses');
-                    if (statusBar) statusBar.style.display = 'none';
-                });
-                
-                // Wacht even om de wijzigingen toe te passen
-                await page.waitForTimeout(3000);
-            }
-            
-            // Wacht nog wat langer als we zijn ingelogd om custom indicators te laden
-            if (isLoggedIn) {
-                console.log('Waiting for custom indicators to load...');
-                await page.waitForTimeout(15000); // Extra 15 seconden voor custom indicators
-            }
-            
-            // Wacht tot de chart volledig is geladen
-            console.log('Waiting for chart to be fully loaded...');
-            await page.waitForFunction(() => {
-                // Controleer of de loading indicator verdwenen is
-                const loadingIndicator = document.querySelector('.loading-indicator');
-                if (loadingIndicator && window.getComputedStyle(loadingIndicator).display !== 'none') {
-                    console.log('Loading indicator still visible');
-                    return false;
-                }
-                
-                // Controleer of de chart container zichtbaar is
-                const chartContainer = document.querySelector('.chart-container');
-                if (!chartContainer) {
-                    console.log('Chart container not found');
-                    return false;
-                }
-                
-                // Controleer of de chart container zichtbaar is
-                const isVisible = window.getComputedStyle(chartContainer).visibility !== 'hidden';
-                if (!isVisible) {
-                    console.log('Chart container is hidden');
-                    return false;
-                }
-                
-                // Controleer of er een error message zichtbaar is
-                const errorMessage = document.querySelector('.tv-error-card');
-                if (errorMessage && window.getComputedStyle(errorMessage).display !== 'none') {
-                    console.log('Error message is visible:', errorMessage.textContent);
-                    return false;
-                }
-                
-                return true;
-            }, { timeout: 30000 }).catch(e => {
-                console.error('Error waiting for chart to load:', e);
-                throw new Error('Chart failed to load within timeout');
-            });
-            
-            // Wacht nog een laatste moment voor stabiliteit
-            await page.waitForTimeout(10000); // Extra tijd voor volledige stabiliteit
-            
-        } catch (error) {
-            console.error('Error loading page, trying to take screenshot anyway:', error);
-        }
-        
-        // Simuleer Shift+F om fullscreen modus te activeren
+      } catch (e) {
+        console.log('Error trying to close notifications:', e);
+        // Doorgaan met screenshot ook als dit faalt
+      }
+      
+      // Wacht op de chart container met een kortere timeout
+      try {
+        await page.waitForSelector('.chart-container', { timeout: 10000 });
+        console.log('Chart container found');
+      } catch (e) {
+        console.warn('Could not find chart container, continuing anyway:', e);
+      }
+      
+      // Wacht extra tijd voor de chart om volledig te laden
+      await page.waitForTimeout(5000);
+      
+      // Als fullscreen is aangevraagd, simuleer Shift+F
+      if (fullscreen || url.includes('fullscreen=true')) {
+        console.log('Enabling fullscreen mode with Shift+F...');
+        // Gebruik Shift+F in plaats van F11
         await page.keyboard.down('Shift');
         await page.keyboard.press('F');
         await page.keyboard.up('Shift');
-
-        // Wacht even zodat de UI kan updaten
-        await page.waitForTimeout(1000);
-        
-        // Maak nu de screenshot
-        console.log('Taking screenshot...');
-        await page.screenshot({
-            path: outputPath,
-            fullPage: false
-        });
-        
-        // Sluit de browser
-        await browser.close();
-        
-        console.log('Screenshot taken successfully');
-        process.exit(0);
-    } catch (error) {
-        console.error('Error taking screenshot:', error);
-        process.exit(1);
+        await page.waitForTimeout(2000); // Wacht iets langer voor fullscreen effect
+        console.log('Fullscreen mode activated');
+      }
+      
+      console.log('Chart loaded, taking screenshot...');
+    } else {
+      console.log('Not a TradingView URL, waiting for page load...');
+      await page.waitForTimeout(3000);
     }
-})();
+    
+    // Neem een screenshot
+    await page.screenshot({ path: outputPath });
+    console.log(`Screenshot saved to ${outputPath}`);
+    
+    // Sluit de browser
+    await browser.close();
+    
+    console.log('Done!');
+    process.exit(0);
+  } catch (error) {
+    console.error('Error:', error);
+    if (browser) {
+      await browser.close().catch(e => console.error('Error closing browser:', e));
+    }
+    process.exit(1);
+  }
+})(); 
