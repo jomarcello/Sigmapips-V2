@@ -97,6 +97,10 @@ const { chromium } = require('playwright');
         
         // Schakel update meldingen uit
         localStorage.setItem('tv_alert_dialog_chart_v5', 'true');
+        
+        // Schakel stock screener notificatie uit
+        localStorage.setItem('screener_new_feature_notification', 'shown');
+        localStorage.setItem('tv_notification', 'dont_show');
       });
       
       // Wacht extra tijd voor de pagina om te laden
@@ -111,6 +115,189 @@ const { chromium } = require('playwright');
     // Als het een TradingView URL is, wacht dan op de chart
     if (url.includes('tradingview.com')) {
       console.log('Waiting for TradingView chart to load...');
+      
+      // Extra code om de specifieke stock screener notificatie te verbergen
+      console.log('Hiding all notifications and dialogs via JavaScript...');
+      await page.evaluate(() => {
+        // Functie om alle elementen met bepaalde tekst te vinden en te verbergen
+        function findAndHideElementsWithText(text) {
+          const walker = document.createTreeWalker(
+            document.body,
+            NodeFilter.SHOW_TEXT,
+            {
+              acceptNode: function(node) {
+                return node.nodeValue.includes(text) ? 
+                  NodeFilter.FILTER_ACCEPT : 
+                  NodeFilter.FILTER_REJECT;
+              }
+            }
+          );
+          
+          const matchingNodes = [];
+          let node;
+          while(node = walker.nextNode()) {
+            matchingNodes.push(node);
+          }
+          
+          // Voor elk gevonden knooppunt, zoek het parent dialoog element en verberg het
+          matchingNodes.forEach(textNode => {
+            let parent = textNode.parentNode;
+            while (parent && parent !== document.body) {
+              // Als dit een dialoog of popup container is, verberg het
+              if (
+                parent.classList && (
+                  parent.classList.contains('tv-dialog') ||
+                  parent.classList.contains('js-dialog') ||
+                  parent.getAttribute('role') === 'dialog'
+                )
+              ) {
+                console.log('Hiding dialog with text:', text);
+                parent.style.display = 'none';
+                parent.style.visibility = 'hidden';
+                parent.style.opacity = '0';
+                break;
+              }
+              
+              // Zoek buttons in dialoog en klik erop
+              if (
+                parent.querySelectorAll && 
+                (parent.querySelectorAll('button').length > 0)
+              ) {
+                const buttons = parent.querySelectorAll('button');
+                buttons.forEach(button => {
+                  if (
+                    button.textContent && (
+                      button.textContent.includes('Got it') ||
+                      button.textContent.includes('thanks') ||
+                      button.textContent.includes('OK')
+                    )
+                  ) {
+                    console.log('Clicking button:', button.textContent);
+                    button.click();
+                  }
+                });
+              }
+              
+              parent = parent.parentNode;
+            }
+          });
+        }
+        
+        // Specifieke tekstfragmenten uit de Stock Screener popup
+        const textsToHide = [
+          'Stock Screener is disappearing',
+          'The old Stock Screener',
+          'streamline your experience',
+          'Got it, thanks',
+          'Try new screener',
+          'new, more powerful',
+          'removing the old'
+        ];
+        
+        textsToHide.forEach(findAndHideElementsWithText);
+      });
+      
+      // Klik op alle mogelijke "Got it, thanks" knoppen (directe aanpak)
+      try {
+        console.log('Trying direct approach to dismiss Stock Screener dialog...');
+        
+        // Opzettelijke vertraging om popup te laten verschijnen
+        await page.waitForTimeout(3000);
+        
+        // Automatisch klikken op alle dialoogvensters met "Got it, thanks" knoppen
+        const result = await page.evaluate(() => {
+          console.log('Searching for dialogs in the page...');
+          
+          // Helper functie om een element te klikken als het zichtbaar is
+          function clickVisible(element) {
+            if (!element) return false;
+            
+            // Check of element zichtbaar is
+            const style = window.getComputedStyle(element);
+            if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {
+              return false;
+            }
+            
+            console.log('Clicking element:', element.tagName, element.textContent);
+            element.click();
+            return true;
+          }
+          
+          // Specifiek voor de Stock Screener dialog (exacte match)
+          const stockScreenerTexts = [
+            'The old Stock Screener is disappearing very soon',
+            'Stock Screener is disappearing',
+            'Stock Screener',
+            'streamline your experience',
+            'Got it, thanks'
+          ];
+          
+          // Check alle dialog/popup containers
+          let clicked = false;
+          document.querySelectorAll('.tv-dialog, .tv-dialog__modal-container, [role="dialog"], .js-dialog').forEach(dialog => {
+            // Check of dialoog zichtbaar is en de juiste tekst bevat
+            if (dialog.style.display !== 'none') {
+              let containsText = false;
+              stockScreenerTexts.forEach(text => {
+                if (dialog.textContent && dialog.textContent.includes(text)) {
+                  containsText = true;
+                }
+              });
+              
+              if (containsText) {
+                // Vind de button met "Got it, thanks"
+                const buttons = dialog.querySelectorAll('button');
+                buttons.forEach(btn => {
+                  if (btn.textContent && (
+                    btn.textContent.includes('Got it') || 
+                    btn.textContent.includes('thanks') ||
+                    btn.textContent.includes('OK') ||
+                    btn.textContent.includes('Thanks'))
+                  ) {
+                    console.log('Found dialog button with text:', btn.textContent);
+                    btn.click();
+                    clicked = true;
+                  }
+                });
+                
+                // Als geen buttons gevonden, probeer close buttons
+                if (!clicked) {
+                  const closeButtons = dialog.querySelectorAll('.tv-dialog__close-button, .close-button, .close-icon');
+                  closeButtons.forEach(btn => {
+                    console.log('Found close button');
+                    btn.click();
+                    clicked = true;
+                  });
+                }
+              }
+            }
+          });
+          
+          // Tweede poging: zoek simpelweg alle buttons met "Got it, thanks" tekst
+          if (!clicked) {
+            document.querySelectorAll('button').forEach(btn => {
+              if (btn.textContent && (
+                btn.textContent.includes('Got it, thanks') || 
+                btn.textContent.includes('Got it') ||
+                btn.textContent.includes('OK'))
+              ) {
+                console.log('Found button with text:', btn.textContent);
+                btn.click();
+                clicked = true;
+              }
+            });
+          }
+          
+          return clicked ? 'Clicked something' : 'Nothing clicked';
+        });
+        
+        console.log('Dialog dismissal result:', result);
+        
+        // Wacht even om de popup te laten verdwijnen
+        await page.waitForTimeout(2000);
+      } catch (e) {
+        console.error('Error in direct dialog dismissal:', e);
+      }
       
       // Zoek en verwijder de update meldingen
       console.log('Checking for update notifications...');
@@ -304,6 +491,62 @@ const { chromium } = require('playwright');
     
     // Laatste poging om alle dialogen weg te klikken voordat screenshot wordt genomen
     console.log('Final attempt to dismiss all dialogs...');
+    
+    // Probeer direct op de "Got it, thanks" knop te klikken met Playwright
+    try {
+      console.log('Trying to click directly on "Got it, thanks" button...');
+      
+      // Zoek elke knop met "Got it"
+      const gotItButtons = await page.$$('button');
+      let clicked = false;
+      
+      for (const button of gotItButtons) {
+        const text = await button.textContent();
+        if (text && (text.includes('Got it') || text.includes('thanks') || text.includes('OK'))) {
+          console.log('Found button with text:', text);
+          await button.click();
+          clicked = true;
+          await page.waitForTimeout(500);
+        }
+      }
+      
+      if (clicked) {
+        console.log('Successfully clicked button directly');
+        await page.waitForTimeout(1000);
+      } else {
+        console.log('No buttons found to click directly');
+      }
+    } catch (e) {
+      console.error('Error in direct button click:', e);
+    }
+    
+    // Brute force method: injecteer CSS om alle dialogen te verbergen
+    console.log('Injecting CSS to hide all dialogs...');
+    await page.addStyleTag({
+      content: `
+        /* Hide all dialogs and pop-ups */
+        .tv-dialog, 
+        .js-dialog, 
+        [role="dialog"], 
+        .tv-notification, 
+        .feature-notification,
+        .tv-toast,
+        .tv-alert-dialog,
+        .tv-dialog__modal,
+        .tv-dialog__modal-container,
+        div[data-name*="dialog"],
+        div[data-dialog-name*="chart-new-features"],
+        div[data-dialog-name*="notice"],
+        .tv-dialog-container {
+          display: none !important;
+          visibility: hidden !important;
+          opacity: 0 !important;
+          pointer-events: none !important;
+          z-index: -9999 !important;
+        }
+      `
+    });
+    
     await page.evaluate(() => {
       // Functie om een element te klikken als het bestaat
       const clickIfExists = (selector) => {
