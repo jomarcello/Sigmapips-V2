@@ -405,11 +405,11 @@ class TelegramService:
         
         # Configure custom request handler with improved connection settings
         request = HTTPXRequest(
-            connection_pool_size=20,  # Verhoog aantal beschikbare connecties
-            connect_timeout=10.0,     # Verhoog connect timeout
-            read_timeout=30.0,        # Verhoog read timeout
-            write_timeout=20.0,       # Verhoog write timeout
-            pool_timeout=30.0,        # Verhoog pool timeout
+            connection_pool_size=50,  # Increase from 20 to 50
+            connect_timeout=15.0,     # Increase from 10.0 to 15.0
+            read_timeout=45.0,        # Increase from 30.0 to 45.0
+            write_timeout=30.0,       # Increase from 20.0 to 30.0
+            pool_timeout=60.0,        # Increase from 30.0 to 60.0
         )
         
         # Initialize the bot directly with connection pool settings
@@ -1332,8 +1332,8 @@ class TelegramService:
         
         # Beantwoord de callback query met een timeout-afhandeling
         try:
-            # Verhoogde timeout voor antwoord
-            await query.answer(timeout=15.0)
+            # Answer without a timeout parameter (it's not supported in python-telegram-bot v20)
+            await query.answer()
         except Exception as e:
             # Log de fout, maar ga door met afhandeling (voorkomt blokkering)
             logger.warning(f"Kon callback query niet beantwoorden: {str(e)}")
@@ -1948,21 +1948,50 @@ Click the button below to start your FREE 14-day trial.
                 logger.info(f"Received command: {command}")
                 
                 # Direct command handling with None context (will use self.bot internally)
-                if command == '/start':
-                    await self.start_command(update, None)
+                try:
+                    if command == '/start':
+                        await self.start_command(update, None)
+                        return
+                    elif command == '/menu':
+                        await self.show_main_menu(update, None)
+                        return
+                    elif command == '/help':
+                        await self.help_command(update, None)
+                        return
+                except asyncio.CancelledError:
+                    logger.warning(f"Command processing was cancelled for update {update.update_id}")
                     return
-                elif command == '/menu':
-                    await self.show_main_menu(update, None)
-                    return
-                elif command == '/help':
-                    await self.help_command(update, None)
+                except Exception as cmd_e:
+                    logger.error(f"Error handling command {command}: {str(cmd_e)}")
+                    logger.exception(cmd_e)
+                    # Try to send an error message to the user
+                    try:
+                        await self.bot.send_message(
+                            chat_id=update.effective_chat.id,
+                            text="Sorry, there was an error processing your command. Please try again later."
+                        )
+                    except Exception:
+                        pass  # Ignore if we can't send the error message
                     return
             
             # Check if this is a callback query (button press)
             if update.callback_query:
-                logger.info(f"Received callback query: {update.callback_query.data}")
-                await self.button_callback(update, None)
-                return
+                try:
+                    logger.info(f"Received callback query: {update.callback_query.data}")
+                    await self.button_callback(update, None)
+                    return
+                except asyncio.CancelledError:
+                    logger.warning(f"Button callback processing was cancelled for update {update.update_id}")
+                    return
+                except Exception as cb_e:
+                    logger.error(f"Error handling callback query {update.callback_query.data}: {str(cb_e)}")
+                    logger.exception(cb_e)
+                    # Try to notify the user
+                    try:
+                        await update.callback_query.answer(text="Error processing. Please try again.")
+                    except Exception:
+                        pass  # Ignore if we can't send the error message
+                    return
             
             # Try to process the update with the application if it's initialized
             try:
@@ -1972,8 +2001,10 @@ Click the button below to start your FREE 14-day trial.
                         # Process the update with a timeout
                         await asyncio.wait_for(
                             self.application.process_update(update),
-                            timeout=30.0  # 30 seconds timeout
+                            timeout=45.0  # Increased from 30 to 45 seconds timeout
                         )
+                    except asyncio.CancelledError:
+                        logger.warning(f"Application processing was cancelled for update {update.update_id}")
                     except RuntimeError as re:
                         if "not initialized" in str(re).lower():
                             logger.warning("Application not initialized, trying to initialize it")
