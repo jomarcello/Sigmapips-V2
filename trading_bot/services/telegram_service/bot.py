@@ -9,7 +9,7 @@ import random
 import datetime
 import traceback
 import threading
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 
 from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery, InputMediaPhoto, BotCommand
 from telegram.ext import (
@@ -372,10 +372,25 @@ DEEPSEEK_API_KEY = "72df8ae1c5dd4d95b6a54c09bcf1b39e"
 TAVILY_API_KEY = "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"
 
 class TelegramService:
-    def __init__(self, db: Database, stripe_service=None):
-        """Initialize the TelegramBot class"""
+    def __init__(self, db: Database, stripe_service=None, bot_token: Optional[str] = None, proxy_url: Optional[str] = None):
+        """Initialize the Telegram bot service"""
         self.db = db  # Database connection
         self.stripe_service = stripe_service  # Payment service
+        
+        # API keys
+        PERPLEXITY_API_KEY = os.getenv("PERPLEXITY_API_KEY", "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")
+        DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "72df8ae1c5dd4d95b6a54c09bcf1b39e")
+        TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "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")
+        
+        # Set environment variables for the API keys
+        os.environ["PERPLEXITY_API_KEY"] = PERPLEXITY_API_KEY
+        os.environ["DEEPSEEK_API_KEY"] = DEEPSEEK_API_KEY
+        os.environ["TAVILY_API_KEY"] = TAVILY_API_KEY
+        
+        # Initialize the bot token
+        self.bot_token = bot_token or os.getenv("TELEGRAM_BOT_TOKEN")
+        self.proxy_url = proxy_url
+        self.bot = None  # Will be initialized in setup()
         
         # Set API keys in environment variables
         os.environ["PERPLEXITY_API_KEY"] = PERPLEXITY_API_KEY
@@ -402,16 +417,16 @@ class TelegramService:
         # Signal storage
         self.user_signals = {}
         
+        # Start the bot
         try:
-            # Initialiseer de bot
-            bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
-            if not bot_token:
+            # Check for bot token
+            if not self.bot_token:
                 raise ValueError("Missing Telegram bot token")
             
-            # Initialiseer de bot
-            self.bot = Bot(token=bot_token)
+            # Initialize the bot
+            self.bot = Bot(token=self.bot_token)
             
-            # Initialiseer de application
+            # Initialize the application
             self.application = Application.builder().bot(self.bot).build()
             
             # Registreer de handlers
