@@ -394,22 +394,14 @@ os.environ["TAVILY_API_KEY"] = TAVILY_API_KEY
 
 class TelegramService:
     def __init__(self, db: Database, stripe_service=None, bot_token: Optional[str] = None, proxy_url: Optional[str] = None):
-        """Initialize the Telegram service"""
+        """Initialize the TelegramService class"""
         self.db = db
         self.stripe_service = stripe_service
         
-        # Initialize API configurations
-        self.bot_token = bot_token or os.getenv("TELEGRAM_BOT_TOKEN")
+        # Telegram Bot configuratie
+        self.bot_token = bot_token or os.getenv("TELEGRAM_BOT_TOKEN", "")
         self.token = self.bot_token  # Aliased for backward compatibility
-        
-        # Hardcode webhook path to solve the path issue
-        self.webhook_path = "/webhook"
-        
-        # Get webhook base URL from environment or use a default for development
-        self.webhook_url = os.getenv("WEBHOOK_URL", "")
-        # Normalize URL: remove trailing slash to avoid double slashes when combined with path
-        if self.webhook_url.endswith("/"):
-            self.webhook_url = self.webhook_url[:-1]
+        self.proxy_url = proxy_url or os.getenv("TELEGRAM_PROXY_URL", "")
         
         # Configure custom request handler with improved connection settings
         request = HTTPXRequest(
@@ -423,6 +415,14 @@ class TelegramService:
         # Initialize the bot directly with connection pool settings
         self.bot = Bot(token=self.bot_token, request=request)
         self.application = None  # Will be initialized in setup()
+        
+        # Webhook configuration
+        self.webhook_url = os.getenv("WEBHOOK_URL", "")
+        self.webhook_path = "/webhook"  # Always use this path
+        if self.webhook_url.endswith("/"):
+            self.webhook_url = self.webhook_url[:-1]  # Remove trailing slash
+            
+        logger.info(f"Bot initialized with webhook URL: {self.webhook_url} and path: {self.webhook_path}")
         
         # Signal handling attributes
         self.signals_enabled = True  # Enable signals by default
@@ -1955,29 +1955,44 @@ Click the button below to start your FREE 14-day trial.
     async def setup_webhook(self, app):
         """Set up the FastAPI webhook for Telegram."""
         
-        # Simple webhook configuration
-        self.webhook_path = "/webhook"
-        full_webhook_url = f"{self.webhook_url}{self.webhook_path}"
-        logger.info(f"Setting up webhook at path '{self.webhook_path}' with full URL '{full_webhook_url}'")
-        
         try:
-            # Set webhook
-            await self.bot.delete_webhook()
-            await self.bot.set_webhook(url=full_webhook_url, 
-                                      allowed_updates=["message", "callback_query", "my_chat_member"],
-                                      drop_pending_updates=True)
+            # Delete any existing webhook
+            await self.bot.delete_webhook(drop_pending_updates=True)
+            logger.info("Existing webhook deleted")
             
-            # Define simple webhook handler
-            @app.post("/webhook")
-            async def telegram_webhook(request: Request):
-                try:
-                    update_data = await request.json()
-                    asyncio.create_task(self.process_update(update_data))
-                    return {"status": "ok"}
-                except Exception as e:
-                    logger.error(f"Error in webhook handler: {str(e)}")
-                    logger.error(traceback.format_exc())
-                    return {"status": "error", "message": str(e)}
+            # Set a consistent webhook path
+            webhook_path = "/webhook"
+            
+            # Get base URL from environment or default
+            base_url = os.getenv("WEBHOOK_URL", "").rstrip('/')
+            if not base_url:
+                base_url = "https://api.sigmapips.com"
+                logger.warning(f"WEBHOOK_URL not set. Using default: {base_url}")
+            
+            # Build the complete webhook URL
+            webhook_url = f"{base_url}{webhook_path}"
+            logger.info(f"Setting webhook URL to: {webhook_url}")
+            
+            # Set the webhook
+            await self.bot.set_webhook(
+                url=webhook_url,
+                allowed_updates=["message", "callback_query", "my_chat_member"],
+                drop_pending_updates=True
+            )
+            
+            # Log the actual webhook info from Telegram
+            webhook_info = await self.bot.get_webhook_info()
+            logger.info(f"Webhook info: URL={webhook_info.url}, pending_updates={webhook_info.pending_update_count}")
+            
+            # Define the webhook route - keep it simple!
+            @app.post(webhook_path)
+            async def process_telegram_update(request: Request):
+                data = await request.json()
+                logger.info(f"Received update: {data.get('update_id', 'unknown')}")
+                await self.process_update(data)
+                return {"status": "ok"}
+                
+            logger.info(f"Webhook handler registered at path: {webhook_path}")
                     
         except Exception as e:
             logger.error(f"Error setting up webhook: {str(e)}")
