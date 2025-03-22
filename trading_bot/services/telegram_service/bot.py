@@ -376,6 +376,10 @@ class TelegramService:
         self.db = db  # Database connection
         self.stripe_service = stripe_service  # Payment service
         
+        # Set API keys in environment variables
+        os.environ["PERPLEXITY_API_KEY"] = PERPLEXITY_API_KEY
+        os.environ["DEEPSEEK_API_KEY"] = DEEPSEEK_API_KEY
+        
         # API services
         self.chart = ChartService()  # Chart generation service
         self.calendar = EconomicCalendarService()  # Economic calendar service
