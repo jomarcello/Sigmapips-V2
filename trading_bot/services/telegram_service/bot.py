@@ -379,6 +379,7 @@ class TelegramService:
         # API services
         self.chart = ChartService()  # Chart generation service
         self.calendar = EconomicCalendarService()  # Economic calendar service
+        self.sentiment = MarketSentimentService()  # Market sentiment service
         
         # Initialize chart service
         asyncio.create_task(self.chart.initialize())
