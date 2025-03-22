@@ -155,10 +155,10 @@ MARKET_KEYBOARD = [
 
 # Market keyboard specifiek voor sentiment analyse
 MARKET_SENTIMENT_KEYBOARD = [
-    [InlineKeyboardButton("Forex", callback_data="market_forex")],
-    [InlineKeyboardButton("Crypto", callback_data="market_crypto")],
-    [InlineKeyboardButton("Commodities", callback_data="market_commodities")],
-    [InlineKeyboardButton("Indices", callback_data="market_indices")],
+    [InlineKeyboardButton("Forex", callback_data="market_forex_sentiment")],
+    [InlineKeyboardButton("Crypto", callback_data="market_crypto_sentiment")],
+    [InlineKeyboardButton("Commodities", callback_data="market_commodities_sentiment")],
+    [InlineKeyboardButton("Indices", callback_data="market_indices_sentiment")],
     [InlineKeyboardButton("⬅️ Back", callback_data="back_analysis")]
 ]
 
@@ -939,20 +939,32 @@ class TelegramService:
     async def market_callback(self, update: Update, context=None) -> int:
         """Handle market selection for analysis"""
         query = update.callback_query
-        market = query.data.replace('market_', '')
+        callback_data = query.data
         
-        try:
-            # Toon het juiste keyboard op basis van de markt en analyse type
-            await query.answer()
-            
-            # Bepaal het analyse type
-            analysis_type = 'technical'  # Standaard technische analyse
+        # Extract market and check if this is from sentiment menu
+        if '_sentiment' in callback_data:
+            market = callback_data.replace('market_', '').replace('_sentiment', '')
+            analysis_type = 'sentiment'
+        else:
+            market = callback_data.replace('market_', '')
+            # Determine analysis type from context or default to technical
+            analysis_type = 'technical'  # Default
             if context and hasattr(context, 'user_data') and 'analysis_type' in context.user_data:
                 analysis_type = context.user_data['analysis_type']
+        
+        try:
+            # Answer the callback query
+            await query.answer()
             
+            # Log the market and analysis type
             logger.info(f"Market callback: market={market}, analysis_type={analysis_type}")
             
-            # Kies het juiste toetsenbord op basis van markt en analyse type
+            # Store in user_data for future use
+            if context and hasattr(context, 'user_data'):
+                context.user_data['market'] = market
+                context.user_data['analysis_type'] = analysis_type
+            
+            # Choose the keyboard based on market and analysis type
             keyboard = None
             message_text = f"Select a {market} pair for "
             
@@ -1000,7 +1012,7 @@ class TelegramService:
                     keyboard = COMMODITIES_KEYBOARD
                     message_text += "analysis:"
             else:
-                # Onbekende markt, toon een foutmelding
+                # Unknown market, show an error
                 await query.edit_message_text(
                     text=f"Unknown market: {market}",
                     reply_markup=InlineKeyboardMarkup([[
@@ -1009,7 +1021,7 @@ class TelegramService:
                 )
                 return MENU
             
-            # Toon het juiste toetsenbord
+            # Show the keyboard
             await query.edit_message_text(
                 text=message_text,
                 reply_markup=InlineKeyboardMarkup(keyboard)
