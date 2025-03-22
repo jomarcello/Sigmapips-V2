@@ -2169,9 +2169,7 @@ Click the button below to start your FREE 14-day trial.
                     return MENU
                 
                 # Create caption with analysis
-                caption = f"<b>Technical Analysis for {instrument}</b>\n\n"
-                caption += f"<b>Timeframe:</b> {timeframe}\n"
-                caption += f"<b>Date:</b> {time.strftime('%Y-%m-%d %H:%M UTC', time.gmtime())}\n\n"
+                caption = f"<b>Technical Analysis for {instrument}</b>"
                 
                 # Add buttons for different actions
                 keyboard = [
