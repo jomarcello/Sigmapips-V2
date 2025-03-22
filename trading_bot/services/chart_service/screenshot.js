@@ -115,6 +115,80 @@ const { chromium } = require('playwright');
       // Zoek en verwijder de update meldingen
       console.log('Checking for update notifications...');
       try {
+        // Specifieke behandeling voor de Stock Screener melding
+        console.log('Checking for Stock Screener notification...');
+        const hasScreenerDialog = await page.evaluate(() => {
+          // Check specifiek voor de screener melding tekst
+          const screeningTexts = [
+            'Stock Screener is disappearing',
+            'old Stock Screener', 
+            'streamline your experience',
+            'saved screens'
+          ];
+          
+          // Zoek in alle elementen naar tekst die hiermee overeenkomt
+          const allElements = document.querySelectorAll('div');
+          for (const element of allElements) {
+            if (element.innerText) {
+              for (const text of screeningTexts) {
+                if (element.innerText.includes(text)) {
+                  console.log('Found Stock Screener dialog text:', text);
+                  
+                  // Zoek de "Got it, thanks" knop
+                  const gotItButton = Array.from(document.querySelectorAll('button')).find(
+                    button => button.innerText.includes('Got it, thanks')
+                  );
+                  
+                  if (gotItButton) {
+                    console.log('Clicking "Got it, thanks" button');
+                    gotItButton.click();
+                    return true;
+                  }
+                  
+                  // Als we de knop niet direct kunnen vinden, zoek in de omgeving
+                  const parentDialog = element.closest('.tv-dialog, [role="dialog"], .js-dialog');
+                  if (parentDialog) {
+                    const buttons = parentDialog.querySelectorAll('button');
+                    for (const button of buttons) {
+                      if (
+                        button.innerText.includes('Got it') || 
+                        button.innerText.includes('Thanks') || 
+                        button.innerText.includes('OK')
+                      ) {
+                        console.log('Clicking button in Stock Screener dialog:', button.innerText);
+                        button.click();
+                        return true;
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+          return false;
+        });
+        
+        if (hasScreenerDialog) {
+          console.log('Successfully handled Stock Screener notification');
+          // Wacht even om de dialoog te laten verdwijnen
+          await page.waitForTimeout(1000);
+        } else {
+          console.log('No Stock Screener notification found');
+        }
+        
+        // Gebruik ook een directe selector-benadering
+        try {
+          // Zoek direct naar de "Got it, thanks" knop met een selector
+          const gotItButton = await page.$('button:has-text("Got it, thanks")');
+          if (gotItButton) {
+            console.log('Found "Got it, thanks" button directly, clicking it');
+            await gotItButton.click();
+            await page.waitForTimeout(1000);
+          }
+        } catch (err) {
+          console.log('Error finding direct button:', err);
+        }
+        
         // Specifieke behandeling voor TradingView v5 update melding
         console.log('Checking for TradingView v5 update dialog...');
         const hasV5Dialog = await page.evaluate(() => {
@@ -227,6 +301,62 @@ const { chromium } = require('playwright');
       console.log('Not a TradingView URL, waiting for page load...');
       await page.waitForTimeout(3000);
     }
+    
+    // Laatste poging om alle dialogen weg te klikken voordat screenshot wordt genomen
+    console.log('Final attempt to dismiss all dialogs...');
+    await page.evaluate(() => {
+      // Functie om een element te klikken als het bestaat
+      const clickIfExists = (selector) => {
+        const elements = document.querySelectorAll(selector);
+        elements.forEach(el => {
+          console.log('Clicking element:', selector);
+          el.click();
+        });
+        return elements.length > 0;
+      };
+      
+      // Lijst van selectors voor verschillende soorten dialogen en knoppen
+      const dismissSelectors = [
+        'button:has-text("Got it, thanks")',
+        'button:has-text("Got it")',
+        'button:has-text("OK")',
+        'button:has-text("Thanks")',
+        'button:has-text("Try new screener")',
+        '.tv-dialog__close-button',
+        '.close-button',
+        '.close-icon',
+        '[data-dialog-name="chart-new-features"] button',
+        '.tv-dialog button',
+        '.feature-notification__close',
+        '.tv-notification__close'
+      ];
+      
+      // Probeer alle selectors
+      dismissSelectors.forEach(clickIfExists);
+      
+      // Zoek ook naar specifieke dialoogteksten en klik op de bijbehorende knoppen
+      const allDialogs = document.querySelectorAll('.tv-dialog, [role="dialog"], .js-dialog, .tv-notification');
+      allDialogs.forEach(dialog => {
+        if (dialog && dialog.style.display !== 'none') {
+          const buttons = dialog.querySelectorAll('button');
+          buttons.forEach(btn => btn.click());
+        }
+      });
+      
+      // Verberg eventueel resterende dialogen met CSS
+      const styleEl = document.createElement('style');
+      styleEl.textContent = `
+        .tv-dialog, .js-dialog, [role="dialog"], .tv-notification, .feature-notification { 
+          display: none !important; 
+          visibility: hidden !important;
+          opacity: 0 !important;
+        }
+      `;
+      document.head.appendChild(styleEl);
+    });
+    
+    // Wacht een laatste moment om zeker te zijn
+    await page.waitForTimeout(1000);
     
     // Neem een screenshot
     await page.screenshot({ path: outputPath });
