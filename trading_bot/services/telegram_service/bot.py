@@ -1381,7 +1381,7 @@ class TelegramService:
             # Maak de juiste analyse op basis van het type
             if analysis_type == "chart":
                 logger.info(f"Toon technische analyse (chart) voor {instrument}")
-                await self.show_technical_analysis(update, context, instrument, timeframe="1h")
+                await self.show_technical_analysis(update, context, instrument, timeframe="1h", fullscreen=True)
                 return CHOOSE_TIMEFRAME
             elif analysis_type == "sentiment":
                 logger.info(f"Toon sentiment analyse voor {instrument}")
@@ -1394,7 +1394,7 @@ class TelegramService:
             else:
                 # Als het type niet herkend wordt, toon technische analyse als fallback
                 logger.info(f"Onbekend analyse type: {analysis_type}, toon technische analyse voor {instrument}")
-                await self.show_technical_analysis(update, context, instrument)
+                await self.show_technical_analysis(update, context, instrument, fullscreen=True)
                 return CHOOSE_TIMEFRAME
         except Exception as e:
             logger.error(f"Error in instrument_callback: {str(e)}")
@@ -2142,7 +2142,7 @@ Click the button below to start your FREE 14-day trial.
                 logger.error(f"Failed to recover from error: {str(inner_e)}")
                 return MENU
 
-    async def show_technical_analysis(self, update: Update, context=None, instrument: str = None, timeframe: str = "1h") -> int:
+    async def show_technical_analysis(self, update: Update, context=None, instrument: str = None, timeframe: str = "1h", fullscreen: bool = False) -> int:
         """Show technical analysis for a specific instrument"""
         query = update.callback_query
         
@@ -2155,7 +2155,7 @@ Click the button below to start your FREE 14-day trial.
             # Generate the chart using the chart service
             try:
                 # Generate chart image using get_chart instead of generate_chart
-                chart_data = await self.chart.get_chart(instrument, timeframe=timeframe)
+                chart_data = await self.chart.get_chart(instrument, timeframe=timeframe, fullscreen=fullscreen)
                 
                 if not chart_data:
                     # If chart generation fails, send a text message
