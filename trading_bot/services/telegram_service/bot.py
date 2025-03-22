@@ -409,6 +409,47 @@ class TelegramService:
         # Signal handling attributes
         self.signals_enabled = True  # Enable signals by default
         self.user_signals = {}  # Initialize user signals dict
+        
+        # Initialize API services
+        self.chart = ChartService()  # Chart generation service
+        self.calendar = EconomicCalendarService()  # Economic calendar service
+        self.sentiment = MarketSentimentService()  # Market sentiment service
+        
+        # Initialize chart service
+        asyncio.create_task(self.chart.initialize())
+        
+        # Bot application initialization
+        self.application = None
+        self.persistence = None
+        self.bot_started = False
+        
+        # Cache for sentiment analysis
+        self.sentiment_cache = {}
+        self.sentiment_cache_ttl = 60 * 60  # 1 hour in seconds
+        
+        # Start the bot
+        try:
+            # Check for bot token
+            if not self.bot_token:
+                raise ValueError("Missing Telegram bot token")
+            
+            # Initialize the bot
+            self.bot = Bot(token=self.bot_token)
+            
+            # Initialize the application
+            self.application = Application.builder().bot(self.bot).build()
+            
+            # Register the handlers
+            self._register_handlers()
+            
+            logger.info("Telegram service initialized")
+            
+            # Keep track of processed updates
+            self.processed_updates = set()
+            
+        except Exception as e:
+            logger.error(f"Error initializing Telegram service: {str(e)}")
+            raise
 
     def _load_signals(self):
         """Laad signalen uit het JSON bestand"""
