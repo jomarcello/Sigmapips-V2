@@ -83,3 +83,7 @@ class TelegramService:
             
             # Rest van de initialisatie
             # ...
+        except Exception as e:
+            # Voeg een except block toe
+            logging.error(f"Error initializing TelegramService: {str(e)}")
+            raise  # Optioneel: re-raise de exceptie na het loggen
