@@ -24,6 +24,8 @@ from telegram.ext import (
     PicklePersistence
 )
 from telegram.constants import ParseMode
+from telegram.request import HTTPXRequest
+import httpx
 
 from trading_bot.services.database.db import Database
 from trading_bot.services.chart_service.chart import ChartService
@@ -1318,7 +1320,14 @@ class TelegramService:
         """Handle button presses from inline keyboards"""
         query = update.callback_query
         logger.info(f"Button callback opgeroepen met data: {query.data}")
-        await query.answer()
+        
+        # Beantwoord de callback query met een timeout-afhandeling
+        try:
+            # Verhoogde timeout voor antwoord
+            await query.answer(timeout=15.0)
+        except Exception as e:
+            # Log de fout, maar ga door met afhandeling (voorkomt blokkering)
+            logger.warning(f"Kon callback query niet beantwoorden: {str(e)}")
         
         # Handle menu_analyse callback
         if query.data == "menu_analyse":
@@ -1394,8 +1403,17 @@ class TelegramService:
 
     def setup(self):
         """Set up the bot with all handlers"""
-        # Bestaande code behouden
-        application = Application.builder().token(self.token).build()
+        # Configure custom request handler with improved connection settings
+        request = HTTPXRequest(
+            connection_pool_size=20,     # Verhoog aantal beschikbare connecties
+            connect_timeout=10.0,        # Verhoog connect timeout
+            read_timeout=30.0,           # Verhoog read timeout
+            write_timeout=20.0,          # Verhoog write timeout
+            pool_timeout=30.0,           # Verhoog pool timeout om wachten op connecties toe te staan
+        )
+        
+        # Build application with custom request handler
+        application = Application.builder().token(self.token).request(request).build()
         
         # Command handlers
         application.add_handler(CommandHandler("start", self.start_command))
