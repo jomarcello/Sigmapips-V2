@@ -5,7 +5,7 @@ import json
 import random
 from typing import Dict, Any, Optional
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("market_sentiment")
 
 class MarketSentimentService:
     """Service for retrieving market sentiment data"""
@@ -34,7 +34,7 @@ class MarketSentimentService:
             logger.warning("No DeepSeek API key found, using mock data")
     
     async def get_market_sentiment(self, instrument_or_signal) -> Dict[str, Any]:
-        """Get market sentiment analysis"""
+        """Get market sentiment analysis using Perplexity for news search and DeepSeek for formatting"""
         try:
             # Handle both string and dictionary input
             if isinstance(instrument_or_signal, str):
@@ -51,94 +51,119 @@ class MarketSentimentService:
             logger.info(f"Getting market sentiment for {instrument} ({market})")
             
             if self.use_mock:
-                # Generate more dynamic mock data based on instrument type
-                market = self._guess_market_from_instrument(instrument)
-                
-                # Generate sentiment based on market type
-                if market == 'crypto':
-                    sentiment_score = random.uniform(0.6, 0.8)  # Crypto tends to be more bullish
-                elif market == 'commodities':
-                    sentiment_score = random.uniform(0.4, 0.7)  # Commodities can be volatile
-                else:
-                    sentiment_score = random.uniform(0.3, 0.7)  # Forex and indices more balanced
+                logger.info("Using mock data for sentiment analysis")
+                return self._get_mock_sentiment_data(instrument)
+            
+            # First step: Use Perplexity to search for recent news and market data
+            market_data = await self._get_perplexity_news(instrument, market)
+            if not market_data:
+                logger.warning(f"Failed to get Perplexity news for {instrument}, using fallback")
+                return self._get_fallback_sentiment(signal)
+            
+            # Second step: Use DeepSeek to format the news into a structured message
+            formatted_analysis = await self._format_with_deepseek(instrument, market, market_data)
+            if not formatted_analysis:
+                logger.warning(f"Failed to format with DeepSeek for {instrument}, using perplexity raw data")
+                # Use the Perplexity data directly with minimal formatting
+                sentiment_score = 0.5  # Default neutral
+                if "bullish" in market_data.lower() or "positive" in market_data.lower():
+                    sentiment_score = 0.7
+                elif "bearish" in market_data.lower() or "negative" in market_data.lower():
+                    sentiment_score = 0.3
                 
                 bullish_percentage = int(sentiment_score * 100)
-                trend_strength = 'Strong' if abs(sentiment_score - 0.5) > 0.3 else 'Moderate' if abs(sentiment_score - 0.5) > 0.1 else 'Weak'
                 
                 return {
                     'overall_sentiment': 'bullish' if sentiment_score > 0.6 else 'bearish' if sentiment_score < 0.4 else 'neutral',
-                    'sentiment_score': round(sentiment_score, 2),
+                    'sentiment_score': sentiment_score,
                     'bullish_percentage': bullish_percentage,
-                    'trend_strength': trend_strength,
-                    'volatility': random.choice(['High', 'Moderate', 'Low']),
+                    'trend_strength': 'Moderate',
+                    'volatility': 'Moderate',
                     'support_level': 'See analysis for details',
                     'resistance_level': 'See analysis for details',
-                    'recommendation': 'See analysis for detailed trading recommendations',
-                    'analysis': self._get_mock_sentiment(instrument),
-                    'source': 'mock_data'
+                    'recommendation': 'See analysis for trading recommendations',
+                    'analysis': market_data,
+                    'source': 'perplexity_only'
                 }
             
-            # First, get market data from Perplexity Sonar
-            perplexity_prompt = f"""Analyze {instrument} and provide:
-1. Current price, trend direction and key technical levels
-2. Latest economic data and central bank actions affecting the pair
-3. Recent significant news and market-moving events
-4. Key risk factors and market positioning
-
-Provide factual, data-driven analysis with specific numbers and dates."""
-
-            perplexity_payload = {
-                "model": "sonar-medium-chat",
-                "messages": [{
-                    "role": "system",
-                    "content": "You are a professional market analyst. Provide factual, data-driven analysis with specific numbers, levels and recent events."
-                }, {
-                    "role": "user",
-                    "content": perplexity_prompt
-                }],
-                "temperature": 0.1,
-                "max_tokens": 2048
+            # Extract sentiment metrics from the formatted analysis
+            sentiment_score = 0.5  # Default neutral
+            if "bullish" in formatted_analysis.lower():
+                sentiment_score = 0.7
+            elif "bearish" in formatted_analysis.lower():
+                sentiment_score = 0.3
+            
+            bullish_percentage = int(sentiment_score * 100)
+            trend_strength = 'Strong' if abs(sentiment_score - 0.5) > 0.3 else 'Moderate' if abs(sentiment_score - 0.5) > 0.1 else 'Weak'
+            
+            return {
+                'overall_sentiment': 'bullish' if sentiment_score > 0.6 else 'bearish' if sentiment_score < 0.4 else 'neutral',
+                'sentiment_score': sentiment_score,
+                'bullish_percentage': bullish_percentage,
+                'trend_strength': trend_strength,
+                'volatility': 'High' if 'volatil' in formatted_analysis.lower() else 'Moderate',
+                'support_level': 'See analysis for details',
+                'resistance_level': 'See analysis for details',
+                'recommendation': 'See analysis for detailed trading recommendations',
+                'analysis': formatted_analysis,
+                'source': 'perplexity_deepseek'
             }
-
-            market_data = ""
+        
+        except Exception as e:
+            logger.error(f"Error getting sentiment: {str(e)}")
+            return self._get_fallback_sentiment(instrument_or_signal if isinstance(instrument_or_signal, dict) else {'instrument': instrument_or_signal})
+    
+    async def _get_perplexity_news(self, instrument: str, market: str) -> str:
+        """Use Perplexity API to get latest news and market data"""
+        logger.info(f"Searching for {instrument} news using Perplexity API")
+        
+        # Create search queries based on market type
+        if market == 'forex':
+            search_query = f"Latest forex news and analysis for {instrument}. Current price, technical levels, and market sentiment."
+        elif market == 'crypto':
+            search_query = f"Latest cryptocurrency news for {instrument}. Current price, market trends, and future outlook."
+        elif market == 'indices':
+            search_query = f"Latest market news for {instrument} index. Current price, technical analysis, and market sentiment."
+        elif market == 'commodities':
+            search_query = f"Latest commodities market news for {instrument}. Current price, supply/demand factors, and market sentiment."
+        else:
+            search_query = f"Latest market news and analysis for {instrument}. Current price, technical levels, and trading outlook."
+        
+        try:
             async with aiohttp.ClientSession() as session:
-                try:
-                    async with session.post(self.perplexity_url, json=perplexity_payload, headers=self.perplexity_headers) as response:
-                        if response.status == 200:
-                            data = await response.json()
-                            market_data = data['choices'][0]['message']['content']
-                        else:
-                            error_data = await response.text()
-                            logger.error(f"Perplexity API error {response.status}: {error_data}")
-                            return {
-                                'overall_sentiment': 'neutral',
-                                'sentiment_score': 0.5,
-                                'bullish_percentage': 50,
-                                'trend_strength': 'Moderate',
-                                'volatility': 'Moderate',
-                                'support_level': 'See analysis for details',
-                                'resistance_level': 'See analysis for details',
-                                'recommendation': 'Wait for clearer market signals',
-                                'analysis': self._get_mock_sentiment(instrument),
-                                'source': 'perplexity_error_fallback'
-                            }
-                except Exception as e:
-                    logger.error(f"Error calling Perplexity API: {str(e)}")
-                    return {
-                        'overall_sentiment': 'neutral',
-                        'sentiment_score': 0.5,
-                        'bullish_percentage': 50,
-                        'trend_strength': 'Moderate',
-                        'volatility': 'Moderate',
-                        'support_level': 'See analysis for details',
-                        'resistance_level': 'See analysis for details',
-                        'recommendation': 'Wait for clearer market signals',
-                        'analysis': self._get_mock_sentiment(instrument),
-                        'source': 'perplexity_error_fallback'
-                    }
-
-            # Then format with DeepSeek
-            deepseek_prompt = f"""Using the following market data, create a structured market analysis for {instrument}:
+                payload = {
+                    "model": "sonar-medium-online",
+                    "messages": [{"role": "user", "content": search_query}],
+                    "temperature": 0.2,
+                    "max_tokens": 1024
+                }
+                
+                async with session.post(self.perplexity_url, headers=self.perplexity_headers, json=payload) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        if data and "choices" in data and len(data["choices"]) > 0:
+                            content = data["choices"][0]["message"]["content"]
+                            logger.info(f"Successfully received news data for {instrument}")
+                            return content
+                    
+                    logger.error(f"Perplexity API error: {response.status}")
+                    return None
+                    
+        except Exception as e:
+            logger.error(f"Error calling Perplexity API: {str(e)}")
+            return None
+    
+    async def _format_with_deepseek(self, instrument: str, market: str, market_data: str) -> str:
+        """Use DeepSeek to format the news into a structured Telegram message"""
+        if not self.deepseek_api_key:
+            logger.warning("No DeepSeek API key available, skipping formatting")
+            return None
+            
+        logger.info(f"Formatting market data for {instrument} using DeepSeek API")
+        
+        try:
+            async with aiohttp.ClientSession() as session:
+                prompt = f"""Using the following market data, create a structured market analysis for {instrument} to be displayed in a Telegram bot:
 
 {market_data}
 
@@ -149,109 +174,52 @@ Format the analysis as follows:
 📈 Market Direction:
 [Current trend, momentum and price action analysis]
 
-📡 Latest News & Events:
-• [Key market-moving news and events]
-• [Important economic data]
-• [Central bank actions]
-• [Other significant developments]
+📰 Latest News & Events:
+• [Key market-moving news item 1]
+• [Key market-moving news item 2]
+• [Key market-moving news item 3]
 
 🎯 Key Levels:
 • Support Levels:
   - [Current support levels with context]
-  - [Major historical support levels]
 • Resistance Levels:
   - [Current resistance levels with context]
-  - [Major historical resistance levels]
 
 ⚠️ Risk Factors:
-• Economic: [Key economic risks]
-• Political: [Political risk factors]
-• Technical: [Technical risks and warnings]
-• Market: [Market positioning risks]
+• [Key risk factor 1]
+• [Key risk factor 2]
 
 💡 Conclusion:
-[Trading recommendation based on analysis]"""
+[Trading recommendation based on analysis]
 
-            payload = {
-                "model": "deepseek-chat",
-                "messages": [{
-                    "role": "system",
-                    "content": """You are a professional forex market analyst. Format the provided market data into a clear, structured analysis. Keep the original data but improve readability and organization.
-                    Do not make up data - use only the information provided.
-                    Do not include any HTML tags or formatting marks in your response."""
-                }, {
-                    "role": "user",
-                    "content": deepseek_prompt
-                }],
-                "temperature": 0.7
-            }
-
-            async with aiohttp.ClientSession() as session:
-                async with session.post(self.deepseek_url, json=payload, headers=self.deepseek_headers) as response:
+Use HTML formatting for Telegram: <b>bold</b>, <i>italic</i>, etc.
+Keep the analysis concise but informative, focusing on actionable insights.
+If certain information is not available in the market data, make reasonable assumptions based on what is provided.
+"""
+                
+                payload = {
+                    "model": "deepseek-chat",
+                    "messages": [
+                        {"role": "system", "content": "You are an expert financial analyst creating market analysis summaries for traders."},
+                        {"role": "user", "content": prompt}
+                    ],
+                    "temperature": 0.3,
+                    "max_tokens": 1024
+                }
+                
+                async with session.post(self.deepseek_url, headers=self.deepseek_headers, json=payload) as response:
                     if response.status == 200:
                         data = await response.json()
                         content = data['choices'][0]['message']['content']
-                        # Determine sentiment from content
-                        sentiment_score = 0.5  # Default neutral
-                        if 'bullish' in content.lower():
-                            sentiment_score = 0.7
-                        elif 'bearish' in content.lower():
-                            sentiment_score = 0.3
-                        
-                        # Convert sentiment score to bullish percentage
-                        bullish_percentage = int(sentiment_score * 100)
-                        
-                        # Extract trend and volatility from content
-                        trend_strength = 'Strong' if abs(sentiment_score - 0.5) > 0.3 else 'Moderate' if abs(sentiment_score - 0.5) > 0.1 else 'Weak'
-                        volatility = 'High' if 'volatil' in content.lower() else 'Moderate'
-                        
-                        # Extract support and resistance levels
-                        support_level = 'Current market level' if 'support' not in content.lower() else 'See analysis for details'
-                        resistance_level = 'Current market level' if 'resistance' not in content.lower() else 'See analysis for details'
-                        
-                        return {
-                            'overall_sentiment': 'bullish' if sentiment_score > 0.6 else 'bearish' if sentiment_score < 0.4 else 'neutral',
-                            'sentiment_score': sentiment_score,
-                            'bullish_percentage': bullish_percentage,
-                            'trend_strength': trend_strength,
-                            'volatility': volatility,
-                            'support_level': support_level,
-                            'resistance_level': resistance_level,
-                            'recommendation': 'See analysis for detailed trading recommendations',
-                            'analysis': content,
-                            'source': 'deepseek'
-                        }
-                    else:
-                        logger.error(f"DeepSeek API error: {response.status}")
-                        fallback = self._get_fallback_sentiment(signal)
-                        return {
-                            'overall_sentiment': 'neutral',
-                            'sentiment_score': 0.5,
-                            'bullish_percentage': 50,
-                            'trend_strength': 'Weak',
-                            'volatility': 'Moderate',
-                            'support_level': 'See analysis for details',
-                            'resistance_level': 'See analysis for details',
-                            'recommendation': 'See analysis for detailed trading recommendations',
-                            'analysis': fallback,
-                            'source': 'fallback'
-                        }
-        
+                        logger.info(f"Successfully formatted market data for {instrument}")
+                        return content
+                    
+                    logger.error(f"DeepSeek API error: {response.status}")
+                    return None
+                    
         except Exception as e:
-            logger.error(f"Error getting sentiment: {str(e)}")
-            fallback = self._get_fallback_sentiment(instrument_or_signal if isinstance(instrument_or_signal, dict) else {'instrument': instrument_or_signal})
-            return {
-                'overall_sentiment': 'neutral',
-                'sentiment_score': 0.5,
-                'bullish_percentage': 50,
-                'trend_strength': 'Weak',
-                'volatility': 'Moderate',
-                'support_level': 'See analysis for details',
-                'resistance_level': 'See analysis for details',
-                'recommendation': 'See analysis for detailed trading recommendations',
-                'analysis': fallback,
-                'source': 'error_fallback'
-            }
+            logger.error(f"Error calling DeepSeek API: {str(e)}")
+            return None
     
     def _guess_market_from_instrument(self, instrument: str) -> str:
         """Guess market type from instrument symbol"""
@@ -266,7 +234,7 @@ Format the analysis as follows:
         else:
             return 'forex'  # Default to forex
     
-    def _get_mock_sentiment(self, instrument: str) -> Dict[str, Any]:
+    def _get_mock_sentiment_data(self, instrument: str) -> Dict[str, Any]:
         """Generate mock sentiment data for testing"""
         market = self._guess_market_from_instrument(instrument)
         sentiment_score = random.uniform(0.3, 0.7)
@@ -274,20 +242,30 @@ Format the analysis as follows:
         volatility = random.choice(['high', 'moderate', 'low'])
         bullish_percentage = int(sentiment_score * 100)
         
-        analysis = f"""<b>{instrument} Market Analysis</b>
+        analysis = f"""<b>🎯 {instrument} Market Analysis</b>
 
-<b>Market Direction:</b>
+<b>📈 Market Direction:</b>
 The {instrument} is showing a {trend} trend with {volatility} volatility. Price action indicates {'momentum building' if sentiment_score > 0.6 else 'potential reversal' if sentiment_score < 0.4 else 'consolidation'}.
 
-<b>Key Factors:</b>
-• Market Type: {market.capitalize()}
-• Trend Strength: {'Strong' if abs(sentiment_score - 0.5) > 0.3 else 'Moderate' if abs(sentiment_score - 0.5) > 0.1 else 'Weak'}
-• Volatility: {volatility.capitalize()}
+<b>📰 Latest News & Events:</b>
+• No significant market-moving news at this time
+• Regular market fluctuations based on supply and demand
+• Technical factors are the primary price drivers currently
 
-<b>Trading Recommendation:</b>
+<b>🎯 Key Levels:</b>
+• Support Levels:
+  - Technical support at previous low
+• Resistance Levels:
+  - Technical resistance at previous high
+
+<b>⚠️ Risk Factors:</b>
+• Market volatility could increase with upcoming economic data releases
+• Low liquidity periods may cause price spikes
+
+<b>💡 Conclusion:</b>
 {'Consider long positions with tight stops' if sentiment_score > 0.6 else 'Watch for short opportunities' if sentiment_score < 0.4 else 'Wait for clearer directional signals'}
 
-Remember to always use proper risk management and follow your trading plan."""
+<i>This is a simulated analysis for demonstration purposes.</i>"""
         
         return {
             'overall_sentiment': 'bullish' if sentiment_score > 0.6 else 'bearish' if sentiment_score < 0.4 else 'neutral',
@@ -305,21 +283,30 @@ Remember to always use proper risk management and follow your trading plan."""
     def _get_fallback_sentiment(self, signal: Dict[str, Any]) -> Dict[str, Any]:
         """Fallback sentiment analysis"""
         symbol = signal.get('instrument', 'Unknown')
-        analysis = f"""<b>{symbol} Market Analysis</b>
+        analysis = f"""<b>🎯 {symbol} Market Analysis</b>
 
-<b>Market Direction:</b>
+<b>📈 Market Direction:</b>
 The market is showing neutral sentiment with mixed signals. Current price action suggests a consolidation phase.
 
-<b>Key Levels:</b>
+<b>📰 Latest News & Events:</b>
+• No significant market-moving news available at this time
+• Regular market fluctuations based on technical factors
+• Waiting for clearer directional catalysts
+
+<b>🎯 Key Levels:</b>
 • Support Levels:
   - Previous low (Historical support zone)
-  - Technical support level
 • Resistance Levels:
   - Previous high (Technical resistance)
-  - Psychological level
 
-<b>Risk Factors:</b>
-• Market Volatility: Increased uncertainty in current conditions"""
+<b>⚠️ Risk Factors:</b>
+• Market Volatility: Increased uncertainty in current conditions
+• News Events: Watch for unexpected announcements
+
+<b>💡 Conclusion:</b>
+Wait for clearer market signals before taking new positions.
+
+<i>This is a fallback analysis as we could not retrieve real-time data.</i>"""
 
         return {
             'overall_sentiment': 'neutral',
