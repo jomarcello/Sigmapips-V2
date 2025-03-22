@@ -56,7 +56,10 @@ CHOOSE_SIGNALS = 2
 CHOOSE_MARKET = 3
 CHOOSE_INSTRUMENT = 4
 CHOOSE_STYLE = 5
-SHOW_RESULT = 6
+SHOW_RESULT = 4
+CHOOSE_TIMEFRAME = 5
+SIGNAL_DETAILS = 6
+SUBSCRIBE = 7
 
 # Messages
 WELCOME_MESSAGE = """
@@ -1282,6 +1285,40 @@ class TelegramService:
         # Analysis type handlers
         if query.data.startswith("analysis_"):
             return await self.analysis_choice(update, context)
+            
+        # Timeframe selection handler
+        if query.data.startswith("timeframe_"):
+            instrument = query.data.split("_")[1]
+            if context and hasattr(context, 'user_data'):
+                context.user_data['current_instrument'] = instrument
+            
+            # Toon de beschikbare timeframes
+            keyboard = [
+                [
+                    InlineKeyboardButton("1 Hour", callback_data=f"show_ta_{instrument}_1h"),
+                    InlineKeyboardButton("4 Hours", callback_data=f"show_ta_{instrument}_4h")
+                ],
+                [
+                    InlineKeyboardButton("Daily", callback_data=f"show_ta_{instrument}_1d"),
+                    InlineKeyboardButton("Weekly", callback_data=f"show_ta_{instrument}_1w")
+                ],
+                [InlineKeyboardButton("⬅️ Back", callback_data="back_instrument")]
+            ]
+            
+            await query.edit_message_text(
+                text=f"Select timeframe for {instrument} technical analysis:",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            return CHOOSE_TIMEFRAME
+        
+        # Handle show_ta_ callbacks (show technical analysis with specific timeframe)
+        if query.data.startswith("show_ta_"):
+            # Extract instrument and timeframe from callback data
+            parts = query.data.split("_")
+            if len(parts) >= 3:
+                instrument = parts[2]
+                timeframe = parts[3] if len(parts) > 3 else "1h"  # Default to 1h
+                return await self.show_technical_analysis(update, context, instrument=instrument, timeframe=timeframe)
         
         # Verwerk instrument keuzes met specifiek type (chart, sentiment, calendar)
         if "_chart" in query.data or "_sentiment" in query.data or "_calendar" in query.data:
@@ -2127,7 +2164,7 @@ Click the button below to start your FREE 14-day trial.
                 logger.error(f"Failed to recover from error: {str(inner_e)}")
                 return MENU
 
-    async def show_technical_analysis(self, update: Update, context=None, instrument: str = None) -> int:
+    async def show_technical_analysis(self, update: Update, context=None, instrument: str = None, timeframe: str = "1h") -> int:
         """Show technical analysis for a specific instrument"""
         query = update.callback_query
         
@@ -2140,22 +2177,22 @@ Click the button below to start your FREE 14-day trial.
             # Generate the chart using the chart service
             try:
                 # Generate chart image
-                image_path = await self.chart.generate_chart(instrument, timeframe="1h")
+                chart_data = await self.chart.generate_chart(instrument, timeframe=timeframe)
                 
-                if not image_path or not os.path.exists(image_path):
+                if not chart_data:
                     # If chart generation fails, send a text message
                     logger.error(f"Failed to generate chart for {instrument}")
                     await query.edit_message_text(
                         text=f"Sorry, I couldn't generate a chart for {instrument} at this time. Please try again later.",
                         reply_markup=InlineKeyboardMarkup([[
-                            InlineKeyboardButton("⬅️ Back", callback_data=f"back_to_signal_{instrument}")
+                            InlineKeyboardButton("⬅️ Back", callback_data="back_instrument")
                         ]])
                     )
                     return MENU
                 
                 # Create caption with analysis
                 caption = f"<b>Technical Analysis for {instrument}</b>\n\n"
-                caption += f"<b>Timeframe:</b> 1 Hour\n"
+                caption += f"<b>Timeframe:</b> {timeframe}\n"
                 caption += f"<b>Date:</b> {time.strftime('%Y-%m-%d %H:%M UTC', time.gmtime())}\n\n"
                 
                 # Add buttons for different actions
@@ -2165,27 +2202,25 @@ Click the button below to start your FREE 14-day trial.
                 ]
                 
                 # Send the chart with caption
-                with open(image_path, "rb") as chart_file:
-                    await query.message.reply_photo(
-                        photo=chart_file,
-                        caption=caption,
-                        reply_markup=InlineKeyboardMarkup(keyboard),
-                        parse_mode=ParseMode.HTML
-                    )
+                from io import BytesIO
+                photo = BytesIO(chart_data)
+                photo.name = f"{instrument}_chart.png"
+                
+                await query.message.reply_photo(
+                    photo=photo,
+                    caption=caption,
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.HTML
+                )
                 
                 # Delete the loading message
                 await query.edit_message_text(
                     text=f"Here's your technical analysis for {instrument}:"
                 )
                 
-                # Clean up - delete the chart file
-                try:
-                    os.remove(image_path)
-                except Exception as e:
-                    logger.warning(f"Failed to delete chart file {image_path}: {str(e)}")
-                
             except Exception as chart_error:
                 logger.error(f"Error generating chart: {str(chart_error)}")
+                logger.exception(chart_error)
                 await query.edit_message_text(
                     text=f"Sorry, there was a problem generating the chart for {instrument}. Please try again later.",
                     reply_markup=InlineKeyboardMarkup([[
