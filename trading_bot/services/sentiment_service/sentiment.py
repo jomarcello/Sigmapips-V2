@@ -17,16 +17,6 @@ class MarketSentimentService:
         self.tavily_api_key = os.getenv("TAVILY_API_KEY")
         
         self.deepseek_url = "https://api.deepseek.ai/v1/chat/completions"
-        self.tavily_url = "https://api.tavily.com/v1/search"
-        
-        self.deepseek_headers = {
-            "Authorization": f"Bearer {self.deepseek_api_key}",
-            "Content-Type": "application/json"
-        }
-        
-        self.tavily_headers = {
-            "Content-Type": "application/json"
-        }
         
         # Log API key status (without revealing full keys)
         if self.tavily_api_key:
@@ -71,57 +61,79 @@ class MarketSentimentService:
                 logger.warning(f"Failed to get Tavily news for {instrument}, using fallback")
                 return self._get_fallback_sentiment(signal)
             
-            # Second step: Use DeepSeek to format the news into a structured message
-            formatted_analysis = await self._format_with_deepseek(instrument, market, market_data)
-            if not formatted_analysis:
-                logger.warning(f"Failed to format with DeepSeek for {instrument}, using Tavily raw data")
-                # Use the Tavily data directly with minimal formatting
-                sentiment_score = 0.5  # Default neutral
-                if "bullish" in market_data.lower() or "positive" in market_data.lower():
-                    sentiment_score = 0.7
-                elif "bearish" in market_data.lower() or "negative" in market_data.lower():
-                    sentiment_score = 0.3
+            # Second step: Try to use DeepSeek to format the news into a structured message
+            try:
+                formatted_analysis = await self._format_with_deepseek(instrument, market, market_data)
                 
-                bullish_percentage = int(sentiment_score * 100)
-                
-                return {
-                    'overall_sentiment': 'bullish' if sentiment_score > 0.6 else 'bearish' if sentiment_score < 0.4 else 'neutral',
-                    'sentiment_score': sentiment_score,
-                    'bullish_percentage': bullish_percentage,
-                    'trend_strength': 'Moderate',
-                    'volatility': 'Moderate',
-                    'support_level': 'See analysis for details',
-                    'resistance_level': 'See analysis for details',
-                    'recommendation': 'See analysis for trading recommendations',
-                    'analysis': market_data,
-                    'source': 'tavily_only'
-                }
+                if formatted_analysis:
+                    logger.info(f"Successfully formatted analysis with DeepSeek for {instrument}")
+                    # Extract sentiment metrics from the formatted analysis
+                    sentiment_score = 0.5  # Default neutral
+                    
+                    # Determine sentiment based on keywords
+                    lower_analysis = formatted_analysis.lower()
+                    if "bullish" in lower_analysis or "upward trend" in lower_analysis or "positive outlook" in lower_analysis:
+                        sentiment_score = 0.7
+                    elif "bearish" in lower_analysis or "downward trend" in lower_analysis or "negative outlook" in lower_analysis:
+                        sentiment_score = 0.3
+                    
+                    bullish_percentage = int(sentiment_score * 100)
+                    trend_strength = 'Strong' if abs(sentiment_score - 0.5) > 0.3 else 'Moderate' if abs(sentiment_score - 0.5) > 0.1 else 'Weak'
+                    
+                    return {
+                        'overall_sentiment': 'bullish' if sentiment_score > 0.6 else 'bearish' if sentiment_score < 0.4 else 'neutral',
+                        'sentiment_score': sentiment_score,
+                        'bullish_percentage': bullish_percentage,
+                        'trend_strength': trend_strength,
+                        'volatility': 'High' if 'volatil' in lower_analysis else 'Moderate',
+                        'support_level': 'See analysis for details',
+                        'resistance_level': 'See analysis for details',
+                        'recommendation': 'See analysis for detailed trading recommendations',
+                        'analysis': formatted_analysis,
+                        'source': 'tavily_deepseek'
+                    }
+            except Exception as deepseek_error:
+                logger.error(f"DeepSeek formatting error: {str(deepseek_error)}")
+                # Continue with Tavily data only
             
-            # Extract sentiment metrics from the formatted analysis
+            # If DeepSeek failed, use the Tavily data directly with minimal formatting
+            logger.warning(f"Using Tavily data directly for {instrument}")
+            
+            # Basic sentiment analysis on the raw Tavily data
             sentiment_score = 0.5  # Default neutral
-            if "bullish" in formatted_analysis.lower():
-                sentiment_score = 0.7
-            elif "bearish" in formatted_analysis.lower():
-                sentiment_score = 0.3
+            lower_data = market_data.lower()
+            
+            # Count positive and negative sentiment words
+            positive_words = ["bullish", "positive", "increase", "rise", "grow", "upward", "higher", "gain"]
+            negative_words = ["bearish", "negative", "decrease", "fall", "drop", "downward", "lower", "loss"]
+            
+            positive_count = sum(lower_data.count(word) for word in positive_words)
+            negative_count = sum(lower_data.count(word) for word in negative_words)
+            
+            # Adjust sentiment score based on word counts
+            if positive_count > negative_count:
+                sentiment_score = 0.5 + min((positive_count - negative_count) / 10, 0.3)
+            elif negative_count > positive_count:
+                sentiment_score = 0.5 - min((negative_count - positive_count) / 10, 0.3)
             
             bullish_percentage = int(sentiment_score * 100)
-            trend_strength = 'Strong' if abs(sentiment_score - 0.5) > 0.3 else 'Moderate' if abs(sentiment_score - 0.5) > 0.1 else 'Weak'
             
             return {
                 'overall_sentiment': 'bullish' if sentiment_score > 0.6 else 'bearish' if sentiment_score < 0.4 else 'neutral',
                 'sentiment_score': sentiment_score,
                 'bullish_percentage': bullish_percentage,
-                'trend_strength': trend_strength,
-                'volatility': 'High' if 'volatil' in formatted_analysis.lower() else 'Moderate',
+                'trend_strength': 'Moderate',
+                'volatility': 'Moderate',
                 'support_level': 'See analysis for details',
                 'resistance_level': 'See analysis for details',
-                'recommendation': 'See analysis for detailed trading recommendations',
-                'analysis': formatted_analysis,
-                'source': 'tavily_deepseek'
+                'recommendation': 'See analysis for trading recommendations',
+                'analysis': market_data,
+                'source': 'tavily_only'
             }
         
         except Exception as e:
             logger.error(f"Error getting sentiment: {str(e)}")
+            logger.exception(e)
             return self._get_fallback_sentiment(instrument_or_signal if isinstance(instrument_or_signal, dict) else {'instrument': instrument_or_signal})
     
     async def _get_tavily_news(self, instrument: str, market: str) -> str:
@@ -146,64 +158,51 @@ class MarketSentimentService:
             search_query = f"recent news about {instrument} market analysis price trends"
         
         try:
-            # Simpler approach: directly use Tavily API with api_key as query parameter
+            # Use Tavily's official API format (as per their documentation)
             async with aiohttp.ClientSession() as session:
-                # Construct the URL with API key as query parameter
-                url = f"{self.tavily_url}?api_key={self.tavily_api_key}"
+                headers = {
+                    "Content-Type": "application/json",
+                    "X-Api-Key": self.tavily_api_key
+                }
                 
-                # Create a simple payload
+                # Create payload according to official Tavily documentation
                 payload = {
                     "query": search_query,
-                    "search_depth": "basic",  # Changed to basic for faster response
-                    "include_answer": True
+                    "search_depth": "basic",
+                    "include_answer": True,
+                    "include_domains": ["bloomberg.com", "reuters.com", "investing.com", "cnbc.com", 
+                                        "forexlive.com", "fxstreet.com", "marketwatch.com", 
+                                        "forbes.com", "wsj.com", "ft.com", "tradingview.com"],
+                    "max_results": 5
                 }
                 
                 logger.info(f"Calling Tavily API with query: {search_query}")
                 
-                timeout = aiohttp.ClientTimeout(total=15)
+                # Using the correct endpoint format from documentation
+                url = "https://api.tavily.com/v1/search"
+                timeout = aiohttp.ClientTimeout(total=20)
                 
-                # Make the request
-                try:
-                    async with session.post(
-                        url,
-                        headers={"Content-Type": "application/json"},
-                        json=payload,
-                        timeout=timeout
-                    ) as response:
-                        response_text = await response.text()
-                        logger.info(f"Tavily API response status: {response.status}")
+                async with session.post(url, headers=headers, json=payload, timeout=timeout) as response:
+                    response_text = await response.text()
+                    logger.info(f"Tavily API response status: {response.status}")
+                    
+                    if response.status == 200:
+                        return self._process_tavily_response(response_text, instrument)
+                    else:
+                        # Try one more time with the API key in the payload instead
+                        logger.warning(f"API key in header failed with status {response.status}, trying API key in payload")
+                        headers = {"Content-Type": "application/json"}
+                        payload["api_key"] = self.tavily_api_key
                         
-                        if response.status == 200:
-                            return self._process_tavily_response(response_text, instrument)
-                        else:
-                            # Try an alternative approach with API key in the body
-                            try:
-                                logger.warning(f"First attempt failed with status {response.status}, trying with API key in body")
-                                payload["api_key"] = self.tavily_api_key
-                                
-                                async with session.post(
-                                    self.tavily_url,
-                                    headers={"Content-Type": "application/json"},
-                                    json=payload,
-                                    timeout=timeout
-                                ) as alt_response:
-                                    alt_response_text = await alt_response.text()
-                                    logger.info(f"Tavily API alternate response status: {alt_response.status}")
-                                    
-                                    if alt_response.status == 200:
-                                        return self._process_tavily_response(alt_response_text, instrument)
-                                    else:
-                                        logger.error(f"All Tavily API attempts failed. Final status: {alt_response.status}, details: {alt_response_text}")
-                                        return None
-                                        
-                            except Exception as e:
-                                logger.error(f"Error in alternative attempt: {str(e)}")
-                                logger.error(f"Original response error: {response.status}, details: {response_text}")
-                                return None
-                                
-                except Exception as e:
-                    logger.error(f"Error in primary attempt: {str(e)}")
-                    return None
+                        async with session.post(url, headers=headers, json=payload, timeout=timeout) as retry_response:
+                            retry_response_text = await retry_response.text()
+                            logger.info(f"Tavily API retry response status: {retry_response.status}")
+                            
+                            if retry_response.status == 200:
+                                return self._process_tavily_response(retry_response_text, instrument)
+                            
+                            logger.error(f"Tavily API error: {retry_response.status}, details: {retry_response_text}")
+                            return None
                     
         except Exception as e:
             logger.error(f"Error calling Tavily API: {str(e)}")
@@ -215,42 +214,36 @@ class MarketSentimentService:
         try:
             data = json.loads(response_text)
             
-            # Extract the generated answer
-            if data and "answer" in data:
+            # Structure for the formatted response
+            formatted_text = f"Market Analysis for {instrument}:\n\n"
+            
+            # Extract the generated answer if available
+            if data and "answer" in data and data["answer"]:
                 answer = data["answer"]
+                formatted_text += f"Summary: {answer}\n\n"
                 logger.info(f"Successfully received answer from Tavily for {instrument}")
                 
-                # Also extract results for more comprehensive information
-                if "results" in data:
-                    results_text = "\n\nMore details from search results:\n"
-                    for idx, result in enumerate(data["results"][:5]):  # Limit to top 5 results
-                        title = result.get("title", "No Title")
-                        content = result.get("content", "No Content").strip()
-                        url = result.get("url", "")
-                        
-                        results_text += f"\n{idx+1}. {title}\n"
-                        results_text += f"{content[:300]}...\n"  # Limit content length
-                        results_text += f"Source: {url}\n"
-                    
-                    combined_text = answer + results_text
-                    return combined_text
-                
-                return answer
-            
-            # If no answer but we have search results
-            elif data and "results" in data and data["results"]:
-                results_text = "Recent market information:\n\n"
-                for idx, result in enumerate(data["results"][:8]):  # Get top 8 results
+            # Extract results for more comprehensive information
+            if "results" in data and data["results"]:
+                formatted_text += "Detailed Market Information:\n"
+                for idx, result in enumerate(data["results"][:5]):  # Limit to top 5 results
                     title = result.get("title", "No Title")
                     content = result.get("content", "No Content").strip()
                     url = result.get("url", "")
+                    score = result.get("score", 0)
                     
-                    results_text += f"{idx+1}. {title}\n"
-                    results_text += f"{content[:300]}...\n"  # Limit content length
-                    results_text += f"Source: {url}\n\n"
+                    formatted_text += f"\n{idx+1}. {title}\n"
+                    formatted_text += f"{content[:500]}...\n" if len(content) > 500 else f"{content}\n"
+                    formatted_text += f"Source: {url}\n"
+                    formatted_text += f"Relevance: {score:.2f}\n"
                 
-                logger.info(f"Successfully received search results from Tavily for {instrument}")
-                return results_text
+                logger.info(f"Successfully processed {len(data['results'])} results from Tavily for {instrument}")
+                return formatted_text
+            
+            # If no answer and no results but we have response content
+            if response_text and len(response_text) > 20:
+                logger.warning(f"Unusual Tavily response format, but using raw content")
+                return f"Market data for {instrument}:\n\n{response_text[:2000]}"
                 
             logger.error(f"Unexpected Tavily API response format: {response_text[:200]}...")
             return None
@@ -268,20 +261,31 @@ class MarketSentimentService:
         logger.info(f"Formatting market data for {instrument} using DeepSeek API")
         
         try:
-            # First attempt to check if DeepSeek API is reachable
+            # Check DeepSeek API connectivity first
             deepseek_available = True
             try:
-                import socket
-                # Try DNS resolution first - if this fails, we know the host is unreachable
-                socket.gethostbyname('api.deepseek.ai')
-                logger.info("DeepSeek API DNS resolution successful")
-            except socket.gaierror:
-                logger.warning("DeepSeek API DNS resolution failed - host unreachable")
+                # Simple HEAD request to test connectivity
+                async with aiohttp.ClientSession() as session:
+                    async with session.head(
+                        "https://api.deepseek.ai/v1/health", 
+                        timeout=aiohttp.ClientTimeout(total=5)
+                    ) as response:
+                        if response.status != 200:
+                            logger.warning(f"DeepSeek API health check failed with status {response.status}")
+                            deepseek_available = False
+            except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+                logger.warning(f"DeepSeek API connectivity test failed: {str(e)}")
                 deepseek_available = False
             
             if not deepseek_available:
                 logger.warning("DeepSeek API is unreachable, using manual formatting")
                 return self._format_data_manually(instrument, market_data)
+            
+            # Prepare headers with authentication
+            deepseek_headers = {
+                "Authorization": f"Bearer {self.deepseek_api_key}",
+                "Content-Type": "application/json"
+            }
             
             async with aiohttp.ClientSession() as session:
                 prompt = f"""Using the following market data, create a structured market analysis for {instrument} to be displayed in a Telegram bot:
@@ -333,13 +337,12 @@ If certain information is not available in the market data, make reasonable assu
                     timeout = aiohttp.ClientTimeout(total=10)
                     async with session.post(
                         self.deepseek_url, 
-                        headers=self.deepseek_headers, 
+                        headers=deepseek_headers, 
                         json=payload, 
                         timeout=timeout
                     ) as response:
                         response_text = await response.text()
                         logger.info(f"DeepSeek API response status: {response.status}")
-                        logger.info(f"DeepSeek API response: {response_text[:200]}...")  # Log first 200 chars
                         
                         if response.status == 200:
                             data = json.loads(response_text)
@@ -347,6 +350,7 @@ If certain information is not available in the market data, make reasonable assu
                             logger.info(f"Successfully formatted market data for {instrument}")
                             return content
                         
+                        # Log the specific error for debugging
                         logger.error(f"DeepSeek API error: {response.status}, details: {response_text}")
                         return self._format_data_manually(instrument, market_data)
                 except (aiohttp.ClientError, asyncio.TimeoutError) as e:
