@@ -4,6 +4,7 @@ import os
 import json
 import random
 from typing import Dict, Any, Optional
+import asyncio
 
 logger = logging.getLogger("market_sentiment")
 
@@ -206,15 +207,18 @@ class MarketSentimentService:
         
         try:
             # First attempt to check if DeepSeek API is reachable
+            deepseek_available = True
             try:
-                # Test connection with a simple HEAD request
-                async with aiohttp.ClientSession() as session:
-                    async with session.head("https://api.deepseek.ai/v1/chat/completions", timeout=5) as resp:
-                        if resp.status >= 400:
-                            logger.warning(f"DeepSeek API appears to be unreachable: status {resp.status}")
-                            return self._format_data_manually(instrument, market_data)
-            except Exception as conn_err:
-                logger.warning(f"DeepSeek API connection test failed: {str(conn_err)}")
+                import socket
+                # Try DNS resolution first - if this fails, we know the host is unreachable
+                socket.gethostbyname('api.deepseek.ai')
+                logger.info("DeepSeek API DNS resolution successful")
+            except socket.gaierror:
+                logger.warning("DeepSeek API DNS resolution failed - host unreachable")
+                deepseek_available = False
+            
+            if not deepseek_available:
+                logger.warning("DeepSeek API is unreachable, using manual formatting")
                 return self._format_data_manually(instrument, market_data)
             
             async with aiohttp.ClientSession() as session:
@@ -263,7 +267,14 @@ If certain information is not available in the market data, make reasonable assu
                 }
                 
                 try:
-                    async with session.post(self.deepseek_url, headers=self.deepseek_headers, json=payload, timeout=15) as response:
+                    # Use a shorter timeout to avoid long waits when service is unreachable
+                    timeout = aiohttp.ClientTimeout(total=10)
+                    async with session.post(
+                        self.deepseek_url, 
+                        headers=self.deepseek_headers, 
+                        json=payload, 
+                        timeout=timeout
+                    ) as response:
                         response_text = await response.text()
                         logger.info(f"DeepSeek API response status: {response.status}")
                         logger.info(f"DeepSeek API response: {response_text[:200]}...")  # Log first 200 chars
@@ -276,8 +287,8 @@ If certain information is not available in the market data, make reasonable assu
                         
                         logger.error(f"DeepSeek API error: {response.status}, details: {response_text}")
                         return self._format_data_manually(instrument, market_data)
-                except aiohttp.ClientError as e:
-                    logger.error(f"DeepSeek API client error: {str(e)}")
+                except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+                    logger.error(f"DeepSeek API client/timeout error: {str(e)}")
                     return self._format_data_manually(instrument, market_data)
                     
         except Exception as e:
@@ -293,17 +304,48 @@ If certain information is not available in the market data, make reasonable assu
         lines = market_data.strip().split('\n')
         title_line = f"<b>🎯 {instrument} Market Analysis</b>"
         
-        # Determine sentiment from keywords
-        sentiment = "neutral"
-        if any(keyword in market_data.lower() for keyword in ["bullish", "positive", "uptrend", "upward", "rise", "increase"]):
+        # Improved sentiment detection with keyword counting and weighting
+        bullish_keywords = ["bullish", "uptrend", "upward", "rise", "increase", "gains", "strengthen", "higher", "positive", "up"]
+        bearish_keywords = ["bearish", "downtrend", "downward", "fall", "decrease", "retreating", "weaken", "lower", "negative", "down"]
+        
+        # Count occurrences with context
+        bullish_count = 0
+        bearish_count = 0
+        
+        # Check for keywords in context
+        for keyword in bullish_keywords:
+            bullish_count += market_data.lower().count(keyword)
+        
+        for keyword in bearish_keywords:
+            bearish_count += market_data.lower().count(keyword)
+        
+        # Determine sentiment based on keyword counts
+        if bullish_count > bearish_count * 1.5:
             sentiment = "bullish"
-        elif any(keyword in market_data.lower() for keyword in ["bearish", "negative", "downtrend", "downward", "fall", "decrease"]):
+        elif bearish_count > bullish_count * 1.5:
             sentiment = "bearish"
+        else:
+            # Check for specific phrases that strongly indicate direction
+            if "downward trend" in market_data.lower() or "under pressure" in market_data.lower():
+                sentiment = "bearish"
+            elif "upward trend" in market_data.lower() or "gaining strength" in market_data.lower():
+                sentiment = "bullish"
+            else:
+                sentiment = "neutral"
+        
+        # Look for explicit sentiment statements
+        if "bearish momentum" in market_data.lower() or "likely to remain under pressure" in market_data.lower():
+            sentiment = "bearish"
+        elif "bullish momentum" in market_data.lower() or "likely to strengthen" in market_data.lower():
+            sentiment = "bullish"
+        
+        # Log the sentiment detection
+        logger.info(f"Detected sentiment for {instrument}: {sentiment} (bullish count: {bullish_count}, bearish count: {bearish_count})")
         
         # Prepare the analysis
         analysis = f"{title_line}\n\n"
         analysis += f"<b>📈 Market Direction:</b>\n"
-        analysis += f"The {instrument} is currently showing {sentiment} sentiment based on recent market data.\n\n"
+        analysis += f"The {instrument} is currently showing {sentiment} sentiment based on recent market data and analysis.\n\n"
         
         analysis += "<b>📰 Latest News & Events:</b>\n"
         
@@ -311,7 +353,10 @@ If certain information is not available in the market data, make reasonable assu
         news_items = []
         for line in lines:
             line = line.strip()
-            if line and len(line) > 20 and "." in line and not line.startswith(("Source:", "http", "www")):
+            # Look for sentences that contain market-related terms
+            if (line and len(line) > 20 and "." in line and 
+                not line.startswith(("Source:", "http", "www")) and
+                any(term in line.lower() for term in ["market", "price", "trading", "economy", "dollar", "euro", "rate", "fed", "ecb"])):
                 news_items.append(f"• {line}")
                 if len(news_items) >= 3:
                     break
@@ -328,17 +373,67 @@ If certain information is not available in the market data, make reasonable assu
         
         analysis += "\n".join(news_items) + "\n\n"
         
-        # Add generic key levels section
+        # Extract potential support and resistance levels from the text
+        support_level = None
+        resistance_level = None
+        
+        # Look for specific numeric levels mentioned in the text
+        import re
+        price_pattern = r'(\d+\.\d{4})'
+        matches = re.findall(price_pattern, market_data)
+        
+        if matches and len(matches) >= 2:
+            # Sort prices to get potential support and resistance
+            prices = sorted([float(p) for p in matches])
+            mid_price = sum(prices) / len(prices)
+            
+            # Use mentioned levels if they exist
+            if "support" in market_data.lower() and "resistance" in market_data.lower():
+                for i in range(len(lines)):
+                    if "support" in lines[i].lower():
+                        support_matches = re.findall(price_pattern, lines[i])
+                        if support_matches:
+                            support_level = support_matches[0]
+                    if "resistance" in lines[i].lower():
+                        resistance_matches = re.findall(price_pattern, lines[i])
+                        if resistance_matches:
+                            resistance_level = resistance_matches[0]
+            
+            # Default to lowest and highest found prices if specific levels not mentioned
+            if not support_level:
+                support_level = f"{prices[0]:.4f}"
+            if not resistance_level:
+                resistance_level = f"{prices[-1]:.4f}"
+        
+        # Add key levels section with real data when possible
         analysis += "<b>🎯 Key Levels:</b>\n"
         analysis += "• Support Levels:\n"
-        analysis += "  - Check recent lows for potential support\n"
+        if support_level:
+            analysis += f"  - {support_level} (Mentioned in analysis)\n"
+        else:
+            analysis += "  - Check recent lows for potential support\n"
+            
         analysis += "• Resistance Levels:\n"
-        analysis += "  - Check recent highs for potential resistance\n\n"
+        if resistance_level:
+            analysis += f"  - {resistance_level} (Mentioned in analysis)\n"
+        else:
+            analysis += "  - Check recent highs for potential resistance\n\n"
         
-        # Add generic risk factors
+        # Extract risk factors when available
         analysis += "<b>⚠️ Risk Factors:</b>\n"
-        analysis += "• Market volatility could increase with upcoming economic data releases\n"
-        analysis += "• Global events and central bank decisions may impact price action\n\n"
+        risk_factors_found = False
+        
+        for i in range(len(lines)):
+            if any(term in lines[i].lower() for term in ["risk", "uncertainty", "tension", "concern"]):
+                analysis += f"• {lines[i].strip()}\n"
+                risk_factors_found = True
+                break
+        
+        if not risk_factors_found:
+            analysis += "• Market volatility could increase with upcoming economic data releases\n"
+            analysis += "• Global events and central bank decisions may impact price action\n\n"
+        else:
+            analysis += "\n"
         
         # Add conclusion based on sentiment
         analysis += "<b>💡 Conclusion:</b>\n"
