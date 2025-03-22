@@ -371,6 +371,9 @@ class TelegramService:
         self.chart = ChartService()  # Chart generation service
         self.calendar = EconomicCalendarService()  # Economic calendar service
         
+        # Initialize chart service
+        asyncio.create_task(self.chart.initialize())
+        
         # Bot application
         self.application = None
         self.persistence = None
@@ -1285,31 +1288,6 @@ class TelegramService:
         # Analysis type handlers
         if query.data.startswith("analysis_"):
             return await self.analysis_choice(update, context)
-            
-        # Timeframe selection handler
-        if query.data.startswith("timeframe_"):
-            instrument = query.data.split("_")[1]
-            if context and hasattr(context, 'user_data'):
-                context.user_data['current_instrument'] = instrument
-            
-            # Toon de beschikbare timeframes
-            keyboard = [
-                [
-                    InlineKeyboardButton("1 Hour", callback_data=f"show_ta_{instrument}_1h"),
-                    InlineKeyboardButton("4 Hours", callback_data=f"show_ta_{instrument}_4h")
-                ],
-                [
-                    InlineKeyboardButton("Daily", callback_data=f"show_ta_{instrument}_1d"),
-                    InlineKeyboardButton("Weekly", callback_data=f"show_ta_{instrument}_1w")
-                ],
-                [InlineKeyboardButton("⬅️ Back", callback_data="back_instrument")]
-            ]
-            
-            await query.edit_message_text(
-                text=f"Select timeframe for {instrument} technical analysis:",
-                reply_markup=InlineKeyboardMarkup(keyboard)
-            )
-            return CHOOSE_TIMEFRAME
         
         # Handle show_ta_ callbacks (show technical analysis with specific timeframe)
         if query.data.startswith("show_ta_"):
@@ -1403,7 +1381,7 @@ class TelegramService:
             # Maak de juiste analyse op basis van het type
             if analysis_type == "chart":
                 logger.info(f"Toon technische analyse (chart) voor {instrument}")
-                await self.show_technical_analysis(update, context, instrument)
+                await self.show_technical_analysis(update, context, instrument, timeframe="1h")
                 return CHOOSE_TIMEFRAME
             elif analysis_type == "sentiment":
                 logger.info(f"Toon sentiment analyse voor {instrument}")
@@ -2176,8 +2154,8 @@ Click the button below to start your FREE 14-day trial.
             
             # Generate the chart using the chart service
             try:
-                # Generate chart image
-                chart_data = await self.chart.generate_chart(instrument, timeframe=timeframe)
+                # Generate chart image using get_chart instead of generate_chart
+                chart_data = await self.chart.get_chart(instrument, timeframe=timeframe)
                 
                 if not chart_data:
                     # If chart generation fails, send a text message
@@ -2197,7 +2175,6 @@ Click the button below to start your FREE 14-day trial.
                 
                 # Add buttons for different actions
                 keyboard = [
-                    [InlineKeyboardButton("🔍 Different Timeframe", callback_data=f"timeframe_{instrument}")],
                     [InlineKeyboardButton("⬅️ Back to Instrument", callback_data="back_instrument")]
                 ]
                 
