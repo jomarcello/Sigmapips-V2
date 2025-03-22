@@ -38,17 +38,131 @@ const { chromium } = require('playwright');
   try {
     console.log(`Taking screenshot of ${url} and saving to ${outputPath} (fullscreen: ${fullscreen})`);
     
-    // Start een browser
+    // Start een browser met stealth modus en extra argumenten
     browser = await chromium.launch({
       headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-web-security']
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-web-security',
+        '--disable-notifications',
+        '--disable-popup-blocking',
+        '--disable-extensions',
+        '--disable-component-extensions-with-background-pages',
+        '--disable-background-networking',
+        '--disable-sync'
+      ]
     });
     
-    // Maak een nieuwe context en pagina
+    // Maak een nieuwe context en pagina met uitgebreide stealth configuratie
     const context = await browser.newContext({
       viewport: { width: 1280, height: 800 },
       deviceScaleFactor: 1,
-      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
+      bypassCSP: true, // Bypass Content Security Policy
+      javaScriptEnabled: true,
+      hasTouch: false,
+      permissions: ['notifications'],
+      locale: 'en-US',
+      timezoneId: 'Europe/Amsterdam',
+    });
+    
+    // Configureer extra instellingen om detectie te voorkomen
+    await context.addInitScript(() => {
+      // OverrideWebgl Fingerprinting
+      const getParameter = WebGLRenderingContext.prototype.getParameter;
+      WebGLRenderingContext.prototype.getParameter = function(parameter) {
+        if (parameter === 37445) {
+          return 'Intel Inc.';
+        }
+        if (parameter === 37446) {
+          return 'Intel Iris Pro Graphics';
+        }
+        return getParameter.apply(this, arguments);
+      };
+      
+      // Override canvas fingerprinting
+      const toDataURL = HTMLCanvasElement.prototype.toDataURL;
+      HTMLCanvasElement.prototype.toDataURL = function(type) {
+        if (type === 'image/png' && this.width === 16 && this.height === 16) {
+          return 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAAXNSR0IArs4c6QAAACNJREFUOBFjYBgFwygI/P//nw3KZ4CSUHoUDKPAMBYCAAAtNQdem4JsWwAAAABJRU5ErkJggg==';
+        }
+        return toDataURL.apply(this, arguments);
+      };
+      
+      // Nep navigator properties om detectie te voorkomen
+      Object.defineProperty(navigator, 'webdriver', {
+        get: () => false
+      });
+
+      // TradingView-specifieke localStorage waarden (uitgebreid)
+      // Voegt alle mogelijke localStorage waarden toe die popups blokkeren
+      const tvLocalStorage = {
+        'tv_release_channel': 'stable',
+        'tv_alert': 'dont_show',
+        'feature_hint_shown': 'true',
+        'screener_new_feature_notification': 'shown',
+        'screener_deprecated': 'true',
+        'tv_notification': 'dont_show',
+        'screener_new_feature_already_shown': 'true',
+        'stock_screener_banner_closed': 'true',
+        'tv_screener_notification': 'dont_show',
+        'hints_are_disabled': 'true',
+        'tv.alerts-tour': 'true',
+        'feature-hint-dialog-shown': 'true',
+        'feature-hint-alerts-shown': 'true',
+        'feature-hint-screener-shown': 'true',
+        'feature-hint-shown': 'true',
+        'popup.popup-handling-popups-shown': 'true',
+        'tv.greeting-dialog-shown': 'true',
+        'tv_notice_shown': 'true',
+        'tv_chart_beta_notice': 'shown',
+        'tv_chart_notice': 'shown',
+        'tv_screener_notice': 'shown',
+        'tv_watch_list_notice': 'shown',
+        'tv_new_feature_notification': 'shown',
+        'tv_notification_popup': 'dont_show',
+        'notification_shown': 'true'
+      };
+      
+      // Stel alle localStorage waarden in
+      Object.entries(tvLocalStorage).forEach(([key, value]) => {
+        try {
+          localStorage.setItem(key, value);
+        } catch (e) {
+          console.error(`Failed to set localStorage for ${key}:`, e);
+        }
+      });
+      
+      // Zoek naar alle localStorage sleutels die eindigen met "_do_not_show_again" of "notification" en zet ze op true/shown
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && (key.endsWith("_do_not_show_again") || key.includes("notification"))) {
+          localStorage.setItem(key, key.includes("notification") ? 'shown' : 'true');
+        }
+      }
+      
+      // Blokkeer alle popups
+      window.open = () => null;
+      
+      // Overschrijf confirm en alert om ze te negeren
+      window.confirm = () => true;
+      window.alert = () => {};
+      
+      // Voeg code toe om alle dialogen automatisch te verwerpen zodra ze verschijnen
+      const originalCreateElement = document.createElement;
+      document.createElement = function() {
+        const element = originalCreateElement.apply(this, arguments);
+        if (arguments[0].toLowerCase() === 'dialog') {
+          // Verberg dialogs direct bij creatie
+          setTimeout(() => {
+            element.style.display = 'none';
+            element.style.visibility = 'hidden';
+            element.style.opacity = '0';
+          }, 0);
+        }
+        return element;
+      };
     });
     
     // Voeg cookies toe als er een session ID is
@@ -59,9 +173,22 @@ const { chromium } = require('playwright');
           value: sessionId,
           domain: '.tradingview.com',
           path: '/',
+        },
+        // Extra cookies om te laten zien dat je alle popups hebt gezien
+        {
+          name: 'feature_hint_shown',
+          value: 'true',
+          domain: '.tradingview.com',
+          path: '/',
+        },
+        {
+          name: 'screener_new_feature_notification',
+          value: 'shown',
+          domain: '.tradingview.com',
+          path: '/',
         }
       ]);
-      console.log('Added TradingView session cookie');
+      console.log('Added TradingView session cookies');
     }
     
     const page = await context.newPage();
@@ -69,40 +196,62 @@ const { chromium } = require('playwright');
     // Navigeer naar de URL
     console.log(`Navigating to ${url}`);
     try {
-      // Voeg localStorage waarden in vóór de pagina wordt geladen om notificaties uit te schakelen
-      await page.addInitScript(() => {
-        // Zet alle mogelijke keys om notificaties en popups te blokkeren
-        window.localStorage.setItem('screener_new_feature_notification', 'shown');
-        window.localStorage.setItem('tv_notification', 'dont_show');
-        window.localStorage.setItem('screener_deprecated', 'true');
-        window.localStorage.setItem('tv_screener_notification', 'dont_show');
-        window.localStorage.setItem('screener_new_feature_already_shown', 'true');
-        window.localStorage.setItem('stock_screener_banner_closed', 'true');
-        window.localStorage.setItem('tv_release_channel', 'stable');
-        window.localStorage.setItem('tv_alert', 'dont_show');
-        window.localStorage.setItem('feature_hint_shown', 'true');
-        window.localStorage.setItem('hints_are_disabled', 'true');
-        window.localStorage.setItem('tv.alerts-tour', 'true');
-        window.localStorage.setItem('popup.popup-handling-popups-shown', 'true');
-
-        // Voor alle keys die eindigen met "_do_not_show_again", zet ze op true
-        for (let i = 0; i < localStorage.length; i++) {
-          const key = localStorage.key(i);
-          if (key && key.endsWith("_do_not_show_again")) {
-            localStorage.setItem(key, 'true');
-          }
-        }
+      // Setup event handlers voor dialogs om ze automatisch te sluiten
+      page.on('dialog', async dialog => {
+        console.log(`Auto-dismissing dialog: ${dialog.type()} with message: ${dialog.message()}`);
+        await dialog.dismiss().catch(() => {});
       });
       
-      // Gebruik domcontentloaded in plaats van networkidle
-      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      // Voeg CSS toe om dialogen bij page load direct te blokkeren - dit gebeurt nog voor page.goto
+      await page.addStyleTag({
+        content: `
+          @keyframes dialogfade {
+            from { opacity: 1; }
+            to { opacity: 0; display: none; visibility: hidden; }
+          }
+          
+          [role="dialog"], 
+          .tv-dialog, 
+          .js-dialog,
+          .tv-dialog-container,
+          .tv-dialog__modal,
+          .tv-dialog__modal-container,
+          div[data-dialog-name*="chart-new-features"],
+          div[data-dialog-name*="notice"],
+          div[data-name*="dialog"],
+          .tv-dialog--popup,
+          .tv-alert-dialog,
+          .tv-notification,
+          .feature-no-touch .tv-dialog--popup,
+          .tv-dialog--alert,
+          div[class*="dialog"],
+          div:has(button.close-B02UUUN3),
+          div:has(button[data-name="close"]) {
+            animation: dialogfade 0.01s forwards !important;
+            display: none !important;
+            visibility: hidden !important;
+            opacity: 0 !important;
+            pointer-events: none !important;
+            z-index: -9999 !important;
+            position: absolute !important;
+            top: -9999px !important;
+            left: -9999px !important;
+            width: 0 !important;
+            height: 0 !important;
+            overflow: hidden !important;
+          }
+        `
+      }).catch(e => console.log('Error adding pre-navigation stylesheet:', e));
+      
+      // Navigeer met kortere timeout
+      await page.goto(url, { 
+        waitUntil: 'domcontentloaded', 
+        timeout: 30000 
+      });
       console.log('Page loaded (domcontentloaded)');
       
-      // Wacht kort zodat popups kunnen verschijnen
-      await page.waitForTimeout(2000);
-      
-      // Injecteer CSS om alle dialogen te verbergen, nog agressiever
-      console.log('Injecting CSS to forcefully hide all dialogs and popups...');
+      // Voeg CSS toe om alle popups en dialogen te blokkeren
+      console.log('Adding CSS to block all popups and dialogs...');
       await page.addStyleTag({
         content: `
           /* Agressief verbergen van alle dialogen en popups */
@@ -137,265 +286,165 @@ const { chromium } = require('playwright');
           
           /* Specifiek voor de Stock Screener popup */
           div:has(button.close-B02UUUN3),
-          div:has(button[data-name="close"]) {
+          div:has(button[data-name="close"]),
+          [data-role="dialog"],
+          [data-name*="popup"] {
+            display: none !important;
+            visibility: hidden !important;
+          }
+          
+          /* Verberg de overlay/backdrop */
+          .tv-dialog__modal-background {
+            opacity: 0 !important;
             display: none !important;
             visibility: hidden !important;
           }
         `
       });
+
+      // Wacht kort zodat de pagina kan laden
+      await page.waitForTimeout(1000);
       
-      // Direct aanroepen van de nieuwe functie voor het specifiek zoeken naar het Stock Screener element
-      console.log('Executing direct Stock Screener popup removal...');
-      
-      // Specifiek gericht op de Stock Screener popup
+      // Direct specifieke acties uitvoeren gericht op het sluiten van de Stock Screener popup
       await page.evaluate(() => {
-        // Functie die alle Stock Screener popups opzoekt en verwijdert
-        function findAndRemoveStockScreenerPopup() {
-          console.log('Searching for Stock Screener popup...');
+        // Functie om Stock Screener popups te vinden en te sluiten
+        function closeAllStockScreenerPopups() {
+          console.log("Attempting to close all Stock Screener popups...");
           
-          // Specifiek gericht op de SVG X-icon in de close button
+          // Methode 1: Escape toets simuleren
+          document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', keyCode: 27 }));
+          
+          // Methode 2: Direct de close buttons zoeken en klikken
+          const closeSelectors = [
+            'button.nav-button-znwuaSC1.size-medium-znwuaSC1.preserve-paddings-znwuaSC1.close-B02UUUN3',
+            'button[data-name="close"]',
+            '.close-B02UUUN3',
+            'button.close-B02UUUN3'
+          ];
+          
+          closeSelectors.forEach(selector => {
+            const buttons = document.querySelectorAll(selector);
+            console.log(`Found ${buttons.length} buttons with selector: ${selector}`);
+            
+            buttons.forEach(button => {
+              try {
+                // Log button info
+                console.log(`Clicking button: ${button.outerHTML}`);
+                button.click();
+                
+                // Find parent dialog
+                let dialog = button.closest('[role="dialog"]') || 
+                             button.closest('.tv-dialog') || 
+                             button.closest('.js-dialog');
+                
+                if (dialog) {
+                  console.log('Found parent dialog, removing...');
+                  dialog.style.display = 'none';
+                  dialog.remove();
+                }
+              } catch (e) {
+                console.log(`Error clicking button: ${e}`);
+              }
+            });
+          });
+          
+          // Methode 3: Zoek specifiek op SVG paths (sluitknoppen)
           const svgPaths = document.querySelectorAll('svg path[d="m.58 1.42.82-.82 15 15-.82.82z"], svg path[d="m.58 15.58 15-15 .82.82-15 15z"]');
-          console.log(`Found ${svgPaths.length} SVG paths that match close icon`);
+          console.log(`Found ${svgPaths.length} SVG paths matching close button`);
           
           svgPaths.forEach(path => {
             try {
-              // Zoek de parent button
+              // Find parent button
               let button = path;
-              let foundButton = false;
-              
-              // Loop naar boven tot we een button vinden
-              while (button && !foundButton) {
-                if (button.tagName === 'BUTTON') {
-                  foundButton = true;
-                  break;
-                }
+              while (button && button.tagName !== 'BUTTON') {
                 button = button.parentElement;
-                if (!button) break;
               }
               
-              if (foundButton && button) {
-                console.log('Found a close button with X icon, clicking it...');
+              if (button) {
+                console.log('Found button containing SVG path, clicking...');
                 button.click();
                 
-                // Zoek de parent dialoog en verwijder deze
+                // Find parent dialog
                 let dialog = button;
-                let foundDialog = false;
-                
-                // Loop naar boven tot we een dialoog vinden
-                while (dialog && !foundDialog) {
-                  if (
-                    dialog.getAttribute && dialog.getAttribute('role') === 'dialog' ||
-                    dialog.classList && (
-                      dialog.classList.contains('tv-dialog') ||
-                      dialog.classList.contains('js-dialog')
-                    )
-                  ) {
-                    foundDialog = true;
-                    break;
-                  }
+                while (dialog && 
+                      !(dialog.getAttribute('role') === 'dialog' ||
+                        dialog.classList && dialog.classList.contains('tv-dialog'))) {
                   dialog = dialog.parentElement;
-                  if (!dialog) break;
                 }
                 
-                if (foundDialog && dialog) {
-                  console.log('Found parent dialog, forcefully removing...');
+                if (dialog) {
+                  console.log('Found parent dialog via SVG path, removing...');
                   dialog.style.display = 'none';
-                  dialog.style.visibility = 'hidden';
-                  dialog.style.opacity = '0';
-                  
-                  // Verwijder de dialoog volledig uit de DOM
-                  if (dialog.parentNode) {
-                    try {
-                      dialog.parentNode.removeChild(dialog);
-                      console.log('Successfully removed dialog from DOM');
-                    } catch (e) {
-                      console.log('Error removing dialog:', e);
-                    }
-                  }
+                  dialog.remove();
                 }
               }
             } catch (e) {
-              console.log('Error processing SVG path:', e);
-            }
-          });
-          
-          // Zoek ook specifiek naar buttons met de klasse 'close-B02UUUN3'
-          const closeButtons = document.querySelectorAll('button.close-B02UUUN3, button[data-name="close"]');
-          console.log(`Found ${closeButtons.length} close buttons`);
-          
-          closeButtons.forEach(button => {
-            try {
-              console.log('Clicking close button...');
-              button.click();
-              
-              // Zoek de parent dialoog en verwijder deze
-              let dialog = button.closest('[role="dialog"]') || 
-                          button.closest('.tv-dialog') || 
-                          button.closest('.js-dialog');
-              
-              if (dialog) {
-                console.log('Found parent dialog via close button, removing...');
-                dialog.style.display = 'none';
-                if (dialog.parentNode) {
-                  try {
-                    dialog.parentNode.removeChild(dialog);
-                    console.log('Successfully removed dialog from DOM');
-                  } catch (e) {
-                    console.log('Error removing dialog:', e);
-                  }
-                }
-              }
-            } catch (e) {
-              console.log('Error clicking close button:', e);
-            }
-          });
-          
-          // Laatste methode: zoek tekstelementen die wijzen op de Stock Screener popup
-          const stockScreenerTexts = [
-            "Stock Screener is disappearing",
-            "Got it, thanks",
-            "Stock Screener", 
-            "notification"
-          ];
-          
-          // Loop door alle text nodes in de DOM
-          const textNodes = [];
-          const walker = document.createTreeWalker(
-            document.body,
-            NodeFilter.SHOW_TEXT,
-            null,
-            false
-          );
-          
-          let node;
-          while (node = walker.nextNode()) {
-            const text = node.textContent.trim();
-            if (text && stockScreenerTexts.some(searchText => text.includes(searchText))) {
-              textNodes.push(node);
-            }
-          }
-          
-          console.log(`Found ${textNodes.length} text nodes that might be in Stock Screener popup`);
-          
-          // Verwerk de gevonden nodes
-          textNodes.forEach(node => {
-            try {
-              // Zoek de parent dialoog van deze text node
-              let dialog = node.parentElement;
-              let found = false;
-              
-              // Loop naar boven tot we een dialoog vinden
-              while (dialog && !found) {
-                if (
-                  dialog.getAttribute && dialog.getAttribute('role') === 'dialog' ||
-                  dialog.classList && (
-                    dialog.classList.contains('tv-dialog') ||
-                    dialog.classList.contains('js-dialog')
-                  )
-                ) {
-                  found = true;
-                  break;
-                }
-                dialog = dialog.parentElement;
-                if (!dialog) break;
-              }
-              
-              if (found && dialog) {
-                console.log('Found dialog via text content, removing...');
-                
-                // Zoek eerst naar een "Got it" button en klik deze
-                const gotItButton = Array.from(dialog.querySelectorAll('button')).find(
-                  btn => btn.textContent.trim().toLowerCase().includes('got it')
-                );
-                
-                if (gotItButton) {
-                  console.log('Found "Got it" button, clicking it...');
-                  gotItButton.click();
-                }
-                
-                // Forceer verwijdering van de dialoog
-                dialog.style.display = 'none';
-                if (dialog.parentNode) {
-                  try {
-                    dialog.parentNode.removeChild(dialog);
-                    console.log('Successfully removed dialog from DOM');
-                  } catch (e) {
-                    console.log('Error removing dialog:', e);
-                  }
-                }
-              }
-            } catch (e) {
-              console.log('Error processing text node:', e);
+              console.log(`Error handling SVG path: ${e}`);
             }
           });
         }
         
-        // Stel ook de MutationObserver in om nieuwe dialogen op te vangen
-        const observer = new MutationObserver(mutations => {
-          // Roep onze functie aan bij elke DOM wijziging
-          findAndRemoveStockScreenerPopup();
-        });
+        // Voer de functie direct uit
+        closeAllStockScreenerPopups();
         
-        // Observer voor het hele document
-        observer.observe(document.body, { 
-          childList: true, 
-          subtree: true, 
-          attributes: true,
-          characterData: true
-        });
-        
-        // Voer direct ook de functie uit
-        findAndRemoveStockScreenerPopup();
-        
-        // Maak een interval om regelmatig te controleren op popups
-        setInterval(findAndRemoveStockScreenerPopup, 500);
-        
-        // Gebruik ook Escape toets om eventuele dialogen te sluiten
-        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', keyCode: 27 }));
+        // Stel een interval in om te blijven controleren op nieuwe popups
+        setInterval(closeAllStockScreenerPopups, 500);
       });
       
-      // Wacht extra tijd voor de acties om effect te hebben
-      await page.waitForTimeout(3000);
-      
-      // Al het bestaande code om in te blijven staan...
-      // Gebruik Playwright selectors
-      try {
-        console.log('Attempting direct Playwright click on close buttons...');
-        const selectors = [
-          'button.nav-button-znwuaSC1.size-medium-znwuaSC1.preserve-paddings-znwuaSC1.close-B02UUUN3',
-          'button[data-name="close"]',
-          '.close-B02UUUN3'
-        ];
-        
-        for (const selector of selectors) {
-          const buttons = await page.$$(selector);
-          console.log(`Found ${buttons.length} buttons with selector ${selector}`);
-          
-          for (const button of buttons) {
-            await button.click({ force: true }).catch(e => console.log('Click error:', e));
-            await page.waitForTimeout(500);
-          }
-        }
-      } catch (e) {
-        console.log('Error in Playwright click attempt:', e);
-      }
-      
-      // NIEUWE METHODE: Directe screenshot methode
-      // Als alle andere methoden falen, blijf toch doorgaan en neem schermafbeelding
-      
-      // Als het een TradingView URL is, wacht dan op de chart
+      // Wacht beter op TradingView chart container
       if (url.includes('tradingview.com')) {
         console.log('Waiting for TradingView chart to load...');
         
         // Probeer te wachten op de chart container
         try {
+          // Wacht op het chart element
           await page.waitForSelector('.chart-container', { timeout: 10000 });
           console.log('Chart container found');
+          
+          // Probeer nogmaals de close button te klikken na chart loaded
+          await page.evaluate(() => {
+            // Direct specifieke Stock Screener sluitknoppen proberen
+            const closeButtons = document.querySelectorAll('button.close-B02UUUN3, button[data-name="close"]');
+            console.log(`Found ${closeButtons.length} direct close buttons`);
+            closeButtons.forEach(btn => {
+              try {
+                btn.click();
+                console.log('Clicked close button');
+              } catch (e) {
+                console.log('Error clicking button:', e);
+              }
+            });
+            
+            // Verwijder alle dialogen
+            document.querySelectorAll('[role="dialog"], .tv-dialog, .js-dialog').forEach(dialog => {
+              dialog.style.display = 'none';
+              dialog.style.visibility = 'hidden';
+              if (dialog.parentNode) {
+                try {
+                  dialog.parentNode.removeChild(dialog);
+                } catch (e) {}
+              }
+            });
+          });
+          
+          // Probeer nogmaals met Playwright direct
+          const closeButtons = await page.$$('button.close-B02UUUN3, button[data-name="close"]');
+          console.log(`Found ${closeButtons.length} close buttons with Playwright`);
+          
+          for (const button of closeButtons) {
+            try {
+              await button.click();
+              console.log('Clicked button with Playwright');
+            } catch (e) {
+              console.log('Error clicking with Playwright:', e);
+            }
+          }
+          
         } catch (e) {
           console.warn('Could not find chart container, continuing anyway:', e);
         }
         
-        // Wacht extra tijd voor de chart om volledig te laden
+        // Wacht op de chart om te laden
         await page.waitForTimeout(5000);
         
         // Als fullscreen is aangevraagd, simuleer Shift+F
@@ -412,11 +461,16 @@ const { chromium } = require('playwright');
         await page.waitForTimeout(3000);
       }
       
-      // Laatste DOM-manipulatie voor de screenshot om er zeker van te zijn dat popups verborgen zijn
+      // Final cleanup before screenshot
       await page.evaluate(() => {
-        // Verberg alle dialogen direct voor screenshot
-        document.querySelectorAll('[role="dialog"], .tv-dialog, .js-dialog').forEach(dialog => {
-          dialog.style.display = 'none';
+        // Verberg alles wat nog zichtbaar zou kunnen zijn
+        const elementsToHide = document.querySelectorAll('[role="dialog"], .tv-dialog, .js-dialog, .tv-dialog--popup, .tv-notification');
+        console.log(`Hiding ${elementsToHide.length} elements before screenshot`);
+        
+        elementsToHide.forEach(el => {
+          el.style.display = 'none';
+          el.style.visibility = 'hidden';
+          el.style.opacity = '0';
         });
       });
       
