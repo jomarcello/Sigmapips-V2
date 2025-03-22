@@ -5,6 +5,7 @@ import json
 import random
 from typing import Dict, Any, Optional
 import asyncio
+import socket
 
 logger = logging.getLogger("market_sentiment")
 
@@ -17,6 +18,9 @@ class MarketSentimentService:
         self.tavily_api_key = os.getenv("TAVILY_API_KEY")
         
         self.deepseek_url = "https://api.deepseek.ai/v1/chat/completions"
+        
+        # Initialize the Tavily client
+        self.tavily_client = TavilyClient(self.tavily_api_key)
         
         # Log API key status (without revealing full keys)
         if self.tavily_api_key:
@@ -157,53 +161,29 @@ class MarketSentimentService:
         else:
             search_query = f"recent news about {instrument} market analysis price trends"
         
+        # Define financial domains for more focused results
+        domains = [
+            "bloomberg.com", "reuters.com", "investing.com", "cnbc.com", 
+            "forexlive.com", "fxstreet.com", "marketwatch.com", 
+            "forbes.com", "wsj.com", "ft.com", "tradingview.com"
+        ]
+        
+        # Use our Tavily client to make the API call
         try:
-            # Use Tavily's official API format (as per their documentation)
-            async with aiohttp.ClientSession() as session:
-                headers = {
-                    "Content-Type": "application/json",
-                    "X-Api-Key": self.tavily_api_key
-                }
+            response = await self.tavily_client.search(
+                query=search_query,
+                search_depth="basic",
+                include_answer=True,
+                include_domains=domains,
+                max_results=5
+            )
+            
+            if response:
+                return self._process_tavily_response(json.dumps(response), instrument)
+            else:
+                logger.error("Tavily search returned no results")
+                return None
                 
-                # Create payload according to official Tavily documentation
-                payload = {
-                    "query": search_query,
-                    "search_depth": "basic",
-                    "include_answer": True,
-                    "include_domains": ["bloomberg.com", "reuters.com", "investing.com", "cnbc.com", 
-                                        "forexlive.com", "fxstreet.com", "marketwatch.com", 
-                                        "forbes.com", "wsj.com", "ft.com", "tradingview.com"],
-                    "max_results": 5
-                }
-                
-                logger.info(f"Calling Tavily API with query: {search_query}")
-                
-                # Using the correct endpoint format from documentation
-                url = "https://api.tavily.com/v1/search"
-                timeout = aiohttp.ClientTimeout(total=20)
-                
-                async with session.post(url, headers=headers, json=payload, timeout=timeout) as response:
-                    response_text = await response.text()
-                    logger.info(f"Tavily API response status: {response.status}")
-                    
-                    if response.status == 200:
-                        return self._process_tavily_response(response_text, instrument)
-                    else:
-                        # Try one more time with the API key in the payload instead
-                        logger.warning(f"API key in header failed with status {response.status}, trying API key in payload")
-                        headers = {"Content-Type": "application/json"}
-                        payload["api_key"] = self.tavily_api_key
-                        
-                        async with session.post(url, headers=headers, json=payload, timeout=timeout) as retry_response:
-                            retry_response_text = await retry_response.text()
-                            logger.info(f"Tavily API retry response status: {retry_response.status}")
-                            
-                            if retry_response.status == 200:
-                                return self._process_tavily_response(retry_response_text, instrument)
-                            
-                            logger.error(f"Tavily API error: {retry_response.status}, details: {retry_response_text}")
-                            return None
-                    
         except Exception as e:
             logger.error(f"Error calling Tavily API: {str(e)}")
             logger.exception(e)
@@ -261,29 +241,33 @@ class MarketSentimentService:
         logger.info(f"Formatting market data for {instrument} using DeepSeek API")
         
         try:
-            # Check DeepSeek API connectivity first
-            deepseek_available = True
+            # Check DeepSeek API connectivity first - use TCP socket instead of HTTP request
+            # This avoids any header/security issues
+            deepseek_available = False
             try:
-                # Simple HEAD request to test connectivity
-                async with aiohttp.ClientSession() as session:
-                    async with session.head(
-                        "https://api.deepseek.ai/v1/health", 
-                        timeout=aiohttp.ClientTimeout(total=5)
-                    ) as response:
-                        if response.status != 200:
-                            logger.warning(f"DeepSeek API health check failed with status {response.status}")
-                            deepseek_available = False
-            except (aiohttp.ClientError, asyncio.TimeoutError) as e:
-                logger.warning(f"DeepSeek API connectivity test failed: {str(e)}")
-                deepseek_available = False
+                # Simple socket connection test
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(3)  # Quick 3-second timeout
+                # Try to connect to api.deepseek.ai on port 443 (HTTPS)
+                result = sock.connect_ex(('api.deepseek.ai', 443))
+                sock.close()
+                
+                if result == 0:  # Port is open, connection successful
+                    logger.info("DeepSeek API connectivity test successful")
+                    deepseek_available = True
+                else:
+                    logger.warning(f"DeepSeek API connectivity test failed with result: {result}")
+            except socket.error as e:
+                logger.warning(f"DeepSeek API socket connection failed: {str(e)}")
             
             if not deepseek_available:
                 logger.warning("DeepSeek API is unreachable, using manual formatting")
                 return self._format_data_manually(instrument, market_data)
             
-            # Prepare headers with authentication
+            # Prepare headers with authentication - sanitize API key first
+            sanitized_api_key = self.deepseek_api_key.strip()
             deepseek_headers = {
-                "Authorization": f"Bearer {self.deepseek_api_key}",
+                "Authorization": f"Bearer {sanitized_api_key}",
                 "Content-Type": "application/json"
             }
             
@@ -613,3 +597,64 @@ Wait for clearer market signals before taking new positions.
             'analysis': analysis,
             'source': 'fallback'
         }
+
+class TavilyClient:
+    """A simple wrapper for the Tavily API that handles errors properly"""
+    
+    def __init__(self, api_key):
+        """Initialize with the API key"""
+        self.api_key = api_key.strip() if api_key else None
+        self.base_url = "https://api.tavily.com/v1"
+        
+    async def search(self, query, search_depth="basic", include_answer=True, 
+                     include_domains=None, max_results=5):
+        """Perform a search query and handle errors properly"""
+        if not self.api_key:
+            logger.error("No Tavily API key provided")
+            return None
+            
+        # Sanitize the API key
+        api_key = self.api_key.replace('\n', '').replace('\r', '')
+        
+        # Prepare the payload
+        payload = {
+            "api_key": api_key,
+            "query": query,
+            "search_depth": search_depth,
+            "include_answer": include_answer,
+            "max_results": max_results
+        }
+        
+        # Add optional parameters
+        if include_domains:
+            payload["include_domains"] = include_domains
+            
+        # Minimal headers to avoid security issues
+        headers = {"Content-Type": "application/json"}
+        timeout = aiohttp.ClientTimeout(total=20)
+        
+        logger.info(f"Calling Tavily API with query: {query}")
+        
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    f"{self.base_url}/search", 
+                    headers=headers,
+                    json=payload,
+                    timeout=timeout
+                ) as response:
+                    response_text = await response.text()
+                    
+                    if response.status == 200:
+                        try:
+                            return json.loads(response_text)
+                        except json.JSONDecodeError:
+                            logger.error(f"Invalid JSON response: {response_text[:200]}...")
+                            return None
+                    
+                    logger.error(f"Tavily API error: {response.status}, {response_text[:200]}...")
+                    return None
+        except Exception as e:
+            logger.error(f"Error in Tavily API call: {str(e)}")
+            logger.exception(e)
+            return None
