@@ -1955,11 +1955,19 @@ Click the button below to start your FREE 14-day trial.
     async def setup_webhook(self, app):
         """Set up the FastAPI webhook for Telegram."""
         
-        # Webhook URL samenstellen - ensure it's /webhook not /webhook/webhook
-        full_webhook_url = f"{self.webhook_url}{self.webhook_path}"
-        logger.info(f"Setting up webhook at path '{self.webhook_path}' with full URL '{full_webhook_url}'")
+        # Expliciet de webhook URL en pad definiëren
+        webhook_path = "/telegram-webhook"  # Gewijzigd om conflict te voorkomen
+        self.webhook_path = webhook_path
+        
+        # Webhook URL samenstellen
+        full_webhook_url = f"{self.webhook_url}{webhook_path}"
+        logger.info(f"Setting up webhook at path '{webhook_path}' with full URL '{full_webhook_url}'")
         
         try:
+            # Reset de webhook eerst
+            logger.info("Deleting any existing webhook")
+            await self.bot.delete_webhook()
+            
             # Direct de webhook instellen
             try:
                 logger.info(f"Setting webhook to {full_webhook_url}")
@@ -1967,7 +1975,7 @@ Click the button below to start your FREE 14-day trial.
                                         allowed_updates=["message", "callback_query", "my_chat_member"],
                                         drop_pending_updates=True,
                                         max_connections=20)
-                logger.info(f"Webhook set successfully for path {self.webhook_path}")
+                logger.info(f"Webhook set successfully for path {webhook_path}")
                 
                 # Check if webhook was set correctly
                 webhook_info = await self.bot.get_webhook_info()
@@ -1976,11 +1984,11 @@ Click the button below to start your FREE 14-day trial.
                 logger.error(f"Error setting webhook: {str(e)}")
                 logger.error(traceback.format_exc())
             
-            # Define the exact webhook endpoint
-            @app.post("/webhook")
+            # Define the exact webhook endpoint with the new path
+            @app.post(webhook_path)
             async def telegram_webhook(request: Request):
                 try:
-                    logger.info(f"Received webhook request at /webhook")
+                    logger.info(f"Received webhook request at {webhook_path}")
                     update_data = await request.json()
                     logger.debug(f"Update data: {update_data}")
                     
