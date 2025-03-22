@@ -13,18 +13,18 @@ class MarketSentimentService:
     def __init__(self):
         """Initialize the market sentiment service"""
         self.deepseek_api_key = os.getenv("DEEPSEEK_API_KEY")
-        self.perplexity_api_key = os.getenv("PERPLEXITY_API_KEY", "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")
+        self.tavily_api_key = os.getenv("TAVILY_API_KEY")
         
         self.deepseek_url = "https://api.deepseek.ai/v1/chat/completions"
-        self.perplexity_url = "https://api.perplexity.ai/chat/completions"
+        self.tavily_url = "https://api.tavily.com/search"
         
         self.deepseek_headers = {
             "Authorization": f"Bearer {self.deepseek_api_key}",
             "Content-Type": "application/json"
         }
         
-        self.perplexity_headers = {
-            "Authorization": f"Bearer {self.perplexity_api_key}",
+        self.tavily_headers = {
+            "Authorization": f"Bearer {self.tavily_api_key}",
             "Content-Type": "application/json"
         }
         
@@ -34,7 +34,7 @@ class MarketSentimentService:
             logger.warning("No DeepSeek API key found, using mock data")
     
     async def get_market_sentiment(self, instrument_or_signal) -> Dict[str, Any]:
-        """Get market sentiment analysis using Perplexity for news search and DeepSeek for formatting"""
+        """Get market sentiment analysis using Tavily for news search and DeepSeek for formatting"""
         try:
             # Handle both string and dictionary input
             if isinstance(instrument_or_signal, str):
@@ -54,17 +54,17 @@ class MarketSentimentService:
                 logger.info("Using mock data for sentiment analysis")
                 return self._get_mock_sentiment_data(instrument)
             
-            # First step: Use Perplexity to search for recent news and market data
-            market_data = await self._get_perplexity_news(instrument, market)
+            # First step: Use Tavily to search for recent news and market data
+            market_data = await self._get_tavily_news(instrument, market)
             if not market_data:
-                logger.warning(f"Failed to get Perplexity news for {instrument}, using fallback")
+                logger.warning(f"Failed to get Tavily news for {instrument}, using fallback")
                 return self._get_fallback_sentiment(signal)
             
             # Second step: Use DeepSeek to format the news into a structured message
             formatted_analysis = await self._format_with_deepseek(instrument, market, market_data)
             if not formatted_analysis:
-                logger.warning(f"Failed to format with DeepSeek for {instrument}, using perplexity raw data")
-                # Use the Perplexity data directly with minimal formatting
+                logger.warning(f"Failed to format with DeepSeek for {instrument}, using Tavily raw data")
+                # Use the Tavily data directly with minimal formatting
                 sentiment_score = 0.5  # Default neutral
                 if "bullish" in market_data.lower() or "positive" in market_data.lower():
                     sentiment_score = 0.7
@@ -83,7 +83,7 @@ class MarketSentimentService:
                     'resistance_level': 'See analysis for details',
                     'recommendation': 'See analysis for trading recommendations',
                     'analysis': market_data,
-                    'source': 'perplexity_only'
+                    'source': 'tavily_only'
                 }
             
             # Extract sentiment metrics from the formatted analysis
@@ -106,58 +106,93 @@ class MarketSentimentService:
                 'resistance_level': 'See analysis for details',
                 'recommendation': 'See analysis for detailed trading recommendations',
                 'analysis': formatted_analysis,
-                'source': 'perplexity_deepseek'
+                'source': 'tavily_deepseek'
             }
         
         except Exception as e:
             logger.error(f"Error getting sentiment: {str(e)}")
             return self._get_fallback_sentiment(instrument_or_signal if isinstance(instrument_or_signal, dict) else {'instrument': instrument_or_signal})
     
-    async def _get_perplexity_news(self, instrument: str, market: str) -> str:
-        """Use Perplexity API to get latest news and market data"""
-        logger.info(f"Searching for {instrument} news using Perplexity API")
+    async def _get_tavily_news(self, instrument: str, market: str) -> str:
+        """Use Tavily API to get latest news and market data"""
+        logger.info(f"Searching for {instrument} news using Tavily API")
         
-        # Create search queries based on market type
+        # Create search query based on market type
         if market == 'forex':
-            search_query = f"Latest forex news and analysis for {instrument}. Current price, technical levels, and market sentiment."
+            search_query = f"recent news about {instrument} forex currency pair market analysis price movement"
         elif market == 'crypto':
-            search_query = f"Latest cryptocurrency news for {instrument}. Current price, market trends, and future outlook."
+            search_query = f"recent news about {instrument} cryptocurrency price analysis market trends"
         elif market == 'indices':
-            search_query = f"Latest market news for {instrument} index. Current price, technical analysis, and market sentiment."
+            search_query = f"recent news about {instrument} stock index market analysis trends"
         elif market == 'commodities':
-            search_query = f"Latest commodities market news for {instrument}. Current price, supply/demand factors, and market sentiment."
+            search_query = f"recent news about {instrument} commodity price analysis market trends"
         else:
-            search_query = f"Latest market news and analysis for {instrument}. Current price, technical levels, and trading outlook."
+            search_query = f"recent news about {instrument} market analysis price trends"
         
         try:
             async with aiohttp.ClientSession() as session:
-                # Updated payload with proper model parameter for Perplexity API
                 payload = {
-                    "model": "sonar-medium-online",
-                    "messages": [{"role": "user", "content": search_query}],
-                    "temperature": 0.2,
-                    "max_tokens": 1024
+                    "query": search_query,
+                    "search_depth": "advanced",
+                    "include_answer": True,
+                    "include_images": False,
+                    "include_raw_content": False,
+                    "max_results": 8,
+                    "api_key": self.tavily_api_key
                 }
                 
-                logger.info(f"Calling Perplexity API with model: {payload['model']}")
+                logger.info(f"Calling Tavily API with query: {search_query}")
                 
-                async with session.post(self.perplexity_url, headers=self.perplexity_headers, json=payload) as response:
+                async with session.post(self.tavily_url, json=payload) as response:
                     response_text = await response.text()
-                    logger.info(f"Perplexity API response status: {response.status}")
-                    logger.info(f"Perplexity API response: {response_text[:200]}...")  # Log first 200 chars
+                    logger.info(f"Tavily API response status: {response.status}")
+                    logger.info(f"Tavily API response: {response_text[:200]}...")  # Log first 200 chars
                     
                     if response.status == 200:
-                        data = await response.json()
-                        if data and "choices" in data and len(data["choices"]) > 0:
-                            content = data["choices"][0]["message"]["content"]
-                            logger.info(f"Successfully received news data for {instrument}")
-                            return content
+                        data = json.loads(response_text)
+                        
+                        # Extract the generated answer
+                        if data and "answer" in data:
+                            answer = data["answer"]
+                            logger.info(f"Successfully received answer from Tavily for {instrument}")
+                            
+                            # Also extract results for more comprehensive information
+                            if "results" in data:
+                                results_text = "\n\nMore details from search results:\n"
+                                for idx, result in enumerate(data["results"][:5]):  # Limit to top 5 results
+                                    title = result.get("title", "No Title")
+                                    content = result.get("content", "No Content").strip()
+                                    url = result.get("url", "")
+                                    
+                                    results_text += f"\n{idx+1}. {title}\n"
+                                    results_text += f"{content[:300]}...\n"  # Limit content length
+                                    results_text += f"Source: {url}\n"
+                                
+                                combined_text = answer + results_text
+                                return combined_text
+                            
+                            return answer
+                        
+                        # If no answer but we have search results
+                        elif data and "results" in data and data["results"]:
+                            results_text = "Recent market information:\n\n"
+                            for idx, result in enumerate(data["results"][:8]):  # Get top 8 results
+                                title = result.get("title", "No Title")
+                                content = result.get("content", "No Content").strip()
+                                url = result.get("url", "")
+                                
+                                results_text += f"{idx+1}. {title}\n"
+                                results_text += f"{content[:300]}...\n"  # Limit content length
+                                results_text += f"Source: {url}\n\n"
+                            
+                            logger.info(f"Successfully received search results from Tavily for {instrument}")
+                            return results_text
                     
-                    logger.error(f"Perplexity API error: {response.status}")
+                    logger.error(f"Tavily API error: {response.status}, details: {response_text}")
                     return None
                     
         except Exception as e:
-            logger.error(f"Error calling Perplexity API: {str(e)}")
+            logger.error(f"Error calling Tavily API: {str(e)}")
             logger.exception(e)  # Add stack trace for more detailed error information
             return None
     
