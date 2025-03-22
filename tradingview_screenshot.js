@@ -23,7 +23,8 @@ try {
 const url = process.argv[2];
 const outputPath = process.argv[3];
 const sessionId = process.argv[4]; // Voeg session ID toe als derde argument
-const fullscreen = process.argv[5] === 'fullscreen'; // Controleer of fullscreen is ingeschakeld
+const fullscreenArg = process.argv[5] || ''; // Get the full string value
+const fullscreen = fullscreenArg === 'fullscreen' || fullscreenArg === 'true' || fullscreenArg === '1'; // Check various forms of true
 
 if (!url || !outputPath) {
     console.error('Usage: node screenshot.js <url> <outputPath> [sessionId] [fullscreen]');
@@ -175,14 +176,14 @@ const { chromium } = require('playwright');
         }).catch(() => {});
         
         // Stel een langere timeout in
-        page.setDefaultTimeout(180000); // 3 minuten timeout
+        page.setDefaultTimeout(60000); // 1 minuut timeout
         
         try {
             // Ga naar de URL
             console.log(`Navigating to ${url}...`);
             await page.goto(url, {
                 waitUntil: 'domcontentloaded',
-                timeout: 120000 // 2 minuten timeout voor navigatie
+                timeout: 60000 // 1 minuut timeout voor navigatie
             });
             
             // Stel localStorage waarden in om meldingen uit te schakelen
@@ -480,221 +481,32 @@ const { chromium } = require('playwright');
                 await page.waitForTimeout(1000);
             }
             
-            // Altijd Shift+F indrukken om fullscreen te activeren, ongeacht de fullscreen parameter
-            console.log('Activating fullscreen mode with Shift+F keyboard shortcut...');
+            // Eenvoudige en betrouwbare methode voor fullscreen
+            console.log('Applying simple fullscreen method...');
             
-            // Zorg ervoor dat de chart eerst gefocust is voordat we de toetscombinatie gebruiken
-            await page.evaluate(() => {
-                // Focus op de chart container om toetsaanslagen te laten werken
-                const chartContainer = document.querySelector('.chart-container');
-                if (chartContainer) {
-                    chartContainer.focus();
-                    console.log('Focused on chart container');
-                }
-                
-                // Als alternatief, simuleer ook de toggle fullscreen functie direct
-                try {
-                    // Probeer eventuele TradingView fullscreen functie aan te roepen als deze bestaat
-                    if (window.TradingView && window.TradingView.ChartAPI) {
-                        const chartInstance = Object.values(window.TradingView.ChartAPI._instances)[0];
-                        if (chartInstance && typeof chartInstance.toggleFullscreen === 'function') {
-                            chartInstance.toggleFullscreen();
-                            console.log('Called TradingView fullscreen toggle directly');
-                            return true;
-                        }
-                    }
-                } catch (e) {
-                    console.log('Error trying to call toggleFullscreen directly:', e);
-                }
-                
-                return false;
-            });
-            
-            // Probeer de toetscombinatie
+            // Methode 1: Shift+F toetsencombinatie (meest betrouwbaar)
             await page.keyboard.down('Shift');
             await page.keyboard.press('F');
             await page.keyboard.up('Shift');
+            await page.waitForTimeout(2000); // Wacht kort zodat fullscreen kan worden toegepast
             
-            // Alternatief probeer ook F11 als backup
-            await page.keyboard.press('F11');
-            
-            await page.waitForTimeout(2000); // Wacht even zodat fullscreen kan worden toegepast
-            
-            // Probeer ook de fullscreen button te vinden en te klikken
-            console.log('Trying to find and click the fullscreen button...');
-            try {
-                // Zoek naar de fullscreen knop in de UI
-                const fullscreenButtonSelectors = [
-                    'button[data-name="full-screen"]',
-                    'button[data-tooltip="Toggle Fullscreen Mode (Shift+F)"]',
-                    'button.fullscreen-button',
-                    'button.button-Wgfb_fN3:has(svg)', // TradingView's icon button format
-                    'button:has(svg[data-name="maximize"])',
-                ];
-                
-                for (const selector of fullscreenButtonSelectors) {
-                    const buttons = await page.$$(selector);
-                    console.log(`Found ${buttons.length} buttons with selector ${selector}`);
-                    
-                    for (const button of buttons) {
-                        try {
-                            await button.click({ force: true }).catch(() => {});
-                            console.log(`Clicked fullscreen button with selector ${selector}`);
-                            break;
-                        } catch (e) {
-                            console.log(`Error clicking button with selector ${selector}:`, e);
-                        }
-                    }
-                }
-                
-                // Als directe methode, probeer op de maximaliseerknop in de JS-API te klikken
-                await page.evaluate(() => {
-                    try {
-                        // Zoek naar alle knoppen en probeer degene met maximalisatie/fullscreen attributen te vinden
-                        const allButtons = document.querySelectorAll('button');
-                        for (const btn of allButtons) {
-                            const btnText = btn.innerText.toLowerCase();
-                            const btnTitle = (btn.getAttribute('title') || '').toLowerCase();
-                            const btnTooltip = (btn.getAttribute('data-tooltip') || '').toLowerCase();
-                            
-                            if (btnText.includes('fullscreen') || 
-                                btnTitle.includes('fullscreen') || 
-                                btnTooltip.includes('fullscreen') ||
-                                btnText.includes('maximize') || 
-                                btnTitle.includes('maximize') ||
-                                btnTooltip.includes('maximize') ||
-                                btnTooltip.includes('shift+f')) {
-                                console.log('Found fullscreen button via text/attributes');
-                                btn.click();
-                                return true;
-                            }
-                        }
-                        
-                        // Als we het nog niet hebben gevonden, zoek naar svg-iconen
-                        const svgMaximizeIcons = document.querySelectorAll('svg[data-name="maximize"]');
-                        if (svgMaximizeIcons.length > 0) {
-                            for (const icon of svgMaximizeIcons) {
-                                let button = icon;
-                                // Zoek naar de bovenliggende knop
-                                while (button && button.tagName !== 'BUTTON') {
-                                    button = button.parentElement;
-                                    if (!button) break;
-                                }
-                                
-                                if (button) {
-                                    console.log('Found fullscreen button via SVG icon');
-                                    button.click();
-                                    return true;
-                                }
-                            }
-                        }
-                    } catch (e) {
-                        console.log('Error trying to find and click fullscreen button:', e);
-                    }
-                    return false;
-                });
-            } catch (e) {
-                console.log('Error attempting to click fullscreen button:', e);
-            }
-            
-            // Wacht nog een moment zodat fullscreen kan worden toegepast
-            await page.waitForTimeout(2000);
-            
-            // Forceer maximale chart weergave met CSS (werk altijd, ongeacht fullscreen parameter)
-            console.log('Applying CSS to maximize chart view...');
+            // Methode 2: Maak de chart groter met CSS (werkt altijd)
             await page.addStyleTag({
                 content: `
-                    /* Verberg alle UI elementen die niet nodig zijn voor de chart */
-                    .tv-header, 
-                    .js-rootresizer__contents,
-                    .tv-side-toolbar,
-                    .layout__area--left,
-                    .layout__area--right,
-                    .layout__area--top,
-                    .layout__area--bottom,
-                    .tv-floating-toolbar,
-                    .tv-dialog-wrapper,
-                    .tv-main-panel__toolbar,
-                    .tv-main-panel__statuses,
-                    .header-chart-panel,
-                    footer,
-                    .tv-dialog,
-                    .tv-insert-study-dialog,
-                    .tv-objects-tree-dialog {
+                    /* Verberg header en toolbar */
+                    .tv-header, .tv-main-panel__toolbar, .tv-side-toolbar {
                         display: none !important;
-                        visibility: hidden !important;
-                        opacity: 0 !important;
-                        width: 0 !important;
-                        height: 0 !important;
-                        overflow: hidden !important;
                     }
                     
-                    /* Maximaliseer de chart container */
-                    .chart-container,
-                    .chart-markup-table,
-                    .chart-page,
-                    .layout__area--center,
-                    .trading-layout,
-                    .layout-with-border-container,
-                    .layout__area {
+                    /* Maximaliseer chart container */
+                    .chart-container, .chart-markup-table, .layout__area--center {
                         width: 100vw !important;
                         height: 100vh !important;
-                        max-width: 100vw !important;
-                        max-height: 100vh !important;
                         position: fixed !important;
                         top: 0 !important;
                         left: 0 !important;
-                        margin: 0 !important;
-                        padding: 0 !important;
-                        border: none !important;
-                        z-index: 999 !important;
-                        overflow: hidden !important;
-                    }
-                    
-                    /* Forceer de chart om de volledige grootte te gebruiken */
-                    .chart-container [data-name="legend"],
-                    .chart-container [data-name="labels"] {
-                        display: none !important;
-                    }
-                    
-                    /* Set chart content to take full space */
-                    body, html {
-                        overflow: hidden !important;
-                        margin: 0 !important;
-                        padding: 0 !important;
                     }
                 `
-            });
-            
-            // Probeer de chart maximaal te maken met JavaScript
-            await page.evaluate(() => {
-                try {
-                    // Forceer maximale afmetingen op alle chart gerelateerde elementen
-                    const chartElements = document.querySelectorAll('.chart-container, .chart-markup-table, .chart-page, .layout__area--center, .trading-layout');
-                    chartElements.forEach(el => {
-                        el.style.width = '100vw';
-                        el.style.height = '100vh';
-                        el.style.maxWidth = '100vw';
-                        el.style.maxHeight = '100vh';
-                        el.style.position = 'fixed';
-                        el.style.top = '0';
-                        el.style.left = '0';
-                        el.style.margin = '0';
-                        el.style.padding = '0';
-                        el.style.zIndex = '999';
-                    });
-                    
-                    // Verberg alle UI elementen
-                    const uiElements = document.querySelectorAll('.tv-header, .tv-side-toolbar, .layout__area--left, .layout__area--right, .tv-main-panel__toolbar');
-                    uiElements.forEach(el => {
-                        el.style.display = 'none';
-                    });
-                    
-                    // Roep viewport resize events aan om de chart te forceren om opnieuw te tekenen
-                    window.dispatchEvent(new Event('resize'));
-                } catch (e) {
-                    console.log('Error maximizing chart:', e);
-                }
             });
             
             // Wacht nog wat langer als we zijn ingelogd om custom indicators te laden
@@ -705,40 +517,26 @@ const { chromium } = require('playwright');
             
             // Wacht tot de chart volledig is geladen
             console.log('Waiting for chart to be fully loaded...');
-            await page.waitForFunction(() => {
-                // Controleer of de loading indicator verdwenen is
-                const loadingIndicator = document.querySelector('.loading-indicator');
-                if (loadingIndicator && window.getComputedStyle(loadingIndicator).display !== 'none') {
-                    console.log('Loading indicator still visible');
-                    return false;
-                }
+            try {
+                // Wacht maximaal 15 seconden op de chart met een timeout
+                const waitPromise = page.waitForFunction(() => {
+                    // Controleer of de chart container zichtbaar is
+                    const chartContainer = document.querySelector('.chart-container');
+                    if (!chartContainer) {
+                        return false;
+                    }
+                    return true;
+                }, { timeout: 15000 });
                 
-                // Controleer of de chart container zichtbaar is
-                const chartContainer = document.querySelector('.chart-container');
-                if (!chartContainer) {
-                    console.log('Chart container not found');
-                    return false;
-                }
+                // Stel een timeout in om te voorkomen dat we blijven wachten
+                const timeoutPromise = new Promise((resolve) => setTimeout(resolve, 15000));
                 
-                // Controleer of de chart container zichtbaar is
-                const isVisible = window.getComputedStyle(chartContainer).visibility !== 'hidden';
-                if (!isVisible) {
-                    console.log('Chart container is hidden');
-                    return false;
-                }
-                
-                // Controleer of er een error message zichtbaar is
-                const errorMessage = document.querySelector('.tv-error-card');
-                if (errorMessage && window.getComputedStyle(errorMessage).display !== 'none') {
-                    console.log('Error message is visible:', errorMessage.textContent);
-                    return false;
-                }
-                
-                return true;
-            }, { timeout: 30000 }).catch(e => {
-                console.error('Error waiting for chart to load:', e);
-                // We gaan door, ook al is er een timeout
-            });
+                // Gebruik Promise.race om de eerste te nemen die voltooid is
+                await Promise.race([waitPromise, timeoutPromise]);
+                console.log('Chart loaded or timeout reached');
+            } catch (e) {
+                console.log('Timeout waiting for chart, continuing anyway:', e);
+            }
             
             // Laatste kans om alle popups te sluiten
             await page.evaluate(() => {
