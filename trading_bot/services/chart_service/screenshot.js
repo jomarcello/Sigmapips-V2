@@ -73,6 +73,76 @@ const { chromium } = require('playwright');
       await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
       console.log('Page loaded (domcontentloaded)');
       
+      // Direct click poging met Playwright op de close button
+      try {
+        console.log('Attempting to click close button with Playwright...');
+        
+        // Wacht kort om de popup kans te geven te verschijnen
+        await page.waitForTimeout(2000);
+        
+        // Specifieke selectors voor de close button zoals opgegeven door de gebruiker
+        const selectors = [
+          'button.nav-button-znwuaSC1.size-medium-znwuaSC1.preserve-paddings-znwuaSC1.close-B02UUUN3',
+          'button[data-name="close"]',
+          'button.close-B02UUUN3',
+          'button[aria-label="close"]',
+          'button:has(svg)'
+        ];
+        
+        // Probeer elke selector
+        for (const selector of selectors) {
+          try {
+            console.log(`Looking for close button with selector: ${selector}`);
+            const closeButtons = await page.$$(selector);
+            
+            if (closeButtons.length > 0) {
+              console.log(`Found ${closeButtons.length} close buttons with selector: ${selector}`);
+              
+              for (const button of closeButtons) {
+                console.log(`Clicking close button found with selector: ${selector}`);
+                await button.click().catch(e => console.log(`Click error: ${e.message}`));
+                await page.waitForTimeout(500);
+              }
+            }
+          } catch (e) {
+            console.log(`Error with selector ${selector}: ${e.message}`);
+          }
+        }
+        
+        // Specifiek voor SVG elementen
+        try {
+          const svgButtons = await page.$$('button svg');
+          console.log(`Found ${svgButtons.length} buttons with SVG`);
+          
+          for (const button of svgButtons) {
+            const parentButton = await button.evaluateHandle(node => node.closest('button'));
+            if (parentButton) {
+              console.log('Clicking parent button of SVG');
+              await parentButton.click().catch(e => console.log(`SVG button click error: ${e.message}`));
+              await page.waitForTimeout(500);
+            }
+          }
+        } catch (e) {
+          console.log(`Error clicking SVG buttons: ${e.message}`);
+        }
+        
+        // Zoek ook naar elementen met "close" in het data-name attribuut
+        try {
+          await page.$$eval('button[data-name*="close"], [aria-label*="close"], [class*="close"]', buttons => {
+            console.log(`Found ${buttons.length} potential close buttons`);
+            buttons.forEach(button => {
+              console.log('Clicking potential close button');
+              button.click();
+            });
+          });
+        } catch (e) {
+          console.log(`Error with data-name close: ${e.message}`);
+        }
+        
+      } catch (e) {
+        console.error('Error in direct Playwright close button click:', e);
+      }
+      
       // Direct zoeken naar de stock screener dialoog en deze actief verwijderen
       console.log('Actively searching for Stock Screener notification...');
       await page.evaluate(() => {
@@ -92,6 +162,58 @@ const { chromium } = require('playwright');
           
           return result;
         }
+        
+        // Specifieke selector voor de close button van de Stock Screener popup
+        function clickCloseButton() {
+          console.log('Trying to click specific close button...');
+          
+          // Exacte selector voor de close button zoals opgegeven door de gebruiker
+          const closeButtonSelectors = [
+            'button.nav-button-znwuaSC1.size-medium-znwuaSC1.preserve-paddings-znwuaSC1.close-B02UUUN3',
+            'button[data-name="close"]',
+            'button[data-role="button"] svg',
+            '.nav-button-znwuaSC1.close-B02UUUN3',
+            'button.close-B02UUUN3'
+          ];
+          
+          let clickedAny = false;
+          
+          // Probeer elke selector
+          closeButtonSelectors.forEach(selector => {
+            const buttons = document.querySelectorAll(selector);
+            console.log(`Found ${buttons.length} elements matching selector: ${selector}`);
+            
+            buttons.forEach(button => {
+              console.log('Clicking close button:', selector);
+              button.click();
+              clickedAny = true;
+            });
+          });
+          
+          // Probeer ook direct op het SVG element te klikken
+          const svgPaths = document.querySelectorAll('button svg path');
+          if (svgPaths.length > 0) {
+            console.log('Found SVG paths, trying to click parent button');
+            svgPaths.forEach(path => {
+              // Zoek de parent button
+              let el = path;
+              while (el && el.tagName !== 'BUTTON') {
+                el = el.parentElement;
+              }
+              if (el) {
+                console.log('Clicking parent button of SVG path');
+                el.click();
+                clickedAny = true;
+              }
+            });
+          }
+          
+          return clickedAny;
+        }
+        
+        // Probeer eerst direct de sluitknop te klikken
+        const clicked = clickCloseButton();
+        console.log('Direct close button click result:', clicked);
         
         // Lijst van teksten die in de Stock Screener dialoog voorkomen
         const screenerTexts = [
@@ -854,41 +976,130 @@ const { chromium } = require('playwright');
     // Extra wachttijd voor stabiliteit (indien nodig)
     await page.waitForTimeout(2000);
     
-    // Laatste handleiding check en klik actie voor alle Got it knoppen
-    console.log('Final check for Got it buttons...');
-    await page.evaluate(() => {
-      // Zoek alle knoppen met "Got it" tekst en klik erop
-      const buttons = Array.from(document.querySelectorAll('button'));
-      buttons.forEach(button => {
-        if (button.textContent && (
-            button.textContent.includes('Got it') || 
-            button.textContent.includes('thanks') || 
-            button.textContent.includes('OK') ||
-            button.textContent.includes('Close')
-          )) {
-          console.log('Clicking button with text:', button.textContent);
-          button.click();
+    // Voeg de ultieme selector toe aan de pagina
+    await page.addStyleTag({
+      content: `
+        /* Speciale ultieme selector voor de Stock Screener popup */
+        body > div > div > div > div > div > div > div[role="dialog"]:has(button.nav-button-znwuaSC1.size-medium-znwuaSC1.preserve-paddings-znwuaSC1.close-B02UUUN3),
+        div:has(> button.nav-button-znwuaSC1.size-medium-znwuaSC1.preserve-paddings-znwuaSC1.close-B02UUUN3) {
+          display: none !important;
+          visibility: hidden !important;
+          opacity: 0 !important;
+          z-index: -9999 !important;
+          pointer-events: none !important;
         }
+        
+        /* De button zelf ook verbergen */
+        button.nav-button-znwuaSC1.size-medium-znwuaSC1.preserve-paddings-znwuaSC1.close-B02UUUN3 {
+          display: none !important;
+          visibility: hidden !important;
+          opacity: 0 !important;
+        }
+      `
+    });
+    
+    // Opsporen en verwijderen van dialoog gebaseerd op de SVG close button
+    await page.evaluate(() => {
+      // Functie om recursief naar boven te zoeken voor dialoog element
+      function findDialogParent(element, maxLevels = 10) {
+        let current = element;
+        let level = 0;
+        
+        while (current && current !== document.body && level < maxLevels) {
+          // Controleren of dit een dialoog is
+          if (
+            current.getAttribute && current.getAttribute('role') === 'dialog' ||
+            current.classList && (
+              current.classList.contains('tv-dialog') ||
+              current.classList.contains('js-dialog')
+            )
+          ) {
+            return current; // Dit is een dialoog element
+          }
+          
+          // Check of dit een popup/overlay container is
+          if (
+            current.style && (
+              current.style.position === 'fixed' ||
+              window.getComputedStyle(current).position === 'fixed'
+            ) && (
+              current.style.zIndex > 100 ||
+              parseInt(window.getComputedStyle(current).zIndex) > 100
+            )
+          ) {
+            return current; // Dit is waarschijnlijk een popup container
+          }
+          
+          current = current.parentElement;
+          level++;
+        }
+        
+        return null; // Geen dialoog gevonden
+      }
+      
+      // Zoek alle buttons met de exacte class
+      const closeButtons = document.querySelectorAll('button.nav-button-znwuaSC1.size-medium-znwuaSC1.preserve-paddings-znwuaSC1.close-B02UUUN3');
+      console.log(`Found ${closeButtons.length} exact close buttons`);
+      
+      closeButtons.forEach(button => {
+        // Zoek de parent dialoog
+        const dialogParent = findDialogParent(button);
+        if (dialogParent) {
+          console.log('Found dialog parent of close button, removing it completely');
+          try {
+            // Forceer volledig verwijderen van de dialoog
+            dialogParent.style.display = 'none';
+            dialogParent.style.visibility = 'hidden';
+            dialogParent.style.opacity = '0';
+            dialogParent.style.pointerEvents = 'none';
+            dialogParent.style.zIndex = '-9999';
+            
+            // Verwijder volledig uit DOM
+            if (dialogParent.parentNode) {
+              dialogParent.parentNode.removeChild(dialogParent);
+              console.log('Successfully removed dialog parent from DOM');
+            }
+          } catch (e) {
+            console.error('Error removing dialog parent:', e);
+          }
+        } else {
+          console.log('No dialog parent found for close button');
+        }
+        
+        // Klik ook op de knop
+        try {
+          button.click();
+        } catch (e) {}
       });
       
-      // Forceer alle dialogen te verdwijnen
-      const dialogs = Array.from(document.querySelectorAll('.tv-dialog, .js-dialog, [role="dialog"], .tv-notification, .feature-notification, .tv-toast, .tv-alert-dialog'));
-      dialogs.forEach(dialog => {
-        dialog.style.display = 'none';
-        dialog.style.visibility = 'hidden';
-        dialog.style.opacity = '0';
-        dialog.style.pointerEvents = 'none';
-        dialog.style.zIndex = '-9999';
+      // Zoek ook direct voor SVG paden
+      const svgPaths = document.querySelectorAll('svg path[d="m.58 1.42.82-.82 15 15-.82.82z"], svg path[d="m.58 15.58 15-15 .82.82-15 15z"]');
+      console.log(`Found ${svgPaths.length} SVG paths`);
+      
+      svgPaths.forEach(path => {
+        let svg = path.closest('svg');
+        if (!svg) return;
         
-        // Probeer te verwijderen indien mogelijk
+        let button = svg.closest('button');
+        if (!button) return;
+        
+        // Vond een button, zoek de parent dialoog en verwijder deze
+        const dialogParent = findDialogParent(button);
+        if (dialogParent) {
+          console.log('Found dialog parent through SVG path, removing');
+          try {
+            dialogParent.style.display = 'none';
+            dialogParent.remove();
+          } catch (e) {}
+        }
+        
+        // Klik op de knop
         try {
-          if (dialog.parentNode) {
-            dialog.parentNode.removeChild(dialog);
-          }
-        } catch(e) {}
+          button.click();
+        } catch (e) {}
       });
     });
-
+    
     // Neem screenshot
     console.log('Taking screenshot...');
     const screenshot = await page.screenshot({ path: outputPath });
