@@ -2377,9 +2377,15 @@ Click the button below to start your FREE 14-day trial.
                 text=f"Analyzing market sentiment for {instrument}. Please wait..."
             )
             
-            # Get sentiment data directly from the sentiment service
+            # Log what we're doing
+            logger.info(f"Toon sentiment analyse voor {instrument}")
+            
+            # Get sentiment data directly from the sentiment service with a timeout
             try:
-                sentiment_data = await self.sentiment.get_market_sentiment(instrument)
+                # Use a timeout to prevent hanging
+                sentiment_data_task = self.sentiment.get_market_sentiment(instrument)
+                sentiment_data = await asyncio.wait_for(sentiment_data_task, timeout=60.0)  # 60 second timeout
+                
                 logger.info(f"Sentiment data received for {instrument}")
                 
                 # Extract sentiment data
@@ -2413,6 +2419,14 @@ Click the button below to start your FREE 14-day trial.
                 
                 return SHOW_RESULT
                 
+            except asyncio.TimeoutError:
+                logger.error(f"Timeout getting sentiment data for {instrument}")
+                return await self._show_sentiment_error(query, instrument, "The sentiment analysis is taking too long. Please try again later.")
+                
+            except asyncio.CancelledError:
+                logger.warning(f"Sentiment analysis was cancelled for {instrument}")
+                return await self._show_sentiment_error(query, instrument, "The sentiment analysis was interrupted. Please try again.")
+                
             except Exception as e:
                 logger.error(f"Error getting sentiment data: {str(e)}")
                 logger.exception(e)
@@ -2423,11 +2437,13 @@ Click the button below to start your FREE 14-day trial.
             logger.exception(e)
             return await self._show_sentiment_error(query, instrument)
 
-    async def _show_sentiment_error(self, query, instrument):
+    async def _show_sentiment_error(self, query, instrument, message=None):
         """Show error message when sentiment analysis fails"""
         try:
+            error_text = message or f"Sorry, I couldn't analyze sentiment for {instrument} at this time. Please try again later."
+            
             await query.edit_message_text(
-                text=f"Sorry, I couldn't analyze sentiment for {instrument} at this time. Please try again later.",
+                text=error_text,
                 reply_markup=InlineKeyboardMarkup([[
                     InlineKeyboardButton("⬅️ Back", callback_data="back_instrument")
                 ]])
