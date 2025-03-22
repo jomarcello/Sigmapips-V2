@@ -205,6 +205,18 @@ class MarketSentimentService:
         logger.info(f"Formatting market data for {instrument} using DeepSeek API")
         
         try:
+            # First attempt to check if DeepSeek API is reachable
+            try:
+                # Test connection with a simple HEAD request
+                async with aiohttp.ClientSession() as session:
+                    async with session.head("https://api.deepseek.ai/v1/chat/completions", timeout=5) as resp:
+                        if resp.status >= 400:
+                            logger.warning(f"DeepSeek API appears to be unreachable: status {resp.status}")
+                            return self._format_data_manually(instrument, market_data)
+            except Exception as conn_err:
+                logger.warning(f"DeepSeek API connection test failed: {str(conn_err)}")
+                return self._format_data_manually(instrument, market_data)
+            
             async with aiohttp.ClientSession() as session:
                 prompt = f"""Using the following market data, create a structured market analysis for {instrument} to be displayed in a Telegram bot:
 
@@ -250,19 +262,96 @@ If certain information is not available in the market data, make reasonable assu
                     "max_tokens": 1024
                 }
                 
-                async with session.post(self.deepseek_url, headers=self.deepseek_headers, json=payload) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        content = data['choices'][0]['message']['content']
-                        logger.info(f"Successfully formatted market data for {instrument}")
-                        return content
-                    
-                    logger.error(f"DeepSeek API error: {response.status}")
-                    return None
+                try:
+                    async with session.post(self.deepseek_url, headers=self.deepseek_headers, json=payload, timeout=15) as response:
+                        response_text = await response.text()
+                        logger.info(f"DeepSeek API response status: {response.status}")
+                        logger.info(f"DeepSeek API response: {response_text[:200]}...")  # Log first 200 chars
+                        
+                        if response.status == 200:
+                            data = json.loads(response_text)
+                            content = data['choices'][0]['message']['content']
+                            logger.info(f"Successfully formatted market data for {instrument}")
+                            return content
+                        
+                        logger.error(f"DeepSeek API error: {response.status}, details: {response_text}")
+                        return self._format_data_manually(instrument, market_data)
+                except aiohttp.ClientError as e:
+                    logger.error(f"DeepSeek API client error: {str(e)}")
+                    return self._format_data_manually(instrument, market_data)
                     
         except Exception as e:
             logger.error(f"Error calling DeepSeek API: {str(e)}")
-            return None
+            logger.exception(e)
+            return self._format_data_manually(instrument, market_data)
+            
+    def _format_data_manually(self, instrument: str, market_data: str) -> str:
+        """Format the market data manually when DeepSeek API fails"""
+        logger.info(f"Formatting market data manually for {instrument}")
+        
+        # Extract key information from the market data
+        lines = market_data.strip().split('\n')
+        title_line = f"<b>🎯 {instrument} Market Analysis</b>"
+        
+        # Determine sentiment from keywords
+        sentiment = "neutral"
+        if any(keyword in market_data.lower() for keyword in ["bullish", "positive", "uptrend", "upward", "rise", "increase"]):
+            sentiment = "bullish"
+        elif any(keyword in market_data.lower() for keyword in ["bearish", "negative", "downtrend", "downward", "fall", "decrease"]):
+            sentiment = "bearish"
+        
+        # Prepare the analysis
+        analysis = f"{title_line}\n\n"
+        analysis += f"<b>📈 Market Direction:</b>\n"
+        analysis += f"The {instrument} is currently showing {sentiment} sentiment based on recent market data.\n\n"
+        
+        analysis += "<b>📰 Latest News & Events:</b>\n"
+        
+        # Try to extract 2-3 bullet points from the raw data
+        news_items = []
+        for line in lines:
+            line = line.strip()
+            if line and len(line) > 20 and "." in line and not line.startswith(("Source:", "http", "www")):
+                news_items.append(f"• {line}")
+                if len(news_items) >= 3:
+                    break
+        
+        # If we couldn't extract enough news items, use the raw data
+        if len(news_items) < 2:
+            # Just use the first 3 paragraphs as bullet points
+            news_text = " ".join(lines)
+            paragraphs = [p.strip() for p in news_text.split('.') if len(p.strip()) > 20]
+            for i, para in enumerate(paragraphs[:3]):
+                news_items.append(f"• {para}.")
+                if len(news_items) >= 3:
+                    break
+        
+        analysis += "\n".join(news_items) + "\n\n"
+        
+        # Add generic key levels section
+        analysis += "<b>🎯 Key Levels:</b>\n"
+        analysis += "• Support Levels:\n"
+        analysis += "  - Check recent lows for potential support\n"
+        analysis += "• Resistance Levels:\n"
+        analysis += "  - Check recent highs for potential resistance\n\n"
+        
+        # Add generic risk factors
+        analysis += "<b>⚠️ Risk Factors:</b>\n"
+        analysis += "• Market volatility could increase with upcoming economic data releases\n"
+        analysis += "• Global events and central bank decisions may impact price action\n\n"
+        
+        # Add conclusion based on sentiment
+        analysis += "<b>💡 Conclusion:</b>\n"
+        if sentiment == "bullish":
+            analysis += "Consider potential long opportunities with appropriate risk management.\n"
+        elif sentiment == "bearish":
+            analysis += "Watch for possible short opportunities while managing risk carefully.\n"
+        else:
+            analysis += "Monitor the market for clearer directional signals before taking positions.\n"
+        
+        analysis += "\n<i>Analysis generated based on recent market data.</i>"
+        
+        return analysis
     
     def _guess_market_from_instrument(self, instrument: str) -> str:
         """Guess market type from instrument symbol"""
