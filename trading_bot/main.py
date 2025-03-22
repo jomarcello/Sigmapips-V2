@@ -19,7 +19,7 @@ load_dotenv()
 from trading_bot.services.database.db import Database
 from trading_bot.services.chart_service.chart import ChartService
 from trading_bot.services.sentiment_service.sentiment import MarketSentimentService
-from trading_bot.services.calendar_service import EconomicCalendarService
+from trading_bot.services.calendar_service.calendar import EconomicCalendarService
 from trading_bot.services.telegram_service.bot import TelegramService
 from trading_bot.services.payment_service.stripe_service import StripeService
 from trading_bot.services.payment_service.stripe_config import STRIPE_WEBHOOK_SECRET
