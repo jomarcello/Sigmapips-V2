@@ -366,10 +366,29 @@ Click the button below to start your trial:
     
     return wrapper
 
-# API Keys
-PERPLEXITY_API_KEY = "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"
-DEEPSEEK_API_KEY = "sk-274ea5952e7e4b87aba4b14de3990c7d"
-TAVILY_API_KEY = "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"  # Updated Tavily key
+# API keys with robust sanitization
+PERPLEXITY_API_KEY = os.getenv("PERPLEXITY_API_KEY", "").strip()
+DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "72df8ae1c5dd4d95b6a54c09bcf1b39e").strip()
+
+# Ensure the Tavily API key is properly formatted with 'tvly-' prefix and sanitized
+raw_tavily_key = os.getenv("TAVILY_API_KEY", "KbIKVL3UfDfnxRx3Ruw6XhL3OB9qSF9l").strip()
+TAVILY_API_KEY = raw_tavily_key.replace('\n', '').replace('\r', '')  # Remove any newlines/carriage returns
+
+# If the key doesn't start with "tvly-", add the prefix
+if TAVILY_API_KEY and not TAVILY_API_KEY.startswith("tvly-"):
+    TAVILY_API_KEY = f"tvly-{TAVILY_API_KEY}"
+    
+# Log API key (partially masked)
+if TAVILY_API_KEY:
+    masked_key = f"{TAVILY_API_KEY[:7]}...{TAVILY_API_KEY[-4:]}" if len(TAVILY_API_KEY) > 11 else f"{TAVILY_API_KEY[:4]}..."
+    logger.info(f"Using Tavily API key: {masked_key}")
+else:
+    logger.warning("No Tavily API key configured")
+    
+# Set environment variables for the API keys with sanitization
+os.environ["PERPLEXITY_API_KEY"] = PERPLEXITY_API_KEY
+os.environ["DEEPSEEK_API_KEY"] = DEEPSEEK_API_KEY
+os.environ["TAVILY_API_KEY"] = TAVILY_API_KEY
 
 class TelegramService:
     def __init__(self, db: Database, stripe_service=None, bot_token: Optional[str] = None, proxy_url: Optional[str] = None):
@@ -377,16 +396,11 @@ class TelegramService:
         self.db = db  # Database connection
         self.stripe_service = stripe_service  # Payment service
         
-        # API keys
-        PERPLEXITY_API_KEY = os.getenv("PERPLEXITY_API_KEY", "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")
-        DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "sk-274ea5952e7e4b87aba4b14de3990c7d")  # This is the DeepSeek API key
-        TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "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")  # Updated Tavily key
-        
-        # Set environment variables for the API keys
-        os.environ["PERPLEXITY_API_KEY"] = PERPLEXITY_API_KEY
-        os.environ["DEEPSEEK_API_KEY"] = DEEPSEEK_API_KEY
-        os.environ["TAVILY_API_KEY"] = TAVILY_API_KEY
-        
+        # The API keys are already set globally, no need to reinitialize them here
+        # Just ensure they're in the environment
+        if 'TAVILY_API_KEY' not in os.environ or not os.environ['TAVILY_API_KEY']:
+            logger.warning("Tavily API key not found in environment variables")
+            
         # Initialize the bot token
         self.bot_token = bot_token or os.getenv("TELEGRAM_BOT_TOKEN")
         self.proxy_url = proxy_url
@@ -395,56 +409,6 @@ class TelegramService:
         # Signal handling attributes
         self.signals_enabled = True  # Enable signals by default
         self.user_signals = {}  # Initialize user signals dict
-        
-        # Set API keys in environment variables
-        os.environ["PERPLEXITY_API_KEY"] = PERPLEXITY_API_KEY
-        os.environ["DEEPSEEK_API_KEY"] = DEEPSEEK_API_KEY
-        os.environ["TAVILY_API_KEY"] = TAVILY_API_KEY
-        
-        # API services
-        self.chart = ChartService()  # Chart generation service
-        self.calendar = EconomicCalendarService()  # Economic calendar service
-        self.sentiment = MarketSentimentService()  # Market sentiment service
-        
-        # Initialize chart service
-        asyncio.create_task(self.chart.initialize())
-        
-        # Bot application
-        self.application = None
-        self.persistence = None
-        self.bot_started = False
-        
-        # Cache for sentiment analysis
-        self.sentiment_cache = {}
-        self.sentiment_cache_ttl = 60 * 60  # 1 hour in seconds
-        
-        # Start the bot
-        try:
-            # Check for bot token
-            if not self.bot_token:
-                raise ValueError("Missing Telegram bot token")
-            
-            # Initialize the bot
-            self.bot = Bot(token=self.bot_token)
-            
-            # Initialize the application
-            self.application = Application.builder().bot(self.bot).build()
-            
-            # Registreer de handlers
-            self._register_handlers()
-            
-            logger.info("Telegram service initialized")
-            
-            # Houd bij welke updates al zijn verwerkt
-            self.processed_updates = set()
-            
-            # Initialize sentiment cache with TTL of 60 minutes
-            self.sentiment_cache = {}
-            self.sentiment_cache_ttl = 60 * 60  # 60 minutes in seconds
-            
-        except Exception as e:
-            logger.error(f"Error initializing Telegram service: {str(e)}")
-            raise
 
     def _load_signals(self):
         """Laad signalen uit het JSON bestand"""
