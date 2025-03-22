@@ -73,39 +73,289 @@ const { chromium } = require('playwright');
       await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
       console.log('Page loaded (domcontentloaded)');
       
+      // Direct zoeken naar de stock screener dialoog en deze actief verwijderen
+      console.log('Actively searching for Stock Screener notification...');
+      await page.evaluate(() => {
+        // Functie om alle tekst te vinden die voorkomt in de pagina
+        function findElementsWithText(searchText) {
+          const result = [];
+          const walker = document.createTreeWalker(
+            document.body,
+            NodeFilter.SHOW_TEXT,
+            { acceptNode: node => node.nodeValue.includes(searchText) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT }
+          );
+          
+          let node;
+          while (node = walker.nextNode()) {
+            result.push(node.parentElement);
+          }
+          
+          return result;
+        }
+        
+        // Lijst van teksten die in de Stock Screener dialoog voorkomen
+        const screenerTexts = [
+          'Stock Screener is disappearing',
+          'The old Stock Screener',
+          'streamline your experience',
+          'Got it, thanks',
+          'Screener',
+          'removing the old'
+        ];
+        
+        // Zoek naar de tekst en vervolgens de dialoog container
+        screenerTexts.forEach(text => {
+          const elements = findElementsWithText(text);
+          console.log(`Found ${elements.length} elements containing: ${text}`);
+          
+          elements.forEach(element => {
+            // Zoek omhoog naar de dialoog container
+            let current = element;
+            let foundDialog = false;
+            
+            // Loop maximaal 10 niveaus omhoog
+            for (let i = 0; i < 10; i++) {
+              if (!current || current === document.body) break;
+              
+              // Check of dit een dialoog is
+              if (
+                current.classList && (
+                  current.classList.contains('tv-dialog') ||
+                  current.classList.contains('js-dialog')
+                ) ||
+                current.getAttribute && current.getAttribute('role') === 'dialog' ||
+                current.querySelectorAll && (
+                  current.querySelectorAll('button').length > 0 ||
+                  current.querySelectorAll('[role="dialog"]').length > 0
+                )
+              ) {
+                foundDialog = true;
+                console.log('Found dialog containing text:', text);
+                
+                // Zoek en klik op Got it knoppen
+                const buttons = current.querySelectorAll('button');
+                let clicked = false;
+                
+                Array.from(buttons).forEach(button => {
+                  if (
+                    button.textContent && (
+                      button.textContent.includes('Got it') ||
+                      button.textContent.includes('thanks') ||
+                      button.textContent.includes('OK')
+                    )
+                  ) {
+                    console.log('Clicking button with text:', button.textContent);
+                    button.click();
+                    clicked = true;
+                  }
+                });
+                
+                // Als geen knop gevonden, verberg de dialoog
+                current.style.display = 'none';
+                current.style.visibility = 'hidden';
+                current.style.opacity = '0';
+                current.style.pointerEvents = 'none';
+                
+                // Probeer het element te verwijderen
+                try {
+                  if (current.parentNode) {
+                    current.parentNode.removeChild(current);
+                    console.log('Successfully removed dialog');
+                  }
+                } catch(e) {
+                  console.error('Failed to remove dialog:', e);
+                }
+                
+                break;
+              }
+              
+              current = current.parentNode;
+            }
+          });
+        });
+      });
+      
+      // Voeg onmiddellijk krachtige CSS toe om popups en dialogen te blokkeren
+      await page.addStyleTag({
+        content: `
+          /* Zeer agressieve CSS om alle mogelijke popups te verbergen */
+          .tv-dialog, 
+          .tv-dialog-container,
+          .js-dialog, 
+          .tv-dialog__modal,
+          .tv-dialog__modal-container,
+          [role="dialog"], 
+          .tv-notification, 
+          .feature-notification,
+          .tv-toast,
+          .tv-alert-dialog,
+          div[data-dialog-name*="chart-new-features"],
+          div[data-dialog-name*="notice"],
+          div[data-name*="dialog"] {
+            display: none !important;
+            visibility: hidden !important;
+            opacity: 0 !important;
+            pointer-events: none !important;
+            z-index: -9999 !important;
+          }
+
+          /* Zeer specifiek voor de Stock Screener popup */
+          body > div > div > div > div > div > div > div > div:has(button:has-text("Got it, thanks")),
+          div:has(> div > span:contains("Stock Screener")),
+          div:has(> div:contains("streamline your experience")) {
+            display: none !important;
+            visibility: hidden !important;
+            opacity: 0 !important;
+          }
+        `
+      });
+      
       // Stel localStorage waarden in om meldingen uit te schakelen
       console.log('Setting localStorage values to disable notifications...');
       await page.evaluate(() => {
-        // Stel release channel in op stable
-        localStorage.setItem('tv_release_channel', 'stable');
+        // Volledige lijst van alle mogelijke localStorage instellingen om notificaties te deactiveren
+        const settings = {
+          // TradingView algemene instellingen
+          'tv_release_channel': 'stable',
+          'tv_alert': 'dont_show',
+          'tv_alert_dialog_chart_v5': 'true',
+          'feature_hint_shown': 'true',
+          'tv_twitter_notification': 'true',
+          'tv_changelog_notification': 'true',
+          'TVPrivacySettingsAccepted': 'true',
+          
+          // Stock Screener specifieke instellingen
+          'screener_new_feature_notification': 'shown',
+          'tv_notification': 'dont_show',
+          'screener_shown': 'true',
+          'screener.warning-message': 'shown',
+          'screener.notification-message': 'shown',
+          'ScreenerNotification_Viewed': 'true',
+          'screener_deprecated': 'true',
+          'tv_screener_notification': 'dont_show',
+          'screener_new_feature_already_shown': 'true',
+          
+          // Algemene feature hints en notification dialogs
+          'tv_notifications_dialog': 'dont_show',
+          'notificationsDialogShown': 'true',
+          'tv_notification_dialog': 'dont_show',
+          'notificationcenter_dialog_shown': 'true',
+          'dont-show-notification-hints': 'true',
+          'tv_popup': 'dont_show',
+          'has_seen_tv_dialog': 'true',
+          'DialogNotification_Viewed': 'true',
+          'ChartWarning_Viewed': 'true'
+        };
         
-        // Schakel versie meldingen uit
-        localStorage.setItem('tv_alert', 'dont_show');
+        // Alle instellingen toepassen
+        for (const [key, value] of Object.entries(settings)) {
+          try {
+            localStorage.setItem(key, value);
+          } catch (e) {
+            console.log(`Error setting localStorage item: ${key}`, e);
+          }
+        }
         
-        // Schakel nieuwe functie hints uit
-        localStorage.setItem('feature_hint_shown', 'true');
-        
-        // Stel in dat de nieuwe versie al is weergegeven
-        localStorage.setItem('tv_twitter_notification', 'true');
-        localStorage.setItem('tv_changelog_notification', 'true');
-        
-        // Schakel privacy meldingen uit
-        localStorage.setItem('TVPrivacySettingsAccepted', 'true');
-        
-        // Onthoud gebruikersvoorkeuren
-        localStorage.setItem('UserPreferences', '{"hiddenMarketBanners":{}}');
-        
-        // Schakel update meldingen uit
-        localStorage.setItem('tv_alert_dialog_chart_v5', 'true');
-        
-        // Schakel stock screener notificatie uit
-        localStorage.setItem('screener_new_feature_notification', 'shown');
-        localStorage.setItem('tv_notification', 'dont_show');
+        // Sla gebruikersvoorkeuren op voor dialogen
+        try {
+          // Huidige voorkeuren ophalen en bijwerken
+          let prefs = {};
+          try {
+            prefs = JSON.parse(localStorage.getItem('UserPreferences') || '{}');
+          } catch (e) {}
+          
+          // Update met alle dialogen gesloten
+          prefs.hideAllDialogs = true;
+          prefs.dontShowHints = true;
+          prefs.hiddenMarketBanners = prefs.hiddenMarketBanners || {};
+          prefs.hiddenScreenerNotifications = true;
+          
+          localStorage.setItem('UserPreferences', JSON.stringify(prefs));
+        } catch (e) {
+          console.log('Error setting user preferences', e);
+        }
       });
       
       // Wacht extra tijd voor de pagina om te laden
       console.log('Waiting additional time for page to render...');
-      await page.waitForTimeout(10000);
+      await page.waitForTimeout(5000);
+      
+      // Voeg direct vangnet toe: MutationObserver om nieuwe dialogen onmiddellijk te verwijderen
+      await page.evaluate(() => {
+        try {
+          // MutationObserver voor het verwijderen van nieuwe dialogen
+          const observer = new MutationObserver((mutations) => {
+            // Zoek naar nieuwe dialogen in de gemuteerde elementen
+            mutations.forEach(mutation => {
+              if (mutation.addedNodes && mutation.addedNodes.length > 0) {
+                for (let i = 0; i < mutation.addedNodes.length; i++) {
+                  const node = mutation.addedNodes[i];
+                  
+                  // Als het een element node is (type 1)
+                  if (node.nodeType === 1) {
+                    // Check of het een dialoog is
+                    if (
+                      node.classList && (
+                        node.classList.contains('tv-dialog') ||
+                        node.classList.contains('js-dialog') ||
+                        node.getAttribute('role') === 'dialog'
+                      ) ||
+                      node.querySelector && (
+                        node.querySelector('.tv-dialog') || 
+                        node.querySelector('.js-dialog') ||
+                        node.querySelector('[role="dialog"]')
+                      )
+                    ) {
+                      console.log('Found dialog via MutationObserver, removing:', node);
+                      
+                      // Zoek eerst naar "Got it" knoppen en klik erop
+                      const gotItButtons = node.querySelectorAll('button');
+                      gotItButtons.forEach(btn => {
+                        if (
+                          btn.textContent && (
+                            btn.textContent.includes('Got it') || 
+                            btn.textContent.includes('thanks') ||
+                            btn.textContent.includes('OK')
+                          )
+                        ) {
+                          console.log('Clicking button in dialog:', btn.textContent);
+                          btn.click();
+                        }
+                      });
+                      
+                      // Verberg en verwijderen de dialoog
+                      node.style.display = 'none';
+                      node.style.visibility = 'hidden';
+                      node.style.opacity = '0';
+                      node.style.pointerEvents = 'none';
+                      
+                      // Probeer te verwijderen indien mogelijk
+                      try {
+                        if (node.parentNode) {
+                          node.parentNode.removeChild(node);
+                        }
+                      } catch(e) {}
+                    }
+                  }
+                }
+              }
+            });
+          });
+          
+          // Start observing the document
+          observer.observe(document.body, { 
+            childList: true, 
+            subtree: true 
+          });
+          
+          // Keep observer reference in window object
+          window._dialogObserver = observer;
+          
+          console.log('Added MutationObserver to automatically remove dialogs');
+        } catch (e) {
+          console.error('Error setting up MutationObserver:', e);
+        }
+      });
     } catch (navError) {
       console.error('Navigation error:', navError);
       // Probeer toch door te gaan, misschien is de pagina gedeeltelijk geladen
@@ -601,8 +851,47 @@ const { chromium } = require('playwright');
     // Wacht een laatste moment om zeker te zijn
     await page.waitForTimeout(1000);
     
-    // Neem een screenshot
-    await page.screenshot({ path: outputPath });
+    // Extra wachttijd voor stabiliteit (indien nodig)
+    await page.waitForTimeout(2000);
+    
+    // Laatste handleiding check en klik actie voor alle Got it knoppen
+    console.log('Final check for Got it buttons...');
+    await page.evaluate(() => {
+      // Zoek alle knoppen met "Got it" tekst en klik erop
+      const buttons = Array.from(document.querySelectorAll('button'));
+      buttons.forEach(button => {
+        if (button.textContent && (
+            button.textContent.includes('Got it') || 
+            button.textContent.includes('thanks') || 
+            button.textContent.includes('OK') ||
+            button.textContent.includes('Close')
+          )) {
+          console.log('Clicking button with text:', button.textContent);
+          button.click();
+        }
+      });
+      
+      // Forceer alle dialogen te verdwijnen
+      const dialogs = Array.from(document.querySelectorAll('.tv-dialog, .js-dialog, [role="dialog"], .tv-notification, .feature-notification, .tv-toast, .tv-alert-dialog'));
+      dialogs.forEach(dialog => {
+        dialog.style.display = 'none';
+        dialog.style.visibility = 'hidden';
+        dialog.style.opacity = '0';
+        dialog.style.pointerEvents = 'none';
+        dialog.style.zIndex = '-9999';
+        
+        // Probeer te verwijderen indien mogelijk
+        try {
+          if (dialog.parentNode) {
+            dialog.parentNode.removeChild(dialog);
+          }
+        } catch(e) {}
+      });
+    });
+
+    // Neem screenshot
+    console.log('Taking screenshot...');
+    const screenshot = await page.screenshot({ path: outputPath });
     console.log(`Screenshot saved to ${outputPath}`);
     
     // Sluit de browser
