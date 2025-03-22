@@ -402,15 +402,10 @@ class TelegramService:
         self.bot_token = bot_token or os.getenv("TELEGRAM_BOT_TOKEN")
         self.token = self.bot_token  # Aliased for backward compatibility
         
-        # Webhook configuration - ensure we have just one /webhook, not nested paths
-        webhook_path = os.getenv("WEBHOOK_PATH", "/webhook")
-        # Remove duplicated slashes and normalize path format
-        self.webhook_path = webhook_path.replace("//", "/")
-        if self.webhook_path.endswith("/"):
-            self.webhook_path = self.webhook_path[:-1]
-        if not self.webhook_path.startswith("/"):
-            self.webhook_path = "/" + self.webhook_path
-            
+        # Hardcode webhook path to solve the path issue
+        self.webhook_path = "/webhook"
+        
+        # Get webhook base URL from environment or use a default for development
         self.webhook_url = os.getenv("WEBHOOK_URL", "")
         # Normalize URL: remove trailing slash to avoid double slashes when combined with path
         if self.webhook_url.endswith("/"):
@@ -500,29 +495,20 @@ class TelegramService:
             logger.error(f"Error saving signals: {str(e)}")
 
     def _register_handlers(self):
-        """Register message handlers"""
-        try:
-            # Verwijder bestaande handlers om dubbele handlers te voorkomen
-            self.application.handlers.clear()
+        """Register all command and callback handlers with the application"""
+        # Ensure application is initialized
+        if not self.application:
+            self.setup()
             
-            # Voeg een CommandHandler toe voor /start
-            self.application.add_handler(CommandHandler("start", self.start_command))
-            
-            # Voeg een CommandHandler toe voor /menu
-            self.application.add_handler(CommandHandler("menu", self.show_main_menu))
-            
-            # Voeg een CommandHandler toe voor /help
-            self.application.add_handler(CommandHandler("help", self.help_command))
-            
-            # Voeg een CallbackQueryHandler toe voor knoppen
-            self.application.add_handler(CallbackQueryHandler(self.button_callback))
-            
-            # Meer handlers...
-            
-            logger.info("Handlers registered")
-        except Exception as e:
-            logger.error(f"Error registering handlers: {str(e)}")
-            raise
+        # Command handlers
+        self.application.add_handler(CommandHandler("start", self.start_command))
+        self.application.add_handler(CommandHandler("menu", self.show_main_menu))
+        self.application.add_handler(CommandHandler("help", self.help_command))
+        
+        # Callback query handler for all button presses
+        self.application.add_handler(CallbackQueryHandler(self.button_callback))
+        
+        logger.info("All handlers registered successfully")
 
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Send a welcome message when the bot is started."""
@@ -1726,58 +1712,40 @@ Click the button below to start your FREE 14-day trial.
 """
 
     async def initialize(self, use_webhook=False):
-        """Initialize the bot and start polling or webhook"""
+        """Initialize the bot and either start polling or return the app for webhook usage"""
         try:
-            if not self.application:
-                raise ValueError("Application not initialized")
-                
-            # Initialize the application in all cases
-            await self.application.initialize()
+            # Set bot commands
+            commands = [
+                BotCommand("start", "Start the bot"),
+                BotCommand("menu", "Show main menu"),
+                BotCommand("help", "Get help"),
+            ]
+            await self.bot.set_my_commands(commands)
+            logger.info("Bot commands set successfully")
             
-            # Controleer of we moeten forceren om polling te gebruiken
-            force_polling = os.getenv("FORCE_POLLING", "false").lower() == "true"
-            if force_polling:
-                logger.info("FORCE_POLLING is set to true, using polling mode instead of webhook")
-                use_webhook = False
+            # Create application if not already done
+            if not self.application:
+                self.setup()
                 
-            if use_webhook and not force_polling:
-                # Configureer webhook settings
-                webhook_url = os.getenv("WEBHOOK_URL")
-                webhook_port = int(os.getenv("PORT", "8000"))
-                webhook_path = os.getenv("WEBHOOK_PATH", "/webhook")
+            # Register all handlers
+            self._register_handlers()
                 
-                if not webhook_url:
-                    logger.warning("WEBHOOK_URL not set, falling back to polling mode")
-                    # Start polling mode instead
-                    await self._setup_polling_mode()
-                else:    
-                    logger.info(f"Setting up webhook configuration with URL {webhook_url}, port {webhook_port}, path {webhook_path}")
-                    
-                    # Store webhook configuration for later use
-                    self.webhook_path = webhook_path
-                    self.webhook_url = webhook_url
-                    self.webhook_port = webhook_port
-                
-                    # Set commands
-                    await self.bot.set_my_commands([
-                        BotCommand("start", "Start the bot and show main menu"),
-                        BotCommand("menu", "Show main menu"),
-                        BotCommand("help", "Show help information")
-                    ])
-                
-                    logger.info("Bot initialized with webhook configuration")
+            # Enable or configure webhook based on use_webhook flag
+            if use_webhook:
+                logger.info(f"Setting up webhook configuration with URL {self.webhook_url}, port {os.getenv('PORT', 8080)}, path {self.webhook_path}")
+                # Return the bot for webhook usage
+                return self.bot
             else:
-                # For polling mode
-                logger.info("Using polling mode as requested")
+                # Start polling mode
                 await self._setup_polling_mode()
                 
-            self.bot_started = True
+            logger.info("Bot initialized with webhook configuration")
             
         except Exception as e:
-            logger.error(f"Error initializing bot: {str(e)}")
-            logger.exception(e)
+            logger.error(f"Failed to initialize bot: {str(e)}")
+            logger.error(traceback.format_exc())
             raise
-    
+
     async def _setup_polling_mode(self):
         """Set up the bot for polling mode"""
         try:
@@ -1952,6 +1920,22 @@ Click the button below to start your FREE 14-day trial.
             update = Update.de_json(data=update_data, bot=self.bot)
             logger.info(f"Received Telegram update: {update.update_id}")
             
+            # Check if this is a command message
+            if update.message and update.message.text and update.message.text.startswith('/'):
+                command = update.message.text.split(' ')[0].lower()
+                logger.info(f"Received command: {command}")
+                
+                # Direct command handling
+                if command == '/start':
+                    await self.start_command(update, None)
+                    return
+                elif command == '/menu':
+                    await self.show_main_menu(update, None)
+                    return
+                elif command == '/help':
+                    await self.help_command(update, None)
+                    return
+            
             # Verwerk de update met een timeout-afhandeling
             try:
                 # Proces de update met een timeout
@@ -1971,32 +1955,36 @@ Click the button below to start your FREE 14-day trial.
     async def setup_webhook(self, app):
         """Set up the FastAPI webhook for Telegram."""
         
-        # Webhook URL samenstellen
+        # Webhook URL samenstellen - ensure it's /webhook not /webhook/webhook
         full_webhook_url = f"{self.webhook_url}{self.webhook_path}"
         logger.info(f"Setting up webhook at path '{self.webhook_path}' with full URL '{full_webhook_url}'")
         
         try:
-            # Direct de webhook instellen zonder eerst info op te halen
-            # Dit vermijdt het probleem met de HTTPXRequest object
+            # Direct de webhook instellen
             try:
                 logger.info(f"Setting webhook to {full_webhook_url}")
                 await self.bot.set_webhook(url=full_webhook_url, 
                                         allowed_updates=["message", "callback_query", "my_chat_member"],
                                         drop_pending_updates=True,
                                         max_connections=20)
-                logger.info("Webhook set successfully")
+                logger.info(f"Webhook set successfully for path {self.webhook_path}")
+                
+                # Check if webhook was set correctly
+                webhook_info = await self.bot.get_webhook_info()
+                logger.info(f"Current webhook URL: {webhook_info.url}")
             except Exception as e:
                 logger.error(f"Error setting webhook: {str(e)}")
                 logger.error(traceback.format_exc())
-                
-            @app.post(self.webhook_path)
+            
+            # Define the exact webhook endpoint
+            @app.post("/webhook")
             async def telegram_webhook(request: Request):
                 try:
-                    logger.debug(f"Received webhook request at {self.webhook_path}")
+                    logger.info(f"Received webhook request at /webhook")
                     update_data = await request.json()
+                    logger.debug(f"Update data: {update_data}")
                     
-                    # Maak een nieuwe taak om de update te verwerken zodat we direct kunnen
-                    # antwoorden op de webhook om timeouts te voorkomen
+                    # Process update in a new task
                     asyncio.create_task(self.process_update(update_data))
                     
                     return {"status": "ok"}
