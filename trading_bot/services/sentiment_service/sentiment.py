@@ -131,6 +131,7 @@ class MarketSentimentService:
         
         try:
             async with aiohttp.ClientSession() as session:
+                # Updated payload with proper model parameter for Perplexity API
                 payload = {
                     "model": "sonar-medium-online",
                     "messages": [{"role": "user", "content": search_query}],
@@ -138,7 +139,13 @@ class MarketSentimentService:
                     "max_tokens": 1024
                 }
                 
+                logger.info(f"Calling Perplexity API with model: {payload['model']}")
+                
                 async with session.post(self.perplexity_url, headers=self.perplexity_headers, json=payload) as response:
+                    response_text = await response.text()
+                    logger.info(f"Perplexity API response status: {response.status}")
+                    logger.info(f"Perplexity API response: {response_text[:200]}...")  # Log first 200 chars
+                    
                     if response.status == 200:
                         data = await response.json()
                         if data and "choices" in data and len(data["choices"]) > 0:
@@ -151,6 +158,7 @@ class MarketSentimentService:
                     
         except Exception as e:
             logger.error(f"Error calling Perplexity API: {str(e)}")
+            logger.exception(e)  # Add stack trace for more detailed error information
             return None
     
     async def _format_with_deepseek(self, instrument: str, market: str, market_data: str) -> str:
