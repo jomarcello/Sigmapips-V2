@@ -19,7 +19,7 @@ class MarketSentimentService:
         self.deepseek_api_key = os.getenv("DEEPSEEK_API_KEY")
         self.tavily_api_key = os.getenv("TAVILY_API_KEY")
         
-        self.deepseek_url = "https://api.deepseek.ai/v1/chat/completions"
+        self.deepseek_url = "https://api.deepseek.com/v1/chat/completions"
         
         # Initialize the Tavily client
         self.tavily_client = TavilyClient(self.tavily_api_key)
@@ -71,61 +71,52 @@ class MarketSentimentService:
             alternative_data = await self._get_alternative_news(instrument, market_type)
             
             if alternative_data:
-                # Use alternative news with DeepSeek API if available
-                try:
-                    if await self._check_deepseek_connectivity():
-                        logger.info(f"Using alternative news with DeepSeek API for {instrument}")
-                        response = await self._get_deepseek_sentiment(alternative_data, instrument)
-                        if response:
-                            # Success path - we got a response from DeepSeek
-                            return response
-                    
-                    # If DeepSeek API fails or is not available, use the alternative data directly
-                    logger.info(f"Using alternative news directly for {instrument}")
-                    return self._format_data_manually(alternative_data, instrument)
-                except Exception as e:
-                    logger.error(f"Error using alternative news with DeepSeek: {str(e)}")
-                    logger.exception(e)
-                    return self._format_data_manually(alternative_data, instrument)
-            
-            # If both Tavily and alternative news fail, use fallback
-            return self._get_fallback_sentiment(instrument)
+                tavily_data = alternative_data
+            else:
+                # If both Tavily and alternative news fail, use fallback
+                return self._get_fallback_sentiment(instrument)
         
-        # If Tavily succeeds, try to format with DeepSeek
+        # Try to use DeepSeek first, regardless of connectivity check
         try:
-            if await self._check_deepseek_connectivity():
-                logger.info(f"Using Tavily news with DeepSeek API for {instrument}")
-                response = await self._get_deepseek_sentiment(tavily_data, instrument)
-                if response:
-                    return response
-            
-            # If DeepSeek API fails, format the Tavily data manually
-            logger.info(f"Using Tavily news directly for {instrument}")
-            return self._format_data_manually(tavily_data, instrument)
+            logger.info(f"Attempting to process sentiment with DeepSeek for {instrument}")
+            deepseek_result = await self._try_deepseek_with_fallback(tavily_data, instrument)
+            if deepseek_result:
+                return deepseek_result
         except Exception as e:
             logger.error(f"Error processing sentiment with DeepSeek: {str(e)}")
             logger.exception(e)
-            return self._format_data_manually(tavily_data, instrument)
+        
+        # If DeepSeek fails, do manual formatting
+        logger.info(f"Manually formatting market data for {instrument}")
+        return self._format_data_manually(tavily_data, instrument)
             
     def _format_data_manually(self, news_content: str, instrument: str) -> Dict[str, Any]:
         """Format market data manually when DeepSeek API fails"""
         try:
             logger.info(f"Manually formatting market data for {instrument}")
             
+            # Extract key phrases and content
+            news_lines = news_content.split('\n')
+            
+            # Create a more structured analysis
+            analysis = f"<b>🎯 {instrument} Market Analysis</b>\n\n"
+            
             # Create a simple sentiment analysis based on keywords in the news content
             positive_keywords = [
                 'bullish', 'gain', 'up', 'rise', 'growth', 'positive', 'surge', 
-                'rally', 'outperform', 'increase', 'higher', 'strong', 'advance'
+                'rally', 'outperform', 'increase', 'higher', 'strong', 'advance',
+                'recovery', 'support', 'buy', 'long', 'optimistic', 'upward'
             ]
             
             negative_keywords = [
                 'bearish', 'loss', 'down', 'fall', 'decline', 'negative', 'drop', 
-                'plunge', 'underperform', 'decrease', 'lower', 'weak', 'retreat'
+                'plunge', 'underperform', 'decrease', 'lower', 'weak', 'retreat',
+                'resistance', 'sell', 'short', 'pessimistic', 'downward'
             ]
             
             # Count instances of positive and negative keywords
-            positive_count = sum(1 for word in positive_keywords if word in news_content.lower())
-            negative_count = sum(1 for word in negative_keywords if word in news_content.lower())
+            positive_count = sum(1 for word in positive_keywords if word.lower() in news_content.lower())
+            negative_count = sum(1 for word in negative_keywords if word.lower() in news_content.lower())
             
             # Determine sentiment based on keyword counts
             if positive_count > negative_count:
@@ -138,17 +129,62 @@ class MarketSentimentService:
                 sentiment = "Neutral"
                 sentiment_score = 50
             
-            # Format the result
-            analysis = f"<b>Market Sentiment Analysis for {instrument}</b>\n\n"
-            analysis += f"<b>Overall Sentiment:</b> {sentiment} ({sentiment_score}%)\n\n"
-            analysis += f"<b>Recent Market Information:</b>\n\n"
+            # Add sentiment analysis to the output
+            analysis += f"<b>📈 Market Direction:</b>\n"
+            analysis += f"The {instrument} is showing {sentiment.lower()} sentiment with a {sentiment_score}% probability. "
             
-            # Extract key information from the content (first 500 characters)
-            content_preview = news_content[:800] + "..." if len(news_content) > 800 else news_content
-            analysis += content_preview
+            if sentiment == "Bullish":
+                analysis += "Price action suggests potential for upward movement based on recent news and market factors.\n\n"
+            elif sentiment == "Bearish":
+                analysis += "Price action suggests potential for downward movement based on recent news and market factors.\n\n"
+            else:
+                analysis += "Price action shows mixed signals with no clear directional bias at this time.\n\n"
+            
+            # Extract key news from the content
+            analysis += f"<b>📰 Latest News & Events:</b>\n"
+            
+            # Find key news points
+            news_points = []
+            for line in news_lines:
+                line = line.strip()
+                # Skip empty lines and headers
+                if not line or line.startswith('Market Analysis') or line.startswith('Detailed Market'):
+                    continue
+                    
+                # If it's a numbered point or looks like a news title, add it
+                if (line.startswith(('•', '1.', '2.', '3.', '4.', '5.')) or 
+                    (len(line) > 20 and len(line) < 150 and not line.startswith('Source:'))):
+                    # Clean up the line
+                    cleaned_line = re.sub(r'^[0-9]+\.\s*', '• ', line)
+                    cleaned_line = re.sub(r'^•\s*', '• ', cleaned_line)
+                    
+                    if not cleaned_line.startswith('• '):
+                        cleaned_line = f"• {cleaned_line}"
+                        
+                    news_points.append(cleaned_line)
+            
+            # Add up to 3 news points
+            for point in news_points[:3]:
+                analysis += f"{point}\n"
+                
+            if not news_points:
+                analysis += "• No specific news events driving current price action\n"
+                analysis += "• Market is currently responding to broader economic factors\n"
+                analysis += "• Technical analysis may be more reliable in current conditions\n"
+            
+            analysis += "\n"
+            
+            # Add a conclusion based on sentiment
+            analysis += f"<b>💡 Conclusion:</b>\n"
+            if sentiment_score > 65:
+                analysis += "Consider long positions with risk management strategies in place. Current news suggests favorable market conditions."
+            elif sentiment_score < 35:
+                analysis += "Watch for potential short opportunities. Economic data and market factors suggest possible downward pressure."
+            else:
+                analysis += "The market shows mixed signals. Consider waiting for clearer directional confirmation before taking new positions."
             
             # Add source note
-            analysis += "\n\n<i>This analysis is based on data from public financial news sources.</i>"
+            analysis += "\n\n<i>This analysis is based on data from financial news sources via Tavily API.</i>"
             
             # Return a dictionary similar to what _get_mock_sentiment_data returns
             return {
@@ -161,7 +197,7 @@ class MarketSentimentService:
                 'resistance_level': 'See analysis for details',
                 'recommendation': 'Consider long positions' if sentiment_score > 60 else 'Watch for shorts' if sentiment_score < 40 else 'Wait for signals',
                 'analysis': analysis,
-                'source': 'alternative_data'
+                'source': 'tavily_data'
             }
             
         except Exception as e:
@@ -289,7 +325,7 @@ class MarketSentimentService:
             
             # Use the original domain name in URL to match certificate domain
             # This is critical for proper TLS handshake
-            deepseek_url = "https://api.deepseek.ai/v1/chat/completions"
+            deepseek_url = "https://api.deepseek.com/v1/chat/completions"
             
             connector = aiohttp.TCPConnector(ssl=ssl_context)
             async with aiohttp.ClientSession(connector=connector) as session:
@@ -341,9 +377,9 @@ If certain information is not available in the market data, make reasonable assu
                     # Use a shorter timeout to avoid long waits when service is unreachable
                     timeout = aiohttp.ClientTimeout(total=10)
                     
-                    # Set Host header to api.deepseek.ai while connecting to the IP
+                    # Set Host header to api.deepseek.com while connecting to the IP
                     custom_headers = deepseek_headers.copy()
-                    custom_headers["Host"] = "api.deepseek.ai"
+                    custom_headers["Host"] = "api.deepseek.com"
                     
                     async with session.post(
                         deepseek_url, 
@@ -767,13 +803,13 @@ Wait for clearer market signals before taking new positions.
         """Check if the DeepSeek API is reachable"""
         logger.info("Checking DeepSeek API connectivity")
         try:
-            # First try a simple socket connection
-            deepseek_ip = "23.236.75.155"  # IP address for api.deepseek.ai
+            # Try to connect to the new DeepSeek API endpoint
+            deepseek_host = "api.deepseek.com"
             
             # Socket check (basic connectivity)
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.settimeout(3)
-            result = sock.connect_ex((deepseek_ip, 443))
+            result = sock.connect_ex((deepseek_host, 443))
             sock.close()
             
             if result != 0:
@@ -783,8 +819,6 @@ Wait for clearer market signals before taking new positions.
             # If socket connects, try an HTTP HEAD request to verify API is responding
             # Create SSL context that doesn't verify certificates
             ssl_context = ssl.create_default_context()
-            ssl_context.check_hostname = False
-            ssl_context.verify_mode = ssl.CERT_NONE
             
             connector = aiohttp.TCPConnector(ssl=ssl_context)
             
@@ -793,12 +827,9 @@ Wait for clearer market signals before taking new positions.
             
             try:
                 async with aiohttp.ClientSession(connector=connector) as session:
-                    # Use the regular domain in URL but with custom Host header
-                    headers = {"Host": "api.deepseek.ai"}
-                    
+                    # Use the new domain
                     async with session.head(
-                        "https://api.deepseek.ai/v1/chat/completions",
-                        headers=headers,
+                        "https://api.deepseek.com/v1/chat/completions",
                         timeout=timeout
                     ) as response:
                         status = response.status
@@ -821,39 +852,176 @@ Wait for clearer market signals before taking new positions.
             logger.warning(f"DeepSeek API connectivity check failed: {str(e)}")
             return False
 
-    async def _get_deepseek_sentiment(self, market_data: str, instrument: str) -> Dict[str, Any]:
+    async def _try_deepseek_with_fallback(self, market_data: str, instrument: str) -> Dict[str, Any]:
+        """Try to use DeepSeek API and fall back to manual formatting if needed"""
+        # Skip early if no API key
+        if not self.deepseek_api_key:
+            logger.warning("No DeepSeek API key available, using manual formatting")
+            return None
+        
+        try:
+            # Set up direct HTTPS request with proper error handling
+            ssl_context = ssl.create_default_context()
+            
+            # Prepare DeepSeek prompt
+            prompt = f"""Create a comprehensive market sentiment analysis for {instrument} using the following market data:
+
+{market_data}
+
+Format as follows:
+<b>🎯 {instrument} Market Analysis</b>
+
+<b>📈 Market Direction:</b>
+[Current trend - EXPLICITLY state if bullish, bearish, or neutral based on the data]
+
+<b>📰 Latest News & Events:</b>
+• [Key news item 1]
+• [Key news item 2]
+• [Key news item 3]
+
+<b>🎯 Key Levels:</b>
+• Support: [Current support levels]
+• Resistance: [Current resistance levels]
+
+<b>⚠️ Risk Factors:</b>
+• [Key risk factor 1]
+• [Key risk factor 2]
+
+<b>💡 Conclusion:</b>
+[Trading recommendation - be specific about whether to consider long, short, or neutral positions]
+
+Format using HTML for Telegram. Be concise but informative with actionable insights.
+"""
+            
+            # Sanitize API key
+            sanitized_api_key = self.deepseek_api_key.strip()
+            
+            # Configure payload with proper parameters
+            payload = {
+                "model": "deepseek-chat",
+                "messages": [
+                    {"role": "system", "content": "You are an expert financial analyst creating market sentiment analyses for traders."},
+                    {"role": "user", "content": prompt}
+                ],
+                "temperature": 0.3,
+                "max_tokens": 1024
+            }
+            
+            # Set up custom headers
+            headers = {
+                "Authorization": f"Bearer {sanitized_api_key}",
+                "Content-Type": "application/json"
+            }
+            
+            # Try new endpoint only
+            endpoint = "https://api.deepseek.com/v1/chat/completions"
+            
+            logger.info(f"Trying DeepSeek endpoint: {endpoint}")
+            connector = aiohttp.TCPConnector(ssl=ssl_context)
+            timeout = aiohttp.ClientTimeout(total=15)
+            
+            async with aiohttp.ClientSession(connector=connector) as session:
+                async with session.post(
+                    endpoint,
+                    headers=headers,
+                    json=payload,
+                    timeout=timeout
+                ) as response:
+                    status = response.status
+                    logger.info(f"DeepSeek API response status: {status}")
+                    
+                    # Read full response even if error (for logging)
+                    response_text = await response.text()
+                    
+                    if status == 200:
+                        data = json.loads(response_text)
+                        content = data['choices'][0]['message']['content']
+                        logger.info(f"Successfully formatted market data with DeepSeek for {instrument}")
+                        
+                        # Parse sentiment from formatted content
+                        return await self._get_deepseek_sentiment(market_data, instrument, content)
+                    else:
+                        logger.warning(f"DeepSeek API error: {status}, response: {response_text[:200]}...")
+                        # If endpoint failed, return None
+                        return None
+            
+        except Exception as e:
+            logger.error(f"Error in DeepSeek processing: {str(e)}")
+            logger.exception(e)
+            return None
+            
+    async def _get_deepseek_sentiment(self, market_data: str, instrument: str, formatted_content: str = None) -> Dict[str, Any]:
         """Use DeepSeek to analyze market sentiment and return structured data"""
         try:
-            # First format the data with DeepSeek
-            formatted_content = await self._format_with_deepseek(instrument, 
-                                                               self._guess_market_from_instrument(instrument), 
-                                                               market_data)
+            # If formatted_content is not provided, try to get it
+            if not formatted_content:
+                formatted_content = await self._format_with_deepseek(instrument, 
+                                                                  self._guess_market_from_instrument(instrument), 
+                                                                  market_data)
             
             if not formatted_content:
                 logger.warning(f"DeepSeek formatting failed for {instrument}, using manual formatting")
-                return self._format_data_manually(market_data, instrument)
+                return None
                 
             # Extract sentiment information from the formatted content
             sentiment_score = 50  # Default neutral
             
-            # Determine sentiment based on content
-            if "bullish" in formatted_content.lower() or "upward" in formatted_content.lower():
+            # Determine sentiment based on content analysis
+            content_lower = formatted_content.lower()
+            
+            # More comprehensive sentiment detection
+            bullish_terms = ['bullish', 'upward', 'positive', 'higher', 'upside', 'rise', 'gain', 'strong', 'breakout', 'rally']
+            bearish_terms = ['bearish', 'downward', 'negative', 'lower', 'downside', 'fall', 'loss', 'weak', 'breakdown', 'decline']
+            
+            # Calculate sentiment based on term frequency and strength
+            bullish_score = 0
+            bearish_score = 0
+            
+            for term in bullish_terms:
+                if term in content_lower:
+                    # Weight certain terms more heavily
+                    if term in ['bullish', 'positive', 'strong']:
+                        bullish_score += 2
+                    else:
+                        bullish_score += 1
+                        
+            for term in bearish_terms:
+                if term in content_lower:
+                    # Weight certain terms more heavily
+                    if term in ['bearish', 'negative', 'weak']:
+                        bearish_score += 2
+                    else:
+                        bearish_score += 1
+            
+            # Determine overall sentiment
+            if bullish_score > bearish_score:
                 overall_sentiment = "bullish"
-                # Estimate a bullish score between 60-90 based on language strength
-                if "strongly" in formatted_content.lower() or "very" in formatted_content.lower():
-                    sentiment_score = 85
-                else:
-                    sentiment_score = 70
-            elif "bearish" in formatted_content.lower() or "downward" in formatted_content.lower():
-                overall_sentiment = "bearish"
-                # Estimate a bearish score between 10-40 based on language strength
-                if "strongly" in formatted_content.lower() or "very" in formatted_content.lower():
-                    sentiment_score = 15
-                else:
-                    sentiment_score = 30
+                # Calculate sentiment score (50-100 range for bullish)
+                sentiment_strength = min(bullish_score, 10) / 10
+                sentiment_score = 50 + (sentiment_strength * 50)
+            elif bearish_score > bullish_score:
+                overall_sentiment = "bearish" 
+                # Calculate sentiment score (0-50 range for bearish)
+                sentiment_strength = min(bearish_score, 10) / 10
+                sentiment_score = 50 - (sentiment_strength * 50)
             else:
                 overall_sentiment = "neutral"
                 sentiment_score = 50
+            
+            # Round to nearest integer
+            sentiment_score = round(sentiment_score)
+            
+            # Identify support and resistance from the content
+            support_level = "See analysis for details"
+            resistance_level = "See analysis for details"
+            
+            support_match = re.search(r'support[:\s]+([0-9.,]+)', content_lower)
+            if support_match:
+                support_level = support_match.group(1)
+                
+            resistance_match = re.search(r'resistance[:\s]+([0-9.,]+)', content_lower)
+            if resistance_match:
+                resistance_level = resistance_match.group(1)
                 
             # Return structured data
             return {
@@ -862,17 +1030,17 @@ Wait for clearer market signals before taking new positions.
                 'bullish_percentage': sentiment_score,
                 'trend_strength': 'Strong' if abs(sentiment_score - 50) > 20 else 'Moderate' if abs(sentiment_score - 50) > 10 else 'Weak',
                 'volatility': 'Moderate',
-                'support_level': 'See analysis for details',
-                'resistance_level': 'See analysis for details',
+                'support_level': support_level,
+                'resistance_level': resistance_level,
                 'recommendation': 'Consider long positions' if sentiment_score > 60 else 'Watch for shorts' if sentiment_score < 40 else 'Wait for signals',
                 'analysis': formatted_content,
                 'source': 'deepseek'
             }
             
         except Exception as e:
-            logger.error(f"Error getting DeepSeek sentiment: {str(e)}")
+            logger.error(f"Error analyzing DeepSeek sentiment: {str(e)}")
             logger.exception(e)
-            return self._format_data_manually(market_data, instrument)
+            return None
 
 class TavilyClient:
     """A simple wrapper for the Tavily API that handles errors properly"""
