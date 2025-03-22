@@ -2232,40 +2232,65 @@ Click the button below to start your FREE 14-day trial.
                 text=f"Analyzing market sentiment for {instrument}. Please wait..."
             )
             
-            # Get sentiment analysis from the sentiment service
-            sentiment_data = await self.get_sentiment_analysis(instrument)
-            
-            # Create buttons for different actions
-            keyboard = [
-                [InlineKeyboardButton("🔄 Refresh Analysis", callback_data=f"refresh_sentiment_{instrument}")],
-                [InlineKeyboardButton("⬅️ Back to Instrument", callback_data="back_instrument")]
-            ]
-            
-            # Send the sentiment analysis
-            await query.edit_message_text(
-                text=sentiment_data,
-                reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode=ParseMode.HTML
-            )
-            
-            return SHOW_RESULT
+            # Get sentiment data directly from the sentiment service
+            try:
+                sentiment_data = await self.sentiment.get_market_sentiment(instrument)
+                logger.info(f"Sentiment data received for {instrument}")
+                
+                # Extract sentiment data
+                bullish_score = sentiment_data.get('bullish_percentage', 50)
+                bearish_score = 100 - bullish_score
+                overall = sentiment_data.get('overall_sentiment', 'neutral').capitalize()
+                
+                # Determine emoji based on sentiment
+                if overall.lower() == 'bullish':
+                    emoji = "📈"
+                elif overall.lower() == 'bearish':
+                    emoji = "📉"
+                else:
+                    emoji = "⚖️"
+                
+                # Get the analysis content
+                analysis = sentiment_data.get('analysis', 'Analysis not available')
+                
+                # Create buttons for different actions
+                keyboard = [
+                    [InlineKeyboardButton("🔄 Refresh Analysis", callback_data=f"refresh_sentiment_{instrument}")],
+                    [InlineKeyboardButton("⬅️ Back to Instrument", callback_data="back_instrument")]
+                ]
+                
+                # Send the sentiment analysis
+                await query.edit_message_text(
+                    text=analysis,
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.HTML
+                )
+                
+                return SHOW_RESULT
+                
+            except Exception as e:
+                logger.error(f"Error getting sentiment data: {str(e)}")
+                logger.exception(e)
+                return await self._show_sentiment_error(query, instrument)
             
         except Exception as e:
             logger.error(f"Error in show_sentiment_analysis: {str(e)}")
             logger.exception(e)
-            
-            # Send fallback message
-            try:
-                await query.edit_message_text(
-                    text=f"Sorry, I couldn't analyze sentiment for {instrument} at this time. Please try again later.",
-                    reply_markup=InlineKeyboardMarkup([[
-                        InlineKeyboardButton("⬅️ Back", callback_data="back_instrument")
-                    ]])
-                )
-            except Exception as inner_e:
-                logger.error(f"Failed to send fallback message: {str(inner_e)}")
-            
-            return MENU
+            return await self._show_sentiment_error(query, instrument)
+
+    async def _show_sentiment_error(self, query, instrument):
+        """Show error message when sentiment analysis fails"""
+        try:
+            await query.edit_message_text(
+                text=f"Sorry, I couldn't analyze sentiment for {instrument} at this time. Please try again later.",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("⬅️ Back", callback_data="back_instrument")
+                ]])
+            )
+        except Exception as inner_e:
+            logger.error(f"Failed to send fallback message: {str(inner_e)}")
+        
+        return MENU
 
     async def show_economic_calendar(self, update: Update, context=None, instrument: str = None) -> int:
         """Show economic calendar events for a specific instrument"""
