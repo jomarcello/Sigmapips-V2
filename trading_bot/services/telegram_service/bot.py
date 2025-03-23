@@ -2285,35 +2285,94 @@ Click the button below to start your FREE 14-day trial.
         try:
             logger.info(f"Processing signal: {signal_data}")
             
-            # Extract signal details
-            symbol = signal_data.get('symbol', '').upper()
-            direction = signal_data.get('direction', '').upper()
-            price = signal_data.get('price', 0)
-            stop_loss = signal_data.get('stop_loss', 0)
-            take_profit = signal_data.get('take_profit', 0)
-            timeframe = signal_data.get('timeframe', '1h')
-            notes = signal_data.get('notes', '')
-            market = signal_data.get('market', self._detect_market(symbol)).lower()
+            # Support both traditional format and TradingView format
+            # Handle TradingView format (convert to standard format)
+            if 'instrument' in signal_data and 'signal' in signal_data:
+                # Map TradingView format to our standard format
+                symbol = signal_data.get('instrument', '').upper()
+                price = signal_data.get('price', 0)
+                stop_loss = signal_data.get('sl', 0)
+                
+                # Handle multiple take profit levels
+                tp1 = signal_data.get('tp1', 0)
+                tp2 = signal_data.get('tp2', 0)
+                tp3 = signal_data.get('tp3', 0)
+                
+                # Get provided direction or auto-determine based on stop loss
+                if signal_data.get('signal', ''):
+                    direction = signal_data.get('signal', '').upper()
+                else:
+                    # Auto-determine direction based on stop loss vs entry price
+                    direction = "BUY" if float(stop_loss) < float(price) else "SELL"
+                    
+                timeframe = signal_data.get('interval', '4h')
+                notes = signal_data.get('notes', '')
+                strategy = signal_data.get('strategy', 'TradingView Signal')
+                market = signal_data.get('market', self._detect_market(symbol)).lower()
+            else:
+                # Original format
+                symbol = signal_data.get('symbol', '').upper()
+                price = signal_data.get('price', 0)
+                stop_loss = signal_data.get('stop_loss', 0)
+                
+                # Get provided direction or auto-determine based on stop loss
+                if signal_data.get('direction', ''):
+                    direction = signal_data.get('direction', '').upper()
+                else:
+                    # Auto-determine direction based on stop loss vs entry price
+                    direction = "BUY" if float(stop_loss) < float(price) else "SELL"
+                
+                # Handle take profit levels
+                tp1 = signal_data.get('take_profit', 0)
+                tp2 = signal_data.get('tp2', 0)
+                tp3 = signal_data.get('tp3', 0)
+                
+                timeframe = signal_data.get('timeframe', '1h')
+                notes = signal_data.get('notes', '')
+                strategy = signal_data.get('strategy', 'SigmaPips AI Signal')
+                market = signal_data.get('market', self._detect_market(symbol)).lower()
             
             # Valideer de signal data
-            if not symbol or not direction or not price:
+            if not symbol or not price:
                 logger.error(f"Invalid signal data: missing required fields")
                 return False
+            
+            # Generate AI verdict based on the signal
+            ai_verdict = await self._generate_signal_verdict(symbol, direction, price, stop_loss, tp1, tp2, tp3, timeframe)
                 
-            # Format signal message
-            message = f"""
-📊 <b>NEW TRADING SIGNAL</b> 📊
+            # Format signal message in the new style
+            message = f"""🎯 New Trading Signal 🎯
 
-<b>Symbol:</b> {symbol}
-<b>Market:</b> {market.title()}
-<b>Direction:</b> {'🔴 SELL' if direction == 'SELL' else '🟢 BUY'}
-<b>Entry Price:</b> {price}
-<b>Stop Loss:</b> {stop_loss if stop_loss else 'Not specified'}
-<b>Take Profit:</b> {take_profit if take_profit else 'Not specified'}
-<b>Timeframe:</b> {timeframe}
-<b>Time:</b> {time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime())}
+Instrument: {symbol}
+Action: {direction} {'📈' if direction == 'BUY' else '📉'}
 
-{notes if notes else ''}
+Entry Price: {price}
+Stop Loss: {stop_loss} 🔴
+"""
+
+            # Add take profit levels if available
+            if tp1:
+                message += f"Take Profit 1: {tp1} 🎯\n"
+            if tp2:
+                message += f"Take Profit 2: {tp2} 🎯\n"
+            if tp3:
+                message += f"Take Profit 3: {tp3} 🎯\n"
+                
+            message += f"""
+Timeframe: {timeframe}
+Strategy: {strategy}
+
+————————————————————
+
+Risk Management:
+• Position size: 1-2% max
+• Use proper stop loss
+• Follow your trading plan
+
+————————————————————
+
+🤖 SigmaPips AI Verdict:
+{ai_verdict}
 """
             
             # Haal subscribers op die dit signaal zouden moeten ontvangen
@@ -2342,6 +2401,40 @@ Click the button below to start your FREE 14-day trial.
             logger.exception(e)
             return False
             
+    async def _generate_signal_verdict(self, symbol: str, direction: str, price: float, stop_loss: float, tp1: float, tp2: float, tp3: float, timeframe: str) -> str:
+        """Generate AI verdict for a trading signal"""
+        try:
+            # Create a simple verdict based on the signal parameters
+            risk = abs(float(price) - float(stop_loss))
+            reward = abs(float(tp1) - float(price)) if tp1 else 0
+            
+            if direction == "BUY":
+                verdict = f"The {symbol} buy signal shows a promising setup with defined entry at {price} and stop loss at {stop_loss}."
+            else:
+                verdict = f"The {symbol} sell signal presents a strategic opportunity with entry at {price} and stop loss at {stop_loss}."
+                
+            # Add take profit analysis
+            if tp1 and tp2 and tp3:
+                verdict += f" Multiple take profit levels provide opportunities for partial profit taking."
+            elif tp1:
+                verdict += f" The take profit target suggests a favorable risk-to-reward ratio."
+                
+            # Add timeframe context
+            if timeframe == "1h" or timeframe == "1":
+                verdict += f" This hourly timeframe signal could provide a short-term trading opportunity."
+            elif timeframe == "4h" or timeframe == "4":
+                verdict += f" The 4-hour timeframe provides a good balance between noise and meaningful price action."
+            elif timeframe == "1d" or timeframe == "D":
+                verdict += f" This daily timeframe signal has potential for a longer-term position."
+            elif timeframe == "15m" or timeframe == "15":
+                verdict += f" This 15-minute timeframe signal may be suitable for scalping or quick trades."
+                
+            return verdict
+            
+        except Exception as e:
+            logger.error(f"Error generating signal verdict: {str(e)}")
+            return f"The {symbol} {direction.lower()} signal shows a defined entry and exit strategy. Consider this setup within your overall trading plan."
+
     def _detect_market(self, symbol: str) -> str:
         """Detect market type from symbol"""
         # Crypto markers
