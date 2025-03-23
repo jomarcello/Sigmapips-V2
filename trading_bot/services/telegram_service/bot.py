@@ -427,7 +427,7 @@ def require_subscription(func):
 
 Your subscription payment could not be processed and your service has been deactivated.
 
-To continue using SigmaPips Trading Bot and receive trading signals, please reactivate your subscription by clicking the button below.
+To continue using Sigmapips AI and receive trading signals, please reactivate your subscription by clicking the button below.
                 """
                 
                 # Use direct URL link for reactivation
@@ -440,7 +440,7 @@ To continue using SigmaPips Trading Bot and receive trading signals, please reac
             else:
                 # Show subscription screen with the welcome message from the screenshot
                 failed_payment_text = f"""
-🚀 <b>Welcome to SigmaPips Trading Bot!</b> 🚀
+🚀 <b>Welcome to Sigmapips AI!</b> 🚀
 
 <b>Discover powerful trading signals for various markets:</b>
 • <b>Forex</b> - Major and minor currency pairs
@@ -674,7 +674,7 @@ class TelegramService:
 
 Your subscription payment could not be processed and your service has been deactivated.
 
-To continue using SigmaPips Trading Bot and receive trading signals, please reactivate your subscription by clicking the button below.
+To continue using Sigmapips AI and receive trading signals, please reactivate your subscription by clicking the button below.
             """
             
             # Use direct URL link for reactivation
@@ -693,7 +693,7 @@ To continue using SigmaPips Trading Bot and receive trading signals, please reac
         else:
             # Show the welcome message with trial option from the screenshot
             welcome_text = f"""
-🚀 <b>Welcome to SigmaPips Trading Bot!</b> 🚀
+🚀 <b>Welcome to Sigmapips AI!</b> 🚀
 
 <b>Discover powerful trading signals for various markets:</b>
 • <b>Forex</b> - Major and minor currency pairs
@@ -819,7 +819,7 @@ To continue using SigmaPips Trading Bot and receive trading signals, please reac
 
 Your subscription payment could not be processed and your service has been deactivated.
 
-To continue using SigmaPips Trading Bot and receive trading signals, please reactivate your subscription by clicking the button below.
+To continue using Sigmapips AI and receive trading signals, please reactivate your subscription by clicking the button below.
                 """
                 
                 # Use direct URL link for reactivation
@@ -1660,7 +1660,7 @@ To continue using SigmaPips Trading Bot and receive trading signals, please reac
 
 Your subscription payment could not be processed and your service has been deactivated.
 
-To continue using SigmaPips Trading Bot and receive trading signals, please reactivate your subscription by clicking the button below.
+To continue using Sigmapips AI and receive trading signals, please reactivate your subscription by clicking the button below.
                 """
                 
                 # Use direct URL link for reactivation
@@ -1680,7 +1680,7 @@ To continue using SigmaPips Trading Bot and receive trading signals, please reac
             else:
                 # Show the welcome message with trial option for non-subscribed users
                 welcome_text = f"""
-🚀 <b>Welcome to SigmaPips Trading Bot!</b> 🚀
+🚀 <b>Welcome to Sigmapips AI!</b> 🚀
 
 <b>Discover powerful trading signals for various markets:</b>
 • <b>Forex</b> - Major and minor currency pairs
