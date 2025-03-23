@@ -115,6 +115,9 @@ CALLBACK_ANALYSIS_CALENDAR = "analysis_calendar"
 
 # Map of instruments to their corresponding currencies
 INSTRUMENT_CURRENCY_MAP = {
+    # Special case for global view
+    "GLOBAL": MAJOR_CURRENCIES,
+    
     # Forex
     "EURUSD": ["EUR", "USD"],
     "GBPUSD": ["GBP", "USD"],
