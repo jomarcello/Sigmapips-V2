@@ -1464,6 +1464,14 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Determine which type of analysis was chosen
             analysis_type = query.data.replace('analysis_', '')
             
+            # Check if we're coming from a signal and have an instrument
+            is_from_signal = False
+            instrument = None
+            if context and hasattr(context, 'user_data'):
+                is_from_signal = context.user_data.get('from_signal', False)
+                instrument = context.user_data.get('instrument')
+                logger.info(f"Analysis choice with from_signal={is_from_signal}, instrument={instrument}")
+            
             if analysis_type == 'calendar':
                 # Show economic calendar directly without market selection
                 try:
@@ -1473,14 +1481,14 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                         reply_markup=None
                     )
                     
-                    # Get calendar data - use a global view for all major currencies
-                    calendar_data = await self.calendar.get_instrument_calendar("GLOBAL")
+                    # Get calendar data - use instrument if available, otherwise global view
+                    calendar_data = await self.calendar.get_instrument_calendar("GLOBAL" if not instrument else instrument)
                     
                     # Show the calendar with back button
                     await query.edit_message_text(
                         text=calendar_data,
                         reply_markup=InlineKeyboardMarkup([[
-                            InlineKeyboardButton("⬅️ Back", callback_data="back_to_analysis")  # Change from back_analysis to back_to_analysis
+                            InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal" if is_from_signal else "back_to_analysis")  # Change from back_analysis to back_to_analysis
                         ]]),
                         parse_mode=ParseMode.HTML
                     )
@@ -1492,13 +1500,18 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     await query.edit_message_text(
                         text="An error occurred while fetching the calendar. Please try again later.",
                         reply_markup=InlineKeyboardMarkup([[
-                            InlineKeyboardButton("⬅️ Back", callback_data="back_to_analysis")  # Change from back_analysis to back_to_analysis
+                            InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal" if is_from_signal else "back_to_analysis")  # Change from back_analysis to back_to_analysis
                         ]])
                     )
                     return MENU
             
             elif analysis_type == 'technical':
-                # Show market selection for technical analysis
+                # If we have an instrument from signal, go directly to analysis
+                if is_from_signal and instrument:
+                    logger.info(f"Going directly to technical analysis for instrument: {instrument}")
+                    return await self.show_technical_analysis(update, context, instrument=instrument)
+                
+                # Otherwise show market selection
                 await query.edit_message_text(
                     text="Select a market for technical analysis:",
                     reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
@@ -1506,7 +1519,12 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 return CHOOSE_MARKET
                 
             elif analysis_type == 'sentiment':
-                # Show market selection for sentiment analysis
+                # If we have an instrument from signal, go directly to analysis
+                if is_from_signal and instrument:
+                    logger.info(f"Going directly to sentiment analysis for instrument: {instrument}")
+                    return await self.show_sentiment_analysis(update, context, instrument=instrument)
+                
+                # Otherwise show market selection
                 await query.edit_message_text(
                     text="Select a market for sentiment analysis:",
                     reply_markup=InlineKeyboardMarkup(MARKET_SENTIMENT_KEYBOARD)
@@ -1541,6 +1559,28 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         query = update.callback_query
         
         try:
+            # Check if we have signal message info in context
+            if context and hasattr(context, 'user_data') and context.user_data.get('from_signal_message'):
+                # We can go back to the original signal message
+                logger.info("Going back to original signal message")
+                
+                # We don't need to edit the signal message, just revert to the original analyze button
+                instrument = context.user_data.get('instrument')
+                
+                if instrument:
+                    # Create the analyze market button to restore original state
+                    keyboard = InlineKeyboardMarkup([
+                        [InlineKeyboardButton("🔍 Analyze Market", callback_data=f"analyze_from_signal_{instrument}")]
+                    ])
+                    
+                    # Fallback: just tell the user we're going back to the signal
+                    await query.edit_message_text(
+                        text=f"Returning to signal for {instrument}.\nClick 'Analyze Market' again if you want to view technical or sentiment analysis.",
+                        reply_markup=keyboard
+                    )
+                    return CHOOSE_SIGNALS
+            
+            # If we don't have signal context info, use the existing logic
             # Extract instrument from callback data
             parts = query.data.split("_")
             instrument = parts[3] if len(parts) > 3 else None
@@ -1632,37 +1672,21 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             
             # Create the analyze market button
             keyboard = [
-                [InlineKeyboardButton("🔍 Analyze Market", callback_data=f"analyze_market_{instrument}")]
+                [InlineKeyboardButton("🔍 Analyze Market", callback_data=f"analyze_from_signal_{instrument}")]
             ]
             
             # Send the signal
             await query.edit_message_text(
                 text=original_signal if original_signal else f"No signal found for {instrument}",
-                reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode=ParseMode.HTML
+                parse_mode=ParseMode.HTML,
+                reply_markup=InlineKeyboardMarkup(keyboard)
             )
             
-            if original_signal:
-                logger.info(f"Successfully displayed signal for instrument: {instrument}")
-            else:
-                logger.warning(f"Could not find or create signal for instrument: {instrument}")
+            return CHOOSE_SIGNALS
             
-            return MENU
         except Exception as e:
-            logger.error(f"Error in back_to_signal handler: {str(e)}")
+            logger.error(f"Error in back_to_signal_callback: {str(e)}")
             logger.exception(e)
-            
-            # If there's an error, show a simple message
-            try:
-                await query.edit_message_text(
-                    text="Could not return to signal view. Please check your chat history for the original signal.",
-                    reply_markup=InlineKeyboardMarkup([[
-                        InlineKeyboardButton("🏠 Main Menu", callback_data="back_menu")
-                    ]])
-                )
-            except Exception as inner_e:
-                logger.error(f"Failed to send fallback message: {str(inner_e)}")
-            
             return MENU
 
     async def show_main_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> None:
@@ -1765,6 +1789,14 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         except Exception as e:
             # Log de fout, maar ga door met afhandeling (voorkomt blokkering)
             logger.warning(f"Kon callback query niet beantwoorden: {str(e)}")
+        
+        # Analyze from signal handler
+        if query.data.startswith("analyze_from_signal_"):
+            return await self.analyze_from_signal_callback(update, context)
+        
+        # Back to signal handler
+        if query.data == "back_to_signal":
+            return await self.back_to_signal_callback(update, context)
         
         # Handle menu_analyse callback
         if query.data == "menu_analyse":
@@ -2404,7 +2436,7 @@ Risk Management:
             # Maak een keyboard met een "Analyze Market" knop voor het verzenden van het signaal
             # De callback data bevat het instrument zodat we direct naar analyse kunnen gaan
             keyboard = InlineKeyboardMarkup([
-                [InlineKeyboardButton("📊 Analyze Market", callback_data=f"analyze_from_signal_{instrument}")]
+                [InlineKeyboardButton("🔍 Analyze Market", callback_data=f"analyze_from_signal_{instrument}")]
             ])
             
             # Haal subscribers op die dit signaal zouden moeten ontvangen
@@ -3516,6 +3548,9 @@ Risk Management:
             if context and hasattr(context, 'user_data'):
                 context.user_data['instrument'] = instrument
                 context.user_data['from_signal'] = True
+                context.user_data['from_signal_message'] = True
+                context.user_data['message_id'] = update.callback_query.message.message_id
+                context.user_data['chat_id'] = update.callback_query.message.chat_id
             
             # Show analysis options for this instrument (similar to analysis_callback but with preselected instrument)
             keyboard = [
@@ -3526,7 +3561,7 @@ Risk Management:
                 [
                     InlineKeyboardButton("📅 Economic Calendar", callback_data="analysis_calendar")
                 ],
-                [InlineKeyboardButton("⬅️ Back to Menu", callback_data="back_menu")]
+                [InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal")]
             ]
             
             await query.edit_message_text(
