@@ -578,7 +578,45 @@ class Database:
             # Voor nu implementeren we een lege placeholder
             return True
         except Exception as e:
-            logger.error(f"Fout bij opslaan gebruiker: {str(e)}")
+            logger.error(f"Error saving user: {str(e)}")
+            return False
+
+    async def save_user_subscription(self, user_id: int, subscription_type: str, start_date: datetime.datetime, end_date: datetime.datetime) -> bool:
+        """Save a user subscription with custom start and end dates"""
+        try:
+            logger.info(f"Saving subscription for user {user_id} with start date {start_date} and end date {end_date}")
+            
+            # Determine subscription status based on end date
+            now = datetime.datetime.now()
+            status = 'active' if end_date > now else 'inactive'
+            
+            subscription_data = {
+                'user_id': user_id,
+                'subscription_status': status,
+                'subscription_type': subscription_type,
+                'updated_at': now.isoformat(),
+                'created_at': start_date.isoformat() if start_date else now.isoformat(),
+                'current_period_end': end_date.isoformat() if end_date else None
+            }
+            
+            # Check if user already has a subscription
+            existing = await self.get_user_subscription(user_id)
+            
+            if existing:
+                # Update existing subscription
+                response = self.supabase.table('user_subscriptions').update(subscription_data).eq('user_id', user_id).execute()
+            else:
+                # Create new subscription
+                response = self.supabase.table('user_subscriptions').insert(subscription_data).execute()
+            
+            if response.data:
+                logger.info(f"Subscription saved for user {user_id}: {status}")
+                return True
+            else:
+                logger.error(f"Failed to save subscription: {response}")
+                return False
+        except Exception as e:
+            logger.error(f"Error saving subscription: {str(e)}")
             return False
 
     def _detect_market(self, symbol: str) -> str:
