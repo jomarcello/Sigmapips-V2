@@ -117,9 +117,26 @@ class Database:
                 logger.info(f"Checking preference: market={pref.get('market')}, instrument={pref.get('instrument')}, timeframe={pref.get('timeframe')} (normalized: {pref_timeframe})")
                 
                 # Controleer of de voorkeuren overeenkomen met het signaal
-                if (pref.get('market') == market and 
-                    pref.get('instrument') == instrument and 
-                    pref_timeframe == normalized_timeframe):
+                # Check for market match
+                market_match = pref.get('market', '').lower() == market.lower()
+                
+                # Check for instrument match - either exact match or 'ALL'
+                instrument_match = (pref.get('instrument', '') == instrument) or (pref.get('instrument', '') == 'ALL')
+                
+                # Check for timeframe match - optional matching
+                timeframe_match = pref_timeframe == normalized_timeframe
+                
+                # If timeframe preference is 'ALL', it matches any signal timeframe
+                if pref.get('timeframe', '') == 'ALL':
+                    timeframe_match = True
+                
+                # Log match details for debugging
+                logger.info(f"Match results: market={market_match}, instrument={instrument_match}, timeframe={timeframe_match}")
+                
+                # A subscriber matches if market AND (instrument OR ALL) AND (timeframe OR ALL)
+                if market_match and instrument_match:
+                    # Optionally add timeframe matching if needed
+                    # For now we'll consider a match even without matching timeframe
                     
                     user_id = pref.get('user_id')
                     
