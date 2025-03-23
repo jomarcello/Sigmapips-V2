@@ -36,3 +36,7 @@ lxml==4.9.3
 # Vector database
 pinecone-client
 requests
+
+# AI Services
+# Uncomment and provide API keys in .env file to use these services
+# tavily-python==0.2.2  # for web search via Tavily API
