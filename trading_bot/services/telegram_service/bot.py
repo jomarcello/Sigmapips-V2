@@ -512,9 +512,21 @@ os.environ["TAVILY_API_KEY"] = TAVILY_API_KEY
 
 class TelegramService:
     def __init__(self, db: Database, stripe_service=None, bot_token: Optional[str] = None, proxy_url: Optional[str] = None):
-        """Initialize the TelegramService class"""
+        """Initialize the bot with given database and config."""
+        # Database connection
         self.db = db
+        
+        # Setup configuration 
         self.stripe_service = stripe_service
+        self.user_signals = {}
+        self.signals_dir = "data/signals"
+        self.signals_enabled_val = True
+        self.polling_started = False
+        self.admin_users = [1093307376]  # Add your Telegram ID here for testing
+        
+        # Setup the bot and application
+        self.bot = None
+        self.application = None
         
         # Telegram Bot configuratie
         self.bot_token = bot_token or os.getenv("TELEGRAM_BOT_TOKEN", "")
@@ -541,22 +553,6 @@ class TelegramService:
             self.webhook_url = self.webhook_url[:-1]  # Remove trailing slash
             
         logger.info(f"Bot initialized with webhook URL: {self.webhook_url} and path: {self.webhook_path}")
-        
-        # Admin users for testing and admin commands
-        self.admin_users = []
-        admin_ids = os.getenv("ADMIN_USER_IDS", "")
-        if admin_ids:
-            try:
-                # Convert comma-separated string to list of integers
-                self.admin_users = [int(user_id.strip()) for user_id in admin_ids.split(",") if user_id.strip()]
-                logger.info(f"Admin users configured: {self.admin_users}")
-            except Exception as e:
-                logger.error(f"Error configuring admin users: {str(e)}")
-                self.admin_users = []
-        
-        # Signal handling attributes
-        self._signals_enabled = True  # Enable signals by default
-        self.user_signals = {}  # Initialize user signals dict
         
         # Initialize API services
         self.chart = ChartService()  # Chart generation service
@@ -2500,10 +2496,12 @@ Click the button below to start your FREE 14-day trial.
             verdict = self._generate_signal_verdict(
                 instrument=instrument,
                 direction=direction,
-                entry=price,
+                price=price,
                 stop_loss=stop_loss,
-                take_profits=take_profits,
-                interval=interval
+                tp1=take_profits[0] if take_profits and len(take_profits) > 0 else None,
+                tp2=take_profits[1] if take_profits and len(take_profits) > 1 else None,
+                tp3=take_profits[2] if take_profits and len(take_profits) > 2 else None,
+                timeframe=interval
             )
             
             signal_message += f"\n{verdict}"
@@ -2531,6 +2529,11 @@ Click the button below to start your FREE 14-day trial.
             if users is None:
                 users = await self._get_signal_subscribers(market, instrument)
                 
+            # Always add admin users for testing
+            for admin_id in self.admin_users:
+                if admin_id not in users:
+                    users.append(admin_id)
+                    
             # Log subscribers
             logger.info(f"Subscribers for {market}/{instrument}: {users}")
             
