@@ -2329,152 +2329,135 @@ Click the button below to start your FREE 14-day trial.
             ])
         )
         
-    async def process_signal(self, signal_data: Dict[str, Any]) -> bool:
-        """Process trading signals received from API or webhook"""
+    async def process_signal(self, signal_data: dict, users=None, test_mode=False) -> None:
+        """Process incoming signal and send to users"""
         try:
             logger.info(f"Processing signal: {signal_data}")
             
-            # Support both traditional format and TradingView format
-            # Handle TradingView format (convert to standard format)
-            if 'instrument' in signal_data and 'signal' in signal_data:
-                # Map TradingView format to our standard format
-                instrument = signal_data.get('instrument', '').upper()
-                price = signal_data.get('price', 0)
-                stop_loss = signal_data.get('sl', 0)
-                
-                # Handle multiple take profit levels
-                tp1 = signal_data.get('tp1', 0)
-                tp2 = signal_data.get('tp2', 0)
-                tp3 = signal_data.get('tp3', 0)
-                
-                # Get provided direction or auto-determine based on stop loss
-                if signal_data.get('signal', ''):
-                    direction = signal_data.get('signal', '').upper()
-                else:
-                    # Auto-determine direction based on stop loss vs entry price
-                    direction = "BUY" if float(stop_loss) < float(price) else "SELL"
-                    
-                timeframe = signal_data.get('interval', '4h')
-                notes = signal_data.get('notes', '')
-                strategy = signal_data.get('strategy', 'TradingView Signal')
-                market = signal_data.get('market', self._detect_market(instrument)).lower()
-            else:
-                # Original format
-                instrument = signal_data.get('symbol', '').upper() or signal_data.get('instrument', '').upper()
-                price = signal_data.get('price', 0)
-                stop_loss = signal_data.get('stop_loss', 0)
-                
-                # Get provided direction or auto-determine based on stop loss
-                if signal_data.get('direction', ''):
-                    direction = signal_data.get('direction', '').upper()
-                else:
-                    # Auto-determine direction based on stop loss vs entry price
-                    direction = "BUY" if float(stop_loss) < float(price) else "SELL"
-                
-                # Handle take profit levels
-                tp1 = signal_data.get('take_profit', 0)
-                tp2 = signal_data.get('tp2', 0)
-                tp3 = signal_data.get('tp3', 0)
-                
-                timeframe = signal_data.get('timeframe', '1h')
-                notes = signal_data.get('notes', '')
-                strategy = signal_data.get('strategy', 'SigmaPips AI Signal')
-                market = signal_data.get('market', self._detect_market(instrument)).lower()
+            # Extract signal components
+            instrument = signal_data.get('instrument', '')
+            signal = signal_data.get('signal', '')
+            price = signal_data.get('price', '')
+            stop_loss = signal_data.get('stop_loss', '')
+            take_profits = signal_data.get('take_profits', [])
+            interval = signal_data.get('interval', '')
+            strategy = signal_data.get('strategy', '')
+            notes = signal_data.get('notes', '')
+            market = signal_data.get('market', '').lower()
             
-            # Valideer de signal data
-            if not instrument or not price:
-                logger.error(f"Invalid signal data: missing required fields")
-                return False
+            # Validate required data
+            if not all([instrument, signal, price, stop_loss, interval]):
+                logger.error("Missing required signal data")
+                return
             
-            # Generate AI verdict based on the signal
-            ai_verdict = await self._generate_signal_verdict(instrument, direction, price, stop_loss, tp1, tp2, tp3, timeframe)
-                
-            # Format signal message in the new style
-            message = f"""🎯 New Trading Signal 🎯
-
-Instrument: {instrument}
-Action: {direction} {'📈' if direction == 'BUY' else '📉'}
-
-Entry Price: {price}
-Stop Loss: {stop_loss} 🔴
-"""
-
-            # Add take profit levels if available
+            # Format the signal message
+            tp1 = take_profits[0] if take_profits and len(take_profits) > 0 else ''
+            tp2 = take_profits[1] if take_profits and len(take_profits) > 1 else ''
+            tp3 = take_profits[2] if take_profits and len(take_profits) > 2 else ''
+            
+            # Determine emoji based on signal
+            emoji = "🟢" if signal == "BUY" else "🔴" if signal == "SELL" else "⚪"
+            
+            # Format price values for display
+            price_display = str(price)
+            sl_display = str(stop_loss)
+            tp1_display = str(tp1) if tp1 else ""
+            tp2_display = str(tp2) if tp2 else ""
+            tp3_display = str(tp3) if tp3 else ""
+            
+            message = (
+                f"<b>{emoji} SIGNAL {signal} {instrument}</b>\n\n"
+                f"<b>Price:</b> {price_display}\n"
+                f"<b>Stop Loss:</b> {sl_display}\n"
+            )
+            
+            # Add take profits if available
             if tp1:
-                message += f"Take Profit 1: {tp1} 🎯\n"
+                message += f"<b>Take Profit 1:</b> {tp1_display}\n"
             if tp2:
-                message += f"Take Profit 2: {tp2} 🎯\n"
+                message += f"<b>Take Profit 2:</b> {tp2_display}\n"
             if tp3:
-                message += f"Take Profit 3: {tp3} 🎯\n"
-                
-            message += f"""
-Timeframe: {timeframe}
-Strategy: {strategy}
-
-————————————————————
-
-Risk Management:
-• Position size: 1-2% max
-• Use proper stop loss
-• Follow your trading plan
-
-————————————————————
-
-🤖 SigmaPips AI Verdict:
-{ai_verdict}
-"""
+                message += f"<b>Take Profit 3:</b> {tp3_display}\n"
             
-            # Maak een keyboard met een "Analyze Market" knop voor het verzenden van het signaal
-            # De callback data bevat het instrument zodat we direct naar analyse kunnen gaan
-            keyboard = InlineKeyboardMarkup([
+            message += f"\n<b>Timeframe:</b> {interval}\n"
+            message += f"<b>Strategy:</b> {strategy}\n"
+            
+            if notes:
+                message += f"\n<b>Notes:</b> {notes}\n"
+            
+            # Create the analyze market button
+            keyboard = [
                 [InlineKeyboardButton("🔍 Analyze Market", callback_data=f"analyze_from_signal_{instrument}")]
-            ])
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
             
-            # Haal subscribers op die dit signaal zouden moeten ontvangen
-            subscribers = await self._get_signal_subscribers(market, instrument)
+            # Get the users from the database
+            if not users:
+                # In test mode, only send to admins if no users specified
+                if test_mode:
+                    users = self.admin_users
+                else:
+                    users = self.get_subscribers()
             
-            # Stuur het signaal naar relevante subscribers
-            send_count = 0
-            for user_id in subscribers:
+            # Store for logging purposes
+            sent_count = 0
+            error_count = 0
+            
+            # Track the sent messages to store in user_signals
+            sent_messages = {}
+            
+            # Loop through users and send signal
+            for user_id in users:
                 try:
-                    # Stuur het bericht naar de gebruiker met de analyze knop
-                    await self.bot.send_message(
+                    # Send message to user
+                    sent_message = await self.bot.send_message(
                         chat_id=user_id,
                         text=message,
                         parse_mode=ParseMode.HTML,
-                        reply_markup=keyboard
+                        reply_markup=reply_markup
                     )
                     
-                    # Sla het signaal op in user_signals voor deze gebruiker om later terug te kunnen gaan
+                    # Store the message_id and chat_id for this user
+                    if sent_message:
+                        sent_messages[user_id] = {
+                            'message_id': sent_message.message_id,
+                            'chat_id': sent_message.chat_id
+                        }
+                    
+                    sent_count += 1
+                    logger.info(f"Signal sent to user {user_id}")
+                    
+                    # Save the signal data and message for this user
                     self.user_signals[user_id] = {
                         'instrument': instrument,
                         'message': message,
-                        'direction': direction,
+                        'direction': signal,
                         'price': price,
                         'stop_loss': stop_loss,
-                        'tp1': tp1, 
-                        'tp2': tp2, 
+                        'tp1': tp1,
+                        'tp2': tp2,
                         'tp3': tp3,
-                        'timeframe': timeframe,
+                        'timeframe': interval,
                         'strategy': strategy,
-                        'timestamp': time.time()
+                        'market': market,
+                        'timestamp': time.time(),
+                        'message_id': sent_messages.get(user_id, {}).get('message_id'),
+                        'chat_id': sent_messages.get(user_id, {}).get('chat_id')
                     }
                     
-                    logger.info(f"Saved signal for user {user_id}, instrument {instrument}")
-                    send_count += 1
-                    
                 except Exception as e:
+                    error_count += 1
                     logger.error(f"Error sending signal to user {user_id}: {str(e)}")
             
-            logger.info(f"Signal sent to {send_count}/{len(subscribers)} subscribers")
-            self._save_signals()  # Save signals to disk after processing
+            # Log the results
+            logger.info(f"Signal processing complete: {sent_count} sent, {error_count} errors")
             
-            return True
+            # Save signals
+            self._save_signals()
             
         except Exception as e:
             logger.error(f"Error processing signal: {str(e)}")
             logger.exception(e)
-            return False
 
     async def _generate_signal_verdict(self, instrument: str, direction: str, price: float, stop_loss: float, tp1: float, tp2: float, tp3: float, timeframe: str) -> str:
         """Generate AI verdict for a trading signal"""
@@ -3635,3 +3618,23 @@ COMMODITIES_SENTIMENT_KEYBOARD = [
     ],
     [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
 ]
+
+def get_subscribers(self):
+        """Get all subscribers from database"""
+        try:
+            # If we're in test mode or haven't initialized DB connection, return admins
+            if self.admin_users:
+                # In a real implementation, this would fetch users from a database
+                # For now, let's get users from self.all_users (which is populated in list_users)
+                if hasattr(self, 'all_users') and self.all_users:
+                    return list(self.all_users)
+                else:
+                    logger.info("No users found in all_users, returning admin users")
+                    return self.admin_users
+            else:
+                logger.warning("No admin users defined, returning empty list")
+                return []
+        except Exception as e:
+            logger.error(f"Error getting subscribers: {str(e)}")
+            # Fallback to admin users
+            return self.admin_users or []
