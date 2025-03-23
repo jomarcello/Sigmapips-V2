@@ -410,6 +410,10 @@ class Database:
             if existing and existing.data:
                 logger.info(f"User {user_id} already has a preference for {instrument}")
                 return True
+            
+            # Normalize timeframe format to meet database constraints
+            normalized_timeframe = self._normalize_timeframe_for_db(timeframe)
+            logger.info(f"Normalized timeframe from {timeframe} to {normalized_timeframe}")
                 
             # Map timeframe to style
             style = self._map_timeframe_to_style(timeframe)
@@ -419,8 +423,8 @@ class Database:
                 'user_id': user_id,
                 'market': market,
                 'instrument': instrument,
-                'timeframe': timeframe,
-                'style': style,  # Add style field
+                'timeframe': normalized_timeframe,  # Use normalized timeframe
+                'style': style,
                 'created_at': datetime.datetime.now(timezone.utc).isoformat()
             }
             
@@ -428,7 +432,7 @@ class Database:
             response = self.supabase.table('subscriber_preferences').insert(new_preference).execute()
             
             if response and response.data:
-                logger.info(f"Successfully added preference for user {user_id}: {instrument} ({timeframe}, style={style})")
+                logger.info(f"Successfully added preference for user {user_id}: {instrument} ({normalized_timeframe}, style={style})")
                 return True
             else:
                 logger.warning(f"Failed to add preference for user {user_id}")
@@ -438,6 +442,50 @@ class Database:
             logger.error(f"Error adding subscriber preference: {str(e)}")
             return False
     
+    def _normalize_timeframe_for_db(self, timeframe: str) -> str:
+        """Normalize timeframe for database storage (meeting the valid_timeframe constraint)"""
+        if not timeframe:
+            return 'all'
+            
+        # Convert to string and strip whitespace
+        tf = str(timeframe).strip()
+        
+        # Convert MetaTrader/TradingView formats to standard formats
+        # M1, M5, M15, M30 -> 1m, 5m, 15m, 30m
+        # H1, H4 -> 1h, 4h
+        # D1 -> 1d
+        
+        # Case-insensitive pattern matching
+        tf_lower = tf.lower()
+        
+        # Minute conversions
+        if tf in ['M1', 'M5', 'M15', 'M30'] or tf_lower in ['m1', 'm5', 'm15', 'm30']:
+            # Extract the number part
+            minutes = tf[1:] if tf[0].upper() == 'M' else tf_lower[1:]
+            return f"{minutes}m"
+            
+        # Hour conversions
+        if tf in ['H1', 'H2', 'H4'] or tf_lower in ['h1', 'h2', 'h4']:
+            # Extract the number part
+            hours = tf[1:] if tf[0].upper() == 'H' else tf_lower[1:]
+            return f"{hours}h"
+            
+        # Day conversions
+        if tf in ['D1'] or tf_lower in ['d1']:
+            return "1d"
+            
+        # If it's already in the right format (e.g., 15m, 1h, 4h, 1d), return as is
+        if re.match(r'^\d+[mhd]$', tf_lower):
+            return tf_lower
+            
+        # Special case for 'ALL'
+        if tf.upper() == 'ALL':
+            return 'all'
+            
+        # If we can't normalize, return a safe default that will pass the constraint
+        logger.warning(f"Could not normalize timeframe '{timeframe}', using '1h' as default")
+        return '1h'
+
     def _map_timeframe_to_style(self, timeframe: str) -> str:
         """Map timeframe to trading style"""
         if not timeframe:
