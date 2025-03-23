@@ -1360,6 +1360,12 @@ class TelegramService:
         if query.data == "back_instrument":
             return await self.back_instrument_callback(update, context)
             
+        if query.data == "back_instrument_sentiment":
+            # Set the analysis type to sentiment before going back
+            if context and hasattr(context, 'user_data'):
+                context.user_data['analysis_type'] = 'sentiment'
+            return await self.back_instrument_callback(update, context)
+            
         if query.data == "back_signals":
             return await self.market_signals_callback(update, context)
         
@@ -2375,6 +2381,15 @@ Click the button below to start your FREE 14-day trial.
                 text=f"Analyzing market sentiment for {instrument}. Please wait..."
             )
             
+            # Store the analysis type in context for proper back button handling
+            if context and hasattr(context, 'user_data'):
+                context.user_data['analysis_type'] = 'sentiment'
+                
+                # Determine and store the market type based on the instrument
+                market = self._detect_market(instrument) if instrument else 'forex'
+                context.user_data['market'] = market
+                logger.info(f"Stored context for back navigation: analysis_type=sentiment, market={market}")
+            
             # Log what we're doing
             logger.info(f"Toon sentiment analyse voor {instrument}")
             
@@ -2408,7 +2423,7 @@ Click the button below to start your FREE 14-day trial.
                 
                 # Create button to go back to instrument
                 keyboard = [
-                    [InlineKeyboardButton("⬅️ Back to Instrument", callback_data="back_instrument")]
+                    [InlineKeyboardButton("⬅️ Back to Instrument", callback_data="back_instrument_sentiment")]
                 ]
                 
                 # Send the sentiment analysis
@@ -2446,7 +2461,7 @@ Click the button below to start your FREE 14-day trial.
             await query.edit_message_text(
                 text=error_text,
                 reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("⬅️ Back", callback_data="back_instrument")
+                    InlineKeyboardButton("⬅️ Back", callback_data="back_instrument_sentiment")
                 ]])
             )
         except Exception as inner_e:
