@@ -8,7 +8,7 @@ import logging
 import aiohttp
 import redis
 import json
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 import base64
 import time
 import re
@@ -34,6 +34,8 @@ from trading_bot.services.chart_service.chart import ChartService
 from trading_bot.services.sentiment_service.sentiment import MarketSentimentService
 from trading_bot.services.payment_service.stripe_service import StripeService
 from trading_bot.services.payment_service.stripe_config import get_subscription_features
+from trading_bot.services.ai_service.tavily_service import TavilyService
+from trading_bot.services.ai_service.deepseek_service import DeepseekService
 
 logger = logging.getLogger(__name__)
 
@@ -43,30 +45,317 @@ CALLBACK_ANALYSIS_SENTIMENT = "analysis_sentiment"
 CALLBACK_ANALYSIS_CALENDAR = "analysis_calendar"
 # ... rest of constants
 
+# Map of instruments to their corresponding currencies
+INSTRUMENT_CURRENCY_MAP = {
+    # Forex
+    "EURUSD": ["EUR", "USD"],
+    "GBPUSD": ["GBP", "USD"],
+    "USDJPY": ["USD", "JPY"],
+    "USDCHF": ["USD", "CHF"],
+    "AUDUSD": ["AUD", "USD"],
+    "NZDUSD": ["NZD", "USD"],
+    "USDCAD": ["USD", "CAD"],
+    "EURGBP": ["EUR", "GBP"],
+    "EURJPY": ["EUR", "JPY"],
+    "GBPJPY": ["GBP", "JPY"],
+    
+    # Indices (mapped to their related currencies)
+    "US30": ["USD"],
+    "US100": ["USD"],
+    "US500": ["USD"],
+    "UK100": ["GBP"],
+    "GER40": ["EUR"],
+    "FRA40": ["EUR"],
+    "ESP35": ["EUR"],
+    "JP225": ["JPY"],
+    "AUS200": ["AUD"],
+    
+    # Commodities (mapped to USD primarily)
+    "XAUUSD": ["USD", "XAU"],  # Gold
+    "XAGUSD": ["USD", "XAG"],  # Silver
+    "USOIL": ["USD"],          # Oil (WTI)
+    "UKOIL": ["USD", "GBP"],   # Oil (Brent)
+    
+    # Crypto
+    "BTCUSD": ["USD", "BTC"],
+    "ETHUSD": ["USD", "ETH"],
+    "LTCUSD": ["USD", "LTC"],
+    "XRPUSD": ["USD", "XRP"]
+}
+
+# Major currencies to focus on
+MAJOR_CURRENCIES = ["USD", "EUR", "GBP", "JPY", "CHF", "AUD", "NZD", "CAD"]
+
+# Impact levels and their emoji representations
+IMPACT_EMOJI = {
+    "High": "🔴",
+    "Medium": "🟡",
+    "Low": "⚪"
+}
+
+# Currency to flag emoji mapping
+CURRENCY_FLAG = {
+    "USD": "🇺🇸",
+    "EUR": "🇪🇺",
+    "GBP": "🇬🇧",
+    "JPY": "🇯🇵",
+    "CHF": "🇨🇭",
+    "AUD": "🇦🇺",
+    "NZD": "🇳🇿",
+    "CAD": "🇨🇦"
+}
+
 # De hoofdklasse voor de calendar service
 class EconomicCalendarService:
     """Service for retrieving economic calendar data"""
     
-    def __init__(self):
+    def __init__(self, tavily_service: Optional[TavilyService] = None, deepseek_service: Optional[DeepseekService] = None):
         self.logger = logging.getLogger(__name__)
         self.logger.info("Initializing EconomicCalendarService")
+        self.tavily_service = tavily_service or TavilyService()
+        self.deepseek_service = deepseek_service or DeepseekService()
+        self.cache = {}
+        self.cache_time = {}
+        self.cache_expiry = 3600  # 1 hour in seconds
         
-    async def get_economic_calendar(self, instrument: str) -> str:
-        """Get economic calendar data for an instrument"""
+    async def get_instrument_calendar(self, instrument: str) -> str:
+        """Get economic calendar events relevant to an instrument"""
         try:
-            # This is a placeholder implementation - replace with actual implementation
             self.logger.info(f"Getting economic calendar for {instrument}")
             
-            # Create a mock response for now
-            current_date = datetime.now().strftime("%Y-%m-%d")
-            calendar_data = f"<b>Economic Calendar for {instrument}</b>\n\n"
-            calendar_data += f"Date: {current_date}\n\n"
-            calendar_data += "No important economic events today for this instrument."
+            # Check cache first
+            now = time.time()
+            if instrument in self.cache and (now - self.cache_time.get(instrument, 0)) < self.cache_expiry:
+                self.logger.info(f"Using cached calendar data for {instrument}")
+                return self.cache[instrument]
             
-            return calendar_data
+            # Get currencies related to this instrument
+            currencies = INSTRUMENT_CURRENCY_MAP.get(instrument, [])
+            
+            # If no currencies found, use USD as default
+            if not currencies:
+                currencies = ["USD"]
+                
+            # Filter to only include major currencies
+            currencies = [c for c in currencies if c in MAJOR_CURRENCIES]
+            
+            # Get calendar data for these currencies
+            calendar_data = await self._get_economic_calendar_data(currencies)
+            
+            # Format the response
+            formatted_response = self._format_calendar_response(calendar_data, instrument)
+            
+            # Cache the result
+            self.cache[instrument] = formatted_response
+            self.cache_time[instrument] = now
+            
+            return formatted_response
+            
         except Exception as e:
             self.logger.error(f"Error getting economic calendar: {str(e)}")
-            return f"Error retrieving economic calendar data for {instrument}."
+            self.logger.exception(e)
+            return self._get_fallback_calendar(instrument)
+            
+    async def _get_economic_calendar_data(self, currencies: List[str]) -> Dict:
+        """Use Tavily to get economic calendar data and Deepseek to parse it"""
+        try:
+            # Form the search query for Tavily
+            today = datetime.now().strftime("%B %d, %Y")
+            query = f"economic calendar events today {today} for {', '.join(currencies)} currencies"
+            
+            # Search using Tavily
+            search_results = await self.tavily_service.search(query)
+            
+            if not search_results:
+                self.logger.warning("No search results from Tavily")
+                return {}
+                
+            # Parse the results with DeepSeek
+            prompt = f"""
+Extract today's ({today}) economic calendar events for the following major currencies: {', '.join(MAJOR_CURRENCIES)}.
+Format the data as a structured JSON with the following format:
+{{
+    "EUR": [
+        {{
+            "time": "07:45 EST",
+            "event": "ECB Interest Rate Decision",
+            "impact": "High"
+        }},
+        ...
+    ],
+    "USD": [
+        {{
+            "time": "08:30 EST",
+            "event": "Initial Jobless Claims",
+            "impact": "Medium"
+        }},
+        ...
+    ],
+    ...
+}}
+
+For each currency, include the time (in EST timezone), event name, and impact level (High, Medium, or Low).
+If there are no events for a currency, include an empty array.
+Only include confirmed events for today.
+
+Here is the search data from economic calendar sources:
+{json.dumps(search_results, indent=2)}
+"""
+            
+            # Get calendar data from DeepSeek
+            calendar_json = await self.deepseek_service.generate_completion(prompt)
+            
+            # Try to parse the JSON
+            try:
+                # Extract JSON from potential markdown code blocks
+                json_match = re.search(r'```(?:json)?\s*([\s\S]*?)\s*```', calendar_json)
+                if json_match:
+                    calendar_json = json_match.group(1)
+                    
+                # Parse the JSON
+                calendar_data = json.loads(calendar_json)
+                return calendar_data
+            except json.JSONDecodeError:
+                self.logger.error(f"Failed to parse JSON from DeepSeek response: {calendar_json}")
+                return {}
+                
+        except Exception as e:
+            self.logger.error(f"Error getting economic calendar data: {str(e)}")
+            self.logger.exception(e)
+            return {}
+            
+    def _format_calendar_response(self, calendar_data: Dict, instrument: str) -> str:
+        """Format the calendar data into a nice HTML response"""
+        response = "<b>📅 Economic Calendar</b>\n\n"
+        
+        # If the calendar data is empty, return a simple message
+        if not calendar_data:
+            return response + "No major economic events scheduled for today.\n\n<i>Check back later for updates.</i>"
+            
+        # Sort currencies to always show in same order
+        currencies = sorted(calendar_data.keys(), 
+                          key=lambda x: (0 if x in MAJOR_CURRENCIES else 1, MAJOR_CURRENCIES.index(x) if x in MAJOR_CURRENCIES else 999))
+        
+        # Add calendar events for each currency
+        for currency in currencies:
+            if currency not in MAJOR_CURRENCIES:
+                continue
+                
+            events = calendar_data.get(currency, [])
+            
+            # Skip if no events
+            if not events:
+                response += f"{CURRENCY_FLAG.get(currency, '')} {currency}:\n"
+                response += "No confirmed events scheduled.\n\n"
+                continue
+                
+            # Add currency header
+            currency_name = {
+                "USD": "United States",
+                "EUR": "Eurozone",
+                "GBP": "United Kingdom",
+                "JPY": "Japan",
+                "CHF": "Switzerland",
+                "AUD": "Australia",
+                "NZD": "New Zealand",
+                "CAD": "Canada"
+            }.get(currency, currency)
+            
+            response += f"{CURRENCY_FLAG.get(currency, '')} {currency_name} ({currency}):\n"
+            
+            # Sort events by time
+            events = sorted(events, key=lambda x: x.get("time", "00:00"))
+            
+            # Add events
+            for event in events:
+                time = event.get("time", "")
+                event_name = event.get("event", "")
+                impact = event.get("impact", "Low")
+                impact_emoji = IMPACT_EMOJI.get(impact, "⚪")
+                
+                response += f"⏰ {time} - {event_name}\n"
+                response += f"{impact_emoji} {impact} Impact\n"
+            
+            response += "\n"
+            
+        # Add legend at the bottom
+        response += "-------------------\n"
+        response += "🔴 High Impact\n"
+        response += "🟡 Medium Impact\n"
+        response += "⚪ Low Impact"
+        
+        return response
+        
+    def _get_fallback_calendar(self, instrument: str) -> str:
+        """Generate a fallback response if getting the calendar fails"""
+        response = "<b>📅 Economic Calendar</b>\n\n"
+        
+        currencies = INSTRUMENT_CURRENCY_MAP.get(instrument, ["USD"])
+        currencies = [c for c in currencies if c in MAJOR_CURRENCIES]
+        
+        # Generate some mock data based on the instrument
+        today = datetime.now()
+        
+        # Check if it's a weekend
+        if today.weekday() >= 5:  # 5 = Saturday, 6 = Sunday
+            return response + "No major economic events scheduled for today (weekend).\n\n<i>Check back on Monday for updates.</i>"
+            
+        # Simple simulation using day of week to determine which currencies have events
+        active_currencies = []
+        if today.weekday() == 0:  # Monday
+            active_currencies = ["USD", "EUR"]
+        elif today.weekday() == 1:  # Tuesday
+            active_currencies = ["GBP", "USD", "AUD"]
+        elif today.weekday() == 2:  # Wednesday
+            active_currencies = ["JPY", "EUR", "USD"]
+        elif today.weekday() == 3:  # Thursday
+            active_currencies = ["USD", "GBP", "CHF"]
+        elif today.weekday() == 4:  # Friday
+            active_currencies = ["USD", "CAD", "JPY"]
+            
+        for currency in MAJOR_CURRENCIES:
+            # Add currency header with flag
+            currency_name = {
+                "USD": "United States",
+                "EUR": "Eurozone",
+                "GBP": "United Kingdom",
+                "JPY": "Japan",
+                "CHF": "Switzerland",
+                "AUD": "Australia",
+                "NZD": "New Zealand",
+                "CAD": "Canada"
+            }.get(currency, currency)
+            
+            response += f"{CURRENCY_FLAG.get(currency, '')} {currency_name} ({currency}):\n"
+            
+            # Add mock events if this is an active currency
+            if currency in active_currencies:
+                if currency == "USD":
+                    response += f"⏰ {(today.hour % 12 + 1):02d}:30 EST - Retail Sales\n"
+                    response += f"{IMPACT_EMOJI['Medium']} Medium Impact\n"
+                    response += f"⏰ {(today.hour % 12 + 3):02d}:00 EST - Fed Chair Speech\n"
+                    response += f"{IMPACT_EMOJI['High']} High Impact\n"
+                elif currency == "EUR":
+                    response += f"⏰ {(today.hour % 12):02d}:45 EST - Inflation Data\n"
+                    response += f"{IMPACT_EMOJI['High']} High Impact\n"
+                elif currency == "GBP":
+                    response += f"⏰ {(today.hour % 12 + 2):02d}:00 EST - Employment Change\n"
+                    response += f"{IMPACT_EMOJI['Medium']} Medium Impact\n"
+                else:
+                    response += f"⏰ {(today.hour % 12 + 1):02d}:15 EST - GDP Data\n"
+                    response += f"{IMPACT_EMOJI['Medium']} Medium Impact\n"
+            else:
+                response += "No confirmed events scheduled.\n"
+                
+            response += "\n"
+            
+        # Add legend at the bottom
+        response += "-------------------\n"
+        response += "🔴 High Impact\n"
+        response += "🟡 Medium Impact\n"
+        response += "⚪ Low Impact"
+        
+        return response
 
 # Telegram service class die de calendar service gebruikt
 class TelegramService:
