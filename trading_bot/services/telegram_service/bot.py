@@ -312,6 +312,62 @@ STYLE_TIMEFRAME_MAP = {
     "swing": "4h"
 }
 
+# Mapping of instruments to their allowed timeframes
+INSTRUMENT_TIMEFRAME_MAP = {
+    # Forex - M15 timeframe
+    "GBPNZD": "M15",
+    "NZDUSD": "M15",
+    "SOLUSD": "M15",
+    "DOGEUSD": "M15",
+    "UK100": "M15",
+    "XAUUSD": "M15",
+    
+    # Forex - M30 timeframe
+    "BNBUSD": "M30",
+    "DOTUSD": "M30",
+    "ETHUSD": "M30",
+    "EURAUD": "M30",
+    "EURJPY": "M30",
+    "GBPAUD": "M30",
+    "GBPUSD": "M30",
+    "NZDCAD": "M30",
+    "US30": "M30",
+    "US500": "M30",
+    "USDCAD": "M30",
+    "XLMUSD": "M30",
+    "XTIUSD": "M30",
+    "DE40": "M30",
+    
+    # Forex - H1 timeframe
+    "AUDJPY": "H1",
+    "AUDCHF": "H1",
+    "EURCAD": "H1",
+    "EURGBP": "H1",
+    "GBPCHF": "H1",
+    "HK50": "H1",
+    "NZDJPY": "H1",
+    "USDCHF": "H1",
+    "XRPUSD": "H1",
+    
+    # Forex - H4 timeframe
+    "AUDCAD": "H4",
+    "AU200": "H4",
+    "CADCHF": "H4",
+    "EURCHF": "H4",
+    "EURUSD": "H4",
+    "GBPCAD": "H4",
+    "LINKUSD": "H4",
+    "NZDCHF": "H4"
+}
+
+# Map common timeframe notations
+TIMEFRAME_DISPLAY_MAP = {
+    "M15": "15 Minutes",
+    "M30": "30 Minutes", 
+    "H1": "1 Hour",
+    "H4": "4 Hours"
+}
+
 # Voeg deze functie toe aan het begin van bot.py, na de imports
 def _detect_market(symbol: str) -> str:
     """Detecteer market type gebaseerd op symbol"""
@@ -2714,37 +2770,52 @@ Click the button below to start your FREE 14-day trial.
                 market = self._detect_market(instrument)
                 logger.info(f"Detected market from instrument: {market}")
             
-            # Get user ID for database operations
-            user_id = update.effective_user.id
-            
-            # Store preference in database
-            try:
-                # Using a default timeframe of 'ALL' to receive signals for all timeframes
-                await self.db.add_subscriber_preference(
-                    user_id=user_id,
-                    market=market,
-                    instrument=instrument,
-                    timeframe="ALL"
-                )
+            # Get the allowed timeframe for this instrument
+            timeframe = INSTRUMENT_TIMEFRAME_MAP.get(instrument)
+            if timeframe:
+                # If instrument has a specific timeframe, inform the user and save directly
+                display_timeframe = TIMEFRAME_DISPLAY_MAP.get(timeframe, timeframe)
                 
-                # Show success message
+                # Get user ID for database operations
+                user_id = update.effective_user.id
+                
+                try:
+                    # Add the preference with the specific timeframe
+                    await self.db.add_subscriber_preference(
+                        user_id=user_id,
+                        market=market,
+                        instrument=instrument,
+                        timeframe=timeframe
+                    )
+                    
+                    # Show success message
+                    await query.edit_message_text(
+                        text=f"✅ You have successfully subscribed to {instrument} signals!\n\n"
+                             f"You will receive {instrument} trading signals for the {display_timeframe} timeframe when they become available.",
+                        reply_markup=InlineKeyboardMarkup([
+                            [InlineKeyboardButton("➕ Add More Instruments", callback_data=CALLBACK_SIGNALS_ADD)],
+                            [InlineKeyboardButton("⚙️ Manage Preferences", callback_data=CALLBACK_SIGNALS_MANAGE)],
+                            [InlineKeyboardButton("⬅️ Back to Menu", callback_data=CALLBACK_BACK_MENU)]
+                        ])
+                    )
+                    
+                    logger.info(f"User {user_id} subscribed to {instrument} signals with timeframe {timeframe}")
+                    return CHOOSE_SIGNALS
+                    
+                except Exception as db_error:
+                    logger.error(f"Database error adding signal preference: {str(db_error)}")
+                    await query.edit_message_text(
+                        text=f"❌ Error: Could not save your preference for {instrument}. Please try again later.",
+                        reply_markup=InlineKeyboardMarkup([
+                            [InlineKeyboardButton("⬅️ Back", callback_data=CALLBACK_BACK_SIGNALS)]
+                        ])
+                    )
+                    return CHOOSE_SIGNALS
+            else:
+                # If the instrument is not in our predefined list, show an error
                 await query.edit_message_text(
-                    text=f"✅ You have successfully subscribed to {instrument} signals!\n\n"
-                         f"You will receive trading signals for this instrument when they become available.",
-                    reply_markup=InlineKeyboardMarkup([
-                        [InlineKeyboardButton("➕ Add More Instruments", callback_data=CALLBACK_SIGNALS_ADD)],
-                        [InlineKeyboardButton("⚙️ Manage Preferences", callback_data=CALLBACK_SIGNALS_MANAGE)],
-                        [InlineKeyboardButton("⬅️ Back to Menu", callback_data=CALLBACK_BACK_MENU)]
-                    ])
-                )
-                
-                logger.info(f"User {user_id} subscribed to {instrument} signals")
-                return CHOOSE_SIGNALS
-                
-            except Exception as db_error:
-                logger.error(f"Database error adding signal preference: {str(db_error)}")
-                await query.edit_message_text(
-                    text=f"❌ Error: Could not save your preference for {instrument}. Please try again later.",
+                    text=f"⚠️ The instrument {instrument} is not currently available for trading signals.\n\n"
+                         f"Please select a different instrument.",
                     reply_markup=InlineKeyboardMarkup([
                         [InlineKeyboardButton("⬅️ Back", callback_data=CALLBACK_BACK_SIGNALS)]
                     ])
