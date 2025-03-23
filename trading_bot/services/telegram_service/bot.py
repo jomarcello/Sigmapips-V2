@@ -270,6 +270,31 @@ COMMODITIES_KEYBOARD_SIGNALS = [
     [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
 ]
 
+# Forex keyboard for signals
+FOREX_KEYBOARD_SIGNALS = [
+    [
+        InlineKeyboardButton("EURUSD", callback_data="instrument_EURUSD_signals"),
+        InlineKeyboardButton("GBPUSD", callback_data="instrument_GBPUSD_signals"),
+        InlineKeyboardButton("USDJPY", callback_data="instrument_USDJPY_signals")
+    ],
+    [
+        InlineKeyboardButton("AUDUSD", callback_data="instrument_AUDUSD_signals"),
+        InlineKeyboardButton("USDCAD", callback_data="instrument_USDCAD_signals"),
+        InlineKeyboardButton("EURGBP", callback_data="instrument_EURGBP_signals")
+    ],
+    [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
+]
+
+# Crypto keyboard for signals
+CRYPTO_KEYBOARD_SIGNALS = [
+    [
+        InlineKeyboardButton("BTCUSD", callback_data="instrument_BTCUSD_signals"),
+        InlineKeyboardButton("ETHUSD", callback_data="instrument_ETHUSD_signals"),
+        InlineKeyboardButton("XRPUSD", callback_data="instrument_XRPUSD_signals")
+    ],
+    [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
+]
+
 # Style keyboard
 STYLE_KEYBOARD = [
     [InlineKeyboardButton("⚡ Test (1m)", callback_data="style_test")],
@@ -978,6 +1003,51 @@ class TelegramService:
         query = update.callback_query
         callback_data = query.data
         
+        # Check if this is a signals market selection
+        if '_signals' in callback_data:
+            market = callback_data.replace('market_', '').replace('_signals', '')
+            
+            try:
+                # Store in user_data for future use
+                if context and hasattr(context, 'user_data'):
+                    context.user_data['market'] = market
+                    context.user_data['in_signals_flow'] = True
+                    logger.info(f"Stored in context for signals: market={market}")
+                
+                # Choose appropriate keyboard based on market
+                keyboard = None
+                message_text = f"Select a {market} instrument for trading signals:"
+                
+                if market == 'forex':
+                    keyboard = FOREX_KEYBOARD_SIGNALS
+                elif market == 'crypto':
+                    keyboard = CRYPTO_KEYBOARD_SIGNALS
+                elif market == 'indices':
+                    keyboard = INDICES_KEYBOARD_SIGNALS
+                elif market == 'commodities':
+                    keyboard = COMMODITIES_KEYBOARD_SIGNALS
+                else:
+                    # Unknown market, show an error
+                    await query.edit_message_text(
+                        text=f"Unknown market: {market}",
+                        reply_markup=InlineKeyboardMarkup([[
+                            InlineKeyboardButton("⬅️ Back", callback_data="back_signals")
+                        ]])
+                    )
+                    return MENU
+                
+                # Show the keyboard
+                await query.edit_message_text(
+                    text=message_text,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+                
+                return CHOOSE_INSTRUMENT
+            except Exception as e:
+                logger.error(f"Error in market_callback for signals: {str(e)}")
+                logger.exception(e)
+                return MENU
+        
         # Extract market and check if this is from sentiment menu
         if '_sentiment' in callback_data:
             market = callback_data.replace('market_', '').replace('_sentiment', '')
@@ -1407,6 +1477,11 @@ class TelegramService:
             # Direct doorsturen naar de instrument_callback methode
             logger.info(f"Specifiek instrument type gedetecteerd in: {query.data}")
             return await self.instrument_callback(update, context)
+        
+        # Handle instrument signal choices
+        if "_signals" in query.data and query.data.startswith("instrument_"):
+            logger.info(f"Signal instrument selection detected: {query.data}")
+            return await self.instrument_signals_callback(update, context)
         
         # Speciale afhandeling voor markt keuzes
         if query.data.startswith("market_"):
@@ -2605,6 +2680,79 @@ Click the button below to start your FREE 14-day trial.
             except Exception as inner_e:
                 logger.error(f"Failed to send fallback message: {str(inner_e)}")
             
+            return MENU
+
+    async def instrument_signals_callback(self, update: Update, context=None) -> int:
+        """Handle instrument selection for signals"""
+        query = update.callback_query
+        
+        try:
+            # Extract instrument from callback data
+            instrument = query.data.replace('instrument_', '').replace('_signals', '')
+            
+            # Log the instrument selection
+            logger.info(f"Instrument callback for signals: instrument={instrument}")
+            
+            # Store the instrument in user context
+            if context and hasattr(context, 'user_data'):
+                context.user_data['in_signals_flow'] = True
+                context.user_data['instrument'] = instrument
+                
+                # Get the market that was previously selected
+                market = context.user_data.get('market', self._detect_market(instrument))
+                logger.info(f"Market for signals: {market}")
+            
+            # Get user ID for database operations
+            user_id = update.effective_user.id
+            
+            # Store preference in database
+            try:
+                # Using a default timeframe of 'ALL' to receive signals for all timeframes
+                await self.db.add_subscriber_preference(
+                    user_id=user_id,
+                    market=market,
+                    instrument=instrument,
+                    timeframe="ALL"
+                )
+                
+                # Show success message
+                await query.edit_message_text(
+                    text=f"✅ You have successfully subscribed to {instrument} signals!\n\n"
+                         f"You will receive trading signals for this instrument when they become available.",
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("➕ Add More Instruments", callback_data=CALLBACK_SIGNALS_ADD)],
+                        [InlineKeyboardButton("⚙️ Manage Preferences", callback_data=CALLBACK_SIGNALS_MANAGE)],
+                        [InlineKeyboardButton("⬅️ Back to Menu", callback_data=CALLBACK_BACK_MENU)]
+                    ])
+                )
+                
+                logger.info(f"User {user_id} subscribed to {instrument} signals")
+                return CHOOSE_SIGNALS
+                
+            except Exception as db_error:
+                logger.error(f"Database error adding signal preference: {str(db_error)}")
+                await query.edit_message_text(
+                    text=f"❌ Error: Could not save your preference for {instrument}. Please try again later.",
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("⬅️ Back", callback_data=CALLBACK_BACK_SIGNALS)]
+                    ])
+                )
+                return CHOOSE_SIGNALS
+                
+        except Exception as e:
+            logger.error(f"Error in instrument_signals_callback: {str(e)}")
+            
+            # Show error message
+            try:
+                await query.edit_message_text(
+                    text="An error occurred while processing your selection. Please try again.",
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("⬅️ Back", callback_data=CALLBACK_BACK_SIGNALS)]
+                    ])
+                )
+            except Exception as inner_e:
+                logger.error(f"Failed to show error message: {str(inner_e)}")
+                
             return MENU
 
 # Indices keyboard voor sentiment analyse
