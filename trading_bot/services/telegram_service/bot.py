@@ -621,6 +621,7 @@ class TelegramService:
         self.application.add_handler(CommandHandler("menu", self.show_main_menu))
         self.application.add_handler(CommandHandler("help", self.help_command))
         self.application.add_handler(CommandHandler("set_subscription", self.set_subscription_command))
+        self.application.add_handler(CommandHandler("set_payment_failed", self.set_payment_failed_command))
         
         # Callback query handler for all button presses
         self.application.add_handler(CallbackQueryHandler(self.button_callback))
@@ -776,6 +777,32 @@ To continue using SigmaPips Trading Bot and receive trading signals, please reac
             await update.message.reply_text("Invalid arguments. Chat ID and days must be numbers.")
         except Exception as e:
             logger.error(f"Error setting subscription: {str(e)}")
+            await update.message.reply_text(f"Error: {str(e)}")
+            
+    async def set_payment_failed_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> None:
+        """Secret command to set a user's subscription to the payment failed state"""
+        # Check if the command has correct arguments
+        if not context.args or len(context.args) < 1:
+            await update.message.reply_text("Usage: /set_payment_failed [chatid]")
+            return
+            
+        try:
+            # Parse chat ID argument
+            chat_id = int(context.args[0])
+            
+            # Set payment failed status in database
+            success = await self.db.set_payment_failed(chat_id)
+            
+            if success:
+                await update.message.reply_text(f"✅ Payment status set to FAILED for user {chat_id}")
+                logger.info(f"Manually set payment failed status for user {chat_id}")
+            else:
+                await update.message.reply_text(f"❌ Could not set payment failed status for user {chat_id}")
+                
+        except ValueError:
+            await update.message.reply_text("Invalid argument. Chat ID must be a number.")
+        except Exception as e:
+            logger.error(f"Error setting payment failed status: {str(e)}")
             await update.message.reply_text(f"Error: {str(e)}")
 
     async def menu_analyse_callback(self, update: Update, context=None) -> int:
@@ -1779,6 +1806,7 @@ To continue using SigmaPips Trading Bot and receive trading signals, please reac
         application.add_handler(CommandHandler("menu", self.show_main_menu))
         application.add_handler(CommandHandler("help", self.help_command))
         application.add_handler(CommandHandler("set_subscription", self.set_subscription_command))
+        application.add_handler(CommandHandler("set_payment_failed", self.set_payment_failed_command))
         
         # Callback query handler for all button presses
         application.add_handler(CallbackQueryHandler(self.button_callback))
