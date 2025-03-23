@@ -3243,6 +3243,9 @@ Risk Management:
                 user_id = update.effective_user.id
                 
                 try:
+                    # Log the exact timeframe format being used
+                    logger.info(f"Using timeframe format for DB: {timeframe} for instrument {instrument}")
+                    
                     # Add the preference with the specific timeframe
                     await self.db.add_subscriber_preference(
                         user_id=user_id,
