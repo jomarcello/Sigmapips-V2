@@ -2460,22 +2460,31 @@ Risk Management:
         """Get list of subscribers for a specific market and instrument"""
         try:
             # Haal alle subscribers op
-            all_subscribers = await self.db.get_subscribers()
+            response = await self.db.get_subscribers()
+            
+            # Check if the response is valid and has data
+            if not hasattr(response, 'data') or not response.data:
+                return []
+                
+            all_subscribers = response.data
             
             # Filter subscribers op basis van market en instrument
             matching_subscribers = []
             
             for subscriber in all_subscribers:
-                # Haal preferences op voor deze subscriber
-                preferences = await self.db.get_subscriber_preferences(subscriber['user_id'])
-                
-                # Controleer of de subscriber geïnteresseerd is in deze market en instrument
-                for pref in preferences:
-                    if pref['market'].lower() == market.lower() and (
-                       pref['instrument'].upper() == instrument.upper() or 
-                       pref['instrument'] == 'ALL'):  # 'ALL' betekent dat ze alle signalen willen
-                        matching_subscribers.append(subscriber['user_id'])
-                        break
+                try:
+                    # Haal preferences op voor deze subscriber
+                    preferences_response = await self.db.get_subscriber_preferences(subscriber['user_id'])
+                    
+                    # Controleer of de subscriber geïnteresseerd is in deze market en instrument
+                    for pref in preferences_response:
+                        if pref['market'].lower() == market.lower() and (
+                           pref['instrument'].upper() == instrument.upper() or 
+                           pref['instrument'] == 'ALL'):  # 'ALL' betekent dat ze alle signalen willen
+                            matching_subscribers.append(subscriber['user_id'])
+                            break
+                except Exception as inner_e:
+                    logger.error(f"Error processing subscriber {subscriber}: {str(inner_e)}")
             
             return matching_subscribers
             
