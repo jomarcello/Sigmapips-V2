@@ -2693,14 +2693,26 @@ Click the button below to start your FREE 14-day trial.
             # Log the instrument selection
             logger.info(f"Instrument callback for signals: instrument={instrument}")
             
+            # Initialize market variable
+            market = "forex"  # Default market
+            
             # Store the instrument in user context
             if context and hasattr(context, 'user_data'):
                 context.user_data['in_signals_flow'] = True
                 context.user_data['instrument'] = instrument
                 
                 # Get the market that was previously selected
-                market = context.user_data.get('market', self._detect_market(instrument))
+                market = context.user_data.get('market')
+                if not market:
+                    # If market not in context, detect it based on the instrument
+                    market = self._detect_market(instrument)
+                    context.user_data['market'] = market
+                
                 logger.info(f"Market for signals: {market}")
+            else:
+                # If context is not available, detect market based on instrument
+                market = self._detect_market(instrument)
+                logger.info(f"Detected market from instrument: {market}")
             
             # Get user ID for database operations
             user_id = update.effective_user.id
