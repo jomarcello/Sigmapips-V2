@@ -262,7 +262,8 @@ class Database:
                 'user_id': user_id,
                 'market': market,
                 'instrument': instrument,
-                'timeframe': normalized_timeframe
+                'timeframe': normalized_timeframe,
+                'style': style  # Keep style as database still requires it
             }
             
             response = self.supabase.table('subscriber_preferences').insert(data).execute()
@@ -312,19 +313,23 @@ class Database:
             # Normalize the timeframe for database storage
             normalized_timeframe = self._normalize_timeframe_for_db(timeframe)
             
+            # Map the timeframe to a style for style column
+            style = self._map_timeframe_to_style(timeframe)
+            
             # Maak een nieuwe voorkeur
             new_preference = {
                 'user_id': user_id,
                 'market': market,
                 'instrument': instrument,
-                'timeframe': normalized_timeframe
+                'timeframe': normalized_timeframe,
+                'style': style  # Add style back as the database requires it
             }
             
             # Sla op in de database
             response = self.supabase.table('subscriber_preferences').insert(new_preference).execute()
             
             if response.data:
-                logger.info(f"Saved preference for user {user_id}: {instrument} ({timeframe})")
+                logger.info(f"Saved preference for user {user_id}: {instrument} ({timeframe}, style: {style})")
                 return True
             else:
                 logger.error(f"Failed to save preference: {response}")
@@ -435,16 +440,20 @@ class Database:
             # Log the original timeframe for reference
             logger.info(f"Original timeframe for {instrument}: {timeframe}")
             
-            # Normalize timeframe format to meet database constraints (always '1h')
+            # Normalize timeframe format for database storage
             normalized_timeframe = self._normalize_timeframe_for_db(timeframe)
             logger.info(f"Normalized timeframe from {timeframe} to {normalized_timeframe} for database storage")
             
-            # Create new preference (style removed as it's not in the database schema)
+            # Map the timeframe to a style for style column (which still has a not-null constraint)
+            style = self._map_timeframe_to_style(timeframe)
+            
+            # Create new preference with style included (since the database still requires it)
             new_preference = {
                 'user_id': user_id,
                 'market': market,
                 'instrument': instrument,
-                'timeframe': normalized_timeframe,  # Use normalized timeframe (always '1h')
+                'timeframe': normalized_timeframe,
+                'style': style,  # Add style back as the database requires it
                 'created_at': datetime.datetime.now(timezone.utc).isoformat()
             }
             
@@ -452,7 +461,7 @@ class Database:
             response = self.supabase.table('subscriber_preferences').insert(new_preference).execute()
             
             if response and response.data:
-                logger.info(f"Successfully added preference for user {user_id}: {instrument} (original timeframe: {timeframe}, stored as: {normalized_timeframe})")
+                logger.info(f"Successfully added preference for user {user_id}: {instrument} (original timeframe: {timeframe}, stored as: {normalized_timeframe}, style: {style})")
                 return True
             else:
                 logger.warning(f"Failed to add preference for user {user_id}")
