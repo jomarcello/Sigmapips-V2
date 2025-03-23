@@ -401,8 +401,18 @@ class Database:
             logger.error(f"Error getting subscriber preferences: {str(e)}")
             return []
             
-    async def add_subscriber_preference(self, user_id: int, market: str, instrument: str, timeframe: str = "ALL") -> bool:
-        """Add a new signal preference for a user"""
+    async def add_subscriber_preference(self, user_id: int, market: str, instrument: str, timeframe: str = None) -> bool:
+        """Add a new signal preference for a user
+        
+        Arguments:
+            user_id: Telegram user ID
+            market: Market type (forex, crypto, indices, commodities)
+            instrument: Trading instrument/symbol (e.g., EURUSD, BTCUSD)
+            timeframe: Timeframe (optional, if not provided will use the instrument's default from INSTRUMENT_TIMEFRAME_MAP)
+        
+        Returns:
+            bool: Success indicator
+        """
         try:
             # Check if preference already exists
             existing = self.supabase.table('subscriber_preferences').select('*').eq('user_id', user_id).eq('instrument', instrument).execute()
@@ -411,19 +421,37 @@ class Database:
                 logger.info(f"User {user_id} already has a preference for {instrument}")
                 return True
             
-            # Normalize timeframe format to meet database constraints
+            # Import here to avoid circular imports
+            from trading_bot.services.telegram_service.bot import INSTRUMENT_TIMEFRAME_MAP, STYLE_TIMEFRAME_MAP
+            
+            # Get the instrument's default timeframe from the mapping if not provided
+            if timeframe is None or timeframe.upper() == "ALL":
+                instrument_timeframe = INSTRUMENT_TIMEFRAME_MAP.get(instrument)
+                if instrument_timeframe:
+                    timeframe = instrument_timeframe
+                    logger.info(f"Using instrument's default timeframe: {timeframe} for {instrument}")
+                else:
+                    # Default to 1h if not found in the map
+                    timeframe = "1h"
+                    logger.info(f"Instrument {instrument} not found in INSTRUMENT_TIMEFRAME_MAP, using default '1h'")
+            
+            # Log the original timeframe for reference
+            logger.info(f"Original timeframe for {instrument}: {timeframe}")
+            
+            # Normalize timeframe format to meet database constraints (always '1h')
             normalized_timeframe = self._normalize_timeframe_for_db(timeframe)
-            logger.info(f"Normalized timeframe from {timeframe} to {normalized_timeframe}")
-                
-            # Map timeframe to style
+            logger.info(f"Normalized timeframe from {timeframe} to {normalized_timeframe} for database storage")
+            
+            # Map timeframe to style based on the original timeframe (not the normalized one)
             style = self._map_timeframe_to_style(timeframe)
-                
+            logger.info(f"Mapped timeframe {timeframe} to style: {style}")
+            
             # Create new preference
             new_preference = {
                 'user_id': user_id,
                 'market': market,
                 'instrument': instrument,
-                'timeframe': normalized_timeframe,  # Use normalized timeframe
+                'timeframe': normalized_timeframe,  # Use normalized timeframe (always '1h')
                 'style': style,
                 'created_at': datetime.datetime.now(timezone.utc).isoformat()
             }
@@ -432,7 +460,7 @@ class Database:
             response = self.supabase.table('subscriber_preferences').insert(new_preference).execute()
             
             if response and response.data:
-                logger.info(f"Successfully added preference for user {user_id}: {instrument} ({normalized_timeframe}, style={style})")
+                logger.info(f"Successfully added preference for user {user_id}: {instrument} (original timeframe: {timeframe}, stored as: {normalized_timeframe}, style={style})")
                 return True
             else:
                 logger.warning(f"Failed to add preference for user {user_id}")
@@ -443,92 +471,84 @@ class Database:
             return False
     
     def _normalize_timeframe_for_db(self, timeframe: str) -> str:
-        """Normalize timeframe for database storage (meeting the valid_timeframe constraint)"""
-        if not timeframe:
-            return 'all'
-            
-        # Convert to string and strip whitespace
-        tf = str(timeframe).strip()
+        """
+        Normalize timeframe for database storage (meeting the valid_timeframe constraint).
         
-        # Convert MetaTrader/TradingView formats to standard formats
-        # M1, M5, M15, M30 -> 1m, 5m, 15m, 30m
-        # H1, H4 -> 1h, 4h
-        # D1 -> 1d
+        Due to the database constraint 'valid_timeframe', all timeframes are normalized
+        to '1h' for storage in the database. The actual instrument-specific timeframe is
+        maintained in the code through the INSTRUMENT_TIMEFRAME_MAP.
         
-        # Case-insensitive pattern matching
-        tf_lower = tf.lower()
+        Arguments:
+            timeframe: The timeframe to normalize (e.g., 'M30', '1h', '4h')
+            
+        Returns:
+            str: '1h' (the only value accepted by the database constraint)
+        """
+        # Our tests show that the database constraint only accepts '1h'
+        # for new records, despite containing other formats in existing records.
+        original_timeframe = timeframe
         
-        # Minute conversions
-        if tf in ['M1', 'M5', 'M15', 'M30'] or tf_lower in ['m1', 'm5', 'm15', 'm30']:
-            # Extract the number part
-            minutes = tf[1:] if tf[0].upper() == 'M' else tf_lower[1:]
-            return f"{minutes}m"
-            
-        # Hour conversions
-        if tf in ['H1', 'H2', 'H4'] or tf_lower in ['h1', 'h2', 'h4']:
-            # Extract the number part
-            hours = tf[1:] if tf[0].upper() == 'H' else tf_lower[1:]
-            return f"{hours}h"
-            
-        # Day conversions
-        if tf in ['D1'] or tf_lower in ['d1']:
-            return "1d"
-            
-        # If it's already in the right format (e.g., 15m, 1h, 4h, 1d), return as is
-        if re.match(r'^\d+[mhd]$', tf_lower):
-            return tf_lower
-            
-        # Special case for 'ALL'
-        if tf.upper() == 'ALL':
-            return 'all'
-            
-        # If we can't normalize, return a safe default that will pass the constraint
-        logger.warning(f"Could not normalize timeframe '{timeframe}', using '1h' as default")
+        # Log the normalization for debugging
+        logger.info(f"Database constraint requires '1h': converting '{original_timeframe}' to '1h'")
+        
+        # Always return '1h' to comply with the database constraint
         return '1h'
 
     def _map_timeframe_to_style(self, timeframe: str) -> str:
-        """Map timeframe to trading style"""
+        """
+        Map a timeframe to a trading style.
+        
+        Arguments:
+            timeframe: The timeframe to map (e.g., 'M15', 'M30', 'H1', 'H4', '15m', '30m', '1h', '4h')
+        
+        Returns:
+            str: The corresponding trading style ('test', 'scalp', 'intraday', 'swing')
+        """
         if not timeframe:
-            return 'all'
-            
-        # Normaliseer de timeframe (verwijder spaties, converteer naar lowercase)
-        tf = str(timeframe).strip().lower()
+            return 'intraday'  # Default
         
-        # Check for scalping timeframes (alles onder 30m)
-        if any(tf.endswith(x) for x in ['1m', '5m', '15m', '1', '5', '15']) or tf in ['m1', 'm5', 'm15']:
+        # Normalize the input by removing spaces and converting to lowercase
+        tf_str = str(timeframe).strip().lower()
+        
+        # Handle M15 format (MT4/MT5 style)
+        if tf_str in ['m15'] or timeframe in ['M15']:
             return 'scalp'
-            
-        # Check for intraday timeframes (30m-2h)
-        if any(tf.endswith(x) for x in ['30m', '1h', '2h', '30', '60', '120']) or tf in ['m30', 'h1', 'h2']:
+        
+        # Handle M30 format (MT4/MT5 style)
+        if tf_str in ['m30'] or timeframe in ['M30']:
             return 'intraday'
-            
-        # Check for swing timeframes (4h en hoger)
-        if any(tf.endswith(x) for x in ['4h', '1d', '240', '1440']) or tf in ['h4', 'd1']:
+        
+        # Handle H1 format (MT4/MT5 style)
+        if tf_str in ['h1'] or timeframe in ['H1']:
+            return 'intraday'
+        
+        # Handle H4 format (MT4/MT5 style)
+        if tf_str in ['h4'] or timeframe in ['H4']:
             return 'swing'
         
-        # Specifieke checks voor TradingView en MT4/MT5 formaten
-        if tf in ['m1', 'm5', 'm15', 'm15']:
+        # Handle 15m format (TradingView style)
+        if tf_str in ['15m', '15min']:
             return 'scalp'
-        elif tf in ['m30', 'h1', 'h2']:
+        
+        # Handle 30m format (TradingView style)
+        if tf_str in ['30m', '30min']:
             return 'intraday'
-        elif tf in ['h4', 'd1']:
-            return 'swing'
-            
-        # Voor hoofdletterformaten (M15, H1, etc.)
-        if tf in ['m15', 'm5', 'm1'] or timeframe in ['M15', 'M5', 'M1']:
-            return 'scalp'
-        elif tf in ['m30'] or timeframe in ['M30'] or tf in ['h1', 'h2'] or timeframe in ['H1', 'H2']:
+        
+        # Handle 1h format (TradingView style)
+        if tf_str in ['1h', '60m']:
             return 'intraday'
-        elif tf in ['h4'] or timeframe in ['H4', 'D1']:
+        
+        # Handle 4h format (TradingView style)
+        if tf_str in ['4h', '240m']:
             return 'swing'
-            
-        # Als het 'ALL' of een onbekende timeframe is
-        if tf == 'all':
-            return 'all'
-            
-        # Default voor onbekende timeframes
-        logger.warning(f"Unknown timeframe format: {timeframe}, defaulting to 'all'")
-        return 'all'
+        
+        # Special case - test timeframe (1m)
+        if tf_str in ['1m', 'm1']:
+            return 'test'
+        
+        # If no match found, default to 'intraday'
+        logger.warning(f"Could not map timeframe '{timeframe}' to a style, defaulting to 'intraday'")
+        return 'intraday'
 
     async def execute_query(self, query: str) -> List[Dict[str, Any]]:
         """Execute a query on Supabase (simplified version)"""
