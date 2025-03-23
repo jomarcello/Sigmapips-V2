@@ -1549,6 +1549,12 @@ class TelegramService:
             
         if query.data == "signals_manage" or query.data == CALLBACK_SIGNALS_MANAGE:
             return await self.signals_manage_callback(update, context)
+            
+        if query.data == "remove_subscriptions":
+            return await self.remove_subscriptions_callback(update, context)
+        
+        if query.data.startswith("delete_subscription_"):
+            return await self.delete_subscription_callback(update, context)
         
         # Log unhandled callbacks
         logger.warning(f"Unhandled callback data: {query.data}")
@@ -2837,6 +2843,150 @@ Click the button below to start your FREE 14-day trial.
                 logger.error(f"Failed to show error message: {str(inner_e)}")
                 
             return MENU
+
+    async def remove_subscriptions_callback(self, update: Update, context=None) -> int:
+        """Handle remove_subscriptions callback to show a list of subscriptions to remove"""
+        query = update.callback_query
+        
+        try:
+            # Get user ID
+            user_id = update.effective_user.id
+            
+            # Get user's subscriptions
+            preferences = await self.db.get_subscriber_preferences(user_id)
+            
+            if not preferences or len(preferences) == 0:
+                await query.edit_message_text(
+                    text="You don't have any signal subscriptions to remove.",
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("⬅️ Back to Signals", callback_data=CALLBACK_SIGNALS_MANAGE)]
+                    ])
+                )
+                return CHOOSE_SIGNALS
+            
+            # Create keyboard with preferences to delete
+            keyboard = []
+            
+            # Store preference IDs in context or in a temporary dictionary
+            if context and hasattr(context, 'user_data'):
+                context.user_data['subscriptions'] = {}
+                
+                for i, pref in enumerate(preferences):
+                    # Store preference ID for later use
+                    subscription_key = f"subscription_{i}"
+                    context.user_data['subscriptions'][subscription_key] = pref['id']
+                    
+                    # Create button with preference info
+                    instrument = pref.get('instrument', 'Unknown')
+                    timeframe = pref.get('timeframe', 'ALL')
+                    market = pref.get('market', 'Unknown').upper()
+                    
+                    button_text = f"{instrument} ({market} - {timeframe})"
+                    keyboard.append([InlineKeyboardButton(button_text, callback_data=f"delete_subscription_{i}")])
+            else:
+                # If context is not available, use a simpler approach
+                for pref in preferences:
+                    instrument = pref.get('instrument', 'Unknown')
+                    timeframe = pref.get('timeframe', 'ALL')
+                    market = pref.get('market', 'Unknown').upper()
+                    pref_id = pref.get('id')
+                    
+                    button_text = f"{instrument} ({market} - {timeframe})"
+                    keyboard.append([InlineKeyboardButton(button_text, callback_data=f"delete_subscription_{pref_id}")])
+            
+            # Add back button
+            keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data=CALLBACK_SIGNALS_MANAGE)])
+            
+            await query.edit_message_text(
+                text="Select a subscription to remove:",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            
+            return CHOOSE_SIGNALS
+            
+        except Exception as e:
+            logger.error(f"Error in remove_subscriptions_callback: {str(e)}")
+            logger.exception(e)
+            
+            try:
+                await query.edit_message_text(
+                    text="An error occurred while retrieving your subscriptions. Please try again.",
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("⬅️ Back", callback_data=CALLBACK_SIGNALS_MANAGE)]
+                    ])
+                )
+            except Exception as inner_e:
+                logger.error(f"Failed to recover from error: {str(inner_e)}")
+                
+            return CHOOSE_SIGNALS
+            
+    async def delete_subscription_callback(self, update: Update, context=None) -> int:
+        """Handle deletion of a specific signal subscription"""
+        query = update.callback_query
+        
+        try:
+            # Extract subscription index/id from callback data
+            subscription_id = query.data.replace('delete_subscription_', '')
+            
+            # Get the actual database ID
+            pref_id = None
+            
+            # If using context
+            if context and hasattr(context, 'user_data') and 'subscriptions' in context.user_data:
+                # This is an index into the subscriptions dict
+                if subscription_id.isdigit():
+                    subscription_key = f"subscription_{subscription_id}"
+                    pref_id = context.user_data['subscriptions'].get(subscription_key)
+            else:
+                # Direct ID from callback
+                if subscription_id.isdigit():
+                    pref_id = int(subscription_id)
+            
+            if not pref_id:
+                await query.edit_message_text(
+                    text="Error: Could not identify the subscription to delete.",
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("⬅️ Back", callback_data=CALLBACK_SIGNALS_MANAGE)]
+                    ])
+                )
+                return CHOOSE_SIGNALS
+            
+            # Delete the subscription
+            success = await self.db.delete_preference_by_id(pref_id)
+            
+            if success:
+                await query.edit_message_text(
+                    text="✅ The selected subscription has been removed successfully.",
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("⚙️ Manage More Subscriptions", callback_data=CALLBACK_SIGNALS_MANAGE)],
+                        [InlineKeyboardButton("🏠 Back to Menu", callback_data=CALLBACK_BACK_MENU)]
+                    ])
+                )
+            else:
+                await query.edit_message_text(
+                    text="❌ Failed to remove the subscription. Please try again.",
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("⬅️ Back", callback_data=CALLBACK_SIGNALS_MANAGE)]
+                    ])
+                )
+            
+            return CHOOSE_SIGNALS
+            
+        except Exception as e:
+            logger.error(f"Error in delete_subscription_callback: {str(e)}")
+            logger.exception(e)
+            
+            try:
+                await query.edit_message_text(
+                    text="An error occurred while removing the subscription. Please try again.",
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("⬅️ Back", callback_data=CALLBACK_SIGNALS_MANAGE)]
+                    ])
+                )
+            except Exception as inner_e:
+                logger.error(f"Failed to recover from error: {str(inner_e)}")
+                
+            return CHOOSE_SIGNALS
 
 # Indices keyboard voor sentiment analyse
 INDICES_SENTIMENT_KEYBOARD = [
