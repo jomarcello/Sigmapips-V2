@@ -576,15 +576,65 @@ class TelegramService:
         
             # Register the handlers
             self._register_handlers()
+            
+            # Load stored signals
+            self._load_signals()
         
             logger.info("Telegram service initialized")
             
             # Keep track of processed updates
             self.processed_updates = set()
-        
+            
         except Exception as e:
             logger.error(f"Error initializing Telegram service: {str(e)}")
             raise
+    
+    def _load_signals(self):
+        """Load saved signals from file"""
+        try:
+            # Check if signals file exists
+            if not os.path.exists('data/signals.json'):
+                logger.info("No signals file found, creating empty signals dictionary")
+                self.user_signals = {}
+                return
+                
+            with open('data/signals.json', 'r') as f:
+                signals_json = json.load(f)
+                
+            # Convert string keys back to integers
+            self.user_signals = {int(k): v for k, v in signals_json.items()}
+            logger.info(f"Loaded {len(self.user_signals)} signals from file")
+            
+            # Log the first few signals as a sample
+            sample_users = list(self.user_signals.keys())[:3] if self.user_signals else []
+            for user_id in sample_users:
+                signal = self.user_signals[user_id]
+                logger.info(f"Sample signal for user {user_id}: {signal.get('instrument')}")
+                
+        except Exception as e:
+            logger.error(f"Error loading signals: {str(e)}")
+            self.user_signals = {}
+            
+    def _save_signals(self):
+        """Save signals to file"""
+        try:
+            # Ensure data directory exists
+            os.makedirs('data', exist_ok=True)
+            
+            # Convert user_ids to strings for JSON serialization
+            signals_to_save = {str(k): v for k, v in self.user_signals.items()}
+            with open('data/signals.json', 'w') as f:
+                json.dump(signals_to_save, f)
+            logger.info(f"Saved {len(self.user_signals)} signals to file")
+            
+            # Log the first few signals that were saved
+            sample_users = list(self.user_signals.keys())[:3] if self.user_signals else []
+            for user_id in sample_users:
+                signal = self.user_signals[user_id]
+                logger.info(f"Saved signal for user {user_id}: {signal.get('instrument')}")
+                
+        except Exception as e:
+            logger.error(f"Error saving signals: {str(e)}")
             
     @property
     def signals_enabled(self):
@@ -598,11 +648,12 @@ class TelegramService:
         logger.info(f"Signal processing {'enabled' if value else 'disabled'}")
 
     def _register_handlers(self):
-        """Register command handlers"""
+        """Register all command and callback handlers with the application"""
         # Ensure application is initialized
         if not self.application:
-            self.setup()
-            
+            logger.error("Cannot register handlers: application not initialized")
+            return
+        
         # Command handlers
         self.application.add_handler(CommandHandler("start", self.start_command))
         self.application.add_handler(CommandHandler("menu", self.show_main_menu))
@@ -3606,3 +3657,50 @@ def get_subscribers(self):
             logger.error(f"Error getting subscribers: {str(e)}")
             # Fallback to admin users
             return self.admin_users or []
+
+    def _load_signals(self):
+        """Load saved signals from file"""
+        try:
+            # Check if signals file exists
+            if not os.path.exists('data/signals.json'):
+                logger.info("No signals file found, creating empty signals dictionary")
+                self.user_signals = {}
+                return
+                
+            with open('data/signals.json', 'r') as f:
+                signals_json = json.load(f)
+                
+            # Convert string keys back to integers
+            self.user_signals = {int(k): v for k, v in signals_json.items()}
+            logger.info(f"Loaded {len(self.user_signals)} signals from file")
+            
+            # Log the first few signals as a sample
+            sample_users = list(self.user_signals.keys())[:3] if self.user_signals else []
+            for user_id in sample_users:
+                signal = self.user_signals[user_id]
+                logger.info(f"Sample signal for user {user_id}: {signal.get('instrument')}")
+                
+        except Exception as e:
+            logger.error(f"Error loading signals: {str(e)}")
+            self.user_signals = {}
+            
+    def _save_signals(self):
+        """Save signals to file"""
+        try:
+            # Ensure data directory exists
+            os.makedirs('data', exist_ok=True)
+            
+            # Convert user_ids to strings for JSON serialization
+            signals_to_save = {str(k): v for k, v in self.user_signals.items()}
+            with open('data/signals.json', 'w') as f:
+                json.dump(signals_to_save, f)
+            logger.info(f"Saved {len(self.user_signals)} signals to file")
+            
+            # Log the first few signals that were saved
+            sample_users = list(self.user_signals.keys())[:3] if self.user_signals else []
+            for user_id in sample_users:
+                signal = self.user_signals[user_id]
+                logger.info(f"Saved signal for user {user_id}: {signal.get('instrument')}")
+                
+        except Exception as e:
+            logger.error(f"Error saving signals: {str(e)}")
