@@ -129,7 +129,7 @@ class Database:
                 # If timeframe preference is 'ALL', it matches any signal timeframe
                 if pref.get('timeframe', '') == 'ALL':
                     timeframe_match = True
-                
+                    
                 # Log match details for debugging
                 logger.info(f"Match results: market={market_match}, instrument={instrument_match}, timeframe={timeframe_match}")
                 
@@ -411,12 +411,16 @@ class Database:
                 logger.info(f"User {user_id} already has a preference for {instrument}")
                 return True
                 
+            # Map timeframe to style
+            style = self._map_timeframe_to_style(timeframe)
+                
             # Create new preference
             new_preference = {
                 'user_id': user_id,
                 'market': market,
                 'instrument': instrument,
                 'timeframe': timeframe,
+                'style': style,  # Add style field
                 'created_at': datetime.datetime.now(timezone.utc).isoformat()
             }
             
@@ -424,7 +428,7 @@ class Database:
             response = self.supabase.table('subscriber_preferences').insert(new_preference).execute()
             
             if response and response.data:
-                logger.info(f"Successfully added preference for user {user_id}: {instrument} ({timeframe})")
+                logger.info(f"Successfully added preference for user {user_id}: {instrument} ({timeframe}, style={style})")
                 return True
             else:
                 logger.warning(f"Failed to add preference for user {user_id}")
@@ -433,6 +437,50 @@ class Database:
         except Exception as e:
             logger.error(f"Error adding subscriber preference: {str(e)}")
             return False
+    
+    def _map_timeframe_to_style(self, timeframe: str) -> str:
+        """Map timeframe to trading style"""
+        if not timeframe:
+            return 'all'
+            
+        # Normaliseer de timeframe (verwijder spaties, converteer naar lowercase)
+        tf = str(timeframe).strip().lower()
+        
+        # Check for scalping timeframes (alles onder 30m)
+        if any(tf.endswith(x) for x in ['1m', '5m', '15m', '1', '5', '15']) or tf in ['m1', 'm5', 'm15']:
+            return 'scalp'
+            
+        # Check for intraday timeframes (30m-2h)
+        if any(tf.endswith(x) for x in ['30m', '1h', '2h', '30', '60', '120']) or tf in ['m30', 'h1', 'h2']:
+            return 'intraday'
+            
+        # Check for swing timeframes (4h en hoger)
+        if any(tf.endswith(x) for x in ['4h', '1d', '240', '1440']) or tf in ['h4', 'd1']:
+            return 'swing'
+        
+        # Specifieke checks voor TradingView en MT4/MT5 formaten
+        if tf in ['m1', 'm5', 'm15', 'm15']:
+            return 'scalp'
+        elif tf in ['m30', 'h1', 'h2']:
+            return 'intraday'
+        elif tf in ['h4', 'd1']:
+            return 'swing'
+            
+        # Voor hoofdletterformaten (M15, H1, etc.)
+        if tf in ['m15', 'm5', 'm1'] or timeframe in ['M15', 'M5', 'M1']:
+            return 'scalp'
+        elif tf in ['m30'] or timeframe in ['M30'] or tf in ['h1', 'h2'] or timeframe in ['H1', 'H2']:
+            return 'intraday'
+        elif tf in ['h4'] or timeframe in ['H4', 'D1']:
+            return 'swing'
+            
+        # Als het 'ALL' of een onbekende timeframe is
+        if tf == 'all':
+            return 'all'
+            
+        # Default voor onbekende timeframes
+        logger.warning(f"Unknown timeframe format: {timeframe}, defaulting to 'all'")
+        return 'all'
 
     async def execute_query(self, query: str) -> List[Dict[str, Any]]:
         """Execute a query on Supabase (simplified version)"""
