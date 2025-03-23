@@ -253,8 +253,14 @@ class Database:
             logger.error(f"Error saving preferences: {str(e)}")
             raise 
 
-    async def get_subscribers(self, instrument: str, timeframe: str = None):
+    async def get_subscribers(self, instrument: str = None, timeframe: str = None):
         """Get all subscribers for an instrument and timeframe"""
+        # If no instrument is provided, get all subscribers
+        if not instrument:
+            query = self.supabase.table('subscribers').select('*')
+            return query.execute()
+            
+        # Filter by instrument if provided
         query = self.supabase.table('subscriber_preferences')\
             .select('*')\
             .eq('instrument', instrument)
@@ -272,7 +278,7 @@ class Database:
             if timeframe in style_map:
                 query = query.eq('style', style_map[timeframe])
         
-        return query.execute() 
+        return query.execute()
 
     async def get_user_preferences(self, user_id: int) -> List[Dict[str, Any]]:
         """Get user preferences from database"""
