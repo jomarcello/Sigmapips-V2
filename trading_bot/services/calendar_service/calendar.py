@@ -233,7 +233,7 @@ class EconomicCalendarService:
         try:
             # Form the search query for Tavily
             today = datetime.now().strftime("%B %d, %Y")
-            query = f"economic calendar events today {today} for {', '.join(currencies)} currencies"
+            query = f"economic calendar events today {today} for {', '.join(currencies)} currencies with EST time format event times impact level high medium low"
             
             # First try Tavily
             self.logger.info(f"Searching for economic calendar data using Tavily")
@@ -327,9 +327,14 @@ Format the data as a structured JSON with the following format:
     ...
 }}
 
-For each currency, include the time (in EST timezone), event name, and impact level (High, Medium, or Low).
-If there are no events for a currency, include an empty array.
-Only include confirmed events for today.
+IMPORTANT INSTRUCTIONS:
+1. All times MUST be in EST (Eastern Standard Time) format and use the 24-hour format (HH:MM EST).
+2. If times are in different time zones, convert them to EST.
+3. The "impact" field must be one of: "High", "Medium", or "Low".
+4. For each currency, include all relevant events sorted by time.
+5. If there are no events for a currency, include an empty array.
+6. Only include confirmed events for today.
+7. Make sure all events have consistent time formats.
 
 Here is the search data from economic calendar sources:
 {json.dumps(search_results, indent=2)}
