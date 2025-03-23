@@ -442,8 +442,7 @@ def require_subscription(func):
             
             # Create buttons - Trial button goes straight to Stripe checkout
             keyboard = [
-                [InlineKeyboardButton("🔥 Start 14-day FREE Trial", url=checkout_url)],
-                [InlineKeyboardButton("ℹ️ More Information", callback_data="subscription_info")]
+                [InlineKeyboardButton("🔥 Start 14-day FREE Trial", url=checkout_url)]
             ]
             
             # Handle both message and callback query updates
@@ -666,8 +665,7 @@ class TelegramService:
             
             # Create buttons - Trial button goes straight to Stripe checkout
             keyboard = [
-                [InlineKeyboardButton("🔥 Start 14-day FREE Trial", url=checkout_url)],
-                [InlineKeyboardButton("ℹ️ More Information", callback_data="subscription_info")]
+                [InlineKeyboardButton("🔥 Start 14-day FREE Trial", url=checkout_url)]
             ]
             
             await update.message.reply_text(
@@ -1552,8 +1550,7 @@ class TelegramService:
             
             # Create buttons - Trial button goes straight to Stripe checkout
             keyboard = [
-                [InlineKeyboardButton("🔥 Start 14-day FREE Trial", url=checkout_url)],
-                [InlineKeyboardButton("ℹ️ More Information", callback_data="subscription_info")]
+                [InlineKeyboardButton("🔥 Start 14-day FREE Trial", url=checkout_url)]
             ]
             
             # Use context.bot if available, otherwise use self.bot
@@ -1833,8 +1830,7 @@ class TelegramService:
             
             # Create keyboard with checkout link
             keyboard = [
-                [InlineKeyboardButton("🔥 Start Trial", url=checkout_url)],
-                [InlineKeyboardButton("⬅️ Back", callback_data="back_to_menu")]
+                [InlineKeyboardButton("🔥 Start Trial", url=checkout_url)]
             ]
             
             await query.edit_message_text(
@@ -1878,8 +1874,7 @@ Click the button below to start your FREE 14-day trial.
             """
             
             keyboard = [
-                [InlineKeyboardButton("🔥 Start FREE Trial", callback_data="subscribe_monthly")],
-                [InlineKeyboardButton("⬅️ Back", callback_data="back_to_menu")]
+                [InlineKeyboardButton("🔥 Start FREE Trial", callback_data="subscribe_monthly")]
             ]
             
             await query.edit_message_text(
