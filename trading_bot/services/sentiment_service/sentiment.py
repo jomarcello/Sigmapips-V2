@@ -189,11 +189,11 @@ class MarketSentimentService:
             # Add a conclusion based on sentiment
             analysis += f"<b>💡 Conclusion:</b>\n"
             if sentiment_score > 65:
-                analysis += "Consider long positions with risk management strategies in place. Current news suggests favorable market conditions."
+                analysis += "Current news suggests favorable market conditions. <b>Consider long positions</b> with risk management strategies in place."
             elif sentiment_score < 35:
-                analysis += "Watch for potential short opportunities. Economic data and market factors suggest possible downward pressure."
+                analysis += "Economic data and market factors suggest possible downward pressure. <b>Watch for short opportunities</b>."
             else:
-                analysis += "The market shows mixed signals. Consider waiting for clearer directional confirmation before taking new positions."
+                analysis += "The market shows mixed signals. <b>Wait for clearer signals</b> before taking new positions."
             
             # Clean up any markdown formatting that might be in the analysis
             analysis = re.sub(r'^```html\s*', '', analysis)
@@ -369,13 +369,14 @@ Format the analysis as follows:
 • [Key risk factor 2]
 
 💡 Conclusion:
-[Trading recommendation based on analysis]
+[Trading recommendation based on analysis. Always include a specific recommendation for either <b>long positions</b> or <b>short positions</b> in bold. If uncertain, recommend <b>wait for clearer signals</b> in bold.]
 
 Use HTML formatting for Telegram: <b>bold</b>, <i>italic</i>, etc.
 Keep the analysis concise but informative, focusing on actionable insights.
 If certain information is not available in the market data, make reasonable assumptions based on what is provided.
 DO NOT include any references to where the data came from (no "This analysis is based on data from Tavily API" or similar).
 DO NOT include news source names like "FXStreet", "Reuters", etc. Just include the news content.
+IMPORTANT: Always include a clear trading recommendation (long positions, short positions, or waiting) in the conclusion section and make sure it's in bold tags.
 """
                 
                 payload = {
@@ -470,7 +471,7 @@ The {instrument} is showing a {trend} trend with {volatility} volatility. Price 
 • Low liquidity periods may cause price spikes
 
 <b>💡 Conclusion:</b>
-Wait for clearer market signals before taking new positions."""
+{f"Market conditions suggest momentum may continue. <b>Consider long positions</b> with appropriate stop losses." if sentiment_score > 0.6 else f"Current technical signals indicate potential downside. <b>Consider short positions</b> with tight risk management." if sentiment_score < 0.4 else f"Current market conditions lack clear direction. <b>Wait for clearer signals</b> before taking new positions."}"""
         
         # Clean up any markdown formatting that might be in the analysis
         analysis = re.sub(r'^```html\s*', '', analysis)
@@ -512,7 +513,7 @@ The market is showing neutral sentiment with mixed signals. Current price action
 • News Events: Watch for unexpected announcements
 
 <b>💡 Conclusion:</b>
-Wait for clearer market signals before taking new positions."""
+<b>Wait for clearer signals</b> before taking new positions."""
 
         # Clean up any markdown formatting that might be in the analysis
         analysis = re.sub(r'^```html\s*', '', analysis)
