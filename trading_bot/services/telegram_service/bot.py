@@ -1120,8 +1120,8 @@ class TelegramService:
                         reply_markup=None
                     )
                     
-                    # Get calendar data
-                    calendar_data = await self.calendar.get_economic_calendar()
+                    # Get calendar data - use a global view for all major currencies
+                    calendar_data = await self.calendar.get_instrument_calendar("GLOBAL")
                     
                     # Show the calendar with back button
                     await query.edit_message_text(
