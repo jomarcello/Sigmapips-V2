@@ -312,17 +312,38 @@ STYLE_TIMEFRAME_MAP = {
     "swing": "4h"
 }
 
-# Mapping of instruments to their allowed timeframes
+# Mapping of instruments to their allowed timeframes - updated 2023-03-23
 INSTRUMENT_TIMEFRAME_MAP = {
-    # Forex - M15 timeframe
+    # H1 timeframe only
+    "AUDJPY": "H1", 
+    "AUDCHF": "H1",
+    "EURCAD": "H1",
+    "EURGBP": "H1",
+    "GBPCHF": "H1",
+    "HK50": "H1",
+    "NZDJPY": "H1",
+    "USDCHF": "H1",
+    "XRPUSD": "H1",
+    
+    # H4 timeframe only
+    "AUDCAD": "H4",
+    "AU200": "H4", 
+    "CADCHF": "H4",
+    "EURCHF": "H4",
+    "EURUSD": "H4",
+    "GBPCAD": "H4",
+    "LINKUSD": "H4",
+    "NZDCHF": "H4",
+    
+    # M15 timeframe only
+    "DOGEUSD": "M15",
     "GBPNZD": "M15",
     "NZDUSD": "M15",
     "SOLUSD": "M15",
-    "DOGEUSD": "M15",
     "UK100": "M15",
     "XAUUSD": "M15",
     
-    # Forex - M30 timeframe
+    # M30 timeframe only
     "BNBUSD": "M30",
     "DOTUSD": "M30",
     "ETHUSD": "M30",
@@ -336,28 +357,9 @@ INSTRUMENT_TIMEFRAME_MAP = {
     "USDCAD": "M30",
     "XLMUSD": "M30",
     "XTIUSD": "M30",
-    "DE40": "M30",
+    "DE40": "M30"
     
-    # Forex - H1 timeframe
-    "AUDJPY": "H1",
-    "AUDCHF": "H1",
-    "EURCAD": "H1",
-    "EURGBP": "H1",
-    "GBPCHF": "H1",
-    "HK50": "H1",
-    "NZDJPY": "H1",
-    "USDCHF": "H1",
-    "XRPUSD": "H1",
-    
-    # Forex - H4 timeframe
-    "AUDCAD": "H4",
-    "AU200": "H4",
-    "CADCHF": "H4",
-    "EURCHF": "H4",
-    "EURUSD": "H4",
-    "GBPCAD": "H4",
-    "LINKUSD": "H4",
-    "NZDCHF": "H4"
+    # Removed as requested: EU50, FR40, LTCUSD
 }
 
 # Map common timeframe notations
