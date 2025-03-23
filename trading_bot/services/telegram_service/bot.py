@@ -590,6 +590,12 @@ class TelegramService:
         # Callback query handler for all button presses
         self.application.add_handler(CallbackQueryHandler(self.button_callback))
         
+        # Ensure signal handlers are registered
+        logger.info("Enabling and initializing signals functionality")
+        
+        # Load any saved signals
+        self._load_signals()
+        
         logger.info("All handlers registered successfully")
 
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> None:
@@ -1948,20 +1954,27 @@ Click the button below to start your FREE 14-day trial.
             # Set commands
             await self.bot.set_my_commands([
                 BotCommand("start", "Start the bot and show main menu"),
-                BotCommand("menu", "Show main menu"),
-                BotCommand("help", "Show help information")
+                BotCommand("menu", "Show the main menu"),
+                BotCommand("help", "Get help"),
             ])
             
-            # Start polling in a separate thread to avoid event loop issues
-            polling_thread = threading.Thread(target=self._start_polling_thread)
-            polling_thread.daemon = True
-            polling_thread.start()
+            # Ensure signals are enabled in polling mode
+            logger.info("Initializing signal processing in polling mode")
+            # Make sure signals system is ready
+            self._load_signals()
             
-            logger.info("Bot initialized for polling mode in a separate thread")
+            # Webhook checks - disable any existing webhooks
+            webhook_info = await self.bot.get_webhook_info()
+            if webhook_info.url:
+                await self.bot.delete_webhook()
+                logger.info(f"Deleted existing webhook at {webhook_info.url}")
+            
+            # Start polling
+            self._start_polling_thread()
+            
         except Exception as e:
-            logger.error(f"Error setting up polling mode: {str(e)}")
-            logger.exception(e)
-            raise
+            logger.error(f"Failed to set up polling mode: {str(e)}")
+            logger.error(traceback.format_exc())
             
     def _start_polling_thread(self):
         """Run polling in a separate thread to avoid event loop issues"""
@@ -2249,10 +2262,45 @@ Click the button below to start your FREE 14-day trial.
                 
             logger.info(f"Webhook handler registered at path: {webhook_path}")
                     
+            # Register the signal processing API endpoint
+            @app.post("/api/signals")
+            async def process_signal_api(request: Request):
+                try:
+                    signal_data = await request.json()
+                    
+                    # Validate API key if one is set
+                    api_key = request.headers.get("X-API-Key")
+                    expected_key = os.getenv("SIGNAL_API_KEY")
+                    
+                    if expected_key and api_key != expected_key:
+                        logger.warning(f"Invalid API key used in signal API request")
+                        return {"status": "error", "message": "Invalid API key"}
+                    
+                    # Process the signal
+                    success = await self.process_signal(signal_data)
+                    
+                    if success:
+                        return {"status": "success", "message": "Signal processed successfully"}
+                    else:
+                        return {"status": "error", "message": "Failed to process signal"}
+                    
+                except Exception as e:
+                    logger.error(f"Error processing signal API request: {str(e)}")
+                    logger.exception(e)
+                    return {"status": "error", "message": str(e)}
+            
+            logger.info(f"Signal API endpoint registered at /api/signals")
+            
+            # Enable signals functionality in webhook mode
+            logger.info("Initializing signal processing in webhook mode")
+            self._load_signals()
+            
+            return app
+            
         except Exception as e:
             logger.error(f"Error setting up webhook: {str(e)}")
-            logger.error(traceback.format_exc())
-            raise
+            logger.exception(e)
+            return app
 
     async def back_menu_callback(self, update: Update, context=None) -> int:
         """Handle back_menu callback to return to the main menu"""
