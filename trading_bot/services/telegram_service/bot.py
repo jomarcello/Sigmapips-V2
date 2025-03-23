@@ -2418,6 +2418,30 @@ Click the button below to start your FREE 14-day trial.
             # Regular processing log
             logger.info(f"Processing signal: {signal_data}")
             
+            # Handle TradingView format conversion (tp1, tp2, tp3, sl -> take_profits, stop_loss)
+            # Check if we need to convert from TradingView format
+            if 'tp1' in signal_data or 'sl' in signal_data:
+                logger.info("Detected TradingView format, converting parameters")
+                
+                # Convert stop loss parameter
+                if 'sl' in signal_data and not signal_data.get('stop_loss'):
+                    signal_data['stop_loss'] = signal_data['sl']
+                
+                # Collect take profit parameters into an array
+                take_profits = []
+                if 'tp1' in signal_data and signal_data['tp1']:
+                    take_profits.append(signal_data['tp1'])
+                if 'tp2' in signal_data and signal_data['tp2']:
+                    take_profits.append(signal_data['tp2'])
+                if 'tp3' in signal_data and signal_data['tp3']:
+                    take_profits.append(signal_data['tp3'])
+                
+                # Only set if we found take profit targets
+                if take_profits:
+                    signal_data['take_profits'] = take_profits
+                    
+                logger.info(f"Converted TradingView format parameters: {signal_data}")
+            
             # Extract signal components
             instrument = signal_data.get('instrument', '')
             signal = signal_data.get('signal', '')
@@ -2431,116 +2455,113 @@ Click the button below to start your FREE 14-day trial.
             
             # Validate required data
             if not all([instrument, signal, price, stop_loss, interval]):
-                logger.error("Missing required signal data")
+                logger.error(f"Missing required signal data: instrument={instrument}, signal={signal}, price={price}, stop_loss={stop_loss}, interval={interval}")
                 return False
+                
+            # Format price, stop loss, and take profits
+            price_str = self._format_price(price)
+            stop_loss_str = self._format_price(stop_loss)
+            take_profits_str = [self._format_price(tp) for tp in take_profits]
             
-            # Format the signal message
-            tp1 = take_profits[0] if take_profits and len(take_profits) > 0 else ''
-            tp2 = take_profits[1] if take_profits and len(take_profits) > 1 else ''
-            tp3 = take_profits[2] if take_profits and len(take_profits) > 2 else ''
+            # If market is not specified, try to detect it
+            if not market:
+                market = self._detect_market(instrument)
+                
+            # Format direction as BUY or SELL
+            direction = signal.upper()
             
-            # Determine emoji based on signal
-            emoji = "🟢" if signal == "BUY" else "🔴" if signal == "SELL" else "⚪"
+            # Generate emoji based on direction
+            direction_emoji = "🟢" if direction == "BUY" else "🔴"
             
-            # Format price values for display
-            price_display = str(price)
-            sl_display = str(stop_loss)
-            tp1_display = str(tp1) if tp1 else ""
-            tp2_display = str(tp2) if tp2 else ""
-            tp3_display = str(tp3) if tp3 else ""
+            # Format signal message
+            signal_message = f"{direction_emoji} <b>{direction} {instrument}</b>\n\n"
+            signal_message += f"<b>Entry:</b> {price_str}\n"
             
-            message = (
-                f"<b>{emoji} SIGNAL {signal} {instrument}</b>\n\n"
-                f"<b>Price:</b> {price_display}\n"
-                f"<b>Stop Loss:</b> {sl_display}\n"
+            if take_profits_str:
+                signal_message += "<b>Take Profits:</b>\n"
+                for i, tp in enumerate(take_profits_str, 1):
+                    signal_message += f"TP{i}: {tp}\n"
+                    
+            signal_message += f"<b>Stop Loss:</b> {stop_loss_str}\n\n"
+            
+            # Add interval
+            if interval:
+                signal_message += f"<b>Timeframe:</b> {interval.upper()}\n"
+                
+            # Add strategy
+            if strategy:
+                signal_message += f"<b>Strategy:</b> {strategy}\n"
+                
+            # Add notes
+            if notes:
+                signal_message += f"\n<b>Notes:</b> {notes}\n"
+                
+            # Add verdict
+            verdict = self._generate_signal_verdict(
+                instrument=instrument,
+                direction=direction,
+                entry=price,
+                stop_loss=stop_loss,
+                take_profits=take_profits,
+                interval=interval
             )
             
-            # Add take profits if available
-            if tp1:
-                message += f"<b>Take Profit 1:</b> {tp1_display}\n"
-            if tp2:
-                message += f"<b>Take Profit 2:</b> {tp2_display}\n"
-            if tp3:
-                message += f"<b>Take Profit 3:</b> {tp3_display}\n"
+            signal_message += f"\n{verdict}"
             
-            message += f"\n<b>Timeframe:</b> {interval}\n"
-            message += f"<b>Strategy:</b> {strategy}\n"
+            # Add timestamp
+            timestamp = self._get_formatted_timestamp()
+            signal_message += f"\n\n<i>{timestamp}</i>"
             
-            if notes:
-                message += f"\n<b>Notes:</b> {notes}\n"
+            # Add a test message directly to your Telegram ID for testing
+            # Replace 1093307376 with your Telegram ID
+            TEST_USER_ID = 1093307376
+            try:
+                logger.info(f"Attempting to send test message to user {TEST_USER_ID}")
+                await self.bot.send_message(
+                    chat_id=TEST_USER_ID,
+                    text=f"⚠️ TEST SIGNAL ⚠️\n\n{signal_message}",
+                    parse_mode=ParseMode.HTML
+                )
+                logger.info(f"Test message sent successfully to {TEST_USER_ID}")
+            except Exception as test_e:
+                logger.error(f"Failed to send test message to {TEST_USER_ID}: {str(test_e)}")
+                logger.error(f"Debug error: {type(test_e).__name__}: {str(test_e)}")
             
-            # Create the analyze market button
-            keyboard = [
-                [InlineKeyboardButton("🔍 Analyze Market", callback_data=f"analyze_from_signal_{instrument}")]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
+            # Get subscribers for this market and instrument
+            if users is None:
+                users = await self._get_signal_subscribers(market, instrument)
+                
+            # Log subscribers
+            logger.info(f"Subscribers for {market}/{instrument}: {users}")
             
-            # Get the users from the database
+            # Skip sending if test mode
+            if test_mode:
+                logger.info("Test mode enabled, skipping sending to subscribers")
+                return True
+                
+            # Send signal to each user
+            success_count = 0
+            
             if not users:
-                # In test mode, only send to admins if no users specified
-                if test_mode:
-                    users = self.admin_users
-                else:
-                    users = self.get_subscribers()
-            
-            # Store for logging purposes
-            sent_count = 0
-            error_count = 0
-            
-            # Track the sent messages to store in user_signals
-            sent_messages = {}
-            
-            # Loop through users and send signal
+                logger.warning(f"No subscribers found for {market}/{instrument}")
+                
             for user_id in users:
                 try:
-                    # Send message to user
-                    sent_message = await self.bot.send_message(
+                    # Send message
+                    await self.bot.send_message(
                         chat_id=user_id,
-                        text=message,
-                        parse_mode=ParseMode.HTML,
-                        reply_markup=reply_markup
+                        text=signal_message,
+                        parse_mode=ParseMode.HTML
                     )
+                    success_count += 1
+                except TelegramError as e:
+                    logger.error(f"Failed to send signal to user {user_id}: {str(e)}")
                     
-                    # Store the message_id and chat_id for this user
-                    if sent_message:
-                        sent_messages[user_id] = {
-                            'message_id': sent_message.message_id,
-                            'chat_id': sent_message.chat_id
-                        }
-                    
-                    sent_count += 1
-                    logger.info(f"Signal sent to user {user_id}")
-                    
-                    # Save the signal data and message for this user
-                    self.user_signals[user_id] = {
-                        'instrument': instrument,
-                        'message': message,
-                        'direction': signal,
-                        'price': price,
-                        'stop_loss': stop_loss,
-                        'tp1': tp1,
-                        'tp2': tp2,
-                        'tp3': tp3,
-                        'timeframe': interval,
-                        'strategy': strategy,
-                        'market': market,
-                        'timestamp': time.time(),
-                        'message_id': sent_messages.get(user_id, {}).get('message_id'),
-                        'chat_id': sent_messages.get(user_id, {}).get('chat_id')
-                    }
-                    
-                except Exception as e:
-                    error_count += 1
-                    logger.error(f"Error sending signal to user {user_id}: {str(e)}")
+            # Log result
+            logger.info(f"Signal sent to {success_count}/{len(users)} subscribers")
             
-            # Log the results
-            logger.info(f"Signal processing complete: {sent_count} sent, {error_count} errors")
-            
-            # Save signals
-            self._save_signals()
-            
-            # Return success if at least one message was sent
-            return sent_count > 0
+            # Return success if at least one user received the signal or if no users needed it
+            return success_count > 0 or not users
             
         except Exception as e:
             logger.error(f"Error processing signal: {str(e)}")
@@ -2601,6 +2622,30 @@ Click the button below to start your FREE 14-day trial.
             
         # Default to forex
         return 'forex'
+        
+    def _format_price(self, price) -> str:
+        """Format price value for display"""
+        try:
+            # Convert to float if it's not already
+            price_val = float(price)
+            
+            # Format with appropriate precision based on value
+            if price_val < 0.01:
+                return f"{price_val:.8f}"
+            elif price_val < 1:
+                return f"{price_val:.4f}"
+            elif price_val < 100:
+                return f"{price_val:.2f}"
+            else:
+                return f"{price_val:.0f}"
+        except (ValueError, TypeError):
+            # If conversion fails, return as is
+            return str(price)
+            
+    def _get_formatted_timestamp(self) -> str:
+        """Get formatted timestamp for signals"""
+        now = datetime.now()
+        return now.strftime("%d-%b-%Y %H:%M UTC")
         
     async def _get_signal_subscribers(self, market: str, instrument: str) -> List[int]:
         """Get list of subscribers for a specific market and instrument"""
