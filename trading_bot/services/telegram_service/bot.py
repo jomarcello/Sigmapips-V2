@@ -437,9 +437,12 @@ def require_subscription(func):
 <b>Start today with a FREE 14-day trial!</b>
             """
             
-            # Create buttons with the stripe link for the 14-day trial
+            # Use direct URL link instead of callback for the trial button
+            checkout_url = "https://buy.stripe.com/3cs3eF9Hu9256NW9AA"
+            
+            # Create buttons - Trial button goes straight to Stripe checkout
             keyboard = [
-                [InlineKeyboardButton("🔥 Start 14-day FREE Trial", callback_data="subscribe_monthly")],
+                [InlineKeyboardButton("🔥 Start 14-day FREE Trial", url=checkout_url)],
                 [InlineKeyboardButton("ℹ️ More Information", callback_data="subscription_info")]
             ]
             
@@ -658,9 +661,12 @@ class TelegramService:
 <b>Start today with a FREE 14-day trial!</b>
             """
             
-            # Create buttons
+            # Use direct URL link instead of callback for the trial button
+            checkout_url = "https://buy.stripe.com/3cs3eF9Hu9256NW9AA"
+            
+            # Create buttons - Trial button goes straight to Stripe checkout
             keyboard = [
-                [InlineKeyboardButton("🔥 Start 14-day FREE Trial", callback_data="subscribe_monthly")],
+                [InlineKeyboardButton("🔥 Start 14-day FREE Trial", url=checkout_url)],
                 [InlineKeyboardButton("ℹ️ More Information", callback_data="subscription_info")]
             ]
             
@@ -1541,9 +1547,12 @@ class TelegramService:
 <b>Start today with a FREE 14-day trial!</b>
             """
             
-            # Create buttons
+            # Use direct URL link instead of callback for the trial button
+            checkout_url = "https://buy.stripe.com/3cs3eF9Hu9256NW9AA"
+            
+            # Create buttons - Trial button goes straight to Stripe checkout
             keyboard = [
-                [InlineKeyboardButton("🔥 Start 14-day FREE Trial", callback_data="subscribe_monthly")],
+                [InlineKeyboardButton("🔥 Start 14-day FREE Trial", url=checkout_url)],
                 [InlineKeyboardButton("ℹ️ More Information", callback_data="subscription_info")]
             ]
             
