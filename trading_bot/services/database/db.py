@@ -557,6 +557,25 @@ class Database:
             logger.error(f"Error checking subscription status: {str(e)}")
             return False
             
+    async def has_payment_failed(self, user_id: int) -> bool:
+        """Check if user's subscription payment has failed"""
+        try:
+            # Retrieve the user's subscription
+            subscription = await self.get_user_subscription(user_id)
+            
+            if not subscription:
+                return False
+            
+            # Check if status indicates a payment failure
+            status = subscription.get('subscription_status')
+            
+            # Check for payment failure status
+            return status in ['past_due', 'unpaid', 'incomplete', 'incomplete_expired']
+            
+        except Exception as e:
+            logger.error(f"Error checking payment failure status: {str(e)}")
+            return False
+            
     async def get_user_subscription_type(self, user_id: int):
         """Haal het type abonnement op voor een gebruiker"""
         try:
