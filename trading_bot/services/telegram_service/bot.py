@@ -413,12 +413,33 @@ def require_subscription(func):
         # Check subscription status
         is_subscribed = await self.db.is_user_subscribed(user_id)
         
-        if is_subscribed:
+        # Check if payment has failed
+        payment_failed = await self.db.has_payment_failed(user_id)
+        
+        if is_subscribed and not payment_failed:
             # User has subscription, proceed with function
             return await func(self, update, context, *args, **kwargs)
         else:
-            # Show subscription screen with the welcome message from the screenshot
-            welcome_text = f"""
+            if payment_failed:
+                # Show payment failure message
+                failed_payment_text = f"""
+❗ <b>Subscription Payment Failed</b> ❗
+
+Your subscription payment could not be processed and your service has been deactivated.
+
+To continue using SigmaPips Trading Bot and receive trading signals, please reactivate your subscription by clicking the button below.
+                """
+                
+                # Use direct URL link for reactivation
+                reactivation_url = "https://buy.stripe.com/9AQcPf3j63HL5JS145"
+                
+                # Create button for reactivation
+                keyboard = [
+                    [InlineKeyboardButton("🔄 Reactivate Subscription", url=reactivation_url)]
+                ]
+            else:
+                # Show subscription screen with the welcome message from the screenshot
+                failed_payment_text = f"""
 🚀 <b>Welcome to SigmaPips Trading Bot!</b> 🚀
 
 <b>Discover powerful trading signals for various markets:</b>
@@ -435,27 +456,27 @@ def require_subscription(func):
 ✅ Economic calendar integration
 
 <b>Start today with a FREE 14-day trial!</b>
-            """
-            
-            # Use direct URL link instead of callback for the trial button
-            checkout_url = "https://buy.stripe.com/3cs3eF9Hu9256NW9AA"
-            
-            # Create buttons - Trial button goes straight to Stripe checkout
-            keyboard = [
-                [InlineKeyboardButton("🔥 Start 14-day FREE Trial", url=checkout_url)]
-            ]
+                """
+                
+                # Use direct URL link instead of callback for the trial button
+                reactivation_url = "https://buy.stripe.com/3cs3eF9Hu9256NW9AA"
+                
+                # Create button for trial
+                keyboard = [
+                    [InlineKeyboardButton("🔥 Start 14-day FREE Trial", url=reactivation_url)]
+                ]
             
             # Handle both message and callback query updates
             if update.callback_query:
                 await update.callback_query.answer()
                 await update.callback_query.edit_message_text(
-                    text=welcome_text,
+                    text=failed_payment_text,
                     reply_markup=InlineKeyboardMarkup(keyboard),
                     parse_mode=ParseMode.HTML
                 )
             else:
                 await update.message.reply_text(
-                    text=welcome_text,
+                    text=failed_payment_text,
                     reply_markup=InlineKeyboardMarkup(keyboard),
                     parse_mode=ParseMode.HTML
                 )
@@ -633,12 +654,38 @@ class TelegramService:
         except Exception as e:
             logger.error(f"Error registering user: {str(e)}")
         
-        # Check if the user has a subscription
+        # Check if the user has a subscription 
         is_subscribed = await self.db.is_user_subscribed(user_id)
         
-        if is_subscribed:
+        # Check if payment has failed
+        payment_failed = await self.db.has_payment_failed(user_id)
+        
+        if is_subscribed and not payment_failed:
             # Show the normal welcome message with all features
             await self.show_main_menu(update, context)
+        elif payment_failed:
+            # Show payment failure message
+            failed_payment_text = f"""
+❗ <b>Subscription Payment Failed</b> ❗
+
+Your subscription payment could not be processed and your service has been deactivated.
+
+To continue using SigmaPips Trading Bot and receive trading signals, please reactivate your subscription by clicking the button below.
+            """
+            
+            # Use direct URL link for reactivation
+            reactivation_url = "https://buy.stripe.com/9AQcPf3j63HL5JS145"
+            
+            # Create button for reactivation
+            keyboard = [
+                [InlineKeyboardButton("🔄 Reactivate Subscription", url=reactivation_url)]
+            ]
+            
+            await update.message.reply_text(
+                text=failed_payment_text,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode=ParseMode.HTML
+            )
         else:
             # Show the welcome message with trial option from the screenshot
             welcome_text = f"""
@@ -1524,9 +1571,40 @@ class TelegramService:
         # Check if the user has a subscription
         is_subscribed = await self.db.is_user_subscribed(user_id)
         
-        if not is_subscribed:
-            # Show the welcome message with trial option for non-subscribed users
-            welcome_text = f"""
+        # Check if payment has failed
+        payment_failed = await self.db.has_payment_failed(user_id)
+        
+        if not is_subscribed or payment_failed:
+            # Bot to use for sending messages
+            bot = context.bot if context is not None else self.bot
+            
+            if payment_failed:
+                # Show payment failure message
+                failed_payment_text = f"""
+❗ <b>Subscription Payment Failed</b> ❗
+
+Your subscription payment could not be processed and your service has been deactivated.
+
+To continue using SigmaPips Trading Bot and receive trading signals, please reactivate your subscription by clicking the button below.
+                """
+                
+                # Use direct URL link for reactivation
+                reactivation_url = "https://buy.stripe.com/9AQcPf3j63HL5JS145"
+                
+                # Create button for reactivation
+                keyboard = [
+                    [InlineKeyboardButton("🔄 Reactivate Subscription", url=reactivation_url)]
+                ]
+                
+                await bot.send_message(
+                    chat_id=update.effective_chat.id,
+                    text=failed_payment_text,
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            else:
+                # Show the welcome message with trial option for non-subscribed users
+                welcome_text = f"""
 🚀 <b>Welcome to SigmaPips Trading Bot!</b> 🚀
 
 <b>Discover powerful trading signals for various markets:</b>
@@ -1543,25 +1621,22 @@ class TelegramService:
 ✅ Economic calendar integration
 
 <b>Start today with a FREE 14-day trial!</b>
-            """
-            
-            # Use direct URL link instead of callback for the trial button
-            checkout_url = "https://buy.stripe.com/3cs3eF9Hu9256NW9AA"
-            
-            # Create buttons - Trial button goes straight to Stripe checkout
-            keyboard = [
-                [InlineKeyboardButton("🔥 Start 14-day FREE Trial", url=checkout_url)]
-            ]
-            
-            # Use context.bot if available, otherwise use self.bot
-            bot = context.bot if context is not None else self.bot
-            
-            await bot.send_message(
-                chat_id=update.effective_chat.id,
-                text=welcome_text,
-                parse_mode=ParseMode.HTML,
-                reply_markup=InlineKeyboardMarkup(keyboard)
-            )
+                """
+                
+                # Use direct URL link instead of callback for the trial button
+                checkout_url = "https://buy.stripe.com/3cs3eF9Hu9256NW9AA"
+                
+                # Create buttons - Trial button goes straight to Stripe checkout
+                keyboard = [
+                    [InlineKeyboardButton("🔥 Start 14-day FREE Trial", url=checkout_url)]
+                ]
+                
+                await bot.send_message(
+                    chat_id=update.effective_chat.id,
+                    text=welcome_text,
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
             return
         
         # Show the normal menu with all options for subscribed users
