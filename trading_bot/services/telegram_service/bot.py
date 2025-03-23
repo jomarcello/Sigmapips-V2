@@ -369,9 +369,9 @@ TIMEFRAME_DISPLAY_MAP = {
 }
 
 # Voeg deze functie toe aan het begin van bot.py, na de imports
-def _detect_market(symbol: str) -> str:
-    """Detecteer market type gebaseerd op symbol"""
-    symbol = symbol.upper()
+def _detect_market(instrument: str) -> str:
+    """Detecteer market type gebaseerd op instrument"""
+    instrument = instrument.upper()
     
     # Commodities eerst checken
     commodities = [
@@ -380,14 +380,14 @@ def _detect_market(symbol: str) -> str:
         "WTIUSD",  # Oil WTI
         "BCOUSD",  # Oil Brent
     ]
-    if symbol in commodities:
-        logger.info(f"Detected {symbol} as commodity")
+    if instrument in commodities:
+        logger.info(f"Detected {instrument} as commodity")
         return "commodities"
     
     # Crypto pairs
     crypto_base = ["BTC", "ETH", "XRP", "SOL", "BNB", "ADA", "DOT", "LINK"]
-    if any(c in symbol for c in crypto_base):
-        logger.info(f"Detected {symbol} as crypto")
+    if any(c in instrument for c in crypto_base):
+        logger.info(f"Detected {instrument} as crypto")
         return "crypto"
     
     # Major indices
@@ -396,12 +396,12 @@ def _detect_market(symbol: str) -> str:
         "UK100", "DE40", "FR40",   # European indices
         "JP225", "AU200", "HK50"   # Asian indices
     ]
-    if symbol in indices:
-        logger.info(f"Detected {symbol} as index")
+    if instrument in indices:
+        logger.info(f"Detected {instrument} as index")
         return "indices"
     
     # Forex pairs als default
-    logger.info(f"Detected {symbol} as forex")
+    logger.info(f"Detected {instrument} as forex")
     return "forex"
 
 # Voeg dit toe als decorator functie bovenaan het bestand na de imports
@@ -2289,7 +2289,7 @@ Click the button below to start your FREE 14-day trial.
             # Handle TradingView format (convert to standard format)
             if 'instrument' in signal_data and 'signal' in signal_data:
                 # Map TradingView format to our standard format
-                symbol = signal_data.get('instrument', '').upper()
+                instrument = signal_data.get('instrument', '').upper()
                 price = signal_data.get('price', 0)
                 stop_loss = signal_data.get('sl', 0)
                 
@@ -2308,10 +2308,10 @@ Click the button below to start your FREE 14-day trial.
                 timeframe = signal_data.get('interval', '4h')
                 notes = signal_data.get('notes', '')
                 strategy = signal_data.get('strategy', 'TradingView Signal')
-                market = signal_data.get('market', self._detect_market(symbol)).lower()
+                market = signal_data.get('market', self._detect_market(instrument)).lower()
             else:
                 # Original format
-                symbol = signal_data.get('symbol', '').upper()
+                instrument = signal_data.get('symbol', '').upper() or signal_data.get('instrument', '').upper()
                 price = signal_data.get('price', 0)
                 stop_loss = signal_data.get('stop_loss', 0)
                 
@@ -2330,20 +2330,20 @@ Click the button below to start your FREE 14-day trial.
                 timeframe = signal_data.get('timeframe', '1h')
                 notes = signal_data.get('notes', '')
                 strategy = signal_data.get('strategy', 'SigmaPips AI Signal')
-                market = signal_data.get('market', self._detect_market(symbol)).lower()
+                market = signal_data.get('market', self._detect_market(instrument)).lower()
             
             # Valideer de signal data
-            if not symbol or not price:
+            if not instrument or not price:
                 logger.error(f"Invalid signal data: missing required fields")
                 return False
             
             # Generate AI verdict based on the signal
-            ai_verdict = await self._generate_signal_verdict(symbol, direction, price, stop_loss, tp1, tp2, tp3, timeframe)
+            ai_verdict = await self._generate_signal_verdict(instrument, direction, price, stop_loss, tp1, tp2, tp3, timeframe)
                 
             # Format signal message in the new style
             message = f"""🎯 New Trading Signal 🎯
 
-Instrument: {symbol}
+Instrument: {instrument}
 Action: {direction} {'📈' if direction == 'BUY' else '📉'}
 
 Entry Price: {price}
@@ -2376,7 +2376,7 @@ Risk Management:
 """
             
             # Haal subscribers op die dit signaal zouden moeten ontvangen
-            subscribers = await self._get_signal_subscribers(market, symbol)
+            subscribers = await self._get_signal_subscribers(market, instrument)
             
             # Stuur het signaal naar relevante subscribers
             send_count = 0
@@ -2401,7 +2401,7 @@ Risk Management:
             logger.exception(e)
             return False
             
-    async def _generate_signal_verdict(self, symbol: str, direction: str, price: float, stop_loss: float, tp1: float, tp2: float, tp3: float, timeframe: str) -> str:
+    async def _generate_signal_verdict(self, instrument: str, direction: str, price: float, stop_loss: float, tp1: float, tp2: float, tp3: float, timeframe: str) -> str:
         """Generate AI verdict for a trading signal"""
         try:
             # Create a simple verdict based on the signal parameters
@@ -2409,9 +2409,9 @@ Risk Management:
             reward = abs(float(tp1) - float(price)) if tp1 else 0
             
             if direction == "BUY":
-                verdict = f"The {symbol} buy signal shows a promising setup with defined entry at {price} and stop loss at {stop_loss}."
+                verdict = f"The {instrument} buy signal shows a promising setup with defined entry at {price} and stop loss at {stop_loss}."
             else:
-                verdict = f"The {symbol} sell signal presents a strategic opportunity with entry at {price} and stop loss at {stop_loss}."
+                verdict = f"The {instrument} sell signal presents a strategic opportunity with entry at {price} and stop loss at {stop_loss}."
                 
             # Add take profit analysis
             if tp1 and tp2 and tp3:
@@ -2433,46 +2433,46 @@ Risk Management:
             
         except Exception as e:
             logger.error(f"Error generating signal verdict: {str(e)}")
-            return f"The {symbol} {direction.lower()} signal shows a defined entry and exit strategy. Consider this setup within your overall trading plan."
+            return f"The {instrument} {direction.lower()} signal shows a defined entry and exit strategy. Consider this setup within your overall trading plan."
 
-    def _detect_market(self, symbol: str) -> str:
-        """Detect market type from symbol"""
+    def _detect_market(self, instrument: str) -> str:
+        """Detect market type from instrument"""
         # Crypto markers
-        if symbol.endswith('USDT') or symbol.endswith('BTC') or symbol.endswith('ETH') or 'BTC' in symbol:
+        if instrument.endswith('USDT') or instrument.endswith('BTC') or instrument.endswith('ETH') or 'BTC' in instrument:
             return 'crypto'
             
         # Forex markers
-        if all(c in symbol for c in ['USD', 'EUR', 'GBP', 'JPY', 'AUD', 'NZD', 'CAD', 'CHF']):
+        if all(c in instrument for c in ['USD', 'EUR', 'GBP', 'JPY', 'AUD', 'NZD', 'CAD', 'CHF']):
             return 'forex'
             
         # Indices markers
-        if any(idx in symbol for idx in ['SPX', 'NDX', 'DJI', 'FTSE', 'DAX', 'CAC', 'NIKKEI']):
+        if any(idx in instrument for idx in ['SPX', 'NDX', 'DJI', 'FTSE', 'DAX', 'CAC', 'NIKKEI']):
             return 'indices'
             
         # Commodities markers
-        if any(com in symbol for com in ['GOLD', 'XAU', 'SILVER', 'XAG', 'OIL', 'GAS', 'USOIL']):
+        if any(com in instrument for com in ['GOLD', 'XAU', 'SILVER', 'XAG', 'OIL', 'GAS', 'USOIL']):
             return 'commodities'
             
         # Default to forex
         return 'forex'
         
-    async def _get_signal_subscribers(self, market: str, symbol: str) -> List[int]:
-        """Get list of subscribers for a specific market and symbol"""
+    async def _get_signal_subscribers(self, market: str, instrument: str) -> List[int]:
+        """Get list of subscribers for a specific market and instrument"""
         try:
             # Haal alle subscribers op
             all_subscribers = await self.db.get_subscribers()
             
-            # Filter subscribers op basis van market en symbol
+            # Filter subscribers op basis van market en instrument
             matching_subscribers = []
             
             for subscriber in all_subscribers:
                 # Haal preferences op voor deze subscriber
                 preferences = await self.db.get_subscriber_preferences(subscriber['user_id'])
                 
-                # Controleer of de subscriber geïnteresseerd is in deze market en symbol
+                # Controleer of de subscriber geïnteresseerd is in deze market en instrument
                 for pref in preferences:
                     if pref['market'].lower() == market.lower() and (
-                       pref['instrument'].upper() == symbol.upper() or 
+                       pref['instrument'].upper() == instrument.upper() or 
                        pref['instrument'] == 'ALL'):  # 'ALL' betekent dat ze alle signalen willen
                         matching_subscribers.append(subscriber['user_id'])
                         break
