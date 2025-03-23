@@ -604,6 +604,9 @@ class TelegramService:
     def _load_signals(self):
         """Load saved signals from file"""
         try:
+            # Ensure data directory exists
+            os.makedirs('data', exist_ok=True)
+            
             # Check if signals file exists
             if not os.path.exists('data/signals.json'):
                 logger.info("No signals file found, creating empty signals dictionary")
@@ -630,6 +633,9 @@ class TelegramService:
     def _save_signals(self):
         """Save signals to file"""
         try:
+            # Ensure data directory exists
+            os.makedirs('data', exist_ok=True)
+            
             # Convert user_ids (integer keys) to strings for JSON serialization
             signals_to_save = {str(k): v for k, v in self.user_signals.items()}
             with open('data/signals.json', 'w') as f:
@@ -664,6 +670,17 @@ class TelegramService:
                 if test_users:
                     return test_users
                 else:
+                    # If no admin or test users defined, use a default test user
+                    # Replace this with your own Telegram user ID for testing
+                    default_test_user = os.getenv("DEFAULT_TEST_USER", "")
+                    if default_test_user and default_test_user.isdigit():
+                        default_user_id = int(default_test_user)
+                        logger.info(f"Using default test user: {default_user_id}")
+                        return [default_user_id]
+                        
+                    # If you want to hardcode a user ID for testing, uncomment and modify the line below
+                    # return [123456789]  # Replace with your Telegram user ID
+                    
                     logger.warning("No admin or test users defined, returning empty list")
                     return []
         except Exception as e:
