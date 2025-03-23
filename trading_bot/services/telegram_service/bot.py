@@ -2118,18 +2118,28 @@ Click the button below to start your FREE 14-day trial.
             # Get the analysis type if stored in context
             analysis_type = context.user_data.get('analysis_type', 'technical') if context and hasattr(context, 'user_data') else 'technical'
             
-            # Show appropriate message based on analysis type
+            # Choose the correct keyboard based on analysis type
+            keyboard = MARKET_KEYBOARD
+            
             if analysis_type == 'technical':
                 message_text = "Select a market for technical analysis:"
+                keyboard = MARKET_KEYBOARD
             elif analysis_type == 'sentiment':
                 message_text = "Select a market for sentiment analysis:"
+                keyboard = MARKET_SENTIMENT_KEYBOARD
+            elif analysis_type == 'calendar':
+                message_text = "Select a market for economic calendar:"
+                keyboard = MARKET_KEYBOARD
             else:
                 message_text = "Select a market:"
+                
+            # Log the analysis type and keyboard being used
+            logger.info(f"Back to market selection with analysis_type={analysis_type}")
                 
             # Show the market selection
             await query.edit_message_text(
                 text=message_text,
-                reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
+                reply_markup=InlineKeyboardMarkup(keyboard)
             )
             
             return CHOOSE_MARKET
@@ -2182,11 +2192,25 @@ Click the button below to start your FREE 14-day trial.
                     keyboard = CRYPTO_KEYBOARD
                     message_text += "analysis:"
             elif market == 'indices':
-                keyboard = INDICES_KEYBOARD
-                message_text += "analysis:"
+                if analysis_type == 'technical':
+                    keyboard = INDICES_KEYBOARD
+                    message_text += "technical analysis:"
+                elif analysis_type == 'sentiment':
+                    keyboard = INDICES_SENTIMENT_KEYBOARD
+                    message_text += "sentiment analysis:"
+                else:
+                    keyboard = INDICES_KEYBOARD
+                    message_text += "analysis:"
             elif market == 'commodities':
-                keyboard = COMMODITIES_KEYBOARD
-                message_text += "analysis:"
+                if analysis_type == 'technical':
+                    keyboard = COMMODITIES_KEYBOARD
+                    message_text += "technical analysis:"
+                elif analysis_type == 'sentiment':
+                    keyboard = COMMODITIES_SENTIMENT_KEYBOARD
+                    message_text += "sentiment analysis:"
+                else:
+                    keyboard = COMMODITIES_KEYBOARD
+                    message_text += "analysis:"
                 
             # Show the instrument selection
             await query.edit_message_text(
