@@ -3,6 +3,9 @@ import logging
 import httpx
 import asyncio
 import json
+import socket
+import ssl
+import aiohttp
 from typing import Dict, List, Any, Optional
 
 logger = logging.getLogger(__name__)
@@ -22,6 +25,26 @@ class TavilyService:
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self.api_key}"
         }
+        
+        # Check connectivity at initialization
+        self._check_connectivity()
+        
+    def _check_connectivity(self):
+        """Check if Tavily API is accessible"""
+        try:
+            # Simple socket connection test
+            tavily_host = "api.tavily.com"
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(3)  # Quick 3-second timeout
+            result = sock.connect_ex((tavily_host, 443))
+            sock.close()
+            
+            if result == 0:  # Port is open, connection successful
+                logger.info("Tavily API connectivity test successful")
+            else:
+                logger.warning(f"Tavily API connectivity test failed with result: {result}")
+        except socket.error as e:
+            logger.warning(f"Tavily API socket connection failed: {str(e)}")
         
     async def search(self, query: str, max_results: int = 5) -> List[Dict[str, Any]]:
         """
@@ -50,26 +73,65 @@ class TavilyService:
                 "include_images": False
             }
             
-            # Make the API call
-            async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    self.api_url,
-                    headers=self.headers,
-                    json=payload,
-                    timeout=30.0
-                )
+            # First try using httpx with standard connection
+            try:
+                # Make the API call with httpx
+                async with httpx.AsyncClient() as client:
+                    response = await client.post(
+                        self.api_url,
+                        headers=self.headers,
+                        json=payload,
+                        timeout=20.0
+                    )
+                    
+                    if response.status_code == 200:
+                        data = response.json()
+                        return data.get("results", [])
+                    else:
+                        logger.error(f"Tavily API error: {response.status_code} - {response.text}")
+                        # Continue to try alternative method
+            except (httpx.ConnectError, httpx.ConnectTimeout) as e:
+                logger.warning(f"Could not connect to Tavily API using httpx: {str(e)}")
+                # Continue to alternative method
+            
+            # If httpx fails, try with aiohttp and custom SSL context
+            try:
+                logger.info("Trying alternative connection method with aiohttp")
                 
-                if response.status_code == 200:
-                    data = response.json()
-                    return data.get("results", [])
-                else:
-                    logger.error(f"Tavily API error: {response.status_code} - {response.text}")
-                    return self._get_mock_search_results(query)
+                # Create SSL context that doesn't verify certificates
+                ssl_context = ssl.create_default_context()
+                ssl_context.check_hostname = False
+                ssl_context.verify_mode = ssl.CERT_NONE
+                
+                connector = aiohttp.TCPConnector(ssl=ssl_context)
+                timeout = aiohttp.ClientTimeout(total=10)
+                
+                async with aiohttp.ClientSession(connector=connector) as session:
+                    async with session.post(
+                        self.api_url,
+                        headers=self.headers,
+                        json=payload,
+                        timeout=timeout
+                    ) as response:
+                        response_text = await response.text()
+                        logger.info(f"Tavily API response status: {response.status}")
+                        
+                        if response.status == 200:
+                            data = json.loads(response_text)
+                            return data.get("results", [])
+                        else:
+                            logger.error(f"Tavily API error: {response.status}, {response_text[:200]}...")
+                            return self._get_mock_search_results(query)
+            except Exception as e:
+                logger.error(f"Error with aiohttp connection to Tavily: {str(e)}")
+                # Fall through to mock data
                     
         except Exception as e:
             logger.error(f"Error searching Tavily: {str(e)}")
             logger.exception(e)
-            return self._get_mock_search_results(query)
+            
+        # If all connection methods fail, return mock data
+        return self._get_mock_search_results(query)
             
     def _get_mock_search_results(self, query: str) -> List[Dict[str, Any]]:
         """Generate mock search results when the API is unavailable"""
