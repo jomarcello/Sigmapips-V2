@@ -1704,9 +1704,6 @@ Click the button below to start your FREE 14-day trial.
         message += "<b>News Sentiment:</b>\n"
         message += f"{news_emoji} {news_sentiment_text} ({news_count} articles analyzed)\n\n"
         
-        # Disclaimer
-        message += "<i>Note: This analysis is based on market data and should not be considered as financial advice.</i>"
-        
         return message
     
     def _get_fallback_sentiment(self, instrument: str) -> str:
@@ -2404,9 +2401,8 @@ Click the button below to start your FREE 14-day trial.
                 # Get the analysis content
                 analysis = sentiment_data.get('analysis', 'Analysis not available')
                 
-                # Create buttons for different actions
+                # Create button to go back to instrument
                 keyboard = [
-                    [InlineKeyboardButton("🔄 Refresh Analysis", callback_data=f"refresh_sentiment_{instrument}")],
                     [InlineKeyboardButton("⬅️ Back to Instrument", callback_data="back_instrument")]
                 ]
                 
