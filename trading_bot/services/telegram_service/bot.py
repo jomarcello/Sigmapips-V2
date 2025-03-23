@@ -3239,36 +3239,57 @@ Risk Management:
             timeframe = INSTRUMENT_TIMEFRAME_MAP.get(instrument)
             if timeframe:
                 # If instrument has a specific timeframe, inform the user and save directly
-                display_timeframe = TIMEFRAME_DISPLAY_MAP.get(timeframe, timeframe)
+                
+                # Translate MT4/MT5 style timeframes to display format for user feedback
+                if timeframe == 'M15':
+                    display_timeframe = '15 minute'
+                elif timeframe == 'M30':
+                    display_timeframe = '30 minute'
+                elif timeframe == 'H1':
+                    display_timeframe = '1 hour'
+                elif timeframe == 'H4':
+                    display_timeframe = '4 hour'
+                else:
+                    display_timeframe = timeframe
                 
                 # Get user ID for database operations
                 user_id = update.effective_user.id
                 
                 try:
                     # Log the exact timeframe format being used
-                    logger.info(f"Using timeframe format for DB: {timeframe} for instrument {instrument}")
+                    logger.info(f"Using exact timeframe from map: {timeframe} for instrument {instrument}")
                     
-                    # Add the preference with the specific timeframe
-                    await self.db.add_subscriber_preference(
+                    # Add the preference with the exact timeframe from the map
+                    success = await self.db.add_subscriber_preference(
                         user_id=user_id,
                         market=market,
                         instrument=instrument,
-                        timeframe=timeframe
+                        timeframe=timeframe  # Use the exact timeframe from INSTRUMENT_TIMEFRAME_MAP
                     )
                     
-                    # Show success message
-                    await query.edit_message_text(
-                        text=f"✅ You have successfully subscribed to {instrument} signals!\n\n"
-                             f"You will receive {instrument} trading signals for the {display_timeframe} timeframe when they become available.",
-                        reply_markup=InlineKeyboardMarkup([
-                            [InlineKeyboardButton("➕ Add More Instruments", callback_data=CALLBACK_SIGNALS_ADD)],
-                            [InlineKeyboardButton("⚙️ Manage Preferences", callback_data=CALLBACK_SIGNALS_MANAGE)],
-                            [InlineKeyboardButton("⬅️ Back to Menu", callback_data=CALLBACK_BACK_MENU)]
-                        ])
-                    )
-                    
-                    logger.info(f"User {user_id} subscribed to {instrument} signals with timeframe {timeframe}")
-                    return CHOOSE_SIGNALS
+                    if success:
+                        # Show success message
+                        await query.edit_message_text(
+                            text=f"✅ You have successfully subscribed to {instrument} signals!\n\n"
+                                f"You will receive {instrument} trading signals for the {display_timeframe} timeframe when they become available.",
+                            reply_markup=InlineKeyboardMarkup([
+                                [InlineKeyboardButton("➕ Add More Instruments", callback_data=CALLBACK_SIGNALS_ADD)],
+                                [InlineKeyboardButton("⚙️ Manage Preferences", callback_data=CALLBACK_SIGNALS_MANAGE)],
+                                [InlineKeyboardButton("⬅️ Back to Menu", callback_data=CALLBACK_BACK_MENU)]
+                            ])
+                        )
+                        
+                        logger.info(f"User {user_id} subscribed to {instrument} signals with timeframe {timeframe}")
+                        return CHOOSE_SIGNALS
+                    else:
+                        # Handle failure
+                        await query.edit_message_text(
+                            text=f"❌ Error: Could not save your preference for {instrument}. Please try again later.",
+                            reply_markup=InlineKeyboardMarkup([
+                                [InlineKeyboardButton("⬅️ Back", callback_data=CALLBACK_BACK_SIGNALS)]
+                            ])
+                        )
+                        return CHOOSE_SIGNALS
                     
                 except Exception as db_error:
                     logger.error(f"Database error adding signal preference: {str(db_error)}")
