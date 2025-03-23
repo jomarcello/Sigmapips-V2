@@ -473,38 +473,19 @@ class Database:
     
     def _normalize_timeframe_for_db(self, timeframe: str) -> str:
         """
-        Normalize timeframe for database storage.
+        Gebruik de originele timeframe uit INSTRUMENT_TIMEFRAME_MAP zonder normalisatie.
         
-        Preserves the original timeframe rather than converting everything to '1h'.
-        Ensures consistent formatting for database storage.
+        Behoudt de originele timeframe voor consistentie in de database.
         
         Arguments:
-            timeframe: The timeframe to normalize (e.g., 'M30', '1h', '4h')
+            timeframe: De timeframe (bijv. 'M30', '1h', '4h')
             
         Returns:
-            str: Normalized timeframe in consistent format
+            str: Originele timeframe zonder wijzigingen
         """
-        if not timeframe:
-            return '1h'  # Default
-            
-        original_timeframe = timeframe
-        tf_str = str(timeframe).strip().lower()
-        
-        # Convert MT4/MT5 format to standard format
-        if tf_str == 'm15' or timeframe == 'M15':
-            normalized = '15m'
-        elif tf_str == 'm30' or timeframe == 'M30':
-            normalized = '30m'
-        elif tf_str == 'h1' or timeframe == 'H1':
-            normalized = '1h'
-        elif tf_str == 'h4' or timeframe == 'H4':
-            normalized = '4h'
-        else:
-            # Keep other formats as is
-            normalized = tf_str
-        
-        logger.info(f"Normalized timeframe '{original_timeframe}' to '{normalized}' for database storage")
-        return normalized
+        # Behoud de originele timeframe zonder wijzigingen
+        logger.info(f"Originele timeframe '{timeframe}' wordt direct gebruikt voor database")
+        return timeframe
 
     def _map_timeframe_to_style(self, timeframe: str) -> str:
         """
