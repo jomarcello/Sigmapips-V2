@@ -9,6 +9,7 @@ import random
 import datetime
 import traceback
 import threading
+import re
 from typing import Dict, Any, List, Optional
 
 from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery, InputMediaPhoto, BotCommand
@@ -2400,6 +2401,10 @@ Click the button below to start your FREE 14-day trial.
                 
                 # Get the analysis content
                 analysis = sentiment_data.get('analysis', 'Analysis not available')
+                
+                # Clean up any markdown formatting that might be in the analysis
+                analysis = re.sub(r'^```html\s*', '', analysis)
+                analysis = re.sub(r'\s*```$', '', analysis)
                 
                 # Create button to go back to instrument
                 keyboard = [
