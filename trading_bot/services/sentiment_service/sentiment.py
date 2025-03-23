@@ -195,6 +195,10 @@ class MarketSentimentService:
             else:
                 analysis += "The market shows mixed signals. Consider waiting for clearer directional confirmation before taking new positions."
             
+            # Clean up any markdown formatting that might be in the analysis
+            analysis = re.sub(r'^```html\s*', '', analysis)
+            analysis = re.sub(r'\s*```$', '', analysis)
+            
             # Return a dictionary similar to what _get_mock_sentiment_data returns
             return {
                 'overall_sentiment': sentiment.lower(),
@@ -404,6 +408,11 @@ DO NOT include news source names like "FXStreet", "Reuters", etc. Just include t
                         if response.status == 200:
                             data = json.loads(response_text)
                             content = data['choices'][0]['message']['content']
+                            
+                            # Clean up any markdown formatting that might be in the content
+                            content = re.sub(r'^```html\s*', '', content)
+                            content = re.sub(r'\s*```$', '', content)
+                            
                             logger.info(f"Successfully formatted market data for {instrument}")
                             return content
                         
@@ -463,6 +472,10 @@ The {instrument} is showing a {trend} trend with {volatility} volatility. Price 
 <b>💡 Conclusion:</b>
 Wait for clearer market signals before taking new positions."""
         
+        # Clean up any markdown formatting that might be in the analysis
+        analysis = re.sub(r'^```html\s*', '', analysis)
+        analysis = re.sub(r'\s*```$', '', analysis)
+        
         return {
             'overall_sentiment': 'bullish' if sentiment_score > 0.6 else 'bearish' if sentiment_score < 0.4 else 'neutral',
             'sentiment_score': round(sentiment_score, 2),
@@ -500,6 +513,10 @@ The market is showing neutral sentiment with mixed signals. Current price action
 
 <b>💡 Conclusion:</b>
 Wait for clearer market signals before taking new positions."""
+
+        # Clean up any markdown formatting that might be in the analysis
+        analysis = re.sub(r'^```html\s*', '', analysis)
+        analysis = re.sub(r'\s*```$', '', analysis)
 
         return {
             'overall_sentiment': 'neutral',
@@ -959,6 +976,11 @@ Format using HTML for Telegram. Be concise but informative with actionable insig
                     if status == 200:
                         data = json.loads(response_text)
                         content = data['choices'][0]['message']['content']
+                        
+                        # Clean up any markdown formatting that might be in the content
+                        content = re.sub(r'^```html\s*', '', content)
+                        content = re.sub(r'\s*```$', '', content)
+                        
                         logger.info(f"Successfully formatted market data with DeepSeek for {instrument}")
                         
                         # Parse sentiment from formatted content
