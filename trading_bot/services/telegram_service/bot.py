@@ -543,7 +543,7 @@ class TelegramService:
         logger.info(f"Bot initialized with webhook URL: {self.webhook_url} and path: {self.webhook_path}")
         
         # Signal handling attributes
-        self.signals_enabled = True  # Enable signals by default
+        self._signals_enabled = True  # Enable signals by default
         self.user_signals = {}  # Initialize user signals dict
         
         # Initialize API services
@@ -570,71 +570,35 @@ class TelegramService:
             
             # Initialize the bot
             self.bot = Bot(token=self.bot_token)
-            
+        
             # Initialize the application
             self.application = Application.builder().bot(self.bot).build()
-            
+        
             # Register the handlers
             self._register_handlers()
-            
+        
             logger.info("Telegram service initialized")
             
             # Keep track of processed updates
             self.processed_updates = set()
-            
+        
         except Exception as e:
             logger.error(f"Error initializing Telegram service: {str(e)}")
             raise
-
-    def _load_signals(self):
-        """Load saved signals from file"""
-        try:
-            # Check if signals file exists
-            if not os.path.exists('data/signals.json'):
-                logger.info("No signals file found, creating empty signals dictionary")
-                self.user_signals = {}
-                return
-                
-            with open('data/signals.json', 'r') as f:
-                signals_json = json.load(f)
-                
-            # Convert string keys back to integers
-            self.user_signals = {int(k): v for k, v in signals_json.items()}
-            logger.info(f"Loaded {len(self.user_signals)} signals from file")
             
-            # Log the first few signals as a sample
-            sample_users = list(self.user_signals.keys())[:3]
-            for user_id in sample_users:
-                signal = self.user_signals[user_id]
-                logger.info(f"Sample signal for user {user_id}: {signal.get('instrument')}")
-                
-        except Exception as e:
-            logger.error(f"Error loading signals: {str(e)}")
-            self.user_signals = {}
-            
-    def _save_signals(self):
-        """Save signals to file"""
-        try:
-            # Ensure data directory exists
-            os.makedirs('data', exist_ok=True)
-            
-            # Converteer user_ids naar strings voor JSON serialisatie
-            signals_to_save = {str(k): v for k, v in self.user_signals.items()}
-            with open('data/signals.json', 'w') as f:
-                json.dump(signals_to_save, f)
-            logger.info(f"Saved {len(self.user_signals)} signals to file")
-            
-            # Log the first few signals that were saved
-            sample_users = list(self.user_signals.keys())[:3] 
-            for user_id in sample_users:
-                signal = self.user_signals[user_id]
-                logger.info(f"Saved signal for user {user_id}: {signal.get('instrument')}")
-                
-        except Exception as e:
-            logger.error(f"Error saving signals: {str(e)}")
+    @property
+    def signals_enabled(self):
+        """Property to check if signal processing is enabled"""
+        return self._signals_enabled
+    
+    @signals_enabled.setter
+    def signals_enabled(self, value):
+        """Setter for signals_enabled property"""
+        self._signals_enabled = bool(value)
+        logger.info(f"Signal processing {'enabled' if value else 'disabled'}")
 
     def _register_handlers(self):
-        """Register all command and callback handlers with the application"""
+        """Register command handlers"""
         # Ensure application is initialized
         if not self.application:
             self.setup()
@@ -2329,7 +2293,7 @@ Click the button below to start your FREE 14-day trial.
             ])
         )
         
-    async def process_signal(self, signal_data: dict, users=None, test_mode=False) -> None:
+    async def process_signal(self, signal_data: dict, users=None, test_mode=False) -> bool:
         """Process incoming signal and send to users"""
         try:
             logger.info(f"Processing signal: {signal_data}")
@@ -2348,7 +2312,7 @@ Click the button below to start your FREE 14-day trial.
             # Validate required data
             if not all([instrument, signal, price, stop_loss, interval]):
                 logger.error("Missing required signal data")
-                return
+                return False
             
             # Format the signal message
             tp1 = take_profits[0] if take_profits and len(take_profits) > 0 else ''
@@ -2455,9 +2419,13 @@ Click the button below to start your FREE 14-day trial.
             # Save signals
             self._save_signals()
             
+            # Return success if at least one message was sent
+            return sent_count > 0
+            
         except Exception as e:
             logger.error(f"Error processing signal: {str(e)}")
             logger.exception(e)
+            return False
 
     async def _generate_signal_verdict(self, instrument: str, direction: str, price: float, stop_loss: float, tp1: float, tp2: float, tp3: float, timeframe: str) -> str:
         """Generate AI verdict for a trading signal"""
