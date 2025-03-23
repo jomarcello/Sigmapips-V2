@@ -255,12 +255,14 @@ class Database:
                 
             timeframe = self.STYLE_TIMEFRAME_MAP[style]
             
+            # Normalize the timeframe for database storage
+            normalized_timeframe = self._normalize_timeframe_for_db(timeframe)
+            
             data = {
                 'user_id': user_id,
                 'market': market,
                 'instrument': instrument,
-                'style': style,
-                'timeframe': timeframe
+                'timeframe': normalized_timeframe
             }
             
             response = self.supabase.table('subscriber_preferences').insert(data).execute()
@@ -282,18 +284,11 @@ class Database:
             .select('*')\
             .eq('instrument', instrument)
         
-        # Als timeframe '1m' is, voeg style='test' toe
-        if timeframe == '1m':
-            query = query.eq('style', 'test')
-        elif timeframe:
-            # Map timeframe naar style
-            style_map = {
-                '15m': 'scalp',
-                '1h': 'intraday',
-                '4h': 'swing'
-            }
-            if timeframe in style_map:
-                query = query.eq('style', style_map[timeframe])
+        # Als er een timeframe is meegegeven, filteren op timeframe
+        if timeframe:
+            # Normaliseer het timeframe voor een consistente vergelijking
+            normalized_timeframe = self._normalize_timeframe_for_db(timeframe)
+            query = query.eq('timeframe', normalized_timeframe)
         
         return query.execute()
 
@@ -311,16 +306,18 @@ class Database:
             logger.error(f"Error getting user preferences: {str(e)}")
             return []
 
-    async def save_preference(self, user_id: int, market: str, instrument: str, style: str, timeframe: str) -> bool:
+    async def save_preference(self, user_id: int, market: str, instrument: str, timeframe: str) -> bool:
         """Save user preference to database"""
         try:
+            # Normalize the timeframe for database storage
+            normalized_timeframe = self._normalize_timeframe_for_db(timeframe)
+            
             # Maak een nieuwe voorkeur
             new_preference = {
                 'user_id': user_id,
                 'market': market,
                 'instrument': instrument,
-                'style': style,
-                'timeframe': timeframe
+                'timeframe': normalized_timeframe
             }
             
             # Sla op in de database
@@ -442,17 +439,12 @@ class Database:
             normalized_timeframe = self._normalize_timeframe_for_db(timeframe)
             logger.info(f"Normalized timeframe from {timeframe} to {normalized_timeframe} for database storage")
             
-            # Map timeframe to style based on the original timeframe (not the normalized one)
-            style = self._map_timeframe_to_style(timeframe)
-            logger.info(f"Mapped timeframe {timeframe} to style: {style}")
-            
-            # Create new preference
+            # Create new preference (style removed as it's not in the database schema)
             new_preference = {
                 'user_id': user_id,
                 'market': market,
                 'instrument': instrument,
                 'timeframe': normalized_timeframe,  # Use normalized timeframe (always '1h')
-                'style': style,
                 'created_at': datetime.datetime.now(timezone.utc).isoformat()
             }
             
@@ -460,7 +452,7 @@ class Database:
             response = self.supabase.table('subscriber_preferences').insert(new_preference).execute()
             
             if response and response.data:
-                logger.info(f"Successfully added preference for user {user_id}: {instrument} (original timeframe: {timeframe}, stored as: {normalized_timeframe}, style={style})")
+                logger.info(f"Successfully added preference for user {user_id}: {instrument} (original timeframe: {timeframe}, stored as: {normalized_timeframe})")
                 return True
             else:
                 logger.warning(f"Failed to add preference for user {user_id}")
@@ -472,27 +464,38 @@ class Database:
     
     def _normalize_timeframe_for_db(self, timeframe: str) -> str:
         """
-        Normalize timeframe for database storage (meeting the valid_timeframe constraint).
+        Normalize timeframe for database storage.
         
-        Due to the database constraint 'valid_timeframe', all timeframes are normalized
-        to '1h' for storage in the database. The actual instrument-specific timeframe is
-        maintained in the code through the INSTRUMENT_TIMEFRAME_MAP.
+        Preserves the original timeframe rather than converting everything to '1h'.
+        Ensures consistent formatting for database storage.
         
         Arguments:
             timeframe: The timeframe to normalize (e.g., 'M30', '1h', '4h')
             
         Returns:
-            str: '1h' (the only value accepted by the database constraint)
+            str: Normalized timeframe in consistent format
         """
-        # Our tests show that the database constraint only accepts '1h'
-        # for new records, despite containing other formats in existing records.
+        if not timeframe:
+            return '1h'  # Default
+            
         original_timeframe = timeframe
+        tf_str = str(timeframe).strip().lower()
         
-        # Log the normalization for debugging
-        logger.info(f"Database constraint requires '1h': converting '{original_timeframe}' to '1h'")
+        # Convert MT4/MT5 format to standard format
+        if tf_str == 'm15' or timeframe == 'M15':
+            normalized = '15m'
+        elif tf_str == 'm30' or timeframe == 'M30':
+            normalized = '30m'
+        elif tf_str == 'h1' or timeframe == 'H1':
+            normalized = '1h'
+        elif tf_str == 'h4' or timeframe == 'H4':
+            normalized = '4h'
+        else:
+            # Keep other formats as is
+            normalized = tf_str
         
-        # Always return '1h' to comply with the database constraint
-        return '1h'
+        logger.info(f"Normalized timeframe '{original_timeframe}' to '{normalized}' for database storage")
+        return normalized
 
     def _map_timeframe_to_style(self, timeframe: str) -> str:
         """
