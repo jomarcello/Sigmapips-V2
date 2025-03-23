@@ -174,6 +174,18 @@ class MarketSentimentService:
             
             analysis += "\n"
             
+            # Add key levels section
+            analysis += f"<b>🎯 Key Levels:</b>\n"
+            analysis += "• Support Levels:\n"
+            analysis += "  - Previous low (Historical support zone)\n"
+            analysis += "• Resistance Levels:\n"
+            analysis += "  - Previous high (Technical resistance)\n\n"
+            
+            # Add risk factors section
+            analysis += f"<b>⚠️ Risk Factors:</b>\n"
+            analysis += "• Market Volatility: Increased uncertainty in current conditions\n"
+            analysis += "• News Events: Watch for unexpected announcements\n\n"
+            
             # Add a conclusion based on sentiment
             analysis += f"<b>💡 Conclusion:</b>\n"
             if sentiment_score > 65:
@@ -182,9 +194,6 @@ class MarketSentimentService:
                 analysis += "Watch for potential short opportunities. Economic data and market factors suggest possible downward pressure."
             else:
                 analysis += "The market shows mixed signals. Consider waiting for clearer directional confirmation before taking new positions."
-            
-            # Add source note
-            analysis += "\n\n<i>This analysis is based on data from financial news sources via Tavily API.</i>"
             
             # Return a dictionary similar to what _get_mock_sentiment_data returns
             return {
@@ -341,9 +350,9 @@ Format the analysis as follows:
 [Current trend, momentum and price action analysis]
 
 📰 Latest News & Events:
-• [Key market-moving news item 1]
-• [Key market-moving news item 2]
-• [Key market-moving news item 3]
+• [Key market-moving news item 1 - remove the news source name]
+• [Key market-moving news item 2 - remove the news source name]
+• [Key market-moving news item 3 - remove the news source name]
 
 🎯 Key Levels:
 • Support Levels:
@@ -361,6 +370,8 @@ Format the analysis as follows:
 Use HTML formatting for Telegram: <b>bold</b>, <i>italic</i>, etc.
 Keep the analysis concise but informative, focusing on actionable insights.
 If certain information is not available in the market data, make reasonable assumptions based on what is provided.
+DO NOT include any references to where the data came from (no "This analysis is based on data from Tavily API" or similar).
+DO NOT include news source names like "FXStreet", "Reuters", etc. Just include the news content.
 """
                 
                 payload = {
@@ -450,9 +461,7 @@ The {instrument} is showing a {trend} trend with {volatility} volatility. Price 
 • Low liquidity periods may cause price spikes
 
 <b>💡 Conclusion:</b>
-{'Consider long positions with tight stops' if sentiment_score > 0.6 else 'Watch for short opportunities' if sentiment_score < 0.4 else 'Wait for clearer directional signals'}
-
-<i>This is a simulated analysis for demonstration purposes.</i>"""
+Wait for clearer market signals before taking new positions."""
         
         return {
             'overall_sentiment': 'bullish' if sentiment_score > 0.6 else 'bearish' if sentiment_score < 0.4 else 'neutral',
@@ -490,9 +499,7 @@ The market is showing neutral sentiment with mixed signals. Current price action
 • News Events: Watch for unexpected announcements
 
 <b>💡 Conclusion:</b>
-Wait for clearer market signals before taking new positions.
-
-<i>This is a fallback analysis as we could not retrieve real-time data.</i>"""
+Wait for clearer market signals before taking new positions."""
 
         return {
             'overall_sentiment': 'neutral',
@@ -918,20 +925,36 @@ Format using HTML for Telegram. Be concise but informative with actionable insig
             
             logger.info(f"Trying DeepSeek endpoint: {endpoint}")
             connector = aiohttp.TCPConnector(ssl=ssl_context)
-            timeout = aiohttp.ClientTimeout(total=15)
             
-            async with aiohttp.ClientSession(connector=connector) as session:
-                async with session.post(
-                    endpoint,
-                    headers=headers,
-                    json=payload,
-                    timeout=timeout
-                ) as response:
+            # Use longer timeouts to prevent issues
+            timeout = aiohttp.ClientTimeout(
+                total=45,          # Increased total timeout from 15 to 45 seconds
+                connect=15,        # Allow 15 seconds to establish connection
+                sock_read=30,      # Allow 30 seconds to read socket data
+                sock_connect=15    # Allow 15 seconds for socket connection
+            )
+            
+            async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
+                try:
+                    # Wrap the entire API call in an asyncio.wait_for to ensure it doesn't hang
+                    response_task = session.post(
+                        endpoint,
+                        headers=headers,
+                        json=payload
+                    )
+                    
+                    # Use a separate timeout as additional protection
+                    response = await asyncio.wait_for(response_task, timeout=45.0)
+                    
                     status = response.status
                     logger.info(f"DeepSeek API response status: {status}")
                     
-                    # Read full response even if error (for logging)
-                    response_text = await response.text()
+                    # Read response with timeout protection
+                    try:
+                        response_text = await asyncio.wait_for(response.text(), timeout=20.0)
+                    except asyncio.TimeoutError:
+                        logger.error("Timeout while reading DeepSeek response text")
+                        return None
                     
                     if status == 200:
                         data = json.loads(response_text)
@@ -944,6 +967,13 @@ Format using HTML for Telegram. Be concise but informative with actionable insig
                         logger.warning(f"DeepSeek API error: {status}, response: {response_text[:200]}...")
                         # If endpoint failed, return None
                         return None
+                        
+                except asyncio.TimeoutError:
+                    logger.error("Timeout while making DeepSeek API request")
+                    return None
+                except aiohttp.ClientError as ce:
+                    logger.error(f"DeepSeek API connection error: {str(ce)}")
+                    return None
             
         except Exception as e:
             logger.error(f"Error in DeepSeek processing: {str(e)}")
