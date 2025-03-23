@@ -4,6 +4,9 @@ import httpx
 import asyncio
 import json
 import random
+import socket
+import ssl
+import aiohttp
 from typing import Dict, List, Any, Optional
 
 logger = logging.getLogger(__name__)
@@ -14,7 +17,13 @@ class DeepseekService:
     def __init__(self, api_key: Optional[str] = None):
         """Initialize the DeepSeek service"""
         self.api_key = api_key or os.getenv("DEEPSEEK_API_KEY", "")
-        self.api_url = "https://api.deepseek.ai/v1/chat/completions" 
+        
+        # Try both potential domains for DeepSeek API
+        self.api_domains = ["api.deepseek.com", "api.deepseek.ai"]
+        self.api_url = "https://api.deepseek.com/v1/chat/completions"  # Default domain
+        
+        # IP address for direct connection if DNS fails
+        self.api_ip = "23.236.75.155"  # IP address for api.deepseek.com
         
         if not self.api_key:
             logger.warning("No DeepSeek API key found, completions will return mock data")
@@ -23,6 +32,32 @@ class DeepseekService:
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self.api_key}"
         }
+        
+        # Check connectivity at initialization
+        self._check_connectivity()
+        
+    def _check_connectivity(self):
+        """Check which domain is accessible and update the API URL accordingly"""
+        for domain in self.api_domains:
+            try:
+                # Simple socket connection test
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(3)  # Quick 3-second timeout
+                result = sock.connect_ex((domain, 443))
+                sock.close()
+                
+                if result == 0:  # Port is open, connection successful
+                    logger.info(f"DeepSeek API connectivity test successful for {domain}")
+                    self.api_url = f"https://{domain}/v1/chat/completions"
+                    return
+                else:
+                    logger.warning(f"DeepSeek API connectivity test failed for {domain}: {result}")
+            except socket.error as e:
+                logger.warning(f"DeepSeek API socket connection to {domain} failed: {str(e)}")
+        
+        # If no domains are accessible, use the IP address version
+        logger.warning("Could not connect to any DeepSeek domains, will use IP address fallback")
+        self.api_url = f"https://{self.api_ip}/v1/chat/completions"
         
     async def generate_completion(self, prompt: str, model: str = "deepseek-chat", temperature: float = 0.2) -> str:
         """
@@ -41,37 +76,90 @@ class DeepseekService:
             
             if not self.api_key:
                 return self._get_mock_completion(prompt)
-                
-            # Create the request payload
-            payload = {
-                "model": model,
-                "messages": [
-                    {"role": "user", "content": prompt}
-                ],
-                "temperature": temperature,
-                "max_tokens": 2048
-            }
             
-            # Make the API call
-            async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    self.api_url,
-                    headers=self.headers,
-                    json=payload,
-                    timeout=60.0
-                )
+            # First try using httpx with standard URL
+            try:
+                # Create the request payload
+                payload = {
+                    "model": model,
+                    "messages": [
+                        {"role": "user", "content": prompt}
+                    ],
+                    "temperature": temperature,
+                    "max_tokens": 2048
+                }
                 
-                if response.status_code == 200:
-                    data = response.json()
-                    return data.get("choices", [{}])[0].get("message", {}).get("content", "")
-                else:
-                    logger.error(f"DeepSeek API error: {response.status_code} - {response.text}")
-                    return self._get_mock_completion(prompt)
+                # Make the API call
+                async with httpx.AsyncClient() as client:
+                    response = await client.post(
+                        self.api_url,
+                        headers=self.headers,
+                        json=payload,
+                        timeout=30.0
+                    )
+                    
+                    if response.status_code == 200:
+                        data = response.json()
+                        return data.get("choices", [{}])[0].get("message", {}).get("content", "")
+                    else:
+                        logger.error(f"DeepSeek API error: {response.status_code} - {response.text}")
+                        # Continue to try alternative method
+            except (httpx.ConnectError, httpx.ConnectTimeout) as e:
+                logger.warning(f"Could not connect to DeepSeek API using httpx: {str(e)}")
+                # Continue to alternative method
+            
+            # If httpx fails, try with aiohttp and custom SSL context
+            try:
+                logger.info("Trying alternative connection method with aiohttp")
+                
+                # Create SSL context that doesn't verify certificates
+                ssl_context = ssl.create_default_context()
+                ssl_context.check_hostname = False
+                ssl_context.verify_mode = ssl.CERT_NONE
+                
+                # Prepare headers with Host header for IP connection
+                headers = self.headers.copy()
+                if self.api_url.startswith(f"https://{self.api_ip}"):
+                    headers["Host"] = "api.deepseek.com"
+                
+                connector = aiohttp.TCPConnector(ssl=ssl_context)
+                timeout = aiohttp.ClientTimeout(total=10)
+                
+                payload = {
+                    "model": model,
+                    "messages": [
+                        {"role": "user", "content": prompt}
+                    ],
+                    "temperature": temperature,
+                    "max_tokens": 2048
+                }
+                
+                async with aiohttp.ClientSession(connector=connector) as session:
+                    async with session.post(
+                        self.api_url,
+                        headers=headers,
+                        json=payload,
+                        timeout=timeout
+                    ) as response:
+                        response_text = await response.text()
+                        logger.info(f"DeepSeek API response status: {response.status}")
+                        
+                        if response.status == 200:
+                            data = json.loads(response_text)
+                            return data.get("choices", [{}])[0].get("message", {}).get("content", "")
+                        else:
+                            logger.error(f"DeepSeek API error: {response.status}, {response_text[:200]}...")
+                            return self._get_mock_completion(prompt)
+            except Exception as e:
+                logger.error(f"Error with aiohttp connection to DeepSeek: {str(e)}")
+                # Fall through to mock data
                     
         except Exception as e:
             logger.error(f"Error generating DeepSeek completion: {str(e)}")
             logger.exception(e)
-            return self._get_mock_completion(prompt)
+            
+        # If all connection methods fail, return mock data
+        return self._get_mock_completion(prompt)
             
     def _get_mock_completion(self, prompt: str) -> str:
         """Generate mock completion when the API is unavailable"""
