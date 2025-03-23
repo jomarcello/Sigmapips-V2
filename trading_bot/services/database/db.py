@@ -672,12 +672,12 @@ class Database:
             logger.error(f"Error setting payment failed status: {str(e)}")
             return False
 
-    def _detect_market(self, symbol: str) -> str:
-        """Detecteer market type gebaseerd op symbol"""
-        if not symbol:
+    def _detect_market(self, instrument: str) -> str:
+        """Detecteer market type gebaseerd op instrument"""
+        if not instrument:
             return "forex"  # Default
         
-        symbol = str(symbol).upper()
+        instrument = str(instrument).upper()
         
         # Commodities eerst checken
         commodities = [
@@ -686,12 +686,12 @@ class Database:
             "WTIUSD",  # Oil WTI
             "BCOUSD",  # Oil Brent
         ]
-        if symbol in commodities:
+        if instrument in commodities:
             return "commodities"
         
         # Crypto pairs
         crypto_base = ["BTC", "ETH", "XRP", "SOL", "BNB", "ADA", "DOT", "LINK"]
-        if any(c in symbol for c in crypto_base):
+        if any(c in instrument for c in crypto_base):
             return "crypto"
         
         # Major indices
@@ -700,7 +700,7 @@ class Database:
             "UK100", "DE40", "FR40",   # European indices
             "JP225", "AU200", "HK50"   # Asian indices
         ]
-        if symbol in indices:
+        if instrument in indices:
             return "indices"
         
         # Forex pairs als default
