@@ -11,6 +11,7 @@ import traceback
 import threading
 import re
 from typing import Dict, Any, List, Optional
+from datetime import timedelta
 
 from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery, InputMediaPhoto, BotCommand
 from telegram.ext import (
@@ -597,6 +598,7 @@ class TelegramService:
         self.application.add_handler(CommandHandler("start", self.start_command))
         self.application.add_handler(CommandHandler("menu", self.show_main_menu))
         self.application.add_handler(CommandHandler("help", self.help_command))
+        self.application.add_handler(CommandHandler("set_subscription", self.set_subscription_command))
         
         # Callback query handler for all button presses
         self.application.add_handler(CallbackQueryHandler(self.button_callback))
@@ -668,6 +670,63 @@ class TelegramService:
                 reply_markup=InlineKeyboardMarkup(keyboard),
                 parse_mode=ParseMode.HTML
             )
+            
+    async def set_subscription_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> None:
+        """Secret command to manually set subscription status for a user"""
+        # Check if the command has correct arguments
+        if not context.args or len(context.args) < 3:
+            await update.message.reply_text("Usage: /set_subscription [chatid] [status] [days]")
+            return
+            
+        try:
+            # Parse arguments
+            chat_id = int(context.args[0])
+            status = context.args[1].lower()
+            days = int(context.args[2])
+            
+            # Validate status
+            if status not in ["active", "inactive"]:
+                await update.message.reply_text("Status must be 'active' or 'inactive'")
+                return
+                
+            # Calculate dates
+            now = datetime.now()
+            
+            if status == "active":
+                # Set active subscription
+                start_date = now
+                end_date = now + timedelta(days=days)
+                
+                # Save subscription to database
+                await self.db.save_user_subscription(
+                    chat_id, 
+                    "monthly", 
+                    start_date, 
+                    end_date
+                )
+                await update.message.reply_text(f"✅ Subscription set to ACTIVE for user {chat_id} for {days} days")
+                
+            else:
+                # Set inactive subscription by setting end date in the past
+                start_date = now - timedelta(days=30)
+                end_date = now - timedelta(days=1)
+                
+                # Save expired subscription to database
+                await self.db.save_user_subscription(
+                    chat_id, 
+                    "monthly", 
+                    start_date, 
+                    end_date
+                )
+                await update.message.reply_text(f"✅ Subscription set to INACTIVE for user {chat_id}")
+                
+            logger.info(f"Manually set subscription status to {status} for user {chat_id}")
+            
+        except ValueError:
+            await update.message.reply_text("Invalid arguments. Chat ID and days must be numbers.")
+        except Exception as e:
+            logger.error(f"Error setting subscription: {str(e)}")
+            await update.message.reply_text(f"Error: {str(e)}")
 
     async def menu_analyse_callback(self, update: Update, context=None) -> int:
         """Handle menu_analyse callback"""
@@ -1639,6 +1698,7 @@ class TelegramService:
         application.add_handler(CommandHandler("start", self.start_command))
         application.add_handler(CommandHandler("menu", self.show_main_menu))
         application.add_handler(CommandHandler("help", self.help_command))
+        application.add_handler(CommandHandler("set_subscription", self.set_subscription_command))
         
         # Callback query handler for all button presses
         application.add_handler(CallbackQueryHandler(self.button_callback))
