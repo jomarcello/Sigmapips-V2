@@ -2576,9 +2576,8 @@ Click the button below to start your FREE 14-day trial.
                                 "No major economic events found for this instrument in the upcoming days.\n\n" + \
                                 "<i>Check back later for updates.</i>"
             
-            # Create buttons for different actions
+            # Create button to go back to instrument
             keyboard = [
-                [InlineKeyboardButton("🔄 Refresh Calendar", callback_data=f"refresh_calendar_{instrument}")],
                 [InlineKeyboardButton("⬅️ Back to Instrument", callback_data="back_instrument")]
             ]
             
