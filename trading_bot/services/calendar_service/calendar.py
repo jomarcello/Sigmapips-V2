@@ -113,6 +113,9 @@ CALLBACK_ANALYSIS_SENTIMENT = "analysis_sentiment"
 CALLBACK_ANALYSIS_CALENDAR = "analysis_calendar"
 # ... rest of constants
 
+# Major currencies to focus on
+MAJOR_CURRENCIES = ["USD", "EUR", "GBP", "JPY", "CHF", "AUD", "NZD", "CAD"]
+
 # Map of instruments to their corresponding currencies
 INSTRUMENT_CURRENCY_MAP = {
     # Special case for global view
@@ -153,9 +156,6 @@ INSTRUMENT_CURRENCY_MAP = {
     "LTCUSD": ["USD", "LTC"],
     "XRPUSD": ["USD", "XRP"]
 }
-
-# Major currencies to focus on
-MAJOR_CURRENCIES = ["USD", "EUR", "GBP", "JPY", "CHF", "AUD", "NZD", "CAD"]
 
 # Impact levels and their emoji representations
 IMPACT_EMOJI = {
