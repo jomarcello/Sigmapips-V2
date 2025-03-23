@@ -638,6 +638,40 @@ class Database:
             logger.error(f"Error saving subscription: {str(e)}")
             return False
 
+    async def set_payment_failed(self, user_id: int) -> bool:
+        """Set a user's subscription status to payment failed (past_due)"""
+        try:
+            logger.info(f"Setting payment failed state for user {user_id}")
+            
+            now = datetime.datetime.now()
+            subscription_data = {
+                'user_id': user_id,
+                'subscription_status': 'past_due',
+                'subscription_type': 'monthly',
+                'updated_at': now.isoformat(),
+                'current_period_end': (now + datetime.timedelta(days=30)).isoformat()
+            }
+            
+            # Check if user already has a subscription
+            existing = await self.get_user_subscription(user_id)
+            
+            if existing:
+                # Update existing subscription
+                response = self.supabase.table('user_subscriptions').update(subscription_data).eq('user_id', user_id).execute()
+            else:
+                # Create new subscription
+                response = self.supabase.table('user_subscriptions').insert(subscription_data).execute()
+            
+            if response.data:
+                logger.info(f"Payment failed status set for user {user_id}")
+                return True
+            else:
+                logger.error(f"Failed to set payment failed status: {response}")
+                return False
+        except Exception as e:
+            logger.error(f"Error setting payment failed status: {str(e)}")
+            return False
+
     def _detect_market(self, symbol: str) -> str:
         """Detecteer market type gebaseerd op symbol"""
         if not symbol:
