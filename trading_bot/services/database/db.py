@@ -346,19 +346,69 @@ class Database:
             return False
 
     async def delete_preference_by_id(self, preference_id: int) -> bool:
-        """Delete a preference by its ID"""
+        """Delete a specific preference by ID"""
         try:
-            # Delete the preference
             response = self.supabase.table('subscriber_preferences').delete().eq('id', preference_id).execute()
             
-            if response.data:
-                logger.info(f"Deleted preference with ID {preference_id}")
+            # Check if any rows were affected
+            if response and response.data:
+                logger.info(f"Successfully deleted preference with ID {preference_id}")
                 return True
             else:
-                logger.error(f"Failed to delete preference: {response}")
+                logger.warning(f"No preference found with ID {preference_id}")
                 return False
+                
         except Exception as e:
-            logger.error(f"Error deleting preference: {str(e)}")
+            logger.error(f"Error deleting preference by ID: {str(e)}")
+            return False
+            
+    async def get_subscriber_preferences(self, user_id: int) -> List[Dict[str, Any]]:
+        """Get all signal preferences for a specific user"""
+        try:
+            response = self.supabase.table('subscriber_preferences').select('*').eq('user_id', user_id).execute()
+            
+            if response and response.data:
+                logger.info(f"Found {len(response.data)} preferences for user {user_id}")
+                return response.data
+            else:
+                logger.info(f"No preferences found for user {user_id}")
+                return []
+                
+        except Exception as e:
+            logger.error(f"Error getting subscriber preferences: {str(e)}")
+            return []
+            
+    async def add_subscriber_preference(self, user_id: int, market: str, instrument: str, timeframe: str = "ALL") -> bool:
+        """Add a new signal preference for a user"""
+        try:
+            # Check if preference already exists
+            existing = self.supabase.table('subscriber_preferences').select('*').eq('user_id', user_id).eq('instrument', instrument).execute()
+            
+            if existing and existing.data:
+                logger.info(f"User {user_id} already has a preference for {instrument}")
+                return True
+                
+            # Create new preference
+            new_preference = {
+                'user_id': user_id,
+                'market': market,
+                'instrument': instrument,
+                'timeframe': timeframe,
+                'created_at': datetime.datetime.now(timezone.utc).isoformat()
+            }
+            
+            # Insert new preference
+            response = self.supabase.table('subscriber_preferences').insert(new_preference).execute()
+            
+            if response and response.data:
+                logger.info(f"Successfully added preference for user {user_id}: {instrument} ({timeframe})")
+                return True
+            else:
+                logger.warning(f"Failed to add preference for user {user_id}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Error adding subscriber preference: {str(e)}")
             return False
 
     async def execute_query(self, query: str) -> List[Dict[str, Any]]:
