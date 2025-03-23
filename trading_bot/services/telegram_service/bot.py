@@ -618,23 +618,33 @@ class TelegramService:
     def _save_signals(self):
         """Save signals to file"""
         try:
-            # Ensure data directory exists
-            os.makedirs('data', exist_ok=True)
-            
-            # Convert user_ids to strings for JSON serialization
+            # Convert user_ids (integer keys) to strings for JSON serialization
             signals_to_save = {str(k): v for k, v in self.user_signals.items()}
             with open('data/signals.json', 'w') as f:
                 json.dump(signals_to_save, f)
             logger.info(f"Saved {len(self.user_signals)} signals to file")
-            
-            # Log the first few signals that were saved
-            sample_users = list(self.user_signals.keys())[:3] if self.user_signals else []
-            for user_id in sample_users:
-                signal = self.user_signals[user_id]
-                logger.info(f"Saved signal for user {user_id}: {signal.get('instrument')}")
-                
         except Exception as e:
             logger.error(f"Error saving signals: {str(e)}")
+            
+    def get_subscribers(self):
+        """Get all subscribers from database"""
+        try:
+            # If we're in test mode or haven't initialized DB connection, return admins
+            if self.admin_users:
+                # In a real implementation, this would fetch users from a database
+                # For now, let's get users from self.all_users (which is populated in list_users)
+                if hasattr(self, 'all_users') and self.all_users:
+                    return list(self.all_users)
+                else:
+                    logger.info("No users found in all_users, returning admin users")
+                    return self.admin_users
+            else:
+                logger.warning("No admin users defined, returning empty list")
+                return []
+        except Exception as e:
+            logger.error(f"Error getting subscribers: {str(e)}")
+            # Fallback to admin users
+            return self.admin_users or []
             
     @property
     def signals_enabled(self):
@@ -3637,23 +3647,3 @@ COMMODITIES_SENTIMENT_KEYBOARD = [
     ],
     [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
 ]
-
-def get_subscribers(self):
-        """Get all subscribers from database"""
-        try:
-            # If we're in test mode or haven't initialized DB connection, return admins
-            if self.admin_users:
-                # In a real implementation, this would fetch users from a database
-                # For now, let's get users from self.all_users (which is populated in list_users)
-                if hasattr(self, 'all_users') and self.all_users:
-                    return list(self.all_users)
-                else:
-                    logger.info("No users found in all_users, returning admin users")
-                    return self.admin_users
-            else:
-                logger.warning("No admin users defined, returning empty list")
-                return []
-        except Exception as e:
-            logger.error(f"Error getting subscribers: {str(e)}")
-            # Fallback to admin users
-            return self.admin_users or []
