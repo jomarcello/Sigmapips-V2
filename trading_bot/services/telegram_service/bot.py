@@ -961,8 +961,16 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Store analysis type in user_data
             if context and hasattr(context, 'user_data'):
                 context.user_data['analysis_type'] = 'technical'
+                
+                # Check if we have an instrument from signal
+                if context.user_data.get('from_signal') and context.user_data.get('instrument'):
+                    instrument = context.user_data.get('instrument')
+                    logger.info(f"Using instrument from signal: {instrument} for technical analysis")
+                    
+                    # Go directly to technical analysis for this instrument
+                    return await self.show_technical_analysis(update, context, instrument=instrument)
             
-            # Show market selection for technical analysis
+            # If not coming from signal, show normal market selection
             await query.edit_message_text(
                 text="Select a market for technical analysis:",
                 reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
@@ -985,8 +993,16 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Store analysis type in user_data
             if context and hasattr(context, 'user_data'):
                 context.user_data['analysis_type'] = 'sentiment'
+                
+                # Check if we have an instrument from signal
+                if context.user_data.get('from_signal') and context.user_data.get('instrument'):
+                    instrument = context.user_data.get('instrument')
+                    logger.info(f"Using instrument from signal: {instrument} for sentiment analysis")
+                    
+                    # Go directly to sentiment analysis for this instrument
+                    return await self.show_sentiment_analysis(update, context, instrument=instrument)
             
-            # Show market selection for sentiment analysis
+            # If not coming from signal, show normal market selection
             await query.edit_message_text(
                 text="Select a market for sentiment analysis:",
                 reply_markup=InlineKeyboardMarkup(MARKET_SENTIMENT_KEYBOARD)
@@ -1009,8 +1025,16 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Store analysis type in user_data
             if context and hasattr(context, 'user_data'):
                 context.user_data['analysis_type'] = 'calendar'
+                
+                # Check if we have an instrument from signal
+                if context.user_data.get('from_signal') and context.user_data.get('instrument'):
+                    instrument = context.user_data.get('instrument')
+                    logger.info(f"Using instrument from signal: {instrument} for economic calendar")
+                    
+                    # Go directly to economic calendar for this instrument
+                    return await self.show_economic_calendar(update, context, instrument=instrument)
             
-            # Show market selection for calendar analysis
+            # If not coming from signal, show normal market selection
             await query.edit_message_text(
                 text="Select a market for economic calendar:",
                 reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
@@ -2377,6 +2401,12 @@ Risk Management:
 {ai_verdict}
 """
             
+            # Maak een keyboard met een "Analyze Market" knop voor het verzenden van het signaal
+            # De callback data bevat het instrument zodat we direct naar analyse kunnen gaan
+            keyboard = InlineKeyboardMarkup([
+                [InlineKeyboardButton("📊 Analyze Market", callback_data=f"analyze_from_signal_{instrument}")]
+            ])
+            
             # Haal subscribers op die dit signaal zouden moeten ontvangen
             subscribers = await self._get_signal_subscribers(market, instrument)
             
@@ -2384,11 +2414,12 @@ Risk Management:
             send_count = 0
             for user_id in subscribers:
                 try:
-                    # Stuur het bericht naar de gebruiker
+                    # Stuur het bericht naar de gebruiker met de analyze knop
                     await self.bot.send_message(
                         chat_id=user_id,
                         text=message,
-                        parse_mode=ParseMode.HTML
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=keyboard
                     )
                     send_count += 1
                 except Exception as e:
@@ -2402,7 +2433,7 @@ Risk Management:
             logger.error(f"Error processing signal: {str(e)}")
             logger.exception(e)
             return False
-            
+
     async def _generate_signal_verdict(self, instrument: str, direction: str, price: float, stop_loss: float, tp1: float, tp2: float, tp3: float, timeframe: str) -> str:
         """Generate AI verdict for a trading signal"""
         try:
@@ -3470,6 +3501,43 @@ Risk Management:
                 logger.error(f"Failed to recover from error: {str(inner_e)}")
                 
             return CHOOSE_SIGNALS
+
+    async def analyze_from_signal_callback(self, update: Update, context=None) -> int:
+        """Handle analyze_from_signal callback to show analysis options for instrument from signal"""
+        query = update.callback_query
+        await query.answer()
+        
+        try:
+            # Extract instrument from callback data
+            instrument = query.data.replace('analyze_from_signal_', '')
+            logger.info(f"Analyze from signal callback for instrument: {instrument}")
+            
+            # Store the instrument in context for later use
+            if context and hasattr(context, 'user_data'):
+                context.user_data['instrument'] = instrument
+                context.user_data['from_signal'] = True
+            
+            # Show analysis options for this instrument (similar to analysis_callback but with preselected instrument)
+            keyboard = [
+                [
+                    InlineKeyboardButton("📈 Technical Analysis", callback_data="analysis_technical"),
+                    InlineKeyboardButton("💬 Sentiment Analysis", callback_data="analysis_sentiment")
+                ],
+                [
+                    InlineKeyboardButton("📅 Economic Calendar", callback_data="analysis_calendar")
+                ],
+                [InlineKeyboardButton("⬅️ Back to Menu", callback_data="back_menu")]
+            ]
+            
+            await query.edit_message_text(
+                text=f"Choose analysis type for {instrument}:",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            
+            return CHOOSE_ANALYSIS
+        except Exception as e:
+            logger.error(f"Error in analyze_from_signal_callback: {str(e)}")
+            return MENU
 
 # Indices keyboard voor sentiment analyse
 INDICES_SENTIMENT_KEYBOARD = [
