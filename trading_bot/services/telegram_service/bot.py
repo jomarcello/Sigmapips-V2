@@ -679,7 +679,7 @@ class TelegramService:
                         return [default_user_id]
                         
                     # If you want to hardcode a user ID for testing, uncomment and modify the line below
-                    # return [123456789]  # Replace with your Telegram user ID
+                    return [1093307376]  # Jovanni's Telegram user ID (vervang dit met jouw eigen ID als dit niet correct is)
                     
                     logger.warning("No admin or test users defined, returning empty list")
                     return []
@@ -2409,6 +2409,13 @@ Click the button below to start your FREE 14-day trial.
     async def process_signal(self, signal_data: dict, users=None, test_mode=False) -> bool:
         """Process incoming signal and send to users"""
         try:
+            # Log more visible test message for verification
+            logger.info("="*50)
+            logger.info(f"SIGNAL TEST: Successfully received signal for processing")
+            logger.info(f"SIGNAL DATA: {json.dumps(signal_data, indent=2)}")
+            logger.info("="*50)
+            
+            # Regular processing log
             logger.info(f"Processing signal: {signal_data}")
             
             # Extract signal components
@@ -2822,6 +2829,15 @@ Click the button below to start your FREE 14-day trial.
                     # Get the signal data from the request
                     signal_data = await request.json()
                     logger.info(f"Received TradingView webhook signal: {signal_data}")
+                    
+                    # Store the signal in a test file for verification
+                    try:
+                        os.makedirs('data', exist_ok=True)
+                        with open('data/test_signals.json', 'a') as f:
+                            f.write(json.dumps(signal_data) + "\n")
+                        logger.info(f"TEST SUCCESS: Signal saved to test_signals.json: {signal_data}")
+                    except Exception as write_error:
+                        logger.error(f"Error saving test signal: {str(write_error)}")
                     
                     # Process the signal
                     success = await self.process_signal(signal_data)
