@@ -417,35 +417,46 @@ def require_subscription(func):
             # User has subscription, proceed with function
             return await func(self, update, context, *args, **kwargs)
         else:
-            # Show subscription screen
-            subscription_features = get_subscription_features("monthly")
-            
-            # Update message to emphasize the trial period
+            # Show subscription screen with the welcome message from the screenshot
             welcome_text = f"""
 🚀 <b>Welcome to SigmaPips Trading Bot!</b> 🚀
 
-To access all features, you need a subscription:
+<b>Discover powerful trading signals for various markets:</b>
+• <b>Forex</b> - Major and minor currency pairs
+• <b>Crypto</b> - Bitcoin, Ethereum and other top cryptocurrencies
+• <b>Indices</b> - Global market indices
+• <b>Commodities</b> - Gold, silver and oil
 
-📊 <b>Trading Signals Subscription - $29.99/month</b>
-• <b>Start with a FREE 14-day trial!</b>
-• Access to all trading signals (Forex, Crypto, Commodities, Indices)
-• Advanced timeframe analysis (1m, 15m, 1h, 4h)
-• Detailed chart analysis for each signal
+<b>Features:</b>
+✅ Real-time trading signals
+✅ Multi-timeframe analysis (1m, 15m, 1h, 4h)
+✅ Advanced chart analysis
+✅ Sentiment indicators
+✅ Economic calendar integration
 
-Click the button below to start your trial:
+<b>Start today with a FREE 14-day trial!</b>
             """
             
-            # Create buttons
+            # Create buttons with the stripe link for the 14-day trial
             keyboard = [
-                [InlineKeyboardButton("🔥 Start FREE Trial", callback_data="subscribe_monthly")],
+                [InlineKeyboardButton("🔥 Start 14-day FREE Trial", callback_data="subscribe_monthly")],
                 [InlineKeyboardButton("ℹ️ More Information", callback_data="subscription_info")]
             ]
             
-            await update.message.reply_text(
-                text=welcome_text,
-                reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode=ParseMode.HTML
-            )
+            # Handle both message and callback query updates
+            if update.callback_query:
+                await update.callback_query.answer()
+                await update.callback_query.edit_message_text(
+                    text=welcome_text,
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.HTML
+                )
+            else:
+                await update.message.reply_text(
+                    text=welcome_text,
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.HTML
+                )
             return MENU
     
     return wrapper
@@ -626,7 +637,7 @@ class TelegramService:
             # Show the normal welcome message with all features
             await self.show_main_menu(update, context)
         else:
-            # Show the welcome message with trial option
+            # Show the welcome message with trial option from the screenshot
             welcome_text = f"""
 🚀 <b>Welcome to SigmaPips Trading Bot!</b> 🚀
 
@@ -1446,7 +1457,50 @@ class TelegramService:
 
     async def show_main_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> None:
         """Show the main menu with all bot features"""
-        # Toon het originele hoofdmenu met alle opties
+        user_id = update.effective_user.id
+        
+        # Check if the user has a subscription
+        is_subscribed = await self.db.is_user_subscribed(user_id)
+        
+        if not is_subscribed:
+            # Show the welcome message with trial option for non-subscribed users
+            welcome_text = f"""
+🚀 <b>Welcome to SigmaPips Trading Bot!</b> 🚀
+
+<b>Discover powerful trading signals for various markets:</b>
+• <b>Forex</b> - Major and minor currency pairs
+• <b>Crypto</b> - Bitcoin, Ethereum and other top cryptocurrencies
+• <b>Indices</b> - Global market indices
+• <b>Commodities</b> - Gold, silver and oil
+
+<b>Features:</b>
+✅ Real-time trading signals
+✅ Multi-timeframe analysis (1m, 15m, 1h, 4h)
+✅ Advanced chart analysis
+✅ Sentiment indicators
+✅ Economic calendar integration
+
+<b>Start today with a FREE 14-day trial!</b>
+            """
+            
+            # Create buttons
+            keyboard = [
+                [InlineKeyboardButton("🔥 Start 14-day FREE Trial", callback_data="subscribe_monthly")],
+                [InlineKeyboardButton("ℹ️ More Information", callback_data="subscription_info")]
+            ]
+            
+            # Use context.bot if available, otherwise use self.bot
+            bot = context.bot if context is not None else self.bot
+            
+            await bot.send_message(
+                chat_id=update.effective_chat.id,
+                text=welcome_text,
+                parse_mode=ParseMode.HTML,
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            return
+        
+        # Show the normal menu with all options for subscribed users
         reply_markup = InlineKeyboardMarkup(START_KEYBOARD)
         
         # Use context.bot if available, otherwise use self.bot
@@ -1706,8 +1760,8 @@ class TelegramService:
         if query.data == "subscribe_monthly":
             user_id = query.from_user.id
             
-            # Use the fixed Stripe checkout URL for testing
-            checkout_url = "https://buy.stripe.com/test_6oE4kkdLefcT8Fy6oo"
+            # Use the Stripe checkout URL provided by the user
+            checkout_url = "https://buy.stripe.com/3cs3eF9Hu9256NW9AA"
             
             # Create keyboard with checkout link
             keyboard = [
