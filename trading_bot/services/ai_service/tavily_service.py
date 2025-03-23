@@ -68,10 +68,20 @@ class TavilyService:
                 "query": query,
                 "search_depth": "advanced",
                 "max_results": max_results,
-                "include_answer": False,
+                "include_answer": True,  # Include an answer summary
                 "include_sources": True,
                 "include_images": False
             }
+            
+            # For economic calendar searches, provide more specific instructions
+            if "economic calendar" in query.lower():
+                payload["search_depth"] = "comprehensive"
+                payload["include_domains"] = ["investing.com", "forexfactory.com", "dailyfx.com", "fxstreet.com", "tradingeconomics.com"]
+                payload["query_context"] = """
+                Find today's economic calendar events for major currencies with specific focus on time in EST format, 
+                event description, and impact level (high, medium, low). We need structured information about times and
+                events for each currency mentioned in the query.
+                """
             
             # First try using httpx with standard connection
             try:
