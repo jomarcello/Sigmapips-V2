@@ -542,6 +542,18 @@ class TelegramService:
             
         logger.info(f"Bot initialized with webhook URL: {self.webhook_url} and path: {self.webhook_path}")
         
+        # Admin users for testing and admin commands
+        self.admin_users = []
+        admin_ids = os.getenv("ADMIN_USER_IDS", "")
+        if admin_ids:
+            try:
+                # Convert comma-separated string to list of integers
+                self.admin_users = [int(user_id.strip()) for user_id in admin_ids.split(",") if user_id.strip()]
+                logger.info(f"Admin users configured: {self.admin_users}")
+            except Exception as e:
+                logger.error(f"Error configuring admin users: {str(e)}")
+                self.admin_users = []
+        
         # Signal handling attributes
         self._signals_enabled = True  # Enable signals by default
         self.user_signals = {}  # Initialize user signals dict
@@ -629,7 +641,8 @@ class TelegramService:
     def get_subscribers(self):
         """Get all subscribers from database"""
         try:
-            # If we're in test mode or haven't initialized DB connection, return admins
+            # If we're in test mode or haven't initialized DB connection, return admins or test users
+            # First check if we have admin users
             if self.admin_users:
                 # In a real implementation, this would fetch users from a database
                 # For now, let's get users from self.all_users (which is populated in list_users)
@@ -639,12 +652,34 @@ class TelegramService:
                     logger.info("No users found in all_users, returning admin users")
                     return self.admin_users
             else:
-                logger.warning("No admin users defined, returning empty list")
-                return []
+                # Try to get test users from environment
+                test_users = []
+                test_ids = os.getenv("TEST_USER_IDS", "")
+                if test_ids:
+                    try:
+                        test_users = [int(user_id.strip()) for user_id in test_ids.split(",") if user_id.strip()]
+                        logger.info(f"Using test users from environment: {test_users}")
+                    except Exception as e:
+                        logger.error(f"Error parsing TEST_USER_IDS: {str(e)}")
+                if test_users:
+                    return test_users
+                else:
+                    logger.warning("No admin or test users defined, returning empty list")
+                    return []
         except Exception as e:
             logger.error(f"Error getting subscribers: {str(e)}")
-            # Fallback to admin users
-            return self.admin_users or []
+            # Try to get test users as fallback
+            try:
+                test_users = []
+                test_ids = os.getenv("TEST_USER_IDS", "")
+                if test_ids:
+                    test_users = [int(user_id.strip()) for user_id in test_ids.split(",") if user_id.strip()]
+                    logger.info(f"Using test users as fallback: {test_users}")
+                    return test_users
+            except Exception as inner_e:
+                logger.error(f"Error getting test users: {str(inner_e)}")
+            # Ultimate fallback
+            return self.admin_users if hasattr(self, 'admin_users') else []
             
     @property
     def signals_enabled(self):
