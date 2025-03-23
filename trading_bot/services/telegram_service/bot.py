@@ -2510,9 +2510,8 @@ Click the button below to start your FREE 14-day trial.
                 analysis = re.sub(r'^```html\s*', '', analysis)
                 analysis = re.sub(r'\s*```$', '', analysis)
                 
-                # Create buttons for refresh and back
+                # Create button to go back to instrument
                 keyboard = [
-                    [InlineKeyboardButton("🔄 Refresh Analysis", callback_data=f"instrument_{instrument}_sentiment")],
                     [InlineKeyboardButton("⬅️ Back to Instrument", callback_data="back_instrument_sentiment")]
                 ]
                 
