@@ -1364,10 +1364,25 @@ class TelegramService:
             # Set the analysis type to sentiment before going back
             if context and hasattr(context, 'user_data'):
                 context.user_data['analysis_type'] = 'sentiment'
+                logger.info("Setting analysis_type to 'sentiment' for back navigation")
             return await self.back_instrument_callback(update, context)
             
         if query.data == "back_signals":
             return await self.market_signals_callback(update, context)
+            
+        # Handle refresh sentiment analysis 
+        if query.data.startswith("instrument_") and query.data.endswith("_sentiment"):
+            # Extract the instrument from the callback data
+            parts = query.data.split("_")
+            instrument = "_".join(parts[1:-1]) if len(parts) > 2 else parts[1]
+            logger.info(f"Refreshing sentiment analysis for {instrument}")
+            
+            # Set analysis type to sentiment
+            if context and hasattr(context, 'user_data'):
+                context.user_data['analysis_type'] = 'sentiment'
+                
+            # Call show_sentiment_analysis with the instrument
+            return await self.show_sentiment_analysis(update, context, instrument=instrument)
         
         # Verwerk abonnementsacties
         if query.data == "subscribe_monthly" or query.data == "subscription_info":
@@ -2445,8 +2460,9 @@ Click the button below to start your FREE 14-day trial.
                 analysis = re.sub(r'^```html\s*', '', analysis)
                 analysis = re.sub(r'\s*```$', '', analysis)
                 
-                # Create button to go back to instrument
+                # Create buttons for refresh and back
                 keyboard = [
+                    [InlineKeyboardButton("🔄 Refresh Analysis", callback_data=f"instrument_{instrument}_sentiment")],
                     [InlineKeyboardButton("⬅️ Back to Instrument", callback_data="back_instrument_sentiment")]
                 ]
                 
