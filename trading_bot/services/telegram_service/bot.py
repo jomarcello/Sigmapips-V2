@@ -2343,8 +2343,14 @@ Click the button below to start your FREE 14-day trial.
                 try:
                     sentiment_data = json.loads(sentiment_data)
                 except json.JSONDecodeError:
-                    # If it's already formatted text, return it as is
-                    return sentiment_data
+                    # Clean any HTML tags from the text
+                    clean_text = re.sub(r'<[^>]+>', '', sentiment_data)
+                    return clean_text
+            
+            # Clean any HTML from the analysis text
+            analysis_text = sentiment_data.get('analysis', '')
+            analysis_text = re.sub(r'<[^>]+>', '', analysis_text)
+            sentiment_data['analysis'] = analysis_text
             
             # Format the analysis into a readable message
             message = f"🎯 {instrument} Market Analysis\n\n"
@@ -2374,7 +2380,7 @@ Click the button below to start your FREE 14-day trial.
                 
                 # Join the cleaned news lines
                 if news_lines:
-                    message += '\n'.join(news_lines) + '\n\n'
+                    message += news_lines[0] + "\n\n"  # Just take the first summary line
                 else:
                     message += "Recent market developments and news impact analysis not available.\n\n"
             else:
@@ -2395,8 +2401,8 @@ Click the button below to start your FREE 14-day trial.
                 resistance_match = re.search(r'Resistance.*?:(.*?)(?=\n|$)', analysis)
                 
                 if support_match and resistance_match:
-                    message += f"• Support:{support_match.group(1)}\n"
-                    message += f"• Resistance:{resistance_match.group(1)}\n\n"
+                    message += f"• Support:{support_match.group(1).strip()}\n"
+                    message += f"• Resistance:{resistance_match.group(1).strip()}\n\n"
                 else:
                     message += "Key price levels not available.\n\n"
             
@@ -2412,15 +2418,17 @@ Click the button below to start your FREE 14-day trial.
                 risks = []
                 risk_section = False
                 for line in analysis.split('\n'):
-                    if '⚠️ Risk Factors:' in line:
+                    if 'Risk Factors:' in line:
                         risk_section = True
                         continue
                     elif risk_section and line.strip() and not line.startswith('💡'):
                         if line.startswith('•'):
                             risks.append(line.strip())
+                        elif 'Conclusion:' in line:
+                            break
                 
                 if risks:
-                    message += '\n'.join(risks) + '\n\n'
+                    message += '\n'.join(risks) + "\n\n"
                 else:
                     message += "• Monitor upcoming economic events and market sentiment shifts\n\n"
             else:
@@ -2429,14 +2437,14 @@ Click the button below to start your FREE 14-day trial.
             # Conclusion
             message += "💡 Conclusion:\n"
             if sentiment_data.get('recommendation'):
-                message += sentiment_data['recommendation']
+                message += sentiment_data['recommendation'].strip()
             elif sentiment_data.get('analysis'):
                 # Extract conclusion from analysis
                 analysis = sentiment_data['analysis']
                 conclusion = ''
                 for line in analysis.split('\n'):
-                    if line.startswith('The market shows') or 'conclusion' in line.lower():
-                        conclusion = line.replace('💡 Conclusion:', '').strip()
+                    if 'Conclusion:' in line:
+                        conclusion = line.replace('Conclusion:', '').strip()
                         break
                 
                 if conclusion:
@@ -2445,6 +2453,11 @@ Click the button below to start your FREE 14-day trial.
                     message += "Consider market conditions and risk management before taking positions."
             else:
                 message += "Analysis conclusion not available."
+            
+            # Clean any remaining HTML tags and normalize whitespace
+            message = re.sub(r'<[^>]+>', '', message)
+            message = re.sub(r'\n\s*\n', '\n\n', message)
+            message = message.strip()
             
             return message
                 
