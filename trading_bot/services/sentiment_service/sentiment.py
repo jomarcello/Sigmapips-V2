@@ -428,6 +428,23 @@ IMPORTANT: Always include a clear trading recommendation (long positions, short 
                                     content = re.sub(r'^```html\s*', '', content)
                                     content = re.sub(r'\s*```$', '', content)
                                     
+                                    # Remove system messages and formatting
+                                    content = re.sub(r"Here's (?:the )?(?:structured )?market analysis for [A-Z/]+ formatted for Telegram:\s*", "", content)
+                                    content = re.sub(r"Let me know if you'd like any adjustments!.*$", "", content)
+                                    content = re.sub(r"---\s*", "", content)
+                                    
+                                    # Ensure section headers are bold
+                                    content = re.sub(r"(🎯 [A-Z/]+ Market Analysis)", r"<b>\1</b>", content)
+                                    content = re.sub(r"(📈 Market Direction:)", r"<b>\1</b>", content)
+                                    content = re.sub(r"(📰 Latest News & Events:)", r"<b>\1</b>", content)
+                                    content = re.sub(r"(🎯 Key Levels:)", r"<b>\1</b>", content)
+                                    content = re.sub(r"(⚠️ Risk Factors:)", r"<b>\1</b>", content)
+                                    content = re.sub(r"(💡 Conclusion:)", r"<b>\1</b>", content)
+                                    
+                                    # Clean up any double newlines and trailing whitespace
+                                    content = re.sub(r'\n{3,}', '\n\n', content)
+                                    content = content.strip()
+                                    
                                     logger.info(f"Successfully received and formatted DeepSeek response for {instrument}")
                                     return content
                                 except (json.JSONDecodeError, KeyError) as e:
