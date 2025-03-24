@@ -2067,6 +2067,14 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         elif query.data == "menu_signals":
             return await self.menu_signals_callback(update, context)
         
+        # Market selection handlers
+        if query.data.startswith("market_"):
+            return await self.market_callback(update, context)
+            
+        # Instrument selection handlers
+        if query.data.startswith("instrument_") and not query.data.endswith("_sentiment"):
+            return await self.instrument_callback(update, context)
+        
         # Special signal flow handlers for the dedicated signal analysis
         if query.data == "signal_technical":
             return await self.signal_technical_callback(update, context)
