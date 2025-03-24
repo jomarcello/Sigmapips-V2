@@ -332,9 +332,28 @@ class MarketSentimentService:
             # This is critical for proper TLS handshake
             deepseek_url = "https://api.deepseek.com/v1/chat/completions"
             
+            # Configure longer timeouts
+            timeout = aiohttp.ClientTimeout(
+                total=30,          # Total timeout for the entire operation
+                connect=10,        # Time to establish connection
+                sock_read=20,      # Time to read socket data
+                sock_connect=10    # Time for socket connection
+            )
+            
             connector = aiohttp.TCPConnector(ssl=ssl_context)
-            async with aiohttp.ClientSession(connector=connector) as session:
-                prompt = f"""Using the following market data, create a structured market analysis for {instrument} to be displayed in a Telegram bot:
+            async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
+                try:
+                    logger.info("Making DeepSeek API call...")
+                    
+                    # Set up headers with API key
+                    headers = {
+                        "Authorization": f"Bearer {self.deepseek_api_key.strip()}",
+                        "Content-Type": "application/json",
+                        "Accept": "application/json"
+                    }
+                    
+                    # Prepare the payload
+                    prompt = f"""Using the following market data, create a structured market analysis for {instrument} to be displayed in a Telegram bot:
 
 {market_data}
 
@@ -370,52 +389,64 @@ DO NOT include any references to where the data came from (no "This analysis is 
 DO NOT include news source names like "FXStreet", "Reuters", etc. Just include the news content.
 IMPORTANT: Always include a clear trading recommendation (long positions, short positions, or waiting) in the conclusion section and make sure it's in bold tags.
 """
-                
-                payload = {
-                    "model": "deepseek-chat",
-                    "messages": [
-                        {"role": "system", "content": "You are an expert financial analyst creating market analysis summaries for traders."},
-                        {"role": "user", "content": prompt}
-                    ],
-                    "temperature": 0.3,
-                    "max_tokens": 1024
-                }
-                
-                try:
-                    # Use a shorter timeout to avoid long waits when service is unreachable
-                    timeout = aiohttp.ClientTimeout(total=10)
                     
-                    # Set Host header to api.deepseek.com while connecting to the IP
-                    custom_headers = deepseek_headers.copy()
-                    custom_headers["Host"] = "api.deepseek.com"
+                    payload = {
+                        "model": "deepseek-chat",
+                        "messages": [
+                            {"role": "system", "content": "You are an expert financial analyst creating market analysis summaries for traders."},
+                            {"role": "user", "content": prompt}
+                        ],
+                        "temperature": 0.3,
+                        "max_tokens": 1024
+                    }
                     
+                    # Make the API call with explicit timeout
                     async with session.post(
-                        deepseek_url, 
-                        headers=custom_headers, 
-                        json=payload, 
-                        timeout=timeout
+                        deepseek_url,
+                        headers=headers,
+                        json=payload,
+                        timeout=timeout,
+                        ssl=ssl_context
                     ) as response:
-                        response_text = await response.text()
                         logger.info(f"DeepSeek API response status: {response.status}")
                         
-                        if response.status == 200:
-                            data = json.loads(response_text)
-                            content = data['choices'][0]['message']['content']
+                        # Read response with timeout protection
+                        try:
+                            response_text = await asyncio.wait_for(
+                                response.text(),
+                                timeout=20.0
+                            )
                             
-                            # Clean up any markdown formatting that might be in the content
-                            content = re.sub(r'^```html\s*', '', content)
-                            content = re.sub(r'\s*```$', '', content)
-                            
-                            logger.info(f"Successfully formatted market data for {instrument}")
-                            return content
+                            if response.status == 200:
+                                try:
+                                    data = json.loads(response_text)
+                                    content = data['choices'][0]['message']['content']
+                                    
+                                    # Clean up any markdown formatting
+                                    content = re.sub(r'^```html\s*', '', content)
+                                    content = re.sub(r'\s*```$', '', content)
+                                    
+                                    logger.info(f"Successfully received and formatted DeepSeek response for {instrument}")
+                                    return content
+                                except (json.JSONDecodeError, KeyError) as e:
+                                    logger.error(f"Error parsing DeepSeek response: {str(e)}")
+                                    logger.error(f"Response text: {response_text[:200]}...")
+                            else:
+                                logger.error(f"DeepSeek API error status {response.status}: {response_text[:200]}...")
+                        except asyncio.TimeoutError:
+                            logger.error("Timeout while reading DeepSeek response")
                         
-                        # Log the specific error for debugging
-                        logger.error(f"DeepSeek API error: {response.status}, details: {response_text}")
-                        return self._format_data_manually(market_data, instrument)
-                except (aiohttp.ClientError, asyncio.TimeoutError) as e:
-                    logger.error(f"DeepSeek API client/timeout error: {str(e)}")
-                    return self._format_data_manually(market_data, instrument)
-                    
+                except aiohttp.ClientError as e:
+                    logger.error(f"DeepSeek API client error: {str(e)}")
+                except asyncio.TimeoutError:
+                    logger.error("DeepSeek API request timed out")
+                except Exception as e:
+                    logger.error(f"Unexpected error in DeepSeek API call: {str(e)}")
+                    logger.exception(e)
+                
+            # If we get here, something went wrong
+            return self._format_data_manually(market_data, instrument)
+            
         except Exception as e:
             logger.error(f"Error calling DeepSeek API: {str(e)}")
             logger.exception(e)
