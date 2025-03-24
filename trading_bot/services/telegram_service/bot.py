@@ -541,12 +541,25 @@ class TelegramService:
         logger.info(f"Bot initialized with webhook URL: {self.webhook_url} and path: {self.webhook_path}")
         
         # Initialize API services
-        self.technical_service = ChartService()  # Chart generation service
-        self.calendar_service = EconomicCalendarService()  # Economic calendar service
-        self.sentiment_service = MarketSentimentService()  # Market sentiment service
-        
-        # Initialize chart service
-        asyncio.create_task(self.technical_service.initialize())
+        try:
+            self.technical_service = ChartService()
+            logger.info("ChartService initialized")
+            self.calendar_service = EconomicCalendarService()
+            logger.info("EconomicCalendarService initialized")
+            self.sentiment_service = MarketSentimentService()
+            logger.info("MarketSentimentService initialized")
+            
+            # Initialize chart service asynchronously
+            loop = asyncio.get_event_loop()
+            if loop.is_closed():
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+            loop.create_task(self.technical_service.initialize())
+            logger.info("ChartService initialization task created")
+        except Exception as e:
+            logger.error(f"Error initializing services: {str(e)}")
+            logger.exception(e)
+            raise
         
         # Bot application initialization
         self.persistence = None
@@ -3955,12 +3968,20 @@ Click the button below to start your FREE 14-day trial.
                 ]])
             )
             
+            # Ensure technical service is initialized
+            if not hasattr(self, 'technical_service'):
+                logger.error("Technical service not initialized")
+                self.technical_service = ChartService()
+                await self.technical_service.initialize()
+            
             # Get analysis from technical service
             try:
-                analysis = await self.technical_service.get_technical_analysis(instrument, timeframe)
+                logger.info(f"Getting technical analysis for {instrument} with timeframe {timeframe}")
+                analysis = await self.technical_service.get_technical_analysis(instrument=instrument, timeframe=timeframe)
                 logger.info(f"Successfully got technical analysis for {instrument}")
             except Exception as service_error:
                 logger.error(f"Error getting technical analysis from service: {str(service_error)}")
+                logger.exception(service_error)
                 raise
             
             # Create keyboard with appropriate back button based on flow
@@ -3985,6 +4006,7 @@ Click the button below to start your FREE 14-day trial.
             
         except Exception as e:
             logger.error(f"Error in show_technical_analysis: {str(e)}")
+            logger.exception(e)
             # Show error message with appropriate back button
             current_flow = context.user_data.get('current_flow') if context and hasattr(context, 'user_data') else None
             if current_flow == 'signal':
