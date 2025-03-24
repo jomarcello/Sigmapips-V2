@@ -363,22 +363,22 @@ Market Data:
 
 Format your response EXACTLY as follows, with no additional text before or after:
 
-🎯 {instrument} Market Analysis
+<b>🎯 {instrument} Market Analysis</b>
 
-📈 Market Direction:
+<b>📈 Market Direction:</b>
 [Current trend, momentum and price action analysis]
 
-📰 Latest News & Events:
+<b>📰 Latest News & Events:</b>
 • [Key market-moving news item 1 - remove any source references]
 • [Key market-moving news item 2 - remove any source references]
 • [Key market-moving news item 3 - remove any source references]
 
-⚠️ Risk Factors:
+<b>⚠️ Risk Factors:</b>
 • [Key risk factor 1]
 • [Key risk factor 2]
 • [Key risk factor 3]
 
-💡 Conclusion:
+<b>💡 Conclusion:</b>
 [Trading recommendation based on analysis. Always include a specific recommendation for either <b>long positions</b> or <b>short positions</b> in bold. If uncertain, recommend <b>wait for clearer signals</b> in bold.]
 
 Use HTML formatting for Telegram: <b>bold</b>, <i>italic</i>, etc.
@@ -386,7 +386,8 @@ Keep the analysis concise but informative, focusing on actionable insights.
 DO NOT include any references to data sources.
 DO NOT include any introductory or closing text.
 DO NOT include any notes or placeholder sections.
-IMPORTANT: Always include a clear trading recommendation in bold tags in the conclusion section."""
+IMPORTANT: Always include a clear trading recommendation in bold tags in the conclusion section.
+IMPORTANT: All section headers must be in bold HTML tags as shown in the format above."""
                     
                     payload = {
                         "model": "deepseek-chat",
