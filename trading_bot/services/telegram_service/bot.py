@@ -3925,39 +3925,43 @@ Click the button below to start your FREE 14-day trial.
         await query.answer()
         
         try:
-            # Get instrument from context if not provided
-            if not instrument and context and hasattr(context, 'user_data'):
-                instrument = context.user_data.get('instrument')
-            
+            # Get instrument from callback data if not provided
             if not instrument:
-                logger.error("No instrument provided for technical analysis")
-                return MENU
+                if query.data.startswith("analysis_technical_signal_"):
+                    instrument = query.data.replace("analysis_technical_signal_", "")
+                    # Set signal flow context
+                    if context and hasattr(context, 'user_data'):
+                        context.user_data['current_flow'] = 'signal'
+                        context.user_data['from_signal'] = True
+                else:
+                    instrument = query.data.replace("analysis_technical_", "")
             
-            # Get current flow
+            # Get market from context or detect it
+            market = None
+            if context and hasattr(context, 'user_data'):
+                market = context.user_data.get('market')
+            
+            if not market:
+                market = self._detect_market(instrument)
+            
+            # Get timeframe from context or use default
+            timeframe = context.user_data.get('timeframe', '1h') if context and hasattr(context, 'user_data') else '1h'
+            
+            # Get analysis from technical service
+            analysis = await self.technical_service.get_technical_analysis(instrument, timeframe)
+            
+            # Create keyboard with appropriate back button based on flow
             current_flow = context.user_data.get('current_flow') if context and hasattr(context, 'user_data') else None
-            
-            # Show loading message
-            await query.edit_message_text(
-                text=f"Generating technical analysis for {instrument}...",
-                reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("⬅️ Back", callback_data="back_to_analysis")
-                ]])
-            )
-            
-            # Get technical analysis
-            analysis = await self.technical_service.get_technical_analysis(instrument)
-            
-            # Create keyboard based on flow
             if current_flow == 'signal':
                 keyboard = [
                     [InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal")]
                 ]
             else:
                 keyboard = [
-                    [InlineKeyboardButton("⬅️ Back to Analysis", callback_data="back_to_analysis")]
+                    [InlineKeyboardButton("⬅️ Back", callback_data="back_to_analysis")]
                 ]
             
-            # Send the analysis with chart
+            # Show the analysis
             await query.edit_message_text(
                 text=analysis,
                 reply_markup=InlineKeyboardMarkup(keyboard),
@@ -3965,70 +3969,87 @@ Click the button below to start your FREE 14-day trial.
             )
             
             return CHOOSE_ANALYSIS
+            
         except Exception as e:
             logger.error(f"Error in show_technical_analysis: {str(e)}")
-            return MENU
+            # Show error message with appropriate back button
+            current_flow = context.user_data.get('current_flow') if context and hasattr(context, 'user_data') else None
+            if current_flow == 'signal':
+                keyboard = [[InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal")]]
+            else:
+                keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_to_analysis")]]
+                
+            await query.edit_message_text(
+                text=f"Error getting technical analysis for {instrument}. Please try again.",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            return CHOOSE_ANALYSIS
 
     async def show_sentiment_analysis(self, update: Update, context=None, instrument: str = None) -> int:
-        """Show sentiment analysis for a specific instrument"""
+        """Show sentiment analysis for an instrument"""
         query = update.callback_query
+        await query.answer()
         
         try:
-            # Check if we're coming from a signal
-            is_from_signal = False
+            # Get instrument from callback data if not provided
+            if not instrument:
+                if query.data.startswith("analysis_sentiment_signal_"):
+                    instrument = query.data.replace("analysis_sentiment_signal_", "")
+                    # Set signal flow context
+                    if context and hasattr(context, 'user_data'):
+                        context.user_data['current_flow'] = 'signal'
+                        context.user_data['from_signal'] = True
+                else:
+                    instrument = query.data.replace("analysis_sentiment_", "")
+            
+            # Get market from context or detect it
+            market = None
             if context and hasattr(context, 'user_data'):
-                is_from_signal = context.user_data.get('from_signal', False)
-                
-            # First, show a loading message
+                market = context.user_data.get('market')
+            
+            if not market:
+                market = self._detect_market(instrument)
+            
+            # Get timeframe from context or use default
+            timeframe = context.user_data.get('timeframe', '1h') if context and hasattr(context, 'user_data') else '1h'
+            
+            # Get analysis from sentiment service
+            analysis = await self.sentiment_service.get_sentiment_analysis(instrument, timeframe)
+            
+            # Create keyboard with appropriate back button based on flow
+            current_flow = context.user_data.get('current_flow') if context and hasattr(context, 'user_data') else None
+            if current_flow == 'signal':
+                keyboard = [
+                    [InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal")]
+                ]
+            else:
+                keyboard = [
+                    [InlineKeyboardButton("⬅️ Back", callback_data="back_to_analysis")]
+                ]
+            
+            # Show the analysis
             await query.edit_message_text(
-                text=f"Analyzing market sentiment for {instrument}. Please wait..."
-            )
-            
-            # Store the analysis type in context for proper back button handling
-            if context and hasattr(context, 'user_data'):
-                context.user_data['analysis_type'] = 'sentiment'
-                
-                # Determine and store the market type based on the instrument
-                market = self._detect_market(instrument) if instrument else 'forex'
-                context.user_data['market'] = market
-                logger.info(f"Stored context for back navigation: analysis_type=sentiment, market={market}")
-            
-            # Log what we're doing
-            logger.info(f"Toon sentiment analyse voor {instrument}")
-            
-            # Get sentiment analysis from the service
-            sentiment = await self.get_sentiment_analysis(instrument)
-            
-            # Create button to go back - choose back_to_signal if coming from a signal
-            keyboard = [
-                [InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal" if is_from_signal else "back_instrument_sentiment")]
-            ]
-            
-            # Send the sentiment analysis
-            await query.edit_message_text(
-                text=sentiment,
+                text=analysis,
                 reply_markup=InlineKeyboardMarkup(keyboard),
                 parse_mode=ParseMode.HTML
             )
             
-            return SHOW_RESULT
+            return CHOOSE_ANALYSIS
             
         except Exception as e:
             logger.error(f"Error in show_sentiment_analysis: {str(e)}")
-            logger.exception(e)
-            
-            # Send fallback message
-            try:
-                await query.edit_message_text(
-                    text=f"Sorry, I couldn't analyze sentiment for {instrument} at this time. Please try again later.",
-                    reply_markup=InlineKeyboardMarkup([[
-                        InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal" if is_from_signal else "back_instrument_sentiment")
-                    ]])
-                )
-            except Exception as inner_e:
-                logger.error(f"Failed to send fallback message: {str(inner_e)}")
-            
-            return MENU
+            # Show error message with appropriate back button
+            current_flow = context.user_data.get('current_flow') if context and hasattr(context, 'user_data') else None
+            if current_flow == 'signal':
+                keyboard = [[InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal")]]
+            else:
+                keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_to_analysis")]]
+                
+            await query.edit_message_text(
+                text=f"Error getting sentiment analysis for {instrument}. Please try again.",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            return CHOOSE_ANALYSIS
 
     async def show_economic_calendar(self, update: Update, context=None, instrument: str = None) -> int:
         """Show economic calendar for a specific instrument"""
