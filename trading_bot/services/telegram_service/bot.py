@@ -1201,9 +1201,14 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                         context.user_data.clear()
                         context.user_data['current_flow'] = 'signal'
             else:
-                # If not from signal, ensure we're in menu flow
+                # If not from signal, check if we're in signal flow with an instrument
                 if context and hasattr(context, 'user_data'):
-                    if current_flow != 'menu':
+                    if current_flow == 'signal':
+                        is_from_signal = True
+                        instrument = context.user_data.get('instrument')
+                        logger.info(f"Sentiment analysis from signal flow for instrument {instrument}")
+                    else:
+                        # If not from signal, ensure we're in menu flow
                         context.user_data.clear()
                         context.user_data['current_flow'] = 'menu'
             
@@ -2080,17 +2085,16 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         current_flow = context.user_data.get('current_flow') if context and hasattr(context, 'user_data') else None
         
         # If this is a menu command but we're in signal flow, reset the flow
-        if query.data in ["menu_analyse", "menu_signals"] and current_flow == 'signal':
+        if any(cmd in query.data for cmd in ["menu_analyse", "menu_signals", "back_menu"]) and current_flow == 'signal':
             if context and hasattr(context, 'user_data'):
                 context.user_data.clear()
                 context.user_data['current_flow'] = 'menu'
+                logger.info("Reset flow from signal to menu")
         
         # Beantwoord de callback query met een timeout-afhandeling
         try:
-            # Answer without a timeout parameter (it's not supported in python-telegram-bot v20)
             await query.answer()
         except Exception as e:
-            # Log de fout, maar ga door met afhandeling (voorkomt blokkering)
             logger.warning(f"Kon callback query niet beantwoorden: {str(e)}")
         
         # Menu navigation handlers
@@ -3816,6 +3820,12 @@ Click the button below to start your FREE 14-day trial.
         query = update.callback_query
         
         try:
+            # Reset any flow state when going back to main menu
+            if context and hasattr(context, 'user_data'):
+                context.user_data.clear()
+                context.user_data['current_flow'] = 'menu'
+                logger.info("Reset flow state to menu")
+            
             # Show the main menu
             await query.edit_message_text(
                 text=WELCOME_MESSAGE,
@@ -3991,18 +4001,20 @@ Click the button below to start your FREE 14-day trial.
                 context.user_data['current_flow'] = 'signal'
                 context.user_data['instrument'] = instrument
                 context.user_data['from_signal'] = True
-                context.user_data['from_signal_message'] = True
-                context.user_data['message_id'] = update.callback_query.message.message_id
-                context.user_data['chat_id'] = update.callback_query.message.chat_id
+                context.user_data['previous_state'] = 'SIGNAL'
+                context.user_data['signal_message'] = query.message.text
+                context.user_data['message_id'] = query.message.message_id
+                context.user_data['chat_id'] = query.message.chat_id
+                logger.info(f"Set signal flow context for instrument {instrument}")
             
-            # Show analysis options for this instrument (similar to analysis_callback but with preselected instrument)
+            # Show analysis options for this instrument
             keyboard = [
                 [
-                    InlineKeyboardButton("📈 Technical Analysis", callback_data="analysis_technical"),
-                    InlineKeyboardButton("💬 Sentiment Analysis", callback_data="analysis_sentiment")
+                    InlineKeyboardButton("📈 Technical Analysis", callback_data=f"analysis_technical_signal_{instrument}"),
+                    InlineKeyboardButton("💬 Sentiment Analysis", callback_data=f"analysis_sentiment_signal_{instrument}")
                 ],
                 [
-                    InlineKeyboardButton("📅 Economic Calendar", callback_data="analysis_calendar")
+                    InlineKeyboardButton("📅 Economic Calendar", callback_data=f"analysis_calendar_signal_{instrument}")
                 ],
                 [InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal")]
             ]
