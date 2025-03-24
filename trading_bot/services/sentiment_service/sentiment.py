@@ -334,9 +334,9 @@ class MarketSentimentService:
             
             # Configure longer timeouts
             timeout = aiohttp.ClientTimeout(
-                total=30,          # Total timeout for the entire operation
+                total=60,          # Total timeout increased to 60 seconds
                 connect=10,        # Time to establish connection
-                sock_read=20,      # Time to read socket data
+                sock_read=45,      # Time to read socket data increased to 45 seconds
                 sock_connect=10    # Time for socket connection
             )
             
@@ -410,12 +410,14 @@ IMPORTANT: Always include a clear trading recommendation (long positions, short 
                     ) as response:
                         logger.info(f"DeepSeek API response status: {response.status}")
                         
-                        # Read response with timeout protection
+                        # Read response with timeout protection and chunking
                         try:
-                            response_text = await asyncio.wait_for(
-                                response.text(),
-                                timeout=20.0
-                            )
+                            chunks = []
+                            async for chunk in response.content.iter_chunked(1024):
+                                chunks.append(chunk)
+                                
+                            response_text = b''.join(chunks).decode('utf-8')
+                            logger.info("Successfully read DeepSeek response")
                             
                             if response.status == 200:
                                 try:
@@ -435,6 +437,8 @@ IMPORTANT: Always include a clear trading recommendation (long positions, short 
                                 logger.error(f"DeepSeek API error status {response.status}: {response_text[:200]}...")
                         except asyncio.TimeoutError:
                             logger.error("Timeout while reading DeepSeek response")
+                        except Exception as e:
+                            logger.error(f"Error reading DeepSeek response: {str(e)}")
                         
                 except aiohttp.ClientError as e:
                     logger.error(f"DeepSeek API client error: {str(e)}")
