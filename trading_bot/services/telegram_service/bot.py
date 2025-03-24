@@ -3320,3 +3320,68 @@ Click the button below to start your FREE 14-day trial.
                 logger.error(f"Failed to show error message: {str(inner_e)}")
                 
             return MENU
+
+    async def signal_technical_callback(self, update: Update, context=None) -> int:
+        """Handle signal technical analysis selection - exclusively for the signal flow"""
+        query = update.callback_query
+        await query.answer()
+        
+        try:
+            logger.info("signal_technical_callback called")
+            
+            if context and hasattr(context, 'user_data'):
+                # Set this for consistent back navigation
+                context.user_data['analysis_type'] = 'technical'
+                
+                # Get the instrument from context
+                instrument = context.user_data.get('instrument')
+                
+                # If instrument not found in context, try to retrieve from user's last signal
+                if not instrument:
+                    user_id = update.effective_user.id
+                    last_signal = await self.db.get_last_signal_for_user(user_id)
+                    if last_signal:
+                        instrument = last_signal.get('instrument')
+                        context.user_data['instrument'] = instrument
+                
+                if not instrument:
+                    logger.warning("No instrument found in context or last signal")
+                    await query.edit_message_text(
+                        text="Could not determine which instrument to analyze.",
+                        reply_markup=InlineKeyboardMarkup([[
+                            InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal")
+                        ]])
+                    )
+                    return CHOOSE_ANALYSIS
+                
+                # Get timeframe from context or use default
+                timeframe = context.user_data.get('timeframe', '1h')
+                
+                # Call the show_technical_analysis method with the instrument
+                return await self.show_technical_analysis(update, context, instrument=instrument, timeframe=timeframe)
+                
+            else:
+                logger.warning("No context or user_data available")
+                await query.edit_message_text(
+                    text="An error occurred. Please try again.",
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal")
+                    ]])
+                )
+                return CHOOSE_ANALYSIS
+                
+        except Exception as e:
+            logger.error(f"Error in signal_technical_callback: {str(e)}")
+            logger.exception(e)
+            
+            try:
+                await query.edit_message_text(
+                    text="An error occurred while preparing the technical analysis. Please try again.",
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal")
+                    ]])
+                )
+            except Exception:
+                pass
+                
+            return CHOOSE_ANALYSIS
