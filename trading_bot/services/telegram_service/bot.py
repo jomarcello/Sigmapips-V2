@@ -2333,68 +2333,14 @@ Click the button below to start your FREE 14-day trial.
         """Get sentiment analysis for a specific instrument"""
         try:
             # Get sentiment data from the service
-            sentiment_data = await self.sentiment.get_sentiment(instrument)
+            sentiment_text = await self.sentiment.get_market_sentiment(instrument)
             
-            if not sentiment_data:
+            if not sentiment_text:
                 return f"No sentiment data available for {instrument} at this time."
+            
+            # The sentiment service already returns a formatted message
+            return sentiment_text
                 
-            # Format the message
-            message = f"<b>📊 Market Sentiment Analysis: {instrument}</b>\n\n"
-            
-            # Overall sentiment
-            sentiment_score = sentiment_data.get('sentiment_score', 0)
-            sentiment_text = "Bullish" if sentiment_score > 0.3 else "Bearish" if sentiment_score < -0.3 else "Neutral"
-            sentiment_emoji = "🟢" if sentiment_score > 0.3 else "🔴" if sentiment_score < -0.3 else "⚪"
-            
-            message += f"<b>Overall Sentiment:</b> {sentiment_emoji} {sentiment_text}\n"
-            message += f"<b>Last Updated:</b> {datetime.now().strftime('%Y-%m-%d %H:%M UTC')}\n\n"
-            
-            # Sentiment breakdown
-            bull_ratio = sentiment_data.get('bull_ratio', 50)
-            bear_ratio = 100 - bull_ratio
-            change = sentiment_data.get('sentiment_change', 0)
-            change_arrow = "↗️" if change > 0 else "↘️" if change < 0 else "↔️"
-            
-            message += "<b>Sentiment Breakdown:</b>\n"
-            message += f"Bullish: {bull_ratio:.1f}% {change_arrow} ({change:+.1f}%)\n"
-            message += f"Bearish: {bear_ratio:.1f}%\n\n"
-            
-            # Market pressure
-            buy_pressure = sentiment_data.get('buy_pressure', 50)
-            sell_pressure = 100 - buy_pressure
-            message += "<b>Market Pressure:</b>\n"
-            message += f"Buy Pressure: {buy_pressure:.1f}%\n"
-            message += f"Sell Pressure: {sell_pressure:.1f}%\n\n"
-            
-            # Volume analysis
-            volume_change = sentiment_data.get('volume_change', 0)
-            volume_arrow = "↗️" if volume_change > 0 else "↘️" if volume_change < 0 else "↔️"
-            message += "<b>Volume Analysis:</b>\n"
-            message += f"Volume Change (24h): {volume_arrow} {volume_change:+.1f}%\n\n"
-            
-            # Key levels
-            price = sentiment_data.get('current_price', 0)
-            resistance = sentiment_data.get('resistance', 0)
-            support = sentiment_data.get('support', 0)
-            
-            if all([price, resistance, support]):
-                message += "<b>Key Price Levels:</b>\n"
-                message += f"Current: {self._format_price(price)}\n"
-                message += f"Resistance: {self._format_price(resistance)}\n"
-                message += f"Support: {self._format_price(support)}\n\n"
-            
-            # News sentiment
-            news_count = sentiment_data.get('news_count', 0)
-            news_sentiment = sentiment_data.get('news_sentiment', 0)
-            news_sentiment_text = "Positive" if news_sentiment > 0.3 else "Negative" if news_sentiment < -0.3 else "Neutral"
-            news_emoji = "📈" if news_sentiment > 0.3 else "📉" if news_sentiment < -0.3 else "📊"
-            
-            if news_count > 0:
-                message += "<b>News Sentiment:</b>\n"
-                message += f"{news_emoji} {news_sentiment_text} ({news_count} articles analyzed)\n"
-            
-            return message
-            
         except Exception as e:
             logger.error(f"Error getting sentiment analysis: {str(e)}")
             return f"Sorry, I couldn't analyze sentiment for {instrument} at this time. Please try again later."
