@@ -3322,54 +3322,50 @@ Click the button below to start your FREE 14-day trial.
             return MENU
 
     async def signal_technical_callback(self, update: Update, context=None) -> int:
-        """Handle signal technical analysis selection - exclusively for the signal flow"""
+        """Handle technical analysis for a specific signal."""
         query = update.callback_query
         await query.answer()
         
         try:
-            logger.info("signal_technical_callback called")
+            # Extract signal data from callback data
+            data = json.loads(query.data.split('|')[1])
+            instrument = data.get('instrument')
+            direction = data.get('direction')
+            price = data.get('price')
+            stop_loss = data.get('stop_loss')
+            tp1 = data.get('tp1')
+            tp2 = data.get('tp2')
+            tp3 = data.get('tp3')
+            timeframe = data.get('timeframe')
             
-            if context and hasattr(context, 'user_data'):
-                # Set this for consistent back navigation
-                context.user_data['analysis_type'] = 'technical'
-                
-                # Get the instrument from context
-                instrument = context.user_data.get('instrument')
-                
-                # If instrument not found in context, try to retrieve from user's last signal
-                if not instrument:
-                    user_id = update.effective_user.id
-                    last_signal = await self.db.get_last_signal_for_user(user_id)
-                    if last_signal:
-                        instrument = last_signal.get('instrument')
-                        context.user_data['instrument'] = instrument
-                
-                if not instrument:
-                    logger.warning("No instrument found in context or last signal")
-                    await query.edit_message_text(
-                        text="Could not determine which instrument to analyze.",
-                        reply_markup=InlineKeyboardMarkup([[
-                            InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal")
-                        ]])
-                    )
-                    return CHOOSE_ANALYSIS
-                
-                # Get timeframe from context or use default
-                timeframe = context.user_data.get('timeframe', '1h')
-                
-                # Call the show_technical_analysis method with the instrument
-                return await self.show_technical_analysis(update, context, instrument=instrument, timeframe=timeframe)
-                
-            else:
-                logger.warning("No context or user_data available")
-                await query.edit_message_text(
-                    text="An error occurred. Please try again.",
-                    reply_markup=InlineKeyboardMarkup([[
-                        InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal")
-                    ]])
-                )
-                return CHOOSE_ANALYSIS
-                
+            if not all([instrument, direction, price, stop_loss, tp1, tp2, tp3, timeframe]):
+                raise ValueError("Missing required signal data")
+            
+            # Get technical analysis
+            analysis = await self.get_technical_analysis(instrument)
+            
+            # Format the message
+            message = (
+                f"📊 Technical Analysis for {instrument}\n\n"
+                f"{analysis}\n\n"
+                f"Signal Details:\n"
+                f"Direction: {direction}\n"
+                f"Entry: {price}\n"
+                f"Stop Loss: {stop_loss}\n"
+                f"Take Profit 1: {tp1}\n"
+                f"Take Profit 2: {tp2}\n"
+                f"Take Profit 3: {tp3}\n"
+                f"Timeframe: {timeframe}"
+            )
+            
+            await query.edit_message_text(
+                text=message,
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal")
+                ]])
+            )
+            return CHOOSE_ANALYSIS
+            
         except Exception as e:
             logger.error(f"Error in signal_technical_callback: {str(e)}")
             logger.exception(e)
@@ -3377,6 +3373,67 @@ Click the button below to start your FREE 14-day trial.
             try:
                 await query.edit_message_text(
                     text="An error occurred while preparing the technical analysis. Please try again.",
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal")
+                    ]])
+                )
+            except Exception:
+                pass
+                
+            return CHOOSE_ANALYSIS
+
+    async def signal_sentiment_callback(self, update: Update, context=None) -> int:
+        """Handle sentiment analysis for a specific signal."""
+        query = update.callback_query
+        await query.answer()
+        
+        try:
+            # Extract signal data from callback data
+            data = json.loads(query.data.split('|')[1])
+            instrument = data.get('instrument')
+            direction = data.get('direction')
+            price = data.get('price')
+            stop_loss = data.get('stop_loss')
+            tp1 = data.get('tp1')
+            tp2 = data.get('tp2')
+            tp3 = data.get('tp3')
+            timeframe = data.get('timeframe')
+            
+            if not all([instrument, direction, price, stop_loss, tp1, tp2, tp3, timeframe]):
+                raise ValueError("Missing required signal data")
+            
+            # Get sentiment analysis
+            sentiment = await self.get_sentiment_analysis(instrument)
+            
+            # Format the message
+            message = (
+                f"📈 Sentiment Analysis for {instrument}\n\n"
+                f"{sentiment}\n\n"
+                f"Signal Details:\n"
+                f"Direction: {direction}\n"
+                f"Entry: {price}\n"
+                f"Stop Loss: {stop_loss}\n"
+                f"Take Profit 1: {tp1}\n"
+                f"Take Profit 2: {tp2}\n"
+                f"Take Profit 3: {tp3}\n"
+                f"Timeframe: {timeframe}"
+            )
+            
+            await query.edit_message_text(
+                text=message,
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal")
+                ]])
+            )
+            return CHOOSE_ANALYSIS
+            
+        except Exception as e:
+            logger.error(f"Error in signal_sentiment_callback: {str(e)}")
+            logger.exception(e)
+            
+            try:
+                await query.edit_message_text(
+                    text="An error occurred while preparing the sentiment analysis. Please try again.",
                     reply_markup=InlineKeyboardMarkup([[
                         InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal")
                     ]])
