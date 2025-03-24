@@ -2410,7 +2410,7 @@ Click the button below to start your FREE 14-day trial.
                     logger.error(f"Error initializing application: {str(e)}")
                 
             # Register all handlers
-            self._register_handlers()
+            self._register_handlers(self.application)
                 
             # Enable or configure webhook based on use_webhook flag
             if use_webhook:
