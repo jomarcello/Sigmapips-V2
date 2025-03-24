@@ -3587,7 +3587,7 @@ Click the button below to start your FREE 14-day trial.
                     await query.edit_message_text(
                         text=f"Sorry, I couldn't generate a chart for {instrument} at this time. Please try again later.",
                         reply_markup=InlineKeyboardMarkup([[
-                            InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal" if is_from_signal else "back_instrument")
+                            InlineKeyboardButton("⬅️ Back to Analysis Options", callback_data="back_to_signal_analysis" if is_from_signal else "back_instrument")
                         ]])
                     )
                     return MENU
@@ -3597,7 +3597,7 @@ Click the button below to start your FREE 14-day trial.
                 
                 # Add buttons for different actions - back button depends on where we came from
                 keyboard = [
-                    [InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal" if is_from_signal else "back_instrument")]
+                    [InlineKeyboardButton("⬅️ Back to Analysis Options", callback_data="back_to_signal_analysis" if is_from_signal else "back_instrument")]
                 ]
                 
                 # Send the chart with caption
@@ -3612,22 +3612,28 @@ Click the button below to start your FREE 14-day trial.
                     parse_mode=ParseMode.HTML
                 )
                 
-                # Delete the loading message
+                # Update the message - remove loading message
                 await query.edit_message_text(
-                    text=f"Here's your technical analysis for {instrument}:"
+                    text=f"<b>Technical Analysis for {instrument}</b> ({timeframe})\n\nThe chart has been generated and sent above.",
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.HTML
                 )
+                
+                return SHOW_RESULT
                 
             except Exception as chart_error:
                 logger.error(f"Error generating chart: {str(chart_error)}")
                 logger.exception(chart_error)
+                
+                # Show error message with back button
                 await query.edit_message_text(
                     text=f"Sorry, there was a problem generating the chart for {instrument}. Please try again later.",
                     reply_markup=InlineKeyboardMarkup([[
-                        InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal" if is_from_signal else "back_instrument")
+                        InlineKeyboardButton("⬅️ Back to Analysis Options", callback_data="back_to_signal_analysis" if is_from_signal else "back_instrument")
                     ]])
                 )
-            
-            return SHOW_RESULT
+                
+                return MENU
             
         except Exception as e:
             logger.error(f"Error in show_technical_analysis: {str(e)}")
@@ -3638,7 +3644,7 @@ Click the button below to start your FREE 14-day trial.
                 await query.edit_message_text(
                     text=f"Error: {str(e)}",
                     reply_markup=InlineKeyboardMarkup([[
-                        InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal" if context and hasattr(context, 'user_data') and context.user_data.get('from_signal', False) else "back_instrument")
+                        InlineKeyboardButton("⬅️ Back to Analysis Options", callback_data="back_to_signal_analysis" if context and hasattr(context, 'user_data') and context.user_data.get('from_signal', False) else "back_instrument")
                     ]])
                 )
             except Exception:
@@ -3703,8 +3709,8 @@ Click the button below to start your FREE 14-day trial.
                 
                 # Create back button based on origin
                 back_button = InlineKeyboardButton(
-                    "⬅️ Back to Signal" if is_from_signal else "⬅️ Back", 
-                    callback_data="back_to_signal" if is_from_signal else "back_instrument"
+                    "⬅️ Back to Analysis Options" if is_from_signal else "⬅️ Back", 
+                    callback_data="back_to_signal_analysis" if is_from_signal else "back_instrument"
                 )
                 
                 # Add technical analysis button
@@ -3750,7 +3756,7 @@ Click the button below to start your FREE 14-day trial.
                 await query.edit_message_text(
                     text=f"Sorry, I couldn't analyze sentiment for {instrument} at this time. Please try again later.",
                     reply_markup=InlineKeyboardMarkup([[
-                        InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal" if is_from_signal else "back_instrument")
+                        InlineKeyboardButton("⬅️ Back to Analysis Options", callback_data="back_to_signal_analysis" if is_from_signal else "back_instrument")
                     ]])
                 )
             except Exception:
@@ -3766,7 +3772,7 @@ Click the button below to start your FREE 14-day trial.
             await query.edit_message_text(
                 text=error_text,
                 reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal" if is_from_signal else "back_instrument")
+                    InlineKeyboardButton("⬅️ Back to Analysis Options", callback_data="back_to_signal_analysis" if is_from_signal else "back_instrument")
                 ]])
             )
             
@@ -3815,7 +3821,7 @@ Click the button below to start your FREE 14-day trial.
                     await query.edit_message_text(
                         text=f"No upcoming economic events found for {instrument}.",
                         reply_markup=InlineKeyboardMarkup([[
-                            InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal" if is_from_signal else "back_instrument")
+                            InlineKeyboardButton("⬅️ Back to Analysis Options", callback_data="back_to_signal_analysis" if is_from_signal else "back_instrument")
                         ]])
                     )
                     return SHOW_RESULT
@@ -3824,45 +3830,33 @@ Click the button below to start your FREE 14-day trial.
                 calendar_text = f"<b>📅 Economic Calendar for {instrument}</b>\n\n"
                 
                 # Add events to the text
-                for event in calendar_data[:10]:  # Show max 10 events to avoid hitting message limit
-                    event_date = event.get('date', 'Unknown date')
-                    event_time = event.get('time', 'Unknown time')
-                    event_currency = event.get('currency', '')
-                    event_name = event.get('event', 'Unknown event')
-                    event_impact = event.get('impact', 'low')
+                for event in calendar_data:
+                    # Format date/time
+                    event_date = datetime.fromisoformat(event['date'].replace('Z', '+00:00'))
+                    formatted_date = event_date.strftime("%d %b %H:%M")
                     
-                    # Emoji for impact
-                    if event_impact.lower() == 'high':
+                    # Get impact level and emoji
+                    impact = event.get('impact', 'low').lower()
+                    if impact == 'high':
                         impact_emoji = "🔴"
-                    elif event_impact.lower() == 'medium':
-                        impact_emoji = "🟠"
+                    elif impact == 'medium':
+                        impact_emoji = "🟠" 
                     else:
                         impact_emoji = "🟢"
-                    
-                    # Format date/time
-                    if event_date and event_time:
-                        try:
-                            # Parse date and time for better formatting
-                            date_obj = datetime.strptime(f"{event_date} {event_time}", "%Y-%m-%d %H:%M")
-                            formatted_datetime = date_obj.strftime("%a, %b %d %H:%M")
-                        except Exception:
-                            formatted_datetime = f"{event_date} {event_time}"
-                    else:
-                        formatted_datetime = "Unknown time"
-                    
-                    # Add event to the text
-                    calendar_text += f"{impact_emoji} <b>{event_currency}</b> | {formatted_datetime}\n<i>{event_name}</i>\n\n"
+                        
+                    # Format the event text
+                    calendar_text += f"{formatted_date} - {impact_emoji} <b>{event.get('country', '')}</b>: {event.get('title', '')}\n\n"
                 
-                # Add note about more events
-                if len(calendar_data) > 10:
-                    calendar_text += f"\n<i>... and {len(calendar_data) - 10} more events</i>"
+                # Truncate if too long
+                if len(calendar_text) > 4000:
+                    calendar_text = calendar_text[:3950] + "...\n\n<i>(Some events omitted due to length)</i>"
                 
-                # Add button to go back
+                # Create keyboard with back button
                 keyboard = [
-                    [InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal" if is_from_signal else "back_instrument")]
+                    [InlineKeyboardButton("⬅️ Back to Analysis Options", callback_data="back_to_signal_analysis" if is_from_signal else "back_instrument")]
                 ]
                 
-                # Send the calendar
+                # Send the calendar data
                 await query.edit_message_text(
                     text=calendar_text,
                     reply_markup=InlineKeyboardMarkup(keyboard),
@@ -3874,20 +3868,20 @@ Click the button below to start your FREE 14-day trial.
             except asyncio.TimeoutError:
                 logger.error(f"Timeout getting calendar data for {instrument}")
                 await query.edit_message_text(
-                    text=f"The economic calendar is taking too long to load. Please try again later.",
+                    text=f"The economic calendar data is taking too long to load. Please try again later.",
                     reply_markup=InlineKeyboardMarkup([[
-                        InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal" if is_from_signal else "back_instrument")
+                        InlineKeyboardButton("⬅️ Back to Analysis Options", callback_data="back_to_signal_analysis" if is_from_signal else "back_instrument")
                     ]])
                 )
                 return MENU
                 
-            except Exception as calendar_error:
-                logger.error(f"Error getting calendar data: {str(calendar_error)}")
-                logger.exception(calendar_error)
+            except Exception as cal_error:
+                logger.error(f"Error getting calendar data: {str(cal_error)}")
+                logger.exception(cal_error)
                 await query.edit_message_text(
-                    text=f"Sorry, I couldn't load the economic calendar for {instrument}. Please try again later.",
+                    text=f"Sorry, I couldn't load the economic calendar for {instrument} at this time. Please try again later.",
                     reply_markup=InlineKeyboardMarkup([[
-                        InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal" if is_from_signal else "back_instrument")
+                        InlineKeyboardButton("⬅️ Back to Analysis Options", callback_data="back_to_signal_analysis" if is_from_signal else "back_instrument")
                     ]])
                 )
                 return MENU
@@ -3896,17 +3890,17 @@ Click the button below to start your FREE 14-day trial.
             logger.error(f"Error in show_economic_calendar: {str(e)}")
             logger.exception(e)
             
-            # Send fallback message
+            # Attempt to recover from error
             try:
                 await query.edit_message_text(
-                    text=f"Sorry, I couldn't access the economic calendar. Please try again later.",
+                    text=f"An error occurred while loading the economic calendar. Please try again later.",
                     reply_markup=InlineKeyboardMarkup([[
-                        InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal" if is_from_signal else "back_instrument")
+                        InlineKeyboardButton("⬅️ Back to Analysis Options", callback_data="back_to_signal_analysis" if is_from_signal else "back_instrument")
                     ]])
                 )
-            except Exception as inner_e:
-                logger.error(f"Failed to send fallback message: {str(inner_e)}")
-            
+            except Exception:
+                pass
+                
             return MENU
 
     async def instrument_signals_callback(self, update: Update, context=None) -> int:
@@ -4263,366 +4257,152 @@ Click the button below to start your FREE 14-day trial.
             return CHOOSE_ANALYSIS
 
     async def signal_technical_callback(self, update: Update, context=None) -> int:
-        """Handle signal technical analysis selection - exclusively for the signal flow"""
+        """Handle technical analysis button click from signal flow"""
         query = update.callback_query
         await query.answer()
         
         try:
-            logger.info("signal_technical_callback called")
+            logger.info(f"Signal technical analysis selected by user {update.effective_user.id}")
             
+            # Set flags indicating we're in signal flow, not regular flow
             if context and hasattr(context, 'user_data'):
-                # Set this for consistent back navigation
+                context.user_data['from_signal'] = True
+                context.user_data['previous_state'] = 'SIGNAL'
                 context.user_data['analysis_type'] = 'technical'
-                
-                # Get the instrument from context
+            
+            # Get instrument from context
+            instrument = None
+            if context and hasattr(context, 'user_data'):
                 instrument = context.user_data.get('instrument')
-                
-                # If instrument not found in context, try to retrieve from user's last signal
-                if not instrument:
-                    user_id = update.effective_user.id
-                    logger.info(f"Trying to retrieve instrument from user signals for user {user_id}")
-                    
-                    # Try to get from user_signals if available
-                    if hasattr(self, 'user_signals') and user_id in self.user_signals:
-                        signal_data = self.user_signals[user_id]
-                        if 'instrument' in signal_data:
-                            instrument = signal_data['instrument']
-                            logger.info(f"Retrieved instrument {instrument} from user signals")
-                            # Save to context for future use
-                            context.user_data['instrument'] = instrument
-                
-                if not instrument:
-                    logger.warning("Instrument not found in context for signal technical analysis")
-                    await query.edit_message_text(
-                        text="Error: Could not determine which instrument to analyze.",
-                        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal")]])
-                    )
-                    return CHOOSE_ANALYSIS
-                
-                logger.info(f"Signal technical analysis for instrument: {instrument}")
-                
-                # Show loading message
+            
+            if not instrument:
+                logger.warning("No instrument found in context for technical analysis")
                 await query.edit_message_text(
-                    text=f"Generating technical analysis for {instrument}. Please wait..."
-                )
-                
-                # Generate the chart
-                try:
-                    # Get timeframe from context or use default
-                    timeframe = context.user_data.get('timeframe', '1h')
-                    
-                    # Generate chart
-                    chart_data = await self.chart.get_chart(instrument, timeframe=timeframe, fullscreen=False)
-                    
-                    if not chart_data:
-                        logger.error(f"Failed to generate chart for {instrument}")
-                        await query.edit_message_text(
-                            text=f"Sorry, I couldn't generate a chart for {instrument} at this time. Please try again later.",
-                            reply_markup=InlineKeyboardMarkup([[
-                                InlineKeyboardButton("⬅️ Back to Signal Analysis", callback_data="back_to_signal_analysis")
-                            ]])
-                        )
-                        return CHOOSE_ANALYSIS
-                    
-                    # Create caption
-                    caption = f"<b>Technical Analysis for {instrument}</b> ({timeframe})"
-                    
-                    # Create keyboard with back button
-                    keyboard = [
-                        [InlineKeyboardButton("⬅️ Back to Signal Analysis", callback_data="back_to_signal_analysis")]
-                    ]
-                    
-                    # Send the chart
-                    from io import BytesIO
-                    photo = BytesIO(chart_data)
-                    photo.name = f"{instrument}_chart.png"
-                    
-                    await query.message.reply_photo(
-                        photo=photo,
-                        caption=caption,
-                        reply_markup=InlineKeyboardMarkup(keyboard),
-                        parse_mode=ParseMode.HTML
-                    )
-                    
-                    # Update the loading message
-                    await query.edit_message_text(
-                        text=f"Here's your technical analysis for {instrument}:"
-                    )
-                    
-                    return SIGNAL_DETAILS
-                    
-                except Exception as chart_error:
-                    logger.error(f"Error generating chart: {str(chart_error)}")
-                    logger.exception(chart_error)
-                    await query.edit_message_text(
-                        text=f"Sorry, there was a problem generating the chart for {instrument}. Please try again later.",
-                        reply_markup=InlineKeyboardMarkup([[
-                            InlineKeyboardButton("⬅️ Back to Signal Analysis", callback_data="back_to_signal_analysis")
-                        ]])
-                    )
-                    return CHOOSE_ANALYSIS
-                
-                
-            else:
-                # No context available
-                logger.warning("No context available for signal technical analysis")
-                await query.edit_message_text(
-                    text="Error: Could not retrieve analysis context.",
-                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal")]])
+                    text="Cannot perform technical analysis without specifying an instrument.",
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("⬅️ Back to Analysis Options", callback_data="back_to_signal_analysis")
+                    ]])
                 )
                 return CHOOSE_ANALYSIS
-                
+            
+            # Get timeframe from context or use default
+            timeframe = context.user_data.get('timeframe', '1h') if context and hasattr(context, 'user_data') else '1h'
+            
+            # Call the show_technical_analysis method with the instrument
+            return await self.show_technical_analysis(update, context, instrument=instrument, timeframe=timeframe)
+            
         except Exception as e:
             logger.error(f"Error in signal_technical_callback: {str(e)}")
             logger.exception(e)
             
             try:
                 await query.edit_message_text(
-                    text=f"An error occurred while generating the technical analysis. Please try again.",
+                    text="An error occurred while preparing the technical analysis. Please try again.",
                     reply_markup=InlineKeyboardMarkup([[
-                        InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal")
+                        InlineKeyboardButton("⬅️ Back to Analysis Options", callback_data="back_to_signal_analysis")
                     ]])
                 )
             except Exception:
                 pass
                 
             return CHOOSE_ANALYSIS
-            
+
     async def signal_sentiment_callback(self, update: Update, context=None) -> int:
-        """Handle signal sentiment analysis selection - exclusively for the signal flow"""
+        """Handle sentiment analysis button click from signal flow"""
         query = update.callback_query
         await query.answer()
         
         try:
-            logger.info("signal_sentiment_callback called")
+            logger.info(f"Signal sentiment analysis selected by user {update.effective_user.id}")
             
+            # Set flags indicating we're in signal flow, not regular flow
             if context and hasattr(context, 'user_data'):
-                # Set this for consistent back navigation
+                context.user_data['from_signal'] = True
+                context.user_data['previous_state'] = 'SIGNAL'
                 context.user_data['analysis_type'] = 'sentiment'
-                
-                # Get the instrument from context
+            
+            # Get instrument from context
+            instrument = None
+            if context and hasattr(context, 'user_data'):
                 instrument = context.user_data.get('instrument')
-                if not instrument:
-                    logger.warning("Instrument not found in context for signal sentiment analysis")
-                    await query.edit_message_text(
-                        text="Error: Could not determine which instrument to analyze.",
-                        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal")]])
-                    )
-                    return CHOOSE_ANALYSIS
-                
-                logger.info(f"Signal sentiment analysis for instrument: {instrument}")
-                
-                # Show loading message
+            
+            if not instrument:
+                logger.warning("No instrument found in context for sentiment analysis")
                 await query.edit_message_text(
-                    text=f"Analyzing market sentiment for {instrument}. Please wait..."
-                )
-                
-                # Get sentiment analysis
-                try:
-                    # Use the sentiment service
-                    sentiment_data_task = self.sentiment.get_market_sentiment(instrument)
-                    sentiment_data = await asyncio.wait_for(sentiment_data_task, timeout=60.0)
-                    
-                    if not sentiment_data:
-                        logger.error(f"Failed to get sentiment data for {instrument}")
-                        await query.edit_message_text(
-                            text=f"Sorry, I couldn't generate sentiment analysis for {instrument} at this time.",
-                            reply_markup=InlineKeyboardMarkup([[
-                                InlineKeyboardButton("⬅️ Back to Signal Analysis", callback_data="back_to_signal_analysis")
-                            ]])
-                        )
-                        return CHOOSE_ANALYSIS
-                    
-                    # Extract the analysis text
-                    analysis = sentiment_data.get('analysis', 'Analysis not available')
-                    
-                    # Clean up formatting
-                    analysis = re.sub(r'^```html\s*', '', analysis)
-                    analysis = re.sub(r'\s*```$', '', analysis)
-                    
-                    # Create keyboard with back button
-                    keyboard = [
-                        [InlineKeyboardButton("⬅️ Back to Signal Analysis", callback_data="back_to_signal_analysis")]
-                    ]
-                    
-                    # Send the analysis
-                    await query.edit_message_text(
-                        text=analysis,
-                        reply_markup=InlineKeyboardMarkup(keyboard),
-                        parse_mode=ParseMode.HTML
-                    )
-                    
-                    return SIGNAL_DETAILS
-                    
-                except Exception as sentiment_error:
-                    logger.error(f"Error getting sentiment data: {str(sentiment_error)}")
-                    logger.exception(sentiment_error)
-                    await query.edit_message_text(
-                        text=f"Sorry, there was a problem generating sentiment analysis for {instrument}. Please try again later.",
-                        reply_markup=InlineKeyboardMarkup([[
-                            InlineKeyboardButton("⬅️ Back to Signal Analysis", callback_data="back_to_signal_analysis")
-                        ]])
-                    )
-                    return CHOOSE_ANALYSIS
-                
-            else:
-                # No context available
-                logger.warning("No context available for signal sentiment analysis")
-                await query.edit_message_text(
-                    text="Error: Could not retrieve analysis context.",
-                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal")]])
+                    text="Cannot perform sentiment analysis without specifying an instrument.",
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("⬅️ Back to Analysis Options", callback_data="back_to_signal_analysis")
+                    ]])
                 )
                 return CHOOSE_ANALYSIS
-                
+            
+            # Call the show_sentiment_analysis method with the instrument
+            return await self.show_sentiment_analysis(update, context, instrument=instrument)
+            
         except Exception as e:
             logger.error(f"Error in signal_sentiment_callback: {str(e)}")
             logger.exception(e)
             
             try:
                 await query.edit_message_text(
-                    text=f"An error occurred while generating the sentiment analysis. Please try again.",
+                    text="An error occurred while preparing the sentiment analysis. Please try again.",
                     reply_markup=InlineKeyboardMarkup([[
-                        InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal")
+                        InlineKeyboardButton("⬅️ Back to Analysis Options", callback_data="back_to_signal_analysis")
                     ]])
                 )
             except Exception:
                 pass
                 
             return CHOOSE_ANALYSIS
-            
+
     async def signal_calendar_callback(self, update: Update, context=None) -> int:
-        """Handle signal calendar analysis selection - exclusively for the signal flow"""
+        """Handle economic calendar button click from signal flow"""
         query = update.callback_query
         await query.answer()
         
         try:
-            logger.info("signal_calendar_callback called")
+            logger.info(f"Signal calendar analysis selected by user {update.effective_user.id}")
             
+            # Set flags indicating we're in signal flow, not regular flow
             if context and hasattr(context, 'user_data'):
-                # Set this for consistent back navigation
+                context.user_data['from_signal'] = True
+                context.user_data['previous_state'] = 'SIGNAL'
                 context.user_data['analysis_type'] = 'calendar'
-                
-                # Get the instrument from context
+            
+            # Get instrument from context
+            instrument = None
+            if context and hasattr(context, 'user_data'):
                 instrument = context.user_data.get('instrument')
-                if not instrument:
-                    logger.warning("Instrument not found in context for signal calendar analysis")
-                    await query.edit_message_text(
-                        text="Error: Could not determine which instrument to analyze.",
-                        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal")]])
-                    )
-                    return CHOOSE_ANALYSIS
-                
-                logger.info(f"Signal calendar analysis for instrument: {instrument}")
-                
-                # Show loading message
+            
+            if not instrument:
+                logger.warning("No instrument found in context for calendar analysis")
                 await query.edit_message_text(
-                    text=f"Loading economic calendar for {instrument}. Please wait..."
-                )
-                
-                # Get calendar data
-                try:
-                    # Extract currency codes from instrument
-                    currency_codes = self._extract_currency_codes(instrument)
-                    
-                    # Get calendar data
-                    calendar_data_task = self.calendar.get_economic_events(currencies=currency_codes)
-                    calendar_data = await asyncio.wait_for(calendar_data_task, timeout=20.0)
-                    
-                    if not calendar_data:
-                        await query.edit_message_text(
-                            text=f"No upcoming economic events found for {instrument}.",
-                            reply_markup=InlineKeyboardMarkup([[
-                                InlineKeyboardButton("⬅️ Back to Signal Analysis", callback_data="back_to_signal_analysis")
-                            ]])
-                        )
-                        return CHOOSE_ANALYSIS
-                    
-                    # Format calendar data
-                    calendar_text = f"<b>📅 Economic Calendar for {instrument}</b>\n\n"
-                    
-                    # Add events
-                    for event in calendar_data[:10]:  # Max 10 events
-                        event_date = event.get('date', 'Unknown date')
-                        event_time = event.get('time', 'Unknown time')
-                        event_currency = event.get('currency', '')
-                        event_name = event.get('event', 'Unknown event')
-                        event_impact = event.get('impact', 'low')
-                        
-                        # Emoji for impact
-                        if event_impact.lower() == 'high':
-                            impact_emoji = "🔴"
-                        elif event_impact.lower() == 'medium':
-                            impact_emoji = "🟠"
-                        else:
-                            impact_emoji = "🟢"
-                        
-                        # Format date/time
-                        if event_date and event_time:
-                            try:
-                                date_obj = datetime.strptime(f"{event_date} {event_time}", "%Y-%m-%d %H:%M")
-                                formatted_datetime = date_obj.strftime("%a, %b %d %H:%M")
-                            except Exception:
-                                formatted_datetime = f"{event_date} {event_time}"
-                        else:
-                            formatted_datetime = "Unknown time"
-                        
-                        # Add to text
-                        calendar_text += f"{impact_emoji} <b>{event_currency}</b> | {formatted_datetime}\n<i>{event_name}</i>\n\n"
-                    
-                    # Note about more events
-                    if len(calendar_data) > 10:
-                        calendar_text += f"\n<i>... and {len(calendar_data) - 10} more events</i>"
-                    
-                    # Create keyboard with back button
-                    keyboard = [
-                        [InlineKeyboardButton("⬅️ Back to Signal Analysis", callback_data="back_to_signal_analysis")]
-                    ]
-                    
-                    # Send the calendar
-                    await query.edit_message_text(
-                        text=calendar_text,
-                        reply_markup=InlineKeyboardMarkup(keyboard),
-                        parse_mode=ParseMode.HTML
-                    )
-                    
-                    return SIGNAL_DETAILS
-                    
-                except Exception as calendar_error:
-                    logger.error(f"Error getting calendar data: {str(calendar_error)}")
-                    logger.exception(calendar_error)
-                    await query.edit_message_text(
-                        text=f"Sorry, there was a problem loading the economic calendar for {instrument}. Please try again later.",
-                        reply_markup=InlineKeyboardMarkup([[
-                            InlineKeyboardButton("⬅️ Back to Signal Analysis", callback_data="back_to_signal_analysis")
-                        ]])
-                    )
-                    return CHOOSE_ANALYSIS
-                
-            else:
-                # No context available
-                logger.warning("No context available for signal calendar analysis")
-                await query.edit_message_text(
-                    text="Error: Could not retrieve analysis context.",
-                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal")]])
+                    text="Cannot show economic calendar without specifying an instrument.",
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("⬅️ Back to Analysis Options", callback_data="back_to_signal_analysis")
+                    ]])
                 )
                 return CHOOSE_ANALYSIS
-                
+            
+            # Call the show_economic_calendar method with the instrument
+            return await self.show_economic_calendar(update, context, instrument=instrument)
+            
         except Exception as e:
             logger.error(f"Error in signal_calendar_callback: {str(e)}")
             logger.exception(e)
             
             try:
                 await query.edit_message_text(
-                    text=f"An error occurred while loading the economic calendar. Please try again.",
+                    text="An error occurred while preparing the economic calendar. Please try again.",
                     reply_markup=InlineKeyboardMarkup([[
-                        InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal")
+                        InlineKeyboardButton("⬅️ Back to Analysis Options", callback_data="back_to_signal_analysis")
                     ]])
                 )
             except Exception:
                 pass
                 
             return CHOOSE_ANALYSIS
-            
+
     async def back_to_signal_analysis_callback(self, update: Update, context=None) -> int:
         """Handle back_to_signal_analysis to return to the signal analysis menu"""
         query = update.callback_query
