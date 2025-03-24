@@ -755,6 +755,10 @@ class TelegramService:
         application.add_handler(CommandHandler("set_payment_failed", self.set_payment_failed_command))
         application.add_handler(CommandHandler("setpaymentfailed", self.set_payment_failed_command))
         
+        # Add specific handlers for menu navigation first
+        application.add_handler(CallbackQueryHandler(self.menu_analyse_callback, pattern="^menu_analyse$"))
+        application.add_handler(CallbackQueryHandler(self.menu_signals_callback, pattern="^menu_signals$"))
+        
         # Add specific handlers for signal analysis flows
         application.add_handler(CallbackQueryHandler(self.analysis_technical_callback, pattern="^analysis_technical$"))
         application.add_handler(CallbackQueryHandler(self.analysis_technical_callback, pattern="^analysis_technical_signal_.*$"))
@@ -767,17 +771,6 @@ class TelegramService:
         
         application.add_handler(CallbackQueryHandler(self.back_to_signal_callback, pattern="^back_to_signal$"))
         
-        # Callback query handler for all button presses
-        application.add_handler(CallbackQueryHandler(self.button_callback))
-        
-        # Ensure signal handlers are registered
-        logger.info("Enabling and initializing signals functionality")
-        
-        # Load any saved signals
-        self._load_signals()
-        
-        logger.info("All handlers registered successfully")
-
         # Signal flow analysis handlers
         application.add_handler(CallbackQueryHandler(
             self.signal_technical_callback, pattern="^signal_technical$"))
@@ -787,6 +780,17 @@ class TelegramService:
             self.signal_calendar_callback, pattern="^signal_calendar$"))
         application.add_handler(CallbackQueryHandler(
             self.back_to_signal_analysis_callback, pattern="^back_to_signal_analysis$"))
+        
+        # Callback query handler for all other button presses (should be last)
+        application.add_handler(CallbackQueryHandler(self.button_callback))
+        
+        # Ensure signal handlers are registered
+        logger.info("Enabling and initializing signals functionality")
+        
+        # Load any saved signals
+        self._load_signals()
+        
+        logger.info("All handlers registered successfully")
 
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> None:
         """Send a welcome message when the bot is started."""
@@ -2080,11 +2084,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         if query.data == "back_to_signal":
             return await self.back_to_signal_callback(update, context)
         
-        # Handle menu_analyse callback
-        if query.data == "menu_analyse":
-            return await self.menu_analyse_callback(update, context)
-            
-        # Handle menu_signals callback
+        # Handle menu_signals callback - removed menu_analyse handling since it's now a specific handler
         if query.data == "menu_signals":
             return await self.menu_signals_callback(update, context)
         
@@ -2203,7 +2203,33 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         application.add_handler(CommandHandler("set_subscription", self.set_subscription_command))
         application.add_handler(CommandHandler("set_payment_failed", self.set_payment_failed_command))
         
-        # Callback query handler for all button presses
+        # Add specific handlers for menu navigation first
+        application.add_handler(CallbackQueryHandler(self.menu_analyse_callback, pattern="^menu_analyse$"))
+        application.add_handler(CallbackQueryHandler(self.menu_signals_callback, pattern="^menu_signals$"))
+        
+        # Add specific handlers for signal analysis flows
+        application.add_handler(CallbackQueryHandler(self.analysis_technical_callback, pattern="^analysis_technical$"))
+        application.add_handler(CallbackQueryHandler(self.analysis_technical_callback, pattern="^analysis_technical_signal_.*$"))
+        
+        application.add_handler(CallbackQueryHandler(self.analysis_sentiment_callback, pattern="^analysis_sentiment$"))
+        application.add_handler(CallbackQueryHandler(self.analysis_sentiment_callback, pattern="^analysis_sentiment_signal_.*$"))
+        
+        application.add_handler(CallbackQueryHandler(self.analysis_calendar_callback, pattern="^analysis_calendar$"))
+        application.add_handler(CallbackQueryHandler(self.analysis_calendar_callback, pattern="^analysis_calendar_signal_.*$"))
+        
+        application.add_handler(CallbackQueryHandler(self.back_to_signal_callback, pattern="^back_to_signal$"))
+        
+        # Signal flow analysis handlers
+        application.add_handler(CallbackQueryHandler(
+            self.signal_technical_callback, pattern="^signal_technical$"))
+        application.add_handler(CallbackQueryHandler(
+            self.signal_sentiment_callback, pattern="^signal_sentiment$"))
+        application.add_handler(CallbackQueryHandler(
+            self.signal_calendar_callback, pattern="^signal_calendar$"))
+        application.add_handler(CallbackQueryHandler(
+            self.back_to_signal_analysis_callback, pattern="^back_to_signal_analysis$"))
+        
+        # Callback query handler for all other button presses (should be last)
         application.add_handler(CallbackQueryHandler(self.button_callback))
         
         self.application = application
