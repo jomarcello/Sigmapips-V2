@@ -74,14 +74,14 @@ class MarketSentimentService:
                 tavily_data = alternative_data
             else:
                 # If both Tavily and alternative news fail, use fallback
-                return self._get_fallback_sentiment(instrument)
+                return self._get_fallback_sentiment(instrument)['analysis']
         
         # Try to use DeepSeek first, regardless of connectivity check
         try:
             logger.info(f"Attempting to process sentiment with DeepSeek for {instrument}")
             deepseek_result = await self._try_deepseek_with_fallback(tavily_data, instrument)
             if deepseek_result:
-                return deepseek_result
+                return deepseek_result['analysis']
         except Exception as e:
             logger.error(f"Error processing sentiment with DeepSeek: {str(e)}")
             logger.exception(e)
@@ -90,16 +90,13 @@ class MarketSentimentService:
         logger.info(f"Manually formatting market data for {instrument}")
         return self._format_data_manually(tavily_data, instrument)
             
-    def _format_data_manually(self, news_content: str, instrument: str) -> Dict[str, Any]:
+    def _format_data_manually(self, news_content: str, instrument: str) -> str:
         """Format market data manually when DeepSeek API fails"""
         try:
             logger.info(f"Manually formatting market data for {instrument}")
             
             # Extract key phrases and content
             news_lines = news_content.split('\n')
-            
-            # Create a more structured analysis
-            analysis = f"<b>🎯 {instrument} Market Analysis</b>\n\n"
             
             # Create a simple sentiment analysis based on keywords in the news content
             positive_keywords = [
@@ -129,8 +126,11 @@ class MarketSentimentService:
                 sentiment = "Neutral"
                 sentiment_score = 50
             
-            # Add sentiment analysis to the output
-            analysis += f"<b>📈 Market Direction:</b>\n"
+            # Create the analysis text with proper HTML formatting
+            analysis = f"<b>🎯 {instrument} Market Analysis</b>\n\n"
+            
+            # Market Direction section
+            analysis += "<b>📈 Market Direction:</b>\n"
             analysis += f"The {instrument} is showing {sentiment.lower()} sentiment with a {sentiment_score}% probability. "
             
             if sentiment == "Bullish":
@@ -140,8 +140,8 @@ class MarketSentimentService:
             else:
                 analysis += "Price action shows mixed signals with no clear directional bias at this time.\n\n"
             
-            # Extract key news from the content
-            analysis += f"<b>📰 Latest News & Events:</b>\n"
+            # Latest News section
+            analysis += "<b>📰 Latest News & Events:</b>\n"
             
             # Find key news points
             news_points = []
@@ -155,17 +155,13 @@ class MarketSentimentService:
                 if (line.startswith(('•', '1.', '2.', '3.', '4.', '5.')) or 
                     (len(line) > 20 and len(line) < 150 and not line.startswith('Source:'))):
                     # Clean up the line
-                    cleaned_line = re.sub(r'^[0-9]+\.\s*', '• ', line)
-                    cleaned_line = re.sub(r'^•\s*', '• ', cleaned_line)
-                    
-                    if not cleaned_line.startswith('• '):
-                        cleaned_line = f"• {cleaned_line}"
-                        
+                    cleaned_line = re.sub(r'^[0-9]+\.\s*', '', line)
+                    cleaned_line = re.sub(r'^•\s*', '', cleaned_line)
                     news_points.append(cleaned_line)
             
             # Add up to 3 news points
             for point in news_points[:3]:
-                analysis += f"{point}\n"
+                analysis += f"• {point}\n"
                 
             if not news_points:
                 analysis += "• No specific news events driving current price action\n"
@@ -174,20 +170,20 @@ class MarketSentimentService:
             
             analysis += "\n"
             
-            # Add key levels section
-            analysis += f"<b>🎯 Key Levels:</b>\n"
+            # Key Levels section
+            analysis += "<b>🎯 Key Levels:</b>\n"
             analysis += "• Support Levels:\n"
             analysis += "  - Previous low (Historical support zone)\n"
             analysis += "• Resistance Levels:\n"
             analysis += "  - Previous high (Technical resistance)\n\n"
             
-            # Add risk factors section
-            analysis += f"<b>⚠️ Risk Factors:</b>\n"
+            # Risk Factors section
+            analysis += "<b>⚠️ Risk Factors:</b>\n"
             analysis += "• Market Volatility: Increased uncertainty in current conditions\n"
             analysis += "• News Events: Watch for unexpected announcements\n\n"
             
-            # Add a conclusion based on sentiment
-            analysis += f"<b>💡 Conclusion:</b>\n"
+            # Conclusion section
+            analysis += "<b>💡 Conclusion:</b>\n"
             if sentiment_score > 65:
                 analysis += "Current news suggests favorable market conditions. <b>Consider long positions</b> with risk management strategies in place."
             elif sentiment_score < 35:
@@ -195,28 +191,13 @@ class MarketSentimentService:
             else:
                 analysis += "The market shows mixed signals. <b>Wait for clearer signals</b> before taking new positions."
             
-            # Clean up any markdown formatting that might be in the analysis
-            analysis = re.sub(r'^```html\s*', '', analysis)
-            analysis = re.sub(r'\s*```$', '', analysis)
-            
-            # Return a dictionary similar to what _get_mock_sentiment_data returns
-            return {
-                'overall_sentiment': sentiment.lower(),
-                'sentiment_score': sentiment_score / 100,
-                'bullish_percentage': sentiment_score,
-                'trend_strength': 'Strong' if abs(sentiment_score - 50) > 20 else 'Moderate' if abs(sentiment_score - 50) > 10 else 'Weak',
-                'volatility': 'Moderate',
-                'support_level': 'See analysis for details',
-                'resistance_level': 'See analysis for details',
-                'recommendation': 'Consider long positions' if sentiment_score > 60 else 'Watch for shorts' if sentiment_score < 40 else 'Wait for signals',
-                'analysis': analysis,
-                'source': 'tavily_data'
-            }
+            # Return only the formatted analysis string
+            return analysis
             
         except Exception as e:
             logger.error(f"Error formatting market data manually: {str(e)}")
             logger.exception(e)
-            return self._get_fallback_sentiment(instrument)
+            return self._get_fallback_sentiment(instrument)['analysis']  # Return only the analysis part of fallback
     
     async def _get_tavily_news(self, search_query: str) -> str:
         """Use Tavily API to get latest news and market data"""
@@ -900,8 +881,8 @@ The market is showing neutral sentiment with mixed signals. Current price action
             logger.exception(e)
             return None
             
-    async def _get_deepseek_sentiment(self, market_data: str, instrument: str, formatted_content: str = None) -> Dict[str, Any]:
-        """Use DeepSeek to analyze market sentiment and return structured data"""
+    async def _get_deepseek_sentiment(self, market_data: str, instrument: str, formatted_content: str = None) -> str:
+        """Use DeepSeek to analyze market sentiment and return formatted analysis"""
         try:
             # If formatted_content is not provided, try to get it
             if not formatted_content:
@@ -911,86 +892,15 @@ The market is showing neutral sentiment with mixed signals. Current price action
             
             if not formatted_content:
                 logger.warning(f"DeepSeek formatting failed for {instrument}, using manual formatting")
-                return None
-                
-            # Extract sentiment information from the formatted content
-            sentiment_score = 50  # Default neutral
+                return self._format_data_manually(market_data, instrument)
             
-            # Determine sentiment based on content analysis
-            content_lower = formatted_content.lower()
-            
-            # More comprehensive sentiment detection
-            bullish_terms = ['bullish', 'upward', 'positive', 'higher', 'upside', 'rise', 'gain', 'strong', 'breakout', 'rally']
-            bearish_terms = ['bearish', 'downward', 'negative', 'lower', 'downside', 'fall', 'loss', 'weak', 'breakdown', 'decline']
-            
-            # Calculate sentiment based on term frequency and strength
-            bullish_score = 0
-            bearish_score = 0
-            
-            for term in bullish_terms:
-                if term in content_lower:
-                    # Weight certain terms more heavily
-                    if term in ['bullish', 'positive', 'strong']:
-                        bullish_score += 2
-                    else:
-                        bullish_score += 1
-                        
-            for term in bearish_terms:
-                if term in content_lower:
-                    # Weight certain terms more heavily
-                    if term in ['bearish', 'negative', 'weak']:
-                        bearish_score += 2
-                    else:
-                        bearish_score += 1
-            
-            # Determine overall sentiment
-            if bullish_score > bearish_score:
-                overall_sentiment = "bullish"
-                # Calculate sentiment score (50-100 range for bullish)
-                sentiment_strength = min(bullish_score, 10) / 10
-                sentiment_score = 50 + (sentiment_strength * 50)
-            elif bearish_score > bullish_score:
-                overall_sentiment = "bearish" 
-                # Calculate sentiment score (0-50 range for bearish)
-                sentiment_strength = min(bearish_score, 10) / 10
-                sentiment_score = 50 - (sentiment_strength * 50)
-            else:
-                overall_sentiment = "neutral"
-                sentiment_score = 50
-            
-            # Round to nearest integer
-            sentiment_score = round(sentiment_score)
-            
-            # Identify support and resistance from the content
-            support_level = "See analysis for details"
-            resistance_level = "See analysis for details"
-            
-            support_match = re.search(r'support[:\s]+([0-9.,]+)', content_lower)
-            if support_match:
-                support_level = support_match.group(1)
-                
-            resistance_match = re.search(r'resistance[:\s]+([0-9.,]+)', content_lower)
-            if resistance_match:
-                resistance_level = resistance_match.group(1)
-                
-            # Return structured data
-            return {
-                'overall_sentiment': overall_sentiment,
-                'sentiment_score': sentiment_score / 100,
-                'bullish_percentage': sentiment_score,
-                'trend_strength': 'Strong' if abs(sentiment_score - 50) > 20 else 'Moderate' if abs(sentiment_score - 50) > 10 else 'Weak',
-                'volatility': 'Moderate',
-                'support_level': support_level,
-                'resistance_level': resistance_level,
-                'recommendation': 'Consider long positions' if sentiment_score > 60 else 'Watch for shorts' if sentiment_score < 40 else 'Wait for signals',
-                'analysis': formatted_content,
-                'source': 'deepseek'
-            }
+            # Return the formatted content directly
+            return formatted_content
             
         except Exception as e:
             logger.error(f"Error analyzing DeepSeek sentiment: {str(e)}")
             logger.exception(e)
-            return None
+            return self._format_data_manually(market_data, instrument)
 
 class TavilyClient:
     """A simple wrapper for the Tavily API that handles errors properly"""
