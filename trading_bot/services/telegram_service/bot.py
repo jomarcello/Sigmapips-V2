@@ -2405,7 +2405,10 @@ Click the button below to start your FREE 14-day trial.
                 except json.JSONDecodeError:
                     # Clean any HTML tags and meta-text from the text
                     clean_text = re.sub(r'<[^>]+>', '', sentiment_data)
-                    clean_text = re.sub(r"Here's your comprehensive .* analysis formatted for .*:", '', clean_text)
+                    # Remove the DeepSeek system message
+                    clean_text = re.sub(r"Here(?:'s|\s+is)\s+(?:a\s+)?(?:sentiment\s+)?analysis\s+for\s+[A-Z/]+:?\s*", '', clean_text)
+                    clean_text = re.sub(r"Here(?:'s|\s+is)\s+(?:your\s+)?(?:comprehensive\s+)?market\s+analysis\s+for\s+[A-Z/]+:?\s*", '', clean_text)
+                    clean_text = re.sub(r"Here(?:'s|\s+is)\s+(?:your\s+)?(?:comprehensive\s+)?(?:market\s+)?analysis\s+formatted\s+for\s+Telegram:?\s*", '', clean_text)
                     return clean_text
             
             # Format the analysis into a readable message
@@ -2429,7 +2432,8 @@ Click the button below to start your FREE 14-day trial.
                 analysis = sentiment_data['analysis']
                 
                 # Remove meta-text about formatting
-                analysis = re.sub(r"Here's your comprehensive .* analysis formatted for .*:", '', analysis)
+                analysis = re.sub(r"Here(?:'s|\s+is)\s+(?:your\s+)?(?:comprehensive\s+)?(?:market\s+)?analysis\s+formatted\s+for\s+Telegram:?\s*", '', analysis)
+                analysis = re.sub(r"Here(?:'s|\s+is)\s+(?:a\s+)?(?:sentiment\s+)?analysis\s+for\s+[A-Z/]+:?\s*", '', analysis)
                 
                 # Find the news section
                 news_match = re.search(r'Latest News & Events:(.*?)(?:Key Levels:|Risk Factors:|$)', analysis, re.DOTALL)
@@ -2518,7 +2522,7 @@ Click the button below to start your FREE 14-day trial.
             if sentiment_data.get('recommendation'):
                 conclusion = sentiment_data['recommendation'].strip()
                 # Remove any meta-text about formatting
-                conclusion = re.sub(r"Here's your comprehensive .* analysis formatted for .*:", '', conclusion)
+                conclusion = re.sub(r"Here(?:'s|\s+is)\s+(?:your\s+)?(?:comprehensive\s+)?(?:market\s+)?analysis\s+formatted\s+for\s+Telegram:?\s*", '', conclusion)
                 message += conclusion
             elif sentiment_data.get('analysis'):
                 # Extract conclusion from analysis
