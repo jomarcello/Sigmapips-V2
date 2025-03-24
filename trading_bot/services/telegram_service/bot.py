@@ -587,7 +587,7 @@ class TelegramService:
             self.application = Application.builder().bot(self.bot).build()
         
             # Register the handlers
-            self._register_handlers()
+            self._register_handlers(self.application)
             
             # Load stored signals
             self._load_signals()
@@ -738,37 +738,37 @@ class TelegramService:
         self._signals_enabled = bool(value)
         logger.info(f"Signal processing {'enabled' if value else 'disabled'}")
 
-    def _register_handlers(self):
+    def _register_handlers(self, application):
         """Register all command and callback handlers with the application"""
         # Ensure application is initialized
-        if not self.application:
+        if not application:
             logger.error("Cannot register handlers: application not initialized")
             return
         
         # Command handlers
-        self.application.add_handler(CommandHandler("start", self.start_command))
-        self.application.add_handler(CommandHandler("menu", self.show_main_menu))
-        self.application.add_handler(CommandHandler("help", self.help_command))
-        self.application.add_handler(CommandHandler("set_subscription", self.set_subscription_command))
+        application.add_handler(CommandHandler("start", self.start_command))
+        application.add_handler(CommandHandler("menu", self.show_main_menu))
+        application.add_handler(CommandHandler("help", self.help_command))
+        application.add_handler(CommandHandler("set_subscription", self.set_subscription_command))
         
         # Register the payment failed command with both underscore and no-underscore versions
-        self.application.add_handler(CommandHandler("set_payment_failed", self.set_payment_failed_command))
-        self.application.add_handler(CommandHandler("setpaymentfailed", self.set_payment_failed_command))
+        application.add_handler(CommandHandler("set_payment_failed", self.set_payment_failed_command))
+        application.add_handler(CommandHandler("setpaymentfailed", self.set_payment_failed_command))
         
         # Add specific handlers for signal analysis flows
-        self.application.add_handler(CallbackQueryHandler(self.analysis_technical_callback, pattern="^analysis_technical$"))
-        self.application.add_handler(CallbackQueryHandler(self.analysis_technical_callback, pattern="^analysis_technical_signal_.*$"))
+        application.add_handler(CallbackQueryHandler(self.analysis_technical_callback, pattern="^analysis_technical$"))
+        application.add_handler(CallbackQueryHandler(self.analysis_technical_callback, pattern="^analysis_technical_signal_.*$"))
         
-        self.application.add_handler(CallbackQueryHandler(self.analysis_sentiment_callback, pattern="^analysis_sentiment$"))
-        self.application.add_handler(CallbackQueryHandler(self.analysis_sentiment_callback, pattern="^analysis_sentiment_signal_.*$"))
+        application.add_handler(CallbackQueryHandler(self.analysis_sentiment_callback, pattern="^analysis_sentiment$"))
+        application.add_handler(CallbackQueryHandler(self.analysis_sentiment_callback, pattern="^analysis_sentiment_signal_.*$"))
         
-        self.application.add_handler(CallbackQueryHandler(self.analysis_calendar_callback, pattern="^analysis_calendar$"))
-        self.application.add_handler(CallbackQueryHandler(self.analysis_calendar_callback, pattern="^analysis_calendar_signal_.*$"))
+        application.add_handler(CallbackQueryHandler(self.analysis_calendar_callback, pattern="^analysis_calendar$"))
+        application.add_handler(CallbackQueryHandler(self.analysis_calendar_callback, pattern="^analysis_calendar_signal_.*$"))
         
-        self.application.add_handler(CallbackQueryHandler(self.back_to_signal_callback, pattern="^back_to_signal$"))
+        application.add_handler(CallbackQueryHandler(self.back_to_signal_callback, pattern="^back_to_signal$"))
         
         # Callback query handler for all button presses
-        self.application.add_handler(CallbackQueryHandler(self.button_callback))
+        application.add_handler(CallbackQueryHandler(self.button_callback))
         
         # Ensure signal handlers are registered
         logger.info("Enabling and initializing signals functionality")
@@ -777,6 +777,16 @@ class TelegramService:
         self._load_signals()
         
         logger.info("All handlers registered successfully")
+
+        # Signal flow analysis handlers
+        application.add_handler(CallbackQueryHandler(
+            self.signal_technical_callback, pattern="^signal_technical$"))
+        application.add_handler(CallbackQueryHandler(
+            self.signal_sentiment_callback, pattern="^signal_sentiment$"))
+        application.add_handler(CallbackQueryHandler(
+            self.signal_calendar_callback, pattern="^signal_calendar$"))
+        application.add_handler(CallbackQueryHandler(
+            self.back_to_signal_analysis_callback, pattern="^back_to_signal_analysis$"))
 
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> None:
         """Send a welcome message when the bot is started."""
@@ -2016,160 +2026,21 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             reply_markup=reply_markup
         )
 
-    async def button_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
-        """Handle button presses from inline keyboards"""
+    async def button_callback(self, update: Update, context=None) -> int:
+        """Handle button presses for menu navigation"""
         query = update.callback_query
-        logger.info(f"Button callback opgeroepen met data: {query.data}")
         
-        # Beantwoord de callback query met een timeout-afhandeling
-        try:
-            # Answer without a timeout parameter (it's not supported in python-telegram-bot v20)
-            await query.answer()
-        except Exception as e:
-            # Log de fout, maar ga door met afhandeling (voorkomt blokkering)
-            logger.warning(f"Kon callback query niet beantwoorden: {str(e)}")
+        # Special callback handlers
+        if query.data == "signal_technical":
+            return await self.signal_technical_callback(update, context)
+        elif query.data == "signal_sentiment":
+            return await self.signal_sentiment_callback(update, context)
+        elif query.data == "signal_calendar":
+            return await self.signal_calendar_callback(update, context)
+        elif query.data == "back_to_signal_analysis":
+            return await self.back_to_signal_analysis_callback(update, context)
         
-        # Special signal flow handlers
-        # Technical analysis from signal
-        if query.data.startswith("analysis_technical_signal_"):
-            return await self.analysis_technical_callback(update, context)
-            
-        # Sentiment analysis from signal
-        if query.data.startswith("analysis_sentiment_signal_"):
-            return await self.analysis_sentiment_callback(update, context)
-            
-        # Calendar analysis from signal
-        if query.data.startswith("analysis_calendar_signal_"):
-            return await self.analysis_calendar_callback(update, context)
-        
-        # Basic analysis types without signal context
-        if query.data == "analysis_technical":
-            return await self.analysis_technical_callback(update, context)
-            
-        if query.data == "analysis_sentiment":
-            return await self.analysis_sentiment_callback(update, context)
-            
-        if query.data == "analysis_calendar":
-            return await self.analysis_calendar_callback(update, context)
-        
-        # Analyze from signal handler
-        if query.data.startswith("analyze_from_signal_"):
-            return await self.analyze_from_signal_callback(update, context)
-        
-        # Back to signal handler
-        if query.data == "back_to_signal":
-            return await self.back_to_signal_callback(update, context)
-        
-        # Handle menu_analyse callback
-        if query.data == "menu_analyse":
-            return await self.menu_analyse_callback(update, context)
-            
-        # Handle menu_signals callback
-        if query.data == "menu_signals":
-            return await self.menu_signals_callback(update, context)
-        
-        # Handle back buttons
-        if query.data == "back_menu":
-            return await self.back_menu_callback(update, context)
-            
-        if query.data == "back_to_analysis" or query.data == "back_analysis":
-            return await self.analysis_callback(update, context)
-            
-        if query.data == "back_market":
-            return await self.back_market_callback(update, context)
-            
-        if query.data == "back_instrument":
-            return await self.back_instrument_callback(update, context)
-            
-        if query.data == "back_instrument_sentiment":
-            # Set the analysis type to sentiment before going back
-            if context and hasattr(context, 'user_data'):
-                context.user_data['analysis_type'] = 'sentiment'
-                logger.info("Setting analysis_type to 'sentiment' for back navigation")
-            return await self.back_instrument_callback(update, context)
-            
-        if query.data == "back_signals":
-            return await self.market_signals_callback(update, context)
-            
-        # Handle refresh sentiment analysis 
-        if query.data.startswith("instrument_") and query.data.endswith("_sentiment"):
-            # Extract the instrument from the callback data
-            parts = query.data.split("_")
-            instrument = "_".join(parts[1:-1]) if len(parts) > 2 else parts[1]
-            logger.info(f"Refreshing sentiment analysis for {instrument}")
-            
-            # Set analysis type to sentiment
-            if context and hasattr(context, 'user_data'):
-                context.user_data['analysis_type'] = 'sentiment'
-                
-            # Call show_sentiment_analysis with the instrument
-            return await self.show_sentiment_analysis(update, context, instrument=instrument)
-        
-        # Verwerk abonnementsacties
-        if query.data == "subscribe_monthly" or query.data == "subscription_info":
-            return await self.handle_subscription_callback(update, context)
-        
-        # Analysis type handlers - other types not already handled above
-        if query.data.startswith("analysis_") and not any([
-            query.data.startswith("analysis_technical_signal_"),
-            query.data.startswith("analysis_sentiment_signal_"),
-            query.data.startswith("analysis_calendar_signal_"),
-            query.data == "analysis_technical",
-            query.data == "analysis_sentiment", 
-            query.data == "analysis_calendar"
-        ]):
-            return await self.analysis_choice(update, context)
-        
-        # Handle show_ta_ callbacks (show technical analysis with specific timeframe)
-        if query.data.startswith("show_ta_"):
-            # Extract instrument and timeframe from callback data
-            parts = query.data.split("_")
-            if len(parts) >= 3:
-                instrument = parts[2]
-                timeframe = parts[3] if len(parts) > 3 else "1h"  # Default to 1h
-                return await self.show_technical_analysis(update, context, instrument=instrument, timeframe=timeframe)
-        
-        # Verwerk instrument keuzes met specifiek type (chart, sentiment, calendar)
-        if "_chart" in query.data or "_sentiment" in query.data or "_calendar" in query.data:
-            # Direct doorsturen naar de instrument_callback methode
-            logger.info(f"Specifiek instrument type gedetecteerd in: {query.data}")
-            return await self.instrument_callback(update, context)
-        
-        # Handle instrument signal choices
-        if "_signals" in query.data and query.data.startswith("instrument_"):
-            logger.info(f"Signal instrument selection detected: {query.data}")
-            return await self.instrument_signals_callback(update, context)
-        
-        # Speciale afhandeling voor markt keuzes
-        if query.data.startswith("market_"):
-            return await self.market_callback(update, context)
-        
-        # Signals handlers
-        if query.data == "signals_add" or query.data == CALLBACK_SIGNALS_ADD:
-            return await self.signals_add_callback(update, context)
-            
-        if query.data == "signals_manage" or query.data == CALLBACK_SIGNALS_MANAGE:
-            return await self.signals_manage_callback(update, context)
-            
-        if query.data == "remove_subscriptions":
-            return await self.remove_subscriptions_callback(update, context)
-        
-        if query.data.startswith("delete_subscription_"):
-            return await self.delete_subscription_callback(update, context)
-        
-        # Log unhandled callbacks
-        logger.warning(f"Unhandled callback data: {query.data}")
-        
-        # Default: return to main menu
-        try:
-            await query.edit_message_text(
-                text="Command not recognized. Returning to main menu.",
-                reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
-            )
-        except Exception as e:
-            logger.error(f"Error showing default menu: {str(e)}")
-            
-        return MENU
+        # ... existing code ...
 
     def setup(self):
         """Set up the bot with all handlers"""
@@ -4108,79 +3979,71 @@ Click the button below to start your FREE 14-day trial.
             return CHOOSE_SIGNALS
 
     async def analyze_from_signal_callback(self, update: Update, context=None) -> int:
-        """Handle analyze_from_signal callback to show analysis options for instrument from signal"""
+        """Handle analyze market option for an instrument from a signal"""
         query = update.callback_query
         await query.answer()
         
         try:
-            # Get user ID
-            user_id = update.effective_user.id
+            logger.info(f"Analyze from signal for user {update.effective_user.id}")
             
-            # Extract instrument from callback data
-            instrument = query.data.replace('analyze_from_signal_', '')
-            logger.info(f"Analyze from signal callback for instrument: {instrument}")
+            # Get callback data
+            data = query.data
+            parts = data.split("_")
             
-            # Store the signal information in context for later use
+            # Extract instrument from data or context
+            instrument = None
+            if len(parts) > 1:
+                instrument = parts[-1]  # Last part should be the instrument
+            
             if context and hasattr(context, 'user_data'):
-                # Save signal information
-                context.user_data['instrument'] = instrument
-                context.user_data['from_signal'] = True
-                context.user_data['message_id'] = update.callback_query.message.message_id
-                context.user_data['chat_id'] = update.callback_query.message.chat_id
-                context.user_data['previous_state'] = 'SIGNAL'  # Mark that we came from a signal
+                # Set flag to indicate we're in the signal flow, not the main menu flow
+                context.user_data['in_signal_flow'] = True
                 
-                # Also save current signal message for easy retrieval
-                if hasattr(update.callback_query, 'message') and hasattr(update.callback_query.message, 'text'):
-                    context.user_data['signal_message'] = update.callback_query.message.text
-                    logger.info(f"Stored signal message in context for user {user_id}")
-                
-                # If we have this instrument in user_signals, store additional details
-                if user_id in self.user_signals and self.user_signals[user_id].get('instrument') == instrument:
-                    signal_data = self.user_signals[user_id]
-                    context.user_data['direction'] = signal_data.get('direction', 'UNKNOWN')
-                    context.user_data['price'] = signal_data.get('price', 0)
-                    context.user_data['stop_loss'] = signal_data.get('stop_loss', 0)
-                    context.user_data['take_profits'] = signal_data.get('take_profits', [])
-                    context.user_data['timeframe'] = signal_data.get('timeframe', '1h')
-                    context.user_data['strategy'] = signal_data.get('strategy', 'Unknown')
-                    logger.info(f"Stored additional signal data from user_signals for user {user_id}")
+                # Store instrument in context if we extracted it
+                if instrument:
+                    context.user_data['instrument'] = instrument
+                    logger.info(f"Setting instrument to {instrument} from callback data")
+                # Otherwise try to get it from context
+                else:
+                    instrument = context.user_data.get('instrument')
+                    logger.info(f"Using instrument {instrument} from context")
             
-            # Show analysis options for this instrument
-            keyboard = [
-                [
-                    InlineKeyboardButton("📈 Technical Analysis", callback_data=f"analysis_technical_signal_{instrument}"),
-                    InlineKeyboardButton("🧠 Sentiment Analysis", callback_data=f"analysis_sentiment_signal_{instrument}")
-                ],
-                [
-                    InlineKeyboardButton("📅 Economic Calendar", callback_data=f"analysis_calendar_signal_{instrument}")
-                ],
-                [InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal")]
-            ]
+            # Fall back to a default if we still don't have it
+            if not instrument:
+                instrument = "Unknown"
+                logger.warning("Could not determine instrument for analysis")
             
+            # Format message text
+            text = f"Choose analysis type for {instrument}:"
+            
+            # Show options using SIGNAL_ANALYSIS_KEYBOARD
             await query.edit_message_text(
-                text=f"Choose analysis type for {instrument}:",
-                reply_markup=InlineKeyboardMarkup(keyboard)
+                text=text,
+                reply_markup=InlineKeyboardMarkup(SIGNAL_ANALYSIS_KEYBOARD)
             )
             
             return CHOOSE_ANALYSIS
+            
         except Exception as e:
-            logger.error(f"Error in analyze_from_signal_callback: {str(e)}")
+            logger.error(f"Error in back_to_signal_analysis_callback: {str(e)}")
             logger.exception(e)
             
-            # Attempt to show a fallback menu if there's an error
             try:
                 await query.edit_message_text(
-                    text=f"Error accessing analysis options. Please try again or go back to the signal.",
-                    reply_markup=InlineKeyboardMarkup([
-                        [InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal")],
-                        [InlineKeyboardButton("🏠 Main Menu", callback_data="back_menu")]
-                    ])
+                    text="An error occurred. Please try again or go back to the signal.",
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal")
+                    ]])
                 )
-            except Exception as inner_e:
-                logger.error(f"Failed to recover from error: {str(inner_e)}")
-            
-            return MENU
+            except Exception:
+                pass
+                
+            return CHOOSE_ANALYSIS
 
+    async def _check_signals(self, update: Update, context=None) -> None:
+        """Check and send signals to subscribers"""
+        # ... existing code ...
+        
     def _extract_currency_codes(self, instrument: str) -> List[str]:
         """Extract currency codes from instrument string like EURUSD or XAUUSD"""
         if not instrument:
@@ -4240,4 +4103,16 @@ COMMODITIES_SENTIMENT_KEYBOARD = [
         InlineKeyboardButton("OIL", callback_data="instrument_USOIL_sentiment")
     ],
     [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
+]
+
+# Keyboards voor signal flow (apart van reguliere menu flow)
+SIGNAL_ANALYSIS_KEYBOARD = [
+    [
+        InlineKeyboardButton("📈 Technical Analysis", callback_data="signal_technical"),
+        InlineKeyboardButton("🧠 Sentiment Analysis", callback_data="signal_sentiment")
+    ],
+    [
+        InlineKeyboardButton("📅 Economic Calendar", callback_data="signal_calendar")
+    ],
+    [InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal")]
 ]
