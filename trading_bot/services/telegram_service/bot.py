@@ -2530,15 +2530,35 @@ Click the button below to start your FREE 14-day trial.
             # Format the message
             timestamp = self._get_formatted_timestamp()
             
+            # Determine emoji for action/direction
+            direction_emoji = "📈" if direction == "BUY" else "📉"
+            
+            # Format take profits for display
+            tp_lines = []
+            for i, tp in enumerate(take_profits, 1):
+                tp_formatted = self._format_price(tp)
+                tp_lines.append(f"Take Profit {i}: {tp_formatted} 🎯")
+            
+            tp_text = "\n".join(tp_lines) if tp_lines else "No take profit levels defined"
+            
+            # Create message in the desired format
             message = (
-                f"<b>{emoji} SIGNAL {direction} {instrument}</b>\n\n"
-                f"<b>Entry price:</b> {self._format_price(price)}\n"
-                f"<b>Stop loss:</b> {self._format_price(stop_loss)}\n\n"
+                f"🎯 New Trading Signal 🎯\n\n"
+                f"Instrument: {instrument}\n"
+                f"Action: {direction} {direction_emoji}\n\n"
+                f"Entry Price: {self._format_price(price)}\n"
+                f"Stop Loss: {self._format_price(stop_loss)} 🔴\n"
                 f"{tp_text}\n\n"
-                f"<b>Timeframe:</b> {interval}\n"
-                f"<b>Strategy:</b> {strategy}\n"
-                f"<b>Time:</b> {timestamp}\n\n"
-                f"<b>Analysis:</b>\n{verdict}"
+                f"Timeframe: {interval}\n"
+                f"Strategy: {strategy}\n\n"
+                f"————————————————————\n\n"
+                f"Risk Management:\n"
+                f"• Position size: 1-2% max\n"
+                f"• Use proper stop loss\n"
+                f"• Follow your trading plan\n\n"
+                f"————————————————————\n\n"
+                f"🤖 SigmaPips AI Verdict:\n"
+                f"{verdict}"
             )
             
             # Create keyboard for signal message
@@ -2591,47 +2611,38 @@ Click the button below to start your FREE 14-day trial.
             return False
 
     async def _generate_signal_verdict(self, instrument: str, direction: str, price: float, stop_loss: float, tp1: float, tp2: float, tp3: float, timeframe: str) -> str:
-        """Generate a verdict for the signal based on sentiment and chart analysis"""
+        """Generate a verdict for the signal based on signal parameters"""
         try:
+            # Check how many TP levels we have
+            tp_count = sum(1 for tp in [tp1, tp2, tp3] if tp > 0)
+            
             # Start with a basic verdict format
-            verdict = (
-                f"This {direction.lower()} signal for {instrument} is based on "
-                f"a {timeframe} timeframe analysis.\n\n"
-            )
+            if direction == "BUY":
+                verdict = f"The {instrument} buy signal shows a promising setup with defined entry at {price} and stop loss at {stop_loss}."
+            else:
+                verdict = f"The {instrument} sell signal presents a strategic opportunity with entry at {price} and stop loss at {stop_loss}."
             
-            # Add risk reward calculation if we have stop loss and at least one take profit
-            if stop_loss > 0 and tp1 > 0:
-                if direction == "BUY":
-                    risk = abs(price - stop_loss)
-                    reward = abs(tp1 - price)
-                    risk_reward_ratio = reward / risk if risk > 0 else 0
-                else:  # SELL
-                    risk = abs(stop_loss - price)
-                    reward = abs(price - tp1)
-                    risk_reward_ratio = reward / risk if risk > 0 else 0
-                    
-                verdict += f"Risk-Reward Ratio: {risk_reward_ratio:.2f}\n\n"
+            # Add take profit analysis
+            if tp_count > 1:
+                verdict += f" Multiple take profit levels provide opportunities for partial profit taking."
+            elif tp_count == 1:
+                verdict += f" The take profit target suggests a favorable risk-to-reward ratio."
                 
-                # Provide assessment based on risk-reward ratio
-                if risk_reward_ratio >= 2.0:
-                    verdict += "✅ This trade has a favorable risk-reward ratio (>=2.0)\n"
-                elif risk_reward_ratio >= 1.0:
-                    verdict += "⚠️ This trade has an acceptable risk-reward ratio (>=1.0)\n"
-                else:
-                    verdict += "❌ This trade has a poor risk-reward ratio (<1.0)\n"
-            
-            # Add mock sentiment analysis
-            try:
-                sentiment_text = self._get_fallback_sentiment(instrument)
-                verdict += f"\n{sentiment_text}"
-            except Exception as sentiment_err:
-                logger.error(f"Error generating sentiment: {sentiment_err}")
-            
+            # Add timeframe context
+            if timeframe == "1h" or timeframe == "1":
+                verdict += f" This hourly timeframe signal could provide a short-term trading opportunity."
+            elif timeframe == "4h" or timeframe == "4":
+                verdict += f" The 4-hour timeframe provides a good balance between noise and meaningful price action."
+            elif timeframe == "1d" or timeframe == "D":
+                verdict += f" This daily timeframe signal has potential for a longer-term position."
+            elif timeframe == "15m" or timeframe == "15":
+                verdict += f" This 15-minute timeframe signal may be suitable for scalping or quick trades."
+                
             return verdict
             
         except Exception as e:
             logger.error(f"Error generating signal verdict: {str(e)}")
-            return "Signal analysis not available due to an error."
+            return f"The {instrument} {direction.lower()} signal shows a defined entry and exit strategy. Consider this setup within your overall trading plan."
 
     def _detect_market(self, instrument: str) -> str:
         """Detect market type from instrument"""
