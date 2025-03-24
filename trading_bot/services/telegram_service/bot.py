@@ -493,27 +493,27 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
 
 # API keys with robust sanitization
 PERPLEXITY_API_KEY = os.getenv("PERPLEXITY_API_KEY", "").strip()
-DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "72df8ae1c5dd4d95b6a54c09bcf1b39e").strip()
+# DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "72df8ae1c5dd4d95b6a54c09bcf1b39e").strip()
 
 # Ensure the Tavily API key is properly formatted with 'tvly-' prefix and sanitized
-raw_tavily_key = os.getenv("TAVILY_API_KEY", "KbIKVL3UfDfnxRx3Ruw6XhL3OB9qSF9l").strip()
-TAVILY_API_KEY = raw_tavily_key.replace('\n', '').replace('\r', '')  # Remove any newlines/carriage returns
+# raw_tavily_key = os.getenv("TAVILY_API_KEY", "KbIKVL3UfDfnxRx3Ruw6XhL3OB9qSF9l").strip()
+# TAVILY_API_KEY = raw_tavily_key.replace('\n', '').replace('\r', '')  # Remove any newlines/carriage returns
 
 # If the key doesn't start with "tvly-", add the prefix
-if TAVILY_API_KEY and not TAVILY_API_KEY.startswith("tvly-"):
-    TAVILY_API_KEY = f"tvly-{TAVILY_API_KEY}"
+# if TAVILY_API_KEY and not TAVILY_API_KEY.startswith("tvly-"):
+#     TAVILY_API_KEY = f"tvly-{TAVILY_API_KEY}"
     
 # Log API key (partially masked)
-if TAVILY_API_KEY:
-    masked_key = f"{TAVILY_API_KEY[:7]}...{TAVILY_API_KEY[-4:]}" if len(TAVILY_API_KEY) > 11 else f"{TAVILY_API_KEY[:4]}..."
-    logger.info(f"Using Tavily API key: {masked_key}")
-else:
-    logger.warning("No Tavily API key configured")
+# if TAVILY_API_KEY:
+#     masked_key = f"{TAVILY_API_KEY[:7]}...{TAVILY_API_KEY[-4:]}" if len(TAVILY_API_KEY) > 11 else f"{TAVILY_API_KEY[:4]}..."
+#     logger.info(f"Using Tavily API key: {masked_key}")
+# else:
+#     logger.warning("No Tavily API key configured")
     
 # Set environment variables for the API keys with sanitization
 os.environ["PERPLEXITY_API_KEY"] = PERPLEXITY_API_KEY
-os.environ["DEEPSEEK_API_KEY"] = DEEPSEEK_API_KEY
-os.environ["TAVILY_API_KEY"] = TAVILY_API_KEY
+# os.environ["DEEPSEEK_API_KEY"] = DEEPSEEK_API_KEY
+# os.environ["TAVILY_API_KEY"] = TAVILY_API_KEY
 
 class TelegramService:
     def __init__(self, db: Database, stripe_service=None, bot_token: Optional[str] = None, proxy_url: Optional[str] = None):
