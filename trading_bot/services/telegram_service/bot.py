@@ -2178,11 +2178,10 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Maak de juiste analyse op basis van het type
             if analysis_type == "chart":
                 logger.info(f"Toon technische analyse (chart) voor {instrument}")
-                await self.show_technical_analysis(update, context, instrument, timeframe="1h", fullscreen=True)
+                await self.show_technical_analysis(update, context, instrument)
                 return CHOOSE_TIMEFRAME
             elif analysis_type == "sentiment":
                 logger.info(f"Toon sentiment analyse voor {instrument}")
-                # Always use show_sentiment_analysis for sentiment, never show_technical_analysis
                 await self.show_sentiment_analysis(update, context, instrument)
                 return SHOW_RESULT
             elif analysis_type == "calendar":
@@ -2192,7 +2191,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             else:
                 # Als het type niet herkend wordt, toon technische analyse als fallback
                 logger.info(f"Onbekend analyse type: {analysis_type}, toon technische analyse voor {instrument}")
-                await self.show_technical_analysis(update, context, instrument, fullscreen=True)
+                await self.show_technical_analysis(update, context, instrument)
                 return CHOOSE_TIMEFRAME
         except Exception as e:
             logger.error(f"Error in instrument_callback: {str(e)}")
@@ -3919,7 +3918,7 @@ Click the button below to start your FREE 14-day trial.
             logger.error(f"Error in analyze_from_signal_callback: {str(e)}")
             return MENU
 
-    async def show_technical_analysis(self, update: Update, context=None, instrument=None) -> int:
+    async def show_technical_analysis(self, update: Update, context=None, instrument=None, timeframe=None, fullscreen=False) -> int:
         """Show technical analysis for an instrument"""
         query = update.callback_query
         await query.answer()
@@ -3945,10 +3944,24 @@ Click the button below to start your FREE 14-day trial.
                 market = self._detect_market(instrument)
             
             # Get timeframe from context or use default
-            timeframe = context.user_data.get('timeframe', '1h') if context and hasattr(context, 'user_data') else '1h'
+            if not timeframe:
+                timeframe = context.user_data.get('timeframe', '1h') if context and hasattr(context, 'user_data') else '1h'
+            
+            # Show loading message
+            await query.edit_message_text(
+                text=f"Generating technical analysis for {instrument}...",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("⬅️ Back", callback_data="back_to_analysis")
+                ]])
+            )
             
             # Get analysis from technical service
-            analysis = await self.technical_service.get_technical_analysis(instrument, timeframe)
+            try:
+                analysis = await self.technical_service.get_technical_analysis(instrument, timeframe)
+                logger.info(f"Successfully got technical analysis for {instrument}")
+            except Exception as service_error:
+                logger.error(f"Error getting technical analysis from service: {str(service_error)}")
+                raise
             
             # Create keyboard with appropriate back button based on flow
             current_flow = context.user_data.get('current_flow') if context and hasattr(context, 'user_data') else None
