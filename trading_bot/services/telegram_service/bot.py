@@ -3236,12 +3236,12 @@ Click the button below to start your FREE 14-day trial.
                             test_users = [admin_user_id]
                             
                             success = await self.process_signal(signal_data, users=test_users)
-                    
-                    if success:
-                        return {"status": "success", "message": "Signal processed successfully"}
-                    else:
+                            
+                            if success:
+                                return {"status": "success", "message": "Signal processed successfully"}
+                            else:
                                 logger.error("Failed to process signal")
-                        return {"status": "error", "message": "Failed to process signal"}
+                                return {"status": "error", "message": "Failed to process signal"}
                         except Exception as process_error:
                             logger.error(f"Error in signal processing: {str(process_error)}")
                             logger.exception(process_error)
