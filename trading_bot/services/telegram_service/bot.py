@@ -1080,6 +1080,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
     async def analysis_technical_callback(self, update: Update, context=None) -> int:
         """Handle technical analysis selection"""
         query = update.callback_query
+        await query.answer()
         
         try:
             # Debug logging
@@ -1112,6 +1113,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
     async def analysis_sentiment_callback(self, update: Update, context=None) -> int:
         """Handle sentiment analysis selection"""
         query = update.callback_query
+        await query.answer()
         
         try:
             # Debug logging
@@ -1144,6 +1146,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
     async def analysis_calendar_callback(self, update: Update, context=None) -> int:
         """Handle economic calendar selection"""
         query = update.callback_query
+        await query.answer()
         
         try:
             # Debug logging
@@ -1693,6 +1696,35 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         try:
             # Ensure signals are loaded from file
             self._load_signals()
+            
+            # Check if we were previously in SIGNAL state (directly from a signal)
+            if context and hasattr(context, 'user_data') and context.user_data.get('previous_state') == 'SIGNAL':
+                logger.info(f"Back to signal from analysis for user {user_id}")
+                
+                # Clear the previous menu selection to prevent issues
+                if 'selected_menu' in context.user_data:
+                    del context.user_data['selected_menu']
+                
+                # Try to get the original signal from context first
+                if 'signal_message' in context.user_data and context.user_data.get('instrument'):
+                    instrument = context.user_data.get('instrument')
+                    message = context.user_data['signal_message']
+                    
+                    # Recreate the original keyboard
+                    keyboard = [
+                        [
+                            InlineKeyboardButton("🔍 Analyze Market", callback_data=f"analyze_from_signal_{instrument}")
+                        ]
+                    ]
+                    
+                    # Edit message to show the original signal
+                    await query.edit_message_text(
+                        text=message,
+                        reply_markup=InlineKeyboardMarkup(keyboard),
+                        parse_mode=ParseMode.HTML
+                    )
+                    logger.info(f"Successfully returned to original signal from context for {instrument}")
+                    return SIGNAL_DETAILS
             
             # Try to retrieve the instrument from context or callback data
             instrument = None
@@ -3359,7 +3391,7 @@ Click the button below to start your FREE 14-day trial.
             # Check if we're coming from a signal
             is_from_signal = False
             if context and hasattr(context, 'user_data'):
-                is_from_signal = context.user_data.get('from_signal', False)
+                is_from_signal = context.user_data.get('from_signal', False) or context.user_data.get('previous_state') == 'SIGNAL'
             
             # First, show a loading message
             await query.edit_message_text(
@@ -3377,7 +3409,7 @@ Click the button below to start your FREE 14-day trial.
                     await query.edit_message_text(
                         text=f"Sorry, I couldn't generate a chart for {instrument} at this time. Please try again later.",
                         reply_markup=InlineKeyboardMarkup([[
-                            InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal" if is_from_signal else "back_instrument")
+                            InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal" if is_from_signal else "back_instrument")
                         ]])
                     )
                     return MENU
@@ -3387,7 +3419,7 @@ Click the button below to start your FREE 14-day trial.
                 
                 # Add buttons for different actions - back button depends on where we came from
                 keyboard = [
-                    [InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal" if is_from_signal else "back_instrument")]
+                    [InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal" if is_from_signal else "back_instrument")]
                 ]
                 
                 # Send the chart with caption
@@ -3413,7 +3445,7 @@ Click the button below to start your FREE 14-day trial.
                 await query.edit_message_text(
                     text=f"Sorry, there was a problem generating the chart for {instrument}. Please try again later.",
                     reply_markup=InlineKeyboardMarkup([[
-                        InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal" if is_from_signal else "back_instrument")
+                        InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal" if is_from_signal else "back_instrument")
                     ]])
                 )
             
@@ -3423,17 +3455,17 @@ Click the button below to start your FREE 14-day trial.
             logger.error(f"Error in show_technical_analysis: {str(e)}")
             logger.exception(e)
             
-            # Send fallback message
+            # Attempt to recover from error
             try:
                 await query.edit_message_text(
-                    text=f"Sorry, I couldn't analyze {instrument} at this time. Please try again later.",
+                    text=f"Error: {str(e)}",
                     reply_markup=InlineKeyboardMarkup([[
-                        InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal" if is_from_signal else "back_instrument")
+                        InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal" if context and hasattr(context, 'user_data') and context.user_data.get('from_signal', False) else "back_instrument")
                     ]])
                 )
-            except Exception as inner_e:
-                logger.error(f"Failed to send fallback message: {str(inner_e)}")
-            
+            except Exception:
+                pass
+                
             return MENU
 
     async def show_sentiment_analysis(self, update: Update, context=None, instrument: str = None) -> int:
@@ -3444,13 +3476,13 @@ Click the button below to start your FREE 14-day trial.
             # Check if we're coming from a signal
             is_from_signal = False
             if context and hasattr(context, 'user_data'):
-                is_from_signal = context.user_data.get('from_signal', False)
-                
+                is_from_signal = context.user_data.get('from_signal', False) or context.user_data.get('previous_state') == 'SIGNAL'
+            
             # First, show a loading message
             await query.edit_message_text(
                 text=f"Analyzing market sentiment for {instrument}. Please wait..."
             )
-            
+             
             # Store the analysis type in context for proper back button handling
             if context and hasattr(context, 'user_data'):
                 context.user_data['analysis_type'] = 'sentiment'
@@ -3491,12 +3523,25 @@ Click the button below to start your FREE 14-day trial.
                 analysis = re.sub(r'^```html\s*', '', analysis)
                 analysis = re.sub(r'\s*```$', '', analysis)
                 
-                # Create button to go back - choose back_to_signal if coming from a signal
+                # Create back button based on origin
+                back_button = InlineKeyboardButton(
+                    "⬅️ Back to Signal" if is_from_signal else "⬅️ Back", 
+                    callback_data="back_to_signal" if is_from_signal else "back_instrument"
+                )
+                
+                # Add technical analysis button
+                action_button = InlineKeyboardButton(
+                    "📈 Technical Analysis", 
+                    callback_data=f"instrument_{instrument}_technical"
+                )
+                
+                # Create keyboard
                 keyboard = [
-                    [InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal" if is_from_signal else "back_instrument_sentiment")]
+                    [action_button],
+                    [back_button]
                 ]
                 
-                # Send the sentiment analysis
+                # Send the analysis
                 await query.edit_message_text(
                     text=analysis,
                     reply_markup=InlineKeyboardMarkup(keyboard),
@@ -3521,7 +3566,20 @@ Click the button below to start your FREE 14-day trial.
         except Exception as e:
             logger.error(f"Error in show_sentiment_analysis: {str(e)}")
             logger.exception(e)
-
+            
+            # Attempt to recover from error
+            try:
+                await query.edit_message_text(
+                    text=f"Sorry, I couldn't analyze sentiment for {instrument} at this time. Please try again later.",
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal" if is_from_signal else "back_instrument")
+                    ]])
+                )
+            except Exception:
+                pass
+                
+            return MENU
+                
     async def _show_sentiment_error(self, query, instrument, message=None, is_from_signal=False):
         """Show error message when sentiment analysis fails"""
         try:
@@ -3530,7 +3588,7 @@ Click the button below to start your FREE 14-day trial.
             await query.edit_message_text(
                 text=error_text,
                 reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal" if is_from_signal else "back_instrument_sentiment")
+                    InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal" if is_from_signal else "back_instrument")
                 ]])
             )
             
@@ -3547,63 +3605,130 @@ Click the button below to start your FREE 14-day trial.
             # Check if we're coming from a signal
             is_from_signal = False
             if context and hasattr(context, 'user_data'):
-                is_from_signal = context.user_data.get('from_signal', False)
+                is_from_signal = context.user_data.get('from_signal', False) or context.user_data.get('previous_state') == 'SIGNAL'
                 
+                # Store the analysis type in context for proper back button handling
+                context.user_data['analysis_type'] = 'calendar'
+                
+                # Determine and store the market type based on the instrument
+                currency = self._get_instrument_currency(instrument) if instrument else None
+                context.user_data['selected_currency'] = currency
+                logger.info(f"Stored context for back navigation: analysis_type=calendar, currency={currency}")
+            
             # First, show a loading message
             await query.edit_message_text(
-                text=f"Fetching economic calendar for {instrument if instrument else 'global markets'}. Please wait..."
+                text=f"Loading economic calendar for {instrument}. Please wait..."
             )
             
-            # Log what we're doing
-            logger.info(f"Toon economic calendar voor {instrument if instrument else 'global markets'}")
+            # Get currency codes from instrument
+            currency_codes = self._extract_currency_codes(instrument)
+            logger.info(f"Extracted currency codes: {currency_codes}")
             
+            # Get calendar data with a timeout
             try:
-                # Get calendar data
-                calendar_data = await self.calendar.get_instrument_calendar(instrument or "GLOBAL")
+                # Use a timeout to prevent hanging
+                calendar_data_task = self.calendar.get_economic_events(currencies=currency_codes)
+                calendar_data = await asyncio.wait_for(calendar_data_task, timeout=20.0)  # 20 second timeout
                 
-                # Create button to go back
+                logger.info(f"Calendar data received for {instrument}")
+                
+                # If no events found, show a message
+                if not calendar_data:
+                    await query.edit_message_text(
+                        text=f"No upcoming economic events found for {instrument}.",
+                        reply_markup=InlineKeyboardMarkup([[
+                            InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal" if is_from_signal else "back_instrument")
+                        ]])
+                    )
+                    return SHOW_RESULT
+                
+                # Format the calendar data
+                calendar_text = f"<b>📅 Economic Calendar for {instrument}</b>\n\n"
+                
+                # Add events to the text
+                for event in calendar_data[:10]:  # Show max 10 events to avoid hitting message limit
+                    event_date = event.get('date', 'Unknown date')
+                    event_time = event.get('time', 'Unknown time')
+                    event_currency = event.get('currency', '')
+                    event_name = event.get('event', 'Unknown event')
+                    event_impact = event.get('impact', 'low')
+                    
+                    # Emoji for impact
+                    if event_impact.lower() == 'high':
+                        impact_emoji = "🔴"
+                    elif event_impact.lower() == 'medium':
+                        impact_emoji = "🟠"
+                    else:
+                        impact_emoji = "🟢"
+                    
+                    # Format date/time
+                    if event_date and event_time:
+                        try:
+                            # Parse date and time for better formatting
+                            date_obj = datetime.strptime(f"{event_date} {event_time}", "%Y-%m-%d %H:%M")
+                            formatted_datetime = date_obj.strftime("%a, %b %d %H:%M")
+                        except Exception:
+                            formatted_datetime = f"{event_date} {event_time}"
+                    else:
+                        formatted_datetime = "Unknown time"
+                    
+                    # Add event to the text
+                    calendar_text += f"{impact_emoji} <b>{event_currency}</b> | {formatted_datetime}\n<i>{event_name}</i>\n\n"
+                
+                # Add note about more events
+                if len(calendar_data) > 10:
+                    calendar_text += f"\n<i>... and {len(calendar_data) - 10} more events</i>"
+                
+                # Add button to go back
                 keyboard = [
-                    [InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal" if is_from_signal else "back_instrument")]
+                    [InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal" if is_from_signal else "back_instrument")]
                 ]
                 
-                # Send the calendar analysis
+                # Send the calendar
                 await query.edit_message_text(
-                    text=calendar_data,
+                    text=calendar_text,
                     reply_markup=InlineKeyboardMarkup(keyboard),
                     parse_mode=ParseMode.HTML
                 )
                 
                 return SHOW_RESULT
                 
-            except Exception as e:
-                logger.error(f"Error getting calendar data: {str(e)}")
-                logger.exception(e)
-                
-                # Show error message
+            except asyncio.TimeoutError:
+                logger.error(f"Timeout getting calendar data for {instrument}")
                 await query.edit_message_text(
-                    text=f"Sorry, I couldn't retrieve the economic calendar at this time. Please try again later.",
+                    text=f"The economic calendar is taking too long to load. Please try again later.",
                     reply_markup=InlineKeyboardMarkup([[
-                        InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal" if is_from_signal else "back_instrument")
+                        InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal" if is_from_signal else "back_instrument")
                     ]])
                 )
+                return MENU
                 
+            except Exception as calendar_error:
+                logger.error(f"Error getting calendar data: {str(calendar_error)}")
+                logger.exception(calendar_error)
+                await query.edit_message_text(
+                    text=f"Sorry, I couldn't load the economic calendar for {instrument}. Please try again later.",
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal" if is_from_signal else "back_instrument")
+                    ]])
+                )
                 return MENU
             
         except Exception as e:
             logger.error(f"Error in show_economic_calendar: {str(e)}")
             logger.exception(e)
             
-            # Show error message
+            # Send fallback message
             try:
                 await query.edit_message_text(
-                    text=f"Sorry, I couldn't retrieve the economic calendar at this time. Please try again later.",
+                    text=f"Sorry, I couldn't access the economic calendar. Please try again later.",
                     reply_markup=InlineKeyboardMarkup([[
-                        InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal" if is_from_signal else "back_instrument")
+                        InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal" if is_from_signal else "back_instrument")
                     ]])
                 )
             except Exception as inner_e:
                 logger.error(f"Failed to send fallback message: {str(inner_e)}")
-            
+                
             return MENU
 
     async def instrument_signals_callback(self, update: Update, context=None) -> int:
@@ -3894,6 +4019,7 @@ Click the button below to start your FREE 14-day trial.
                 context.user_data['from_signal'] = True
                 context.user_data['message_id'] = update.callback_query.message.message_id
                 context.user_data['chat_id'] = update.callback_query.message.chat_id
+                context.user_data['previous_state'] = 'SIGNAL'  # Mark that we came from a signal
                 
                 # Also save current signal message for easy retrieval
                 if hasattr(update.callback_query, 'message') and hasattr(update.callback_query.message, 'text'):
@@ -3946,6 +4072,47 @@ Click the button below to start your FREE 14-day trial.
                 logger.error(f"Failed to recover from error: {str(inner_e)}")
             
             return MENU
+
+    def _extract_currency_codes(self, instrument: str) -> List[str]:
+        """Extract currency codes from instrument string like EURUSD or XAUUSD"""
+        if not instrument:
+            return []
+            
+        # Known currencies
+        known_currencies = ['USD', 'EUR', 'GBP', 'JPY', 'AUD', 'NZD', 'CAD', 'CHF']
+        
+        # Special case for gold/silver
+        if instrument.startswith('XAU'):
+            return ['USD']  # For gold, just return USD
+        if instrument.startswith('XAG'):
+            return ['USD']  # For silver, just return USD
+            
+        # Extract currency codes from forex pair
+        result = []
+        instrument = instrument.upper()
+        for currency in known_currencies:
+            if currency in instrument:
+                result.append(currency)
+                
+        logger.info(f"Extracted currencies {result} from instrument {instrument}")
+        return result
+        
+    def _get_instrument_currency(self, instrument: str) -> str:
+        """Get the primary currency from an instrument"""
+        if not instrument:
+            return None
+            
+        # Handle special cases
+        if instrument.startswith('XAU'):
+            return 'USD'  # For gold
+        if instrument.startswith('XAG'):
+            return 'USD'  # For silver
+            
+        # For normal forex pairs, return the first 3 letters
+        if len(instrument) >= 3:
+            return instrument[:3]
+            
+        return None
 
 # Indices keyboard voor sentiment analyse
 INDICES_SENTIMENT_KEYBOARD = [
