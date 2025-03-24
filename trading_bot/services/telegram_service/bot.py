@@ -794,6 +794,13 @@ class TelegramService:
 
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> None:
         """Send a welcome message when the bot is started."""
+        # Reset any existing flow state
+        if context and hasattr(context, 'user_data'):
+            # Clear any previous flow data
+            context.user_data.clear()
+            # Set current flow to menu
+            context.user_data['current_flow'] = 'menu'
+            
         user = update.effective_user
         user_id = user.id
         first_name = user.first_name
@@ -1116,16 +1123,30 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             is_from_signal = False
             instrument = None
             
+            # Check current flow
+            current_flow = context.user_data.get('current_flow') if context and hasattr(context, 'user_data') else None
+            
             if query.data.startswith("analysis_technical_signal_"):
                 is_from_signal = True
                 instrument = query.data.replace("analysis_technical_signal_", "")
                 logger.info(f"Technical analysis for instrument {instrument} from signal")
+                
+                # Ensure we're in signal flow
+                if context and hasattr(context, 'user_data'):
+                    if current_flow != 'signal':
+                        context.user_data.clear()
+                        context.user_data['current_flow'] = 'signal'
+            else:
+                # If not from signal, ensure we're in menu flow
+                if context and hasattr(context, 'user_data'):
+                    if current_flow != 'menu':
+                        context.user_data.clear()
+                        context.user_data['current_flow'] = 'menu'
             
             # Store analysis type in user_data
             if context and hasattr(context, 'user_data'):
                 context.user_data['analysis_type'] = 'technical'
                 
-                # Set from_signal if this came via signal flow
                 if is_from_signal:
                     context.user_data['from_signal'] = True
                     context.user_data['previous_state'] = 'SIGNAL'
@@ -1147,11 +1168,12 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             )
             
             return CHOOSE_MARKET
+            
         except Exception as e:
             logger.error(f"Error in analysis_technical_callback: {str(e)}")
             logger.exception(e)
             return MENU
-    
+
     async def analysis_sentiment_callback(self, update: Update, context=None) -> int:
         """Handle sentiment analysis selection"""
         query = update.callback_query
@@ -1165,16 +1187,30 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             is_from_signal = False
             instrument = None
             
+            # Check current flow
+            current_flow = context.user_data.get('current_flow') if context and hasattr(context, 'user_data') else None
+            
             if query.data.startswith("analysis_sentiment_signal_"):
                 is_from_signal = True
                 instrument = query.data.replace("analysis_sentiment_signal_", "")
                 logger.info(f"Sentiment analysis for instrument {instrument} from signal")
+                
+                # Ensure we're in signal flow
+                if context and hasattr(context, 'user_data'):
+                    if current_flow != 'signal':
+                        context.user_data.clear()
+                        context.user_data['current_flow'] = 'signal'
+            else:
+                # If not from signal, ensure we're in menu flow
+                if context and hasattr(context, 'user_data'):
+                    if current_flow != 'menu':
+                        context.user_data.clear()
+                        context.user_data['current_flow'] = 'menu'
             
             # Store analysis type in user_data
             if context and hasattr(context, 'user_data'):
                 context.user_data['analysis_type'] = 'sentiment'
                 
-                # Set from_signal if this came via signal flow
                 if is_from_signal:
                     context.user_data['from_signal'] = True
                     context.user_data['previous_state'] = 'SIGNAL'
@@ -1196,6 +1232,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             )
             
             return CHOOSE_MARKET
+            
         except Exception as e:
             logger.error(f"Error in analysis_sentiment_callback: {str(e)}")
             logger.exception(e)
@@ -1753,6 +1790,13 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         query = update.callback_query
         await query.answer()
         
+        # Check if we're in the signal flow
+        if not context or not hasattr(context, 'user_data') or context.user_data.get('current_flow') != 'signal':
+            logger.warning("Attempted to go back to signal while not in signal flow")
+            # Return to main menu as fallback
+            await self.show_main_menu(update, context)
+            return MENU
+            
         # Get user ID for tracking purposes
         user_id = update.effective_user.id
         logger.info(f"Back to signal callback invoked by user {user_id}")
@@ -1934,6 +1978,13 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
 
     async def show_main_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> None:
         """Show the main menu with all bot features"""
+        # Reset any existing flow state
+        if context and hasattr(context, 'user_data'):
+            # Clear any previous flow data
+            context.user_data.clear()
+            # Set current flow to menu
+            context.user_data['current_flow'] = 'menu'
+            
         user_id = update.effective_user.id
         
         # Check if the user has a subscription
@@ -2024,6 +2075,15 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         """Handle button presses from inline keyboards"""
         query = update.callback_query
         logger.info(f"Button callback opgeroepen met data: {query.data}")
+        
+        # Check current flow
+        current_flow = context.user_data.get('current_flow') if context and hasattr(context, 'user_data') else None
+        
+        # If this is a menu command but we're in signal flow, reset the flow
+        if query.data in ["menu_analyse", "menu_signals"] and current_flow == 'signal':
+            if context and hasattr(context, 'user_data'):
+                context.user_data.clear()
+                context.user_data['current_flow'] = 'menu'
         
         # Beantwoord de callback query met een timeout-afhandeling
         try:
@@ -3915,8 +3975,12 @@ Click the button below to start your FREE 14-day trial.
             instrument = query.data.replace('analyze_from_signal_', '')
             logger.info(f"Analyze from signal callback for instrument: {instrument}")
             
-            # Store the instrument in context for later use
+            # Store the signal flow context
             if context and hasattr(context, 'user_data'):
+                # Clear any previous flow data
+                context.user_data.clear()
+                # Set current flow and data
+                context.user_data['current_flow'] = 'signal'
                 context.user_data['instrument'] = instrument
                 context.user_data['from_signal'] = True
                 context.user_data['from_signal_message'] = True
