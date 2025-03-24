@@ -755,6 +755,18 @@ class TelegramService:
         self.application.add_handler(CommandHandler("set_payment_failed", self.set_payment_failed_command))
         self.application.add_handler(CommandHandler("setpaymentfailed", self.set_payment_failed_command))
         
+        # Add specific handlers for signal analysis flows
+        self.application.add_handler(CallbackQueryHandler(self.analysis_technical_callback, pattern="^analysis_technical$"))
+        self.application.add_handler(CallbackQueryHandler(self.analysis_technical_callback, pattern="^analysis_technical_signal_.*$"))
+        
+        self.application.add_handler(CallbackQueryHandler(self.analysis_sentiment_callback, pattern="^analysis_sentiment$"))
+        self.application.add_handler(CallbackQueryHandler(self.analysis_sentiment_callback, pattern="^analysis_sentiment_signal_.*$"))
+        
+        self.application.add_handler(CallbackQueryHandler(self.analysis_calendar_callback, pattern="^analysis_calendar$"))
+        self.application.add_handler(CallbackQueryHandler(self.analysis_calendar_callback, pattern="^analysis_calendar_signal_.*$"))
+        
+        self.application.add_handler(CallbackQueryHandler(self.back_to_signal_callback, pattern="^back_to_signal$"))
+        
         # Callback query handler for all button presses
         self.application.add_handler(CallbackQueryHandler(self.button_callback))
         
@@ -1086,13 +1098,29 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Debug logging
             logger.info("analysis_technical_callback aangeroepen")
             
+            # Extract instrument if this came from a signal
+            is_from_signal = False
+            instrument = None
+            
+            if query.data.startswith("analysis_technical_signal_"):
+                is_from_signal = True
+                instrument = query.data.replace("analysis_technical_signal_", "")
+                logger.info(f"Technical analysis for instrument {instrument} from signal")
+            
             # Store analysis type in user_data
             if context and hasattr(context, 'user_data'):
                 context.user_data['analysis_type'] = 'technical'
                 
+                # Set from_signal if this came via signal flow
+                if is_from_signal:
+                    context.user_data['from_signal'] = True
+                    context.user_data['previous_state'] = 'SIGNAL'
+                    if instrument:
+                        context.user_data['instrument'] = instrument
+                
                 # Check if we have an instrument from signal
-                if context.user_data.get('from_signal') and context.user_data.get('instrument'):
-                    instrument = context.user_data.get('instrument')
+                if (context.user_data.get('from_signal') or context.user_data.get('previous_state') == 'SIGNAL') and (instrument or context.user_data.get('instrument')):
+                    instrument = instrument or context.user_data.get('instrument')
                     logger.info(f"Using instrument from signal: {instrument} for technical analysis")
                     
                     # Go directly to technical analysis for this instrument
@@ -1119,13 +1147,29 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Debug logging
             logger.info("analysis_sentiment_callback aangeroepen")
             
+            # Extract instrument if this came from a signal
+            is_from_signal = False
+            instrument = None
+            
+            if query.data.startswith("analysis_sentiment_signal_"):
+                is_from_signal = True
+                instrument = query.data.replace("analysis_sentiment_signal_", "")
+                logger.info(f"Sentiment analysis for instrument {instrument} from signal")
+            
             # Store analysis type in user_data
             if context and hasattr(context, 'user_data'):
                 context.user_data['analysis_type'] = 'sentiment'
                 
+                # Set from_signal if this came via signal flow
+                if is_from_signal:
+                    context.user_data['from_signal'] = True
+                    context.user_data['previous_state'] = 'SIGNAL'
+                    if instrument:
+                        context.user_data['instrument'] = instrument
+                
                 # Check if we have an instrument from signal
-                if context.user_data.get('from_signal') and context.user_data.get('instrument'):
-                    instrument = context.user_data.get('instrument')
+                if (context.user_data.get('from_signal') or context.user_data.get('previous_state') == 'SIGNAL') and (instrument or context.user_data.get('instrument')):
+                    instrument = instrument or context.user_data.get('instrument')
                     logger.info(f"Using instrument from signal: {instrument} for sentiment analysis")
                     
                     # Go directly to sentiment analysis for this instrument
@@ -1152,13 +1196,29 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Debug logging
             logger.info("analysis_calendar_callback aangeroepen")
             
+            # Extract instrument if this came from a signal
+            is_from_signal = False
+            instrument = None
+            
+            if query.data.startswith("analysis_calendar_signal_"):
+                is_from_signal = True
+                instrument = query.data.replace("analysis_calendar_signal_", "")
+                logger.info(f"Calendar analysis for instrument {instrument} from signal")
+            
             # Store analysis type in user_data
             if context and hasattr(context, 'user_data'):
                 context.user_data['analysis_type'] = 'calendar'
                 
+                # Set from_signal if this came via signal flow
+                if is_from_signal:
+                    context.user_data['from_signal'] = True
+                    context.user_data['previous_state'] = 'SIGNAL'
+                    if instrument:
+                        context.user_data['instrument'] = instrument
+                
                 # Check if we have an instrument from signal
-                if context.user_data.get('from_signal') and context.user_data.get('instrument'):
-                    instrument = context.user_data.get('instrument')
+                if (context.user_data.get('from_signal') or context.user_data.get('previous_state') == 'SIGNAL') and (instrument or context.user_data.get('instrument')):
+                    instrument = instrument or context.user_data.get('instrument')
                     logger.info(f"Using instrument from signal: {instrument} for economic calendar")
                     
                     # Go directly to economic calendar for this instrument
@@ -1694,11 +1754,21 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         logger.info(f"Back to signal callback invoked by user {user_id}")
         
         try:
+            # Log all available context to help debug
+            if context and hasattr(context, 'user_data'):
+                logger.info(f"Available context: {context.user_data.keys()}")
+                logger.info(f"from_signal: {context.user_data.get('from_signal')}")
+                logger.info(f"previous_state: {context.user_data.get('previous_state')}")
+                logger.info(f"instrument: {context.user_data.get('instrument')}")
+                
+                if 'signal_message' in context.user_data:
+                    logger.info("Signal message found in context")
+            
             # Ensure signals are loaded from file
             self._load_signals()
             
             # Check if we were previously in SIGNAL state (directly from a signal)
-            if context and hasattr(context, 'user_data') and context.user_data.get('previous_state') == 'SIGNAL':
+            if context and hasattr(context, 'user_data') and (context.user_data.get('previous_state') == 'SIGNAL' or context.user_data.get('from_signal', False)):
                 logger.info(f"Back to signal from analysis for user {user_id}")
                 
                 # Clear the previous menu selection to prevent issues
@@ -1742,10 +1812,16 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Try to find from message text as last resort
             if not instrument and hasattr(query.message, 'text'):
                 # Look for patterns like "EURUSD" or "XAUUSD" in the message
-                instrument_match = re.search(r'(?:Instrument|analysis for):\s*([A-Z0-9]{4,8})', query.message.text)
+                instrument_match = re.search(r'(?:Instrument|analysis for|chart for|for\s+):\s*([A-Z0-9]{4,8})', query.message.text, re.IGNORECASE)
                 if instrument_match:
                     instrument = instrument_match.group(1)
                     logger.info(f"Extracted instrument from message text: {instrument}")
+                else:
+                    # Try more general pattern
+                    any_instrument = re.search(r'([A-Z]{3}[A-Z]{3}|XAU[A-Z]{3}|XAG[A-Z]{3})', query.message.text)
+                    if any_instrument:
+                        instrument = any_instrument.group(1)
+                        logger.info(f"Extracted instrument from general pattern: {instrument}")
             
             logger.info(f"Looking for signal with instrument: {instrument} for user: {user_id}")
             
@@ -1776,6 +1852,8 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     return SIGNAL_DETAILS
                 else:
                     logger.warning(f"Signal data found for user {user_id} but no message or instrument mismatch")
+                    logger.info(f"Signal data keys: {signal_data.keys()}")
+                    logger.info(f"Signal data instrument: {signal_data.get('instrument', 'None')}")
             
             # Fallback: recreate a basic signal message from context data
             if context and hasattr(context, 'user_data'):
@@ -4040,11 +4118,11 @@ Click the button below to start your FREE 14-day trial.
             # Show analysis options for this instrument
             keyboard = [
                 [
-                    InlineKeyboardButton("📈 Technical Analysis", callback_data="analysis_technical"),
-                    InlineKeyboardButton("🧠 Sentiment Analysis", callback_data="analysis_sentiment")
+                    InlineKeyboardButton("📈 Technical Analysis", callback_data=f"analysis_technical_signal_{instrument}"),
+                    InlineKeyboardButton("🧠 Sentiment Analysis", callback_data=f"analysis_sentiment_signal_{instrument}")
                 ],
                 [
-                    InlineKeyboardButton("📅 Economic Calendar", callback_data="analysis_calendar")
+                    InlineKeyboardButton("📅 Economic Calendar", callback_data=f"analysis_calendar_signal_{instrument}")
                 ],
                 [InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal")]
             ]
