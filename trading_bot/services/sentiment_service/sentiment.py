@@ -1,6 +1,6 @@
+import os
 import logging
 import aiohttp
-import os
 import json
 import random
 from typing import Dict, Any, Optional
@@ -9,7 +9,7 @@ import socket
 import re
 import ssl
 
-logger = logging.getLogger("market_sentiment")
+logger = logging.getLogger(__name__)
 
 class MarketSentimentService:
     """Service for retrieving market sentiment data"""
@@ -39,6 +39,77 @@ class MarketSentimentService:
             logger.warning("No DeepSeek API key found, using mock data")
             
         self.use_mock = not self.deepseek_api_key
+    
+    async def get_market_sentiment(self, instrument: str, market_type: Optional[str] = None) -> Optional[dict]:
+        """Get market sentiment for a given instrument"""
+        try:
+            logger.info(f"Getting market sentiment for {instrument} ({market_type or 'unknown'})")
+            
+            # Generate mock sentiment data for now
+            sentiment_score = random.uniform(0.3, 0.7)
+            bullish_percentage = int(sentiment_score * 100)
+            
+            # Determine trend strength
+            if abs(sentiment_score - 0.5) > 0.15:
+                trend_strength = "Strong"
+            elif abs(sentiment_score - 0.5) > 0.05:
+                trend_strength = "Moderate"
+            else:
+                trend_strength = "Weak"
+            
+            # Generate analysis text
+            analysis = f"""<b>🎯 {instrument} Market Analysis</b>
+
+<b>📈 Market Direction:</b>
+The {instrument} is currently showing {'bullish' if sentiment_score > 0.5 else 'bearish'} sentiment with {trend_strength.lower()} momentum. Overall sentiment is {bullish_percentage}% {'bullish' if sentiment_score > 0.5 else 'bearish'}.
+
+<b>📰 Latest News & Events:</b>
+• Market sentiment driven by technical factors
+• Regular trading activity observed
+• No major market-moving events at this time
+
+<b>🎯 Key Levels:</b>
+• Support: Previous low
+• Resistance: Previous high
+
+<b>⚠️ Risk Factors:</b>
+• Market Volatility: {random.choice(['High', 'Moderate', 'Low'])}
+• Watch for unexpected news events
+• Monitor broader market conditions
+
+<b>💡 Conclusion:</b>
+{random.choice([
+    'Consider long positions with proper risk management.',
+    'Watch for short opportunities near resistance.',
+    'Wait for clearer signals before taking new positions.',
+    'Monitor price action at key levels.'
+])}"""
+
+            return {
+                'overall_sentiment': 'bullish' if sentiment_score > 0.5 else 'bearish',
+                'sentiment_score': sentiment_score,
+                'bullish_percentage': bullish_percentage,
+                'trend_strength': trend_strength,
+                'volatility': random.choice(['High', 'Moderate', 'Low']),
+                'support_level': 'Previous low',
+                'resistance_level': 'Previous high',
+                'recommendation': 'Monitor price action and manage risk appropriately',
+                'analysis': analysis
+            }
+            
+        except Exception as e:
+            logger.error(f"Error getting market sentiment: {str(e)}")
+            return {
+                'overall_sentiment': 'neutral',
+                'sentiment_score': 0.5,
+                'bullish_percentage': 50,
+                'trend_strength': 'Weak',
+                'volatility': 'Moderate',
+                'support_level': 'Not available',
+                'resistance_level': 'Not available',
+                'recommendation': 'Wait for clearer market signals',
+                'analysis': f"Error getting sentiment analysis for {instrument}. Please try again later."
+            }
     
     async def get_market_sentiment(self, instrument: str, market_type: Optional[str] = None) -> Optional[str]:
         """Get market sentiment for a given instrument"""
