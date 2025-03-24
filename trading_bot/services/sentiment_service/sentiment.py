@@ -885,118 +885,15 @@ The market is showing neutral sentiment with mixed signals. Current price action
             return None
         
         try:
-            # Set up direct HTTPS request with proper error handling
-            ssl_context = ssl.create_default_context()
+            # Use the existing _format_with_deepseek method which has the complete prompt
+            market_type = self._guess_market_from_instrument(instrument)
+            formatted_content = await self._format_with_deepseek(instrument, market_type, market_data)
             
-            # Prepare DeepSeek prompt
-            prompt = f"""Create a comprehensive market sentiment analysis for {instrument} using the following market data:
-
-{market_data}
-
-Format as follows:
-<b>🎯 {instrument} Market Analysis</b>
-
-<b>📈 Market Direction:</b>
-[Current trend - EXPLICITLY state if bullish, bearish, or neutral based on the data]
-
-<b>📰 Latest News & Events:</b>
-• [Key news item 1]
-• [Key news item 2]
-• [Key news item 3]
-
-<b>🎯 Key Levels:</b>
-• Support: [Current support levels]
-• Resistance: [Current resistance levels]
-
-<b>⚠️ Risk Factors:</b>
-• [Key risk factor 1]
-• [Key risk factor 2]
-
-<b>💡 Conclusion:</b>
-[Trading recommendation - be specific about whether to consider long, short, or neutral positions]
-
-Format using HTML for Telegram. Be concise but informative with actionable insights.
-"""
-            
-            # Sanitize API key
-            sanitized_api_key = self.deepseek_api_key.strip()
-            
-            # Configure payload with proper parameters
-            payload = {
-                "model": "deepseek-chat",
-                "messages": [
-                    {"role": "system", "content": "You are an expert financial analyst creating market sentiment analyses for traders."},
-                    {"role": "user", "content": prompt}
-                ],
-                "temperature": 0.3,
-                "max_tokens": 1024
-            }
-            
-            # Set up custom headers
-            headers = {
-                "Authorization": f"Bearer {sanitized_api_key}",
-                "Content-Type": "application/json"
-            }
-            
-            # Try new endpoint only
-            endpoint = "https://api.deepseek.com/v1/chat/completions"
-            
-            logger.info(f"Trying DeepSeek endpoint: {endpoint}")
-            connector = aiohttp.TCPConnector(ssl=ssl_context)
-            
-            # Use longer timeouts to prevent issues
-            timeout = aiohttp.ClientTimeout(
-                total=45,          # Increased total timeout from 15 to 45 seconds
-                connect=15,        # Allow 15 seconds to establish connection
-                sock_read=30,      # Allow 30 seconds to read socket data
-                sock_connect=15    # Allow 15 seconds for socket connection
-            )
-            
-            async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
-                try:
-                    # Wrap the entire API call in an asyncio.wait_for to ensure it doesn't hang
-                    response_task = session.post(
-                        endpoint,
-                        headers=headers,
-                        json=payload
-                    )
-                    
-                    # Use a separate timeout as additional protection
-                    response = await asyncio.wait_for(response_task, timeout=45.0)
-                    
-                    status = response.status
-                    logger.info(f"DeepSeek API response status: {status}")
-                    
-                    # Read response with timeout protection
-                    try:
-                        response_text = await asyncio.wait_for(response.text(), timeout=20.0)
-                    except asyncio.TimeoutError:
-                        logger.error("Timeout while reading DeepSeek response text")
-                        return None
-                    
-                    if status == 200:
-                        data = json.loads(response_text)
-                        content = data['choices'][0]['message']['content']
-                        
-                        # Clean up any markdown formatting that might be in the content
-                        content = re.sub(r'^```html\s*', '', content)
-                        content = re.sub(r'\s*```$', '', content)
-                        
-                        logger.info(f"Successfully formatted market data with DeepSeek for {instrument}")
-                        
-                        # Parse sentiment from formatted content
-                        return await self._get_deepseek_sentiment(market_data, instrument, content)
-                    else:
-                        logger.warning(f"DeepSeek API error: {status}, response: {response_text[:200]}...")
-                        # If endpoint failed, return None
-                        return None
-                        
-                except asyncio.TimeoutError:
-                    logger.error("Timeout while making DeepSeek API request")
-                    return None
-                except aiohttp.ClientError as ce:
-                    logger.error(f"DeepSeek API connection error: {str(ce)}")
-                    return None
+            if formatted_content:
+                return await self._get_deepseek_sentiment(market_data, instrument, formatted_content)
+            else:
+                logger.warning(f"DeepSeek formatting failed for {instrument}, using manual formatting")
+                return None
             
         except Exception as e:
             logger.error(f"Error in DeepSeek processing: {str(e)}")
