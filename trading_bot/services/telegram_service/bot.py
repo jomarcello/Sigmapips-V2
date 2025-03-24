@@ -3587,7 +3587,7 @@ Click the button below to start your FREE 14-day trial.
                     await query.edit_message_text(
                         text=f"Sorry, I couldn't generate a chart for {instrument} at this time. Please try again later.",
                         reply_markup=InlineKeyboardMarkup([[
-                            InlineKeyboardButton("⬅️ Back to Analysis Options", callback_data="back_to_signal_analysis" if is_from_signal else "back_instrument")
+                            InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal_analysis" if is_from_signal else "back_instrument")
                         ]])
                     )
                     return MENU
@@ -3597,7 +3597,7 @@ Click the button below to start your FREE 14-day trial.
                 
                 # Add buttons for different actions - back button depends on where we came from
                 keyboard = [
-                    [InlineKeyboardButton("⬅️ Back to Analysis Options", callback_data="back_to_signal_analysis" if is_from_signal else "back_instrument")]
+                    [InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal_analysis" if is_from_signal else "back_instrument")]
                 ]
                 
                 # Send the chart with caption
@@ -3629,7 +3629,7 @@ Click the button below to start your FREE 14-day trial.
                 await query.edit_message_text(
                     text=f"Sorry, there was a problem generating the chart for {instrument}. Please try again later.",
                     reply_markup=InlineKeyboardMarkup([[
-                        InlineKeyboardButton("⬅️ Back to Analysis Options", callback_data="back_to_signal_analysis" if is_from_signal else "back_instrument")
+                        InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal_analysis" if is_from_signal else "back_instrument")
                     ]])
                 )
                 
@@ -3644,7 +3644,7 @@ Click the button below to start your FREE 14-day trial.
                 await query.edit_message_text(
                     text=f"Error: {str(e)}",
                     reply_markup=InlineKeyboardMarkup([[
-                        InlineKeyboardButton("⬅️ Back to Analysis Options", callback_data="back_to_signal_analysis" if context and hasattr(context, 'user_data') and context.user_data.get('from_signal', False) else "back_instrument")
+                        InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal_analysis" if context and hasattr(context, 'user_data') and context.user_data.get('from_signal', False) else "back_instrument")
                     ]])
                 )
             except Exception:
@@ -4419,12 +4419,46 @@ Click the button below to start your FREE 14-day trial.
             # Format message text
             text = f"Choose analysis type for {instrument}:" if instrument else "Choose analysis type:"
             
-            # Show analysis options
-            await query.edit_message_text(
-                text=text,
-                reply_markup=InlineKeyboardMarkup(SIGNAL_ANALYSIS_KEYBOARD)
-            )
+            # Create a custom keyboard for this instrument
+            SIGNAL_ANALYSIS_KEYBOARD_INSTRUMENT = []
             
+            if instrument:
+                SIGNAL_ANALYSIS_KEYBOARD_INSTRUMENT = [
+                    [
+                        InlineKeyboardButton("📈 Technical Analysis", 
+                            callback_data=f"analysis_technical_signal_{instrument}"),
+                        InlineKeyboardButton("🧠 Sentiment Analysis", 
+                            callback_data=f"analysis_sentiment_signal_{instrument}")
+                    ],
+                    [
+                        InlineKeyboardButton("📅 Economic Calendar", 
+                            callback_data=f"analysis_calendar_signal_{instrument}")
+                    ],
+                    [InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal")]
+                ]
+            else:
+                # Use the generic keyboard if no instrument is available
+                SIGNAL_ANALYSIS_KEYBOARD_INSTRUMENT = SIGNAL_ANALYSIS_KEYBOARD
+            
+            # Try to edit the message text
+            try:
+                # Show analysis options
+                await query.edit_message_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(SIGNAL_ANALYSIS_KEYBOARD_INSTRUMENT)
+                )
+            except BadRequest as e:
+                if "There is no text in the message to edit" in str(e):
+                    # This might be a photo message, so we need to send a new message
+                    logger.info("Cannot edit message text (likely a photo). Sending new message.")
+                    await query.message.reply_text(
+                        text=text,
+                        reply_markup=InlineKeyboardMarkup(SIGNAL_ANALYSIS_KEYBOARD_INSTRUMENT)
+                    )
+                else:
+                    # Re-raise other BadRequest errors
+                    raise
+                    
             return CHOOSE_ANALYSIS
             
         except Exception as e:
@@ -4432,14 +4466,15 @@ Click the button below to start your FREE 14-day trial.
             logger.exception(e)
             
             try:
-                await query.edit_message_text(
+                # Try to send a new message since editing might have failed
+                await query.message.reply_text(
                     text="An error occurred. Please try again or go back to the signal.",
                     reply_markup=InlineKeyboardMarkup([[
                         InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal")
                     ]])
                 )
-            except Exception:
-                pass
+            except Exception as inner_e:
+                logger.error(f"Failed to recover from error: {str(inner_e)}")
                 
             return CHOOSE_ANALYSIS
 
