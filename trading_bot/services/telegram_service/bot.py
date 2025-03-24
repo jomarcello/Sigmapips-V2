@@ -767,6 +767,26 @@ class TelegramService:
         application.add_handler(CallbackQueryHandler(self.analysis_calendar_callback, pattern="^analysis_calendar$"))
         application.add_handler(CallbackQueryHandler(self.analysis_calendar_callback, pattern="^analysis_calendar_signal_.*$"))
         
+        # Add handler for market selection
+        application.add_handler(CallbackQueryHandler(self.market_callback, pattern="^market_.*$"))
+        
+        # Add handlers for instrument selection
+        application.add_handler(CallbackQueryHandler(self.instrument_callback, pattern="^instrument_.*$"))
+        
+        # Add handlers for signals management
+        application.add_handler(CallbackQueryHandler(self.market_signals_callback, pattern="^market_signals_.*$"))
+        application.add_handler(CallbackQueryHandler(self.instrument_signals_callback, pattern="^instrument_signals_.*$"))
+        
+        # Add handlers for back navigation
+        application.add_handler(CallbackQueryHandler(self.back_menu_callback, pattern="^back_menu$"))
+        application.add_handler(CallbackQueryHandler(self.back_market_callback, pattern="^back_market$"))
+        application.add_handler(CallbackQueryHandler(self.back_instrument_callback, pattern="^back_instrument$"))
+        application.add_handler(CallbackQueryHandler(self.analysis_callback, pattern="^back_to_analysis$"))
+        application.add_handler(CallbackQueryHandler(self.analysis_callback, pattern="^back_analysis$"))
+        
+        # Add handler for analyze_from_signal
+        application.add_handler(CallbackQueryHandler(self.analyze_from_signal_callback, pattern="^analyze_from_signal_.*$"))
+        
         application.add_handler(CallbackQueryHandler(self.back_to_signal_callback, pattern="^back_to_signal$"))
         
         # Signal flow analysis handlers
@@ -3600,3 +3620,205 @@ Click the button below to start your FREE 14-day trial.
                 pass
                 
             return ConversationHandler.END
+
+    async def back_menu_callback(self, update: Update, context=None) -> int:
+        """Handle back_menu callback to return to the main menu"""
+        query = update.callback_query
+        
+        try:
+            # Show the main menu
+            await query.edit_message_text(
+                text=WELCOME_MESSAGE,
+                reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
+                parse_mode=ParseMode.HTML
+            )
+            
+            return MENU
+        except Exception as e:
+            logger.error(f"Error in back_menu_callback: {str(e)}")
+            try:
+                await query.message.reply_text(
+                    text=WELCOME_MESSAGE,
+                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
+                    parse_mode=ParseMode.HTML
+                )
+                return MENU
+            except Exception as inner_e:
+                logger.error(f"Failed to recover from error: {str(inner_e)}")
+                return MENU
+                
+    async def back_market_callback(self, update: Update, context=None) -> int:
+        """Handle back_market callback to return to market selection"""
+        query = update.callback_query
+        
+        try:
+            # Get the analysis type if stored in context
+            analysis_type = context.user_data.get('analysis_type', 'technical') if context and hasattr(context, 'user_data') else 'technical'
+            
+            # Choose the correct keyboard based on analysis type
+            keyboard = MARKET_KEYBOARD
+            
+            if analysis_type == 'technical':
+                message_text = "Select a market for technical analysis:"
+                keyboard = MARKET_KEYBOARD
+            elif analysis_type == 'sentiment':
+                message_text = "Select a market for sentiment analysis:"
+                keyboard = MARKET_SENTIMENT_KEYBOARD
+            elif analysis_type == 'calendar':
+                message_text = "Select a market for economic calendar:"
+                keyboard = MARKET_KEYBOARD
+            else:
+                message_text = "Select a market:"
+                
+            # Log the analysis type and keyboard being used
+            logger.info(f"Back to market selection with analysis_type={analysis_type}")
+                
+            # Show the market selection
+            await query.edit_message_text(
+                text=message_text,
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            
+            return CHOOSE_MARKET
+        except Exception as e:
+            logger.error(f"Error in back_market_callback: {str(e)}")
+            try:
+                await query.message.reply_text(
+                    text="Select a market:",
+                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
+                )
+                return CHOOSE_MARKET
+            except Exception as inner_e:
+                logger.error(f"Failed to recover from error: {str(inner_e)}")
+                return MENU
+                
+    async def back_instrument_callback(self, update: Update, context=None) -> int:
+        """Handle back_instrument callback to return to instrument selection"""
+        query = update.callback_query
+        
+        try:
+            # Default to forex keyboard if no market specified
+            market = context.user_data.get('market', 'forex') if context and hasattr(context, 'user_data') else 'forex'
+            analysis_type = context.user_data.get('analysis_type', 'technical') if context and hasattr(context, 'user_data') else 'technical'
+            
+            # Log the context data we're getting here for debugging
+            logger.info(f"Back to instrument with context data: market={market}, analysis_type={analysis_type}")
+            
+            # Check from callback data if this is a sentiment back button
+            is_sentiment_back = query.data == "back_instrument_sentiment"
+            if is_sentiment_back:
+                analysis_type = 'sentiment'
+                logger.info(f"Overriding analysis type to 'sentiment' based on callback data: {query.data}")
+                # Make sure to update context for future navigation
+                if context and hasattr(context, 'user_data'):
+                    context.user_data['analysis_type'] = 'sentiment'
+            
+            # Choose the appropriate keyboard based on market and analysis type
+            message_text = f"Select an instrument for {market} "
+            keyboard = FOREX_KEYBOARD  # Default
+            
+            if market == 'forex':
+                if analysis_type == 'technical':
+                    keyboard = FOREX_KEYBOARD
+                    message_text += "technical analysis:"
+                elif analysis_type == 'sentiment':
+                    keyboard = FOREX_SENTIMENT_KEYBOARD
+                    message_text += "sentiment analysis:"
+                elif analysis_type == 'calendar':
+                    keyboard = FOREX_CALENDAR_KEYBOARD
+                    message_text += "economic calendar:"
+                else:
+                    keyboard = FOREX_KEYBOARD
+                    message_text += "analysis:"
+            elif market == 'crypto':
+                if analysis_type == 'technical':
+                    keyboard = CRYPTO_KEYBOARD
+                    message_text += "technical analysis:"
+                elif analysis_type == 'sentiment':
+                    keyboard = CRYPTO_SENTIMENT_KEYBOARD
+                    message_text += "sentiment analysis:"
+                else:
+                    keyboard = CRYPTO_KEYBOARD
+                    message_text += "analysis:"
+            elif market == 'indices':
+                if analysis_type == 'technical':
+                    keyboard = INDICES_KEYBOARD
+                    message_text += "technical analysis:"
+                elif analysis_type == 'sentiment':
+                    keyboard = INDICES_SENTIMENT_KEYBOARD
+                    message_text += "sentiment analysis:"
+                else:
+                    keyboard = INDICES_KEYBOARD
+                    message_text += "analysis:"
+            elif market == 'commodities':
+                if analysis_type == 'technical':
+                    keyboard = COMMODITIES_KEYBOARD
+                    message_text += "technical analysis:"
+                elif analysis_type == 'sentiment':
+                    keyboard = COMMODITIES_SENTIMENT_KEYBOARD
+                    message_text += "sentiment analysis:"
+                else:
+                    keyboard = COMMODITIES_KEYBOARD
+                    message_text += "analysis:"
+                
+            # Show the instrument selection
+            await query.edit_message_text(
+                text=message_text,
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            
+            return CHOOSE_INSTRUMENT
+        except Exception as e:
+            logger.error(f"Error in back_instrument_callback: {str(e)}")
+            try:
+                await query.message.reply_text(
+                    text=f"Select an instrument for {market} analysis:",
+                    reply_markup=InlineKeyboardMarkup(FOREX_KEYBOARD) # Default to forex
+                )
+                return CHOOSE_INSTRUMENT
+            except Exception as inner_e:
+                logger.error(f"Failed to recover from error: {str(inner_e)}")
+                return MENU
+
+    async def analyze_from_signal_callback(self, update: Update, context=None) -> int:
+        """Handle analyze_from_signal callback to show analysis options for instrument from signal"""
+        query = update.callback_query
+        await query.answer()
+        
+        try:
+            # Get user ID
+            user_id = update.effective_user.id
+            
+            # Extract instrument from callback data
+            instrument = query.data.replace('analyze_from_signal_', '')
+            logger.info(f"Analyze from signal callback for instrument: {instrument}")
+            
+            # Store the instrument in context for later use
+            if context and hasattr(context, 'user_data'):
+                context.user_data['instrument'] = instrument
+                context.user_data['from_signal'] = True
+                context.user_data['from_signal_message'] = True
+                context.user_data['message_id'] = update.callback_query.message.message_id
+                context.user_data['chat_id'] = update.callback_query.message.chat_id
+            
+            # Show analysis options for this instrument (similar to analysis_callback but with preselected instrument)
+            keyboard = [
+                [
+                    InlineKeyboardButton("📈 Technical Analysis", callback_data="analysis_technical"),
+                    InlineKeyboardButton("💬 Sentiment Analysis", callback_data="analysis_sentiment")
+                ],
+                [
+                    InlineKeyboardButton("📅 Economic Calendar", callback_data="analysis_calendar")
+                ],
+                [InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal")]
+            ]
+            
+            await query.edit_message_text(
+                text=f"Choose analysis type for {instrument}:",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            
+            return CHOOSE_ANALYSIS
+        except Exception as e:
+            logger.error(f"Error in analyze_from_signal_callback: {str(e)}")
+            return MENU
