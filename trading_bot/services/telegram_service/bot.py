@@ -2352,7 +2352,7 @@ Click the button below to start your FREE 14-day trial.
             message = f"🎯 {instrument} Market Analysis\n\n"
             
             # Market Direction
-            message += "📈 Market Direction:\n"
+            message += "<b>📈 Market Direction:</b>\n"
             if sentiment_data.get('overall_sentiment'):
                 direction = "bullish" if sentiment_data['overall_sentiment'] == "bullish" else "bearish"
                 strength = sentiment_data.get('trend_strength', 'moderate').lower()
@@ -2363,7 +2363,7 @@ Click the button below to start your FREE 14-day trial.
                 message += "Market direction data not available.\n\n"
             
             # Latest News & Events
-            message += "📰 Latest News & Events:\n"
+            message += "<b>📰 Latest News & Events:</b>\n"
             if sentiment_data.get('analysis'):
                 # Extract and clean up the news summary
                 analysis = sentiment_data['analysis']
@@ -2393,11 +2393,14 @@ Click the button below to start your FREE 14-day trial.
                 message += "News and events data not available.\n\n"
             
             # Key Levels
-            message += "🎯 Key Levels:\n"
+            message += "<b>🎯 Key Levels:</b>\n"
             support = sentiment_data.get('support_level')
             resistance = sentiment_data.get('resistance_level')
             
             if support and resistance and not support.startswith('See') and not resistance.startswith('See'):
+                # Remove dollar signs from levels
+                support = re.sub(r'\$', '', support)
+                resistance = re.sub(r'\$', '', resistance)
                 message += f"• Support: {support}\n"
                 message += f"• Resistance: {resistance}\n\n"
             else:
@@ -2411,15 +2414,19 @@ Click the button below to start your FREE 14-day trial.
                     resistance_lines = re.findall(r'Resistance.*?:(.+?)(?:\n|$)', levels_text)
                     
                     if support_lines:
-                        message += f"• Support:{support_lines[0].strip()}\n"
+                        # Remove dollar signs and clean up
+                        support_text = re.sub(r'\$', '', support_lines[0].strip())
+                        message += f"• Support: {support_text}\n"
                     if resistance_lines:
-                        message += f"• Resistance:{resistance_lines[0].strip()}\n"
+                        # Remove dollar signs and clean up
+                        resistance_text = re.sub(r'\$', '', resistance_lines[0].strip())
+                        message += f"• Resistance: {resistance_text}\n"
                     message += "\n"
                 else:
                     message += "Key price levels not available.\n\n"
             
             # Risk Factors
-            message += "⚠️ Risk Factors:\n"
+            message += "<b>⚠️ Risk Factors:</b>\n"
             if sentiment_data.get('analysis'):
                 # Extract risk factors from analysis
                 analysis = sentiment_data['analysis']
@@ -2432,8 +2439,12 @@ Click the button below to start your FREE 14-day trial.
                         if line:
                             # Remove bullet points and clean up
                             line = re.sub(r'^[•\-\*]\s*', '', line)
+                            line = re.sub(r'💡', '', line)  # Remove any stray emojis
                             if line and not line.startswith('Market Volatility:'):
                                 risks.append(f"• {line}")
+                
+                # Filter out empty bullets
+                risks = [risk for risk in risks if not risk.strip() == '•']
                 
                 if risks:
                     message += '\n'.join(risks) + "\n\n"
@@ -2443,7 +2454,7 @@ Click the button below to start your FREE 14-day trial.
                 message += "Risk factors data not available.\n\n"
             
             # Conclusion
-            message += "💡 Conclusion:\n"
+            message += "<b>💡 Conclusion:</b>\n"
             if sentiment_data.get('recommendation'):
                 conclusion = sentiment_data['recommendation'].strip()
                 # Remove any meta-text about formatting
@@ -2462,7 +2473,6 @@ Click the button below to start your FREE 14-day trial.
                 message += "Analysis conclusion not available."
             
             # Clean any remaining HTML tags and normalize whitespace
-            message = re.sub(r'<[^>]+>', '', message)
             message = re.sub(r'\n\s*\n', '\n\n', message)
             message = message.strip()
             
