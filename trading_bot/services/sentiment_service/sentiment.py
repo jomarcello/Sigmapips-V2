@@ -81,7 +81,8 @@ class MarketSentimentService:
             logger.info(f"Attempting to process sentiment with DeepSeek for {instrument}")
             deepseek_result = await self._try_deepseek_with_fallback(tavily_data, instrument)
             if deepseek_result:
-                return deepseek_result['analysis']
+                # DeepSeek result is already a formatted string
+                return deepseek_result
         except Exception as e:
             logger.error(f"Error processing sentiment with DeepSeek: {str(e)}")
             logger.exception(e)
@@ -280,26 +281,36 @@ class MarketSentimentService:
         logger.info(f"Formatting market data for {instrument} using DeepSeek API")
         
         try:
-            # Check DeepSeek API connectivity first - use IP address instead of hostname
+            # Check DeepSeek API connectivity first using DNS resolution
             deepseek_available = False
             try:
-                # Use IP address instead of hostname to avoid DNS issues
-                deepseek_ip = "23.236.75.155"
+                # Get the actual IP addresses from DNS
+                import socket
+                deepseek_ips = socket.gethostbyname_ex('api.deepseek.com')[2]
+                logger.info(f"Resolved DeepSeek IPs: {deepseek_ips}")
                 
-                # Simple socket connection test
-                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                sock.settimeout(3)  # Quick 3-second timeout
-                # Try to connect to DeepSeek IP on port 443 (HTTPS)
-                result = sock.connect_ex((deepseek_ip, 443))
-                sock.close()
+                # Try each IP until we find one that works
+                for ip in deepseek_ips:
+                    try:
+                        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                        sock.settimeout(3)  # Quick 3-second timeout
+                        result = sock.connect_ex((ip, 443))
+                        sock.close()
+                        
+                        if result == 0:  # Connection successful
+                            logger.info(f"DeepSeek API connectivity test successful using IP: {ip}")
+                            deepseek_available = True
+                            break
+                        else:
+                            logger.warning(f"Failed to connect to DeepSeek IP {ip} with result: {result}")
+                    except socket.error as e:
+                        logger.warning(f"Socket error for IP {ip}: {str(e)}")
+                        continue
                 
-                if result == 0:  # Port is open, connection successful
-                    logger.info("DeepSeek API connectivity test successful")
-                    deepseek_available = True
-                else:
-                    logger.warning(f"DeepSeek API connectivity test failed with result: {result}")
+                if not deepseek_available:
+                    logger.warning("Could not connect to any DeepSeek IP address")
             except socket.error as e:
-                logger.warning(f"DeepSeek API socket connection failed: {str(e)}")
+                logger.warning(f"DNS resolution failed for api.deepseek.com: {str(e)}")
             
             if not deepseek_available:
                 logger.warning("DeepSeek API is unreachable, using manual formatting")
@@ -858,12 +869,12 @@ The market is showing neutral sentiment with mixed signals. Current price action
             logger.warning(f"DeepSeek API connectivity check failed: {str(e)}")
             return False
 
-    async def _try_deepseek_with_fallback(self, market_data: str, instrument: str) -> Dict[str, Any]:
+    async def _try_deepseek_with_fallback(self, market_data: str, instrument: str) -> str:
         """Try to use DeepSeek API and fall back to manual formatting if needed"""
         # Skip early if no API key
         if not self.deepseek_api_key:
             logger.warning("No DeepSeek API key available, using manual formatting")
-            return None
+            return self._format_data_manually(market_data, instrument)
         
         try:
             # Use the existing _format_with_deepseek method which has the complete prompt
@@ -874,12 +885,12 @@ The market is showing neutral sentiment with mixed signals. Current price action
                 return await self._get_deepseek_sentiment(market_data, instrument, formatted_content)
             else:
                 logger.warning(f"DeepSeek formatting failed for {instrument}, using manual formatting")
-                return None
+                return self._format_data_manually(market_data, instrument)
             
         except Exception as e:
             logger.error(f"Error in DeepSeek processing: {str(e)}")
             logger.exception(e)
-            return None
+            return self._format_data_manually(market_data, instrument)
             
     async def _get_deepseek_sentiment(self, market_data: str, instrument: str, formatted_content: str = None) -> str:
         """Use DeepSeek to analyze market sentiment and return formatted analysis"""
