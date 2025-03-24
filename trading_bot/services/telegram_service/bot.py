@@ -2343,14 +2343,10 @@ Click the button below to start your FREE 14-day trial.
                 try:
                     sentiment_data = json.loads(sentiment_data)
                 except json.JSONDecodeError:
-                    # Clean any HTML tags from the text
+                    # Clean any HTML tags and meta-text from the text
                     clean_text = re.sub(r'<[^>]+>', '', sentiment_data)
+                    clean_text = re.sub(r"Here's your comprehensive .* analysis formatted for .*:", '', clean_text)
                     return clean_text
-            
-            # Clean any HTML from the analysis text
-            analysis_text = sentiment_data.get('analysis', '')
-            analysis_text = re.sub(r'<[^>]+>', '', analysis_text)
-            sentiment_data['analysis'] = analysis_text
             
             # Format the analysis into a readable message
             message = f"🎯 {instrument} Market Analysis\n\n"
@@ -2371,16 +2367,26 @@ Click the button below to start your FREE 14-day trial.
             if sentiment_data.get('analysis'):
                 # Extract and clean up the news summary
                 analysis = sentiment_data['analysis']
-                news_lines = []
-                for line in analysis.split('\n'):
-                    # Skip lines that look like titles or dates
-                    if not line.startswith('•') and not re.match(r'.*\d{2}/\d{2}.*', line) and not re.match(r'.*\d{4}.*', line):
-                        if line.strip() and not any(header in line for header in ['Market Direction:', 'Latest News & Events:', 'Key Levels:', 'Risk Factors:', 'Conclusion:']):
-                            news_lines.append(line.strip())
                 
-                # Join the cleaned news lines
+                # Remove meta-text about formatting
+                analysis = re.sub(r"Here's your comprehensive .* analysis formatted for .*:", '', analysis)
+                
+                # Find the news section
+                news_match = re.search(r'Latest News & Events:(.*?)(?:Key Levels:|Risk Factors:|$)', analysis, re.DOTALL)
+                if news_match:
+                    news_text = news_match.group(1).strip()
+                    # Clean up bullet points and remove dates/years
+                    news_lines = []
+                    for line in news_text.split('\n'):
+                        line = line.strip()
+                        if line and not re.search(r'\d{4}|\d{2}/\d{2}', line):
+                            # Remove bullet points and clean up
+                            line = re.sub(r'^[•\-\*]\s*', '', line)
+                            if line and not any(header in line for header in ['Market Direction:', 'Latest News & Events:', 'Key Levels:', 'Risk Factors:', 'Conclusion:']):
+                                news_lines.append(line)
+                
                 if news_lines:
-                    message += news_lines[0] + "\n\n"  # Just take the first summary line
+                    message += news_lines[0] + "\n\n"
                 else:
                     message += "Recent market developments and news impact analysis not available.\n\n"
             else:
@@ -2397,35 +2403,37 @@ Click the button below to start your FREE 14-day trial.
             else:
                 # Try to extract levels from analysis
                 analysis = sentiment_data.get('analysis', '')
-                support_match = re.search(r'Support.*?:(.*?)(?=\n|$)', analysis)
-                resistance_match = re.search(r'Resistance.*?:(.*?)(?=\n|$)', analysis)
-                
-                if support_match and resistance_match:
-                    message += f"• Support:{support_match.group(1).strip()}\n"
-                    message += f"• Resistance:{resistance_match.group(1).strip()}\n\n"
+                levels_match = re.search(r'Key Levels:(.*?)(?:Risk Factors:|$)', analysis, re.DOTALL)
+                if levels_match:
+                    levels_text = levels_match.group(1).strip()
+                    # Extract support and resistance lines
+                    support_lines = re.findall(r'Support.*?:(.+?)(?:\n|$)', levels_text)
+                    resistance_lines = re.findall(r'Resistance.*?:(.+?)(?:\n|$)', levels_text)
+                    
+                    if support_lines:
+                        message += f"• Support:{support_lines[0].strip()}\n"
+                    if resistance_lines:
+                        message += f"• Resistance:{resistance_lines[0].strip()}\n"
+                    message += "\n"
                 else:
                     message += "Key price levels not available.\n\n"
             
             # Risk Factors
             message += "⚠️ Risk Factors:\n"
-            volatility = sentiment_data.get('volatility', '').lower()
-            if volatility:
-                message += f"• Market Volatility: {volatility} volatility conditions\n"
-            
             if sentiment_data.get('analysis'):
                 # Extract risk factors from analysis
                 analysis = sentiment_data['analysis']
-                risks = []
-                risk_section = False
-                for line in analysis.split('\n'):
-                    if 'Risk Factors:' in line:
-                        risk_section = True
-                        continue
-                    elif risk_section and line.strip() and not line.startswith('💡'):
-                        if line.startswith('•'):
-                            risks.append(line.strip())
-                        elif 'Conclusion:' in line:
-                            break
+                risks_match = re.search(r'Risk Factors:(.*?)(?:Conclusion:|$)', analysis, re.DOTALL)
+                if risks_match:
+                    risks_text = risks_match.group(1).strip()
+                    risks = []
+                    for line in risks_text.split('\n'):
+                        line = line.strip()
+                        if line:
+                            # Remove bullet points and clean up
+                            line = re.sub(r'^[•\-\*]\s*', '', line)
+                            if line and not line.startswith('Market Volatility:'):
+                                risks.append(f"• {line}")
                 
                 if risks:
                     message += '\n'.join(risks) + "\n\n"
@@ -2437,17 +2445,16 @@ Click the button below to start your FREE 14-day trial.
             # Conclusion
             message += "💡 Conclusion:\n"
             if sentiment_data.get('recommendation'):
-                message += sentiment_data['recommendation'].strip()
+                conclusion = sentiment_data['recommendation'].strip()
+                # Remove any meta-text about formatting
+                conclusion = re.sub(r"Here's your comprehensive .* analysis formatted for .*:", '', conclusion)
+                message += conclusion
             elif sentiment_data.get('analysis'):
                 # Extract conclusion from analysis
                 analysis = sentiment_data['analysis']
-                conclusion = ''
-                for line in analysis.split('\n'):
-                    if 'Conclusion:' in line:
-                        conclusion = line.replace('Conclusion:', '').strip()
-                        break
-                
-                if conclusion:
+                conclusion_match = re.search(r'Conclusion:(.*?)(?:$)', analysis, re.DOTALL)
+                if conclusion_match:
+                    conclusion = conclusion_match.group(1).strip()
                     message += conclusion
                 else:
                     message += "Consider market conditions and risk management before taking positions."
