@@ -1836,31 +1836,31 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             logger.info(f"Looking for signal with instrument: {instrument} for user: {user_id}")
             
             # Now try to find the signal in user_signals
-            if user_id in self.user_signals:
-                signal_data = self.user_signals[user_id]
+                if user_id in self.user_signals:
+                    signal_data = self.user_signals[user_id]
                 logger.info(f"Found signal data for user {user_id}")
                 
                 # If we have a valid message and it matches the instrument we want
                 if 'message' in signal_data and (not instrument or signal_data.get('instrument') == instrument):
-                    message = signal_data['message']
+                            message = signal_data['message']
                     signal_instrument = signal_data.get('instrument', 'Unknown')
-                    
-                    # Recreate the original keyboard
-                    keyboard = [
-                        [
+                            
+                            # Recreate the original keyboard
+                            keyboard = [
+                                [
                             InlineKeyboardButton("🔍 Analyze Market", callback_data=f"analyze_from_signal_{signal_instrument}")
-                        ]
-                    ]
-                    
+                                ]
+                            ]
+                            
                     # Edit message to show the original signal
-                    await query.edit_message_text(
-                        text=message,
-                        reply_markup=InlineKeyboardMarkup(keyboard),
-                        parse_mode=ParseMode.HTML
-                    )
+                            await query.edit_message_text(
+                                text=message,
+                                reply_markup=InlineKeyboardMarkup(keyboard),
+                                parse_mode=ParseMode.HTML
+                            )
                     logger.info(f"Successfully returned to original signal for {signal_instrument}")
                     return SIGNAL_DETAILS
-                else:
+                        else:
                     logger.warning(f"Signal data found for user {user_id} but no message or instrument mismatch")
                     logger.info(f"Signal data keys: {signal_data.keys()}")
                     logger.info(f"Signal data instrument: {signal_data.get('instrument', 'None')}")
@@ -2852,7 +2852,7 @@ Click the button below to start your FREE 14-day trial.
                 verdict = f"The {instrument} buy signal shows a promising setup with defined entry at {price} and stop loss at {stop_loss}."
             else:
                 verdict = f"The {instrument} sell signal presents a strategic opportunity with entry at {price} and stop loss at {stop_loss}."
-            
+                
             # Add take profit analysis
             if tp_count > 1:
                 verdict += f" Multiple take profit levels provide opportunities for partial profit taking."
@@ -3015,7 +3015,31 @@ Click the button below to start your FREE 14-day trial.
             if update.callback_query:
                 try:
                     logger.info(f"Received callback query: {update.callback_query.data}")
-                    await self.button_callback(update, None)
+                    
+                    # Create a simple context with user_data for webhook callbacks
+                    class SimpleContext:
+                        def __init__(self, user_id):
+                            self.user_data = {}
+                            self._user_id = user_id
+                            
+                    # Create context with user_id from update
+                    context = SimpleContext(update.effective_user.id)
+                    
+                    # Get existing user data if this user has interacted before
+                    user_id = update.effective_user.id
+                    if hasattr(self, '_user_contexts') and user_id in self._user_contexts:
+                        context.user_data = self._user_contexts[user_id]
+                    else:
+                        # Initialize contexts storage if needed
+                        if not hasattr(self, '_user_contexts'):
+                            self._user_contexts = {}
+                        self._user_contexts[user_id] = context.user_data
+                    
+                    await self.button_callback(update, context)
+                    
+                    # Save updated context
+                    self._user_contexts[user_id] = context.user_data
+                    
                     return
                 except asyncio.CancelledError:
                     logger.warning(f"Button callback processing was cancelled for update {update.update_id}")
@@ -3212,12 +3236,12 @@ Click the button below to start your FREE 14-day trial.
                             test_users = [admin_user_id]
                             
                             success = await self.process_signal(signal_data, users=test_users)
-                            
-                            if success:
-                                return {"status": "success", "message": "Signal processed successfully"}
-                            else:
+                    
+                    if success:
+                        return {"status": "success", "message": "Signal processed successfully"}
+                    else:
                                 logger.error("Failed to process signal")
-                                return {"status": "error", "message": "Failed to process signal"}
+                        return {"status": "error", "message": "Failed to process signal"}
                         except Exception as process_error:
                             logger.error(f"Error in signal processing: {str(process_error)}")
                             logger.exception(process_error)
@@ -3593,7 +3617,7 @@ Click the button below to start your FREE 14-day trial.
                 )
             except Exception:
                 pass
-                
+            
             return MENU
 
     async def show_sentiment_analysis(self, update: Update, context=None, instrument: str = None) -> int:
@@ -3605,12 +3629,12 @@ Click the button below to start your FREE 14-day trial.
             is_from_signal = False
             if context and hasattr(context, 'user_data'):
                 is_from_signal = context.user_data.get('from_signal', False) or context.user_data.get('previous_state') == 'SIGNAL'
-            
+                
             # First, show a loading message
             await query.edit_message_text(
                 text=f"Analyzing market sentiment for {instrument}. Please wait..."
             )
-             
+            
             # Store the analysis type in context for proper back button handling
             if context and hasattr(context, 'user_data'):
                 context.user_data['analysis_type'] = 'sentiment'
@@ -3707,7 +3731,7 @@ Click the button below to start your FREE 14-day trial.
                 pass
                 
             return MENU
-                
+
     async def _show_sentiment_error(self, query, instrument, message=None, is_from_signal=False):
         """Show error message when sentiment analysis fails"""
         try:
@@ -3742,7 +3766,7 @@ Click the button below to start your FREE 14-day trial.
                 currency = self._get_instrument_currency(instrument) if instrument else None
                 context.user_data['selected_currency'] = currency
                 logger.info(f"Stored context for back navigation: analysis_type=calendar, currency={currency}")
-            
+                
             # First, show a loading message
             await query.edit_message_text(
                 text=f"Loading economic calendar for {instrument}. Please wait..."
@@ -3856,7 +3880,7 @@ Click the button below to start your FREE 14-day trial.
                 )
             except Exception as inner_e:
                 logger.error(f"Failed to send fallback message: {str(inner_e)}")
-                
+            
             return MENU
 
     async def instrument_signals_callback(self, update: Update, context=None) -> int:
@@ -4128,7 +4152,7 @@ Click the button below to start your FREE 14-day trial.
             return CHOOSE_SIGNALS
 
     async def analyze_from_signal_callback(self, update: Update, context=None) -> int:
-        """Handle analyze market option for an instrument from a signal"""
+        """Handle analyze market option for an instrument from a signal by directly showing technical analysis"""
         query = update.callback_query
         await query.answer()
         
@@ -4147,6 +4171,7 @@ Click the button below to start your FREE 14-day trial.
             if context and hasattr(context, 'user_data'):
                 # Set flag to indicate we're in the signal flow, not the main menu flow
                 context.user_data['in_signal_flow'] = True
+                context.user_data['analysis_type'] = 'technical'
                 
                 # Store instrument in context if we extracted it
                 if instrument:
@@ -4161,17 +4186,75 @@ Click the button below to start your FREE 14-day trial.
             if not instrument:
                 instrument = "Unknown"
                 logger.warning("Could not determine instrument for analysis")
+                
+                # Show error message and return to signal
+                await query.edit_message_text(
+                    text="Could not determine which instrument to analyze.",
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal")
+                    ]])
+                )
+                return CHOOSE_ANALYSIS
             
-            # Format message text
-            text = f"Choose analysis type for {instrument}:"
-            
-            # Show options using SIGNAL_ANALYSIS_KEYBOARD
+            # Show loading message
             await query.edit_message_text(
-                text=text,
-                reply_markup=InlineKeyboardMarkup(SIGNAL_ANALYSIS_KEYBOARD)
+                text=f"Generating technical analysis for {instrument}. Please wait..."
             )
             
-            return CHOOSE_ANALYSIS
+            # Get timeframe from context or use default
+            timeframe = context.user_data.get('timeframe', '1h') if context and hasattr(context, 'user_data') else '1h'
+            
+            try:
+                # Generate chart
+                chart_data = await self.chart.get_chart(instrument, timeframe=timeframe, fullscreen=False)
+                
+                if not chart_data:
+                    logger.error(f"Failed to generate chart for {instrument}")
+                    await query.edit_message_text(
+                        text=f"Sorry, I couldn't generate a chart for {instrument} at this time. Please try again later.",
+                        reply_markup=InlineKeyboardMarkup([[
+                            InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal")
+                        ]])
+                    )
+                    return CHOOSE_ANALYSIS
+                
+                # Create caption
+                caption = f"<b>Technical Analysis for {instrument}</b> ({timeframe})"
+                
+                # Create keyboard with back button
+                keyboard = [
+                    [InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal")]
+                ]
+                
+                # Send the chart
+                from io import BytesIO
+                photo = BytesIO(chart_data)
+                photo.name = f"{instrument}_chart.png"
+                
+                await query.message.reply_photo(
+                    photo=photo,
+                    caption=caption,
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.HTML
+                )
+                
+                # Update the loading message
+                await query.edit_message_text(
+                    text=f"Here's your technical analysis for {instrument}:"
+                )
+                
+                return SIGNAL_DETAILS
+                
+            except Exception as chart_error:
+                logger.error(f"Error generating chart: {str(chart_error)}")
+                logger.exception(chart_error)
+                await query.edit_message_text(
+                    text=f"Sorry, there was a problem generating the chart for {instrument}. Please try again later.",
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal")
+                    ]])
+                )
+                return CHOOSE_ANALYSIS
             
         except Exception as e:
             logger.error(f"Error in analyze_from_signal_callback: {str(e)}")
@@ -4203,6 +4286,21 @@ Click the button below to start your FREE 14-day trial.
                 
                 # Get the instrument from context
                 instrument = context.user_data.get('instrument')
+                
+                # If instrument not found in context, try to retrieve from user's last signal
+                if not instrument:
+                    user_id = update.effective_user.id
+                    logger.info(f"Trying to retrieve instrument from user signals for user {user_id}")
+                    
+                    # Try to get from user_signals if available
+                    if hasattr(self, 'user_signals') and user_id in self.user_signals:
+                        signal_data = self.user_signals[user_id]
+                        if 'instrument' in signal_data:
+                            instrument = signal_data['instrument']
+                            logger.info(f"Retrieved instrument {instrument} from user signals")
+                            # Save to context for future use
+                            context.user_data['instrument'] = instrument
+                
                 if not instrument:
                     logger.warning("Instrument not found in context for signal technical analysis")
                     await query.edit_message_text(
@@ -4273,6 +4371,7 @@ Click the button below to start your FREE 14-day trial.
                         ]])
                     )
                     return CHOOSE_ANALYSIS
+                
                 
             else:
                 # No context available
