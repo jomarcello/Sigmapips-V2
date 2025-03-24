@@ -2029,6 +2029,29 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Log de fout, maar ga door met afhandeling (voorkomt blokkering)
             logger.warning(f"Kon callback query niet beantwoorden: {str(e)}")
         
+        # Special signal flow handlers
+        # Technical analysis from signal
+        if query.data.startswith("analysis_technical_signal_"):
+            return await self.analysis_technical_callback(update, context)
+            
+        # Sentiment analysis from signal
+        if query.data.startswith("analysis_sentiment_signal_"):
+            return await self.analysis_sentiment_callback(update, context)
+            
+        # Calendar analysis from signal
+        if query.data.startswith("analysis_calendar_signal_"):
+            return await self.analysis_calendar_callback(update, context)
+        
+        # Basic analysis types without signal context
+        if query.data == "analysis_technical":
+            return await self.analysis_technical_callback(update, context)
+            
+        if query.data == "analysis_sentiment":
+            return await self.analysis_sentiment_callback(update, context)
+            
+        if query.data == "analysis_calendar":
+            return await self.analysis_calendar_callback(update, context)
+        
         # Analyze from signal handler
         if query.data.startswith("analyze_from_signal_"):
             return await self.analyze_from_signal_callback(update, context)
@@ -2086,8 +2109,15 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         if query.data == "subscribe_monthly" or query.data == "subscription_info":
             return await self.handle_subscription_callback(update, context)
         
-        # Analysis type handlers
-        if query.data.startswith("analysis_"):
+        # Analysis type handlers - other types not already handled above
+        if query.data.startswith("analysis_") and not any([
+            query.data.startswith("analysis_technical_signal_"),
+            query.data.startswith("analysis_sentiment_signal_"),
+            query.data.startswith("analysis_calendar_signal_"),
+            query.data == "analysis_technical",
+            query.data == "analysis_sentiment", 
+            query.data == "analysis_calendar"
+        ]):
             return await self.analysis_choice(update, context)
         
         # Handle show_ta_ callbacks (show technical analysis with specific timeframe)
