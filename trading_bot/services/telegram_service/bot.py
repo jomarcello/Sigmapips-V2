@@ -1207,47 +1207,37 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         await query.answer()
         
         try:
-            # Debug logging
-            logger.info("analysis_calendar_callback aangeroepen")
-            
-            # Extract instrument if this came from a signal
-            is_from_signal = False
-            instrument = None
-            
-            if query.data.startswith("analysis_calendar_signal_"):
-                is_from_signal = True
-                instrument = query.data.replace("analysis_calendar_signal_", "")
-                logger.info(f"Calendar analysis for instrument {instrument} from signal")
-            
-            # Store analysis type in user_data
-            if context and hasattr(context, 'user_data'):
-                context.user_data['analysis_type'] = 'calendar'
-                
-                # Set from_signal if this came via signal flow
-                if is_from_signal:
-                    context.user_data['from_signal'] = True
-                    context.user_data['previous_state'] = 'SIGNAL'
-                    if instrument:
-                        context.user_data['instrument'] = instrument
-                
-                # Check if we have an instrument from signal
-                if (context.user_data.get('from_signal') or context.user_data.get('previous_state') == 'SIGNAL') and (instrument or context.user_data.get('instrument')):
-                    instrument = instrument or context.user_data.get('instrument')
-                    logger.info(f"Using instrument from signal: {instrument} for economic calendar")
-                    
-                    # Go directly to economic calendar for this instrument
-                    return await self.show_economic_calendar(update, context, instrument=instrument)
-            
-            # If not coming from signal, show normal market selection
+            # Show loading message
             await query.edit_message_text(
-                text="Select a market for economic calendar:",
-                reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
+                text="Please wait, fetching economic calendar data..."
             )
             
-            return CHOOSE_MARKET
+            # Get global calendar events directly
+            calendar_data = await self.calendar.get_instrument_calendar("GLOBAL")
+            
+            # Create keyboard with back button
+            keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data=CALLBACK_BACK_ANALYSIS)]]
+            
+            # Show the calendar with back button
+            await query.edit_message_text(
+                text=calendar_data,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode=ParseMode.HTML
+            )
+            
+            return SHOW_RESULT
+            
         except Exception as e:
             logger.error(f"Error in analysis_calendar_callback: {str(e)}")
             logger.exception(e)
+            
+            # Show error message
+            await query.edit_message_text(
+                text="Sorry, I couldn't retrieve the economic calendar at this time. Please try again later.",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("⬅️ Back", callback_data=CALLBACK_BACK_ANALYSIS)
+                ]])
+            )
             return MENU
 
     async def calendar_back_callback(self, update: Update, context=None) -> int:
@@ -2342,13 +2332,72 @@ Click the button below to start your FREE 14-day trial.
     async def get_sentiment_analysis(self, instrument: str) -> str:
         """Get sentiment analysis for a specific instrument"""
         try:
-            # In a real implementation, this would call an external API or use ML models
-            # For now, return mock data
-            sentiment_data = self._generate_mock_sentiment_data(instrument)
-            return self._format_sentiment_data(instrument, sentiment_data)
+            # Get sentiment data from the service
+            sentiment_data = await self.sentiment.get_sentiment(instrument)
+            
+            if not sentiment_data:
+                return f"No sentiment data available for {instrument} at this time."
+                
+            # Format the message
+            message = f"<b>📊 Market Sentiment Analysis: {instrument}</b>\n\n"
+            
+            # Overall sentiment
+            sentiment_score = sentiment_data.get('sentiment_score', 0)
+            sentiment_text = "Bullish" if sentiment_score > 0.3 else "Bearish" if sentiment_score < -0.3 else "Neutral"
+            sentiment_emoji = "🟢" if sentiment_score > 0.3 else "🔴" if sentiment_score < -0.3 else "⚪"
+            
+            message += f"<b>Overall Sentiment:</b> {sentiment_emoji} {sentiment_text}\n"
+            message += f"<b>Last Updated:</b> {datetime.now().strftime('%Y-%m-%d %H:%M UTC')}\n\n"
+            
+            # Sentiment breakdown
+            bull_ratio = sentiment_data.get('bull_ratio', 50)
+            bear_ratio = 100 - bull_ratio
+            change = sentiment_data.get('sentiment_change', 0)
+            change_arrow = "↗️" if change > 0 else "↘️" if change < 0 else "↔️"
+            
+            message += "<b>Sentiment Breakdown:</b>\n"
+            message += f"Bullish: {bull_ratio:.1f}% {change_arrow} ({change:+.1f}%)\n"
+            message += f"Bearish: {bear_ratio:.1f}%\n\n"
+            
+            # Market pressure
+            buy_pressure = sentiment_data.get('buy_pressure', 50)
+            sell_pressure = 100 - buy_pressure
+            message += "<b>Market Pressure:</b>\n"
+            message += f"Buy Pressure: {buy_pressure:.1f}%\n"
+            message += f"Sell Pressure: {sell_pressure:.1f}%\n\n"
+            
+            # Volume analysis
+            volume_change = sentiment_data.get('volume_change', 0)
+            volume_arrow = "↗️" if volume_change > 0 else "↘️" if volume_change < 0 else "↔️"
+            message += "<b>Volume Analysis:</b>\n"
+            message += f"Volume Change (24h): {volume_arrow} {volume_change:+.1f}%\n\n"
+            
+            # Key levels
+            price = sentiment_data.get('current_price', 0)
+            resistance = sentiment_data.get('resistance', 0)
+            support = sentiment_data.get('support', 0)
+            
+            if all([price, resistance, support]):
+                message += "<b>Key Price Levels:</b>\n"
+                message += f"Current: {self._format_price(price)}\n"
+                message += f"Resistance: {self._format_price(resistance)}\n"
+                message += f"Support: {self._format_price(support)}\n\n"
+            
+            # News sentiment
+            news_count = sentiment_data.get('news_count', 0)
+            news_sentiment = sentiment_data.get('news_sentiment', 0)
+            news_sentiment_text = "Positive" if news_sentiment > 0.3 else "Negative" if news_sentiment < -0.3 else "Neutral"
+            news_emoji = "📈" if news_sentiment > 0.3 else "📉" if news_sentiment < -0.3 else "📊"
+            
+            if news_count > 0:
+                message += "<b>News Sentiment:</b>\n"
+                message += f"{news_emoji} {news_sentiment_text} ({news_count} articles analyzed)\n"
+            
+            return message
+            
         except Exception as e:
             logger.error(f"Error getting sentiment analysis: {str(e)}")
-            return self._get_fallback_sentiment(instrument)
+            return f"Sorry, I couldn't analyze sentiment for {instrument} at this time. Please try again later."
     
     def _generate_mock_sentiment_data(self, instrument: str) -> Dict:
         """Generate mock sentiment data for demo purposes"""
