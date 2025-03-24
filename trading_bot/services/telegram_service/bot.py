@@ -3442,3 +3442,161 @@ Click the button below to start your FREE 14-day trial.
                 pass
                 
             return CHOOSE_ANALYSIS
+
+    async def signal_calendar_callback(self, update: Update, context=None) -> int:
+        """Handle economic calendar for a specific signal."""
+        query = update.callback_query
+        await query.answer()
+        
+        try:
+            # Extract signal data from callback data
+            data = json.loads(query.data.split('|')[1])
+            instrument = data.get('instrument')
+            direction = data.get('direction')
+            price = data.get('price')
+            stop_loss = data.get('stop_loss')
+            tp1 = data.get('tp1')
+            tp2 = data.get('tp2')
+            tp3 = data.get('tp3')
+            timeframe = data.get('timeframe')
+            
+            if not all([instrument, direction, price, stop_loss, tp1, tp2, tp3, timeframe]):
+                raise ValueError("Missing required signal data")
+            
+            # Get calendar events for this instrument
+            market = self._detect_market(instrument)
+            currency = instrument[:3] if market == "forex" else instrument
+            
+            # Get relevant calendar events
+            calendar_service = self.calendar_service
+            events = await calendar_service.get_upcoming_events(currency)
+            
+            # Format the message
+            if events:
+                message = f"📅 Economic Calendar Events for {instrument}\n\n"
+                for event in events[:5]:  # Limit to 5 events
+                    message += (f"📊 {event['date']} - {event['title']}\n"
+                               f"Impact: {event['impact']}\n"
+                               f"Previous: {event['previous']}\n"
+                               f"Forecast: {event['forecast']}\n\n")
+            else:
+                message = f"📅 No upcoming economic events found for {instrument}.\n\n"
+                
+            message += (f"Signal Details:\n"
+                       f"Direction: {direction}\n"
+                       f"Entry: {price}\n"
+                       f"Stop Loss: {stop_loss}\n"
+                       f"Take Profit 1: {tp1}\n"
+                       f"Take Profit 2: {tp2}\n"
+                       f"Take Profit 3: {tp3}\n"
+                       f"Timeframe: {timeframe}")
+            
+            await query.edit_message_text(
+                text=message,
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal")
+                ]])
+            )
+            return CHOOSE_ANALYSIS
+            
+        except Exception as e:
+            logger.error(f"Error in signal_calendar_callback: {str(e)}")
+            logger.exception(e)
+            
+            try:
+                await query.edit_message_text(
+                    text="An error occurred while preparing the economic calendar. Please try again.",
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal")
+                    ]])
+                )
+            except Exception:
+                pass
+                
+            return CHOOSE_ANALYSIS
+
+    async def back_to_signal_analysis_callback(self, update: Update, context=None) -> int:
+        """Return to the signal analysis menu."""
+        query = update.callback_query
+        await query.answer()
+        
+        try:
+            # Extract signal data if available - from previous context or state
+            if context and hasattr(context, 'user_data') and 'current_signal' in context.user_data:
+                signal_data = context.user_data['current_signal']
+                instrument = signal_data.get('instrument')
+                direction = signal_data.get('direction')
+                price = signal_data.get('price')
+                stop_loss = signal_data.get('stop_loss')
+                tp1 = signal_data.get('tp1')
+                tp2 = signal_data.get('tp2')
+                tp3 = signal_data.get('tp3')
+                timeframe = signal_data.get('timeframe')
+                
+                # Generate the signal message
+                message = (
+                    f"📊 Signal Analysis for {instrument}\n\n"
+                    f"Direction: {direction}\n"
+                    f"Entry: {price}\n"
+                    f"Stop Loss: {stop_loss}\n"
+                    f"Take Profit 1: {tp1}\n"
+                    f"Take Profit 2: {tp2}\n"
+                    f"Take Profit 3: {tp3}\n"
+                    f"Timeframe: {timeframe}\n\n"
+                    f"Select analysis type:"
+                )
+                
+                # Create JSON data for the callbacks
+                signal_data_json = json.dumps({
+                    'instrument': instrument,
+                    'direction': direction,
+                    'price': price,
+                    'stop_loss': stop_loss,
+                    'tp1': tp1,
+                    'tp2': tp2,
+                    'tp3': tp3,
+                    'timeframe': timeframe
+                })
+                
+                # Prepare keyboard with analysis options
+                keyboard = [
+                    [
+                        InlineKeyboardButton("📈 Technical", callback_data=f"signal_technical|{signal_data_json}"),
+                        InlineKeyboardButton("🧠 Sentiment", callback_data=f"signal_sentiment|{signal_data_json}")
+                    ],
+                    [
+                        InlineKeyboardButton("📅 Calendar", callback_data=f"signal_calendar|{signal_data_json}"),
+                        InlineKeyboardButton("🔙 Back", callback_data="menu_signals")
+                    ]
+                ]
+                
+                await query.edit_message_text(
+                    text=message,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+                return CHOOSE_ANALYSIS
+            else:
+                # Fallback if no signal data is available
+                await query.edit_message_text(
+                    text="⚠️ No signal data found. Please select a different option.",
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("🔙 Main Menu", callback_data="back_to_menu")
+                    ]])
+                )
+                return ConversationHandler.END
+                
+        except Exception as e:
+            logger.error(f"Error in back_to_signal_analysis_callback: {str(e)}")
+            logger.exception(e)
+            
+            try:
+                await query.edit_message_text(
+                    text="An error occurred. Please try again.",
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("🔙 Main Menu", callback_data="back_to_menu")
+                    ]])
+                )
+            except Exception:
+                pass
+                
+            return ConversationHandler.END
