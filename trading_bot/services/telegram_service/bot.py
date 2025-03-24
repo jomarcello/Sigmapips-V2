@@ -36,6 +36,8 @@ from trading_bot.services.sentiment_service.sentiment import MarketSentimentServ
 from trading_bot.services.calendar_service.calendar import EconomicCalendarService
 from trading_bot.services.payment_service.stripe_service import StripeService
 from trading_bot.services.payment_service.stripe_config import get_subscription_features
+from trading_bot.services.api_service.tavily_service import TavilyService
+from trading_bot.services.api_service.deepseek_service import DeepseekService
 from fastapi import Request, HTTPException, status
 
 logger = logging.getLogger(__name__)
