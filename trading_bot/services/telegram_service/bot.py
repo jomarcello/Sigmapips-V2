@@ -523,6 +523,7 @@ class TelegramService:
         self.signals_enabled_val = True
         self.polling_started = False
         self.admin_users = [1093307376]  # Add your Telegram ID here for testing
+        self._signals_enabled = True  # Enable signals by default
         
         # Setup the bot and application
         self.bot = None
@@ -2887,6 +2888,14 @@ Click the button below to start your FREE 14-day trial.
                     except Exception as write_error:
                         logger.error(f"Error saving test signal: {str(write_error)}")
                     
+                    # Debug logging for self.signals_enabled property
+                    logger.info(f"DEBUG: TelegramService instance attributes: {', '.join(dir(self))}")
+                    logger.info(f"DEBUG: _signals_enabled attribute exists: {'_signals_enabled' in dir(self)}")
+                    try:
+                        logger.info(f"DEBUG: signals_enabled property value: {self.signals_enabled}")
+                    except Exception as attr_error:
+                        logger.error(f"DEBUG: Error accessing signals_enabled: {str(attr_error)}")
+                        
                     # Process the signal
                     success = await self.process_signal(signal_data)
                     
