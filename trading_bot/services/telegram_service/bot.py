@@ -3830,3 +3830,216 @@ Click the button below to start your FREE 14-day trial.
         except Exception as e:
             logger.error(f"Error in analyze_from_signal_callback: {str(e)}")
             return MENU
+
+    async def show_technical_analysis(self, update: Update, context=None, instrument: str = None, timeframe: str = "1h", fullscreen: bool = False) -> int:
+        """Show technical analysis for a specific instrument"""
+        query = update.callback_query
+        
+        try:
+            # Check if we're coming from a signal
+            is_from_signal = False
+            if context and hasattr(context, 'user_data'):
+                is_from_signal = context.user_data.get('from_signal', False)
+            
+            # First, show a loading message
+            await query.edit_message_text(
+                text=f"Generating technical analysis for {instrument}. Please wait..."
+            )
+            
+            # Generate the chart using the chart service
+            try:
+                # Generate chart image using get_chart instead of generate_chart
+                chart_data = await self.chart.get_chart(instrument, timeframe=timeframe, fullscreen=fullscreen)
+                
+                if not chart_data:
+                    # If chart generation fails, send a text message
+                    logger.error(f"Failed to generate chart for {instrument}")
+                    await query.edit_message_text(
+                        text=f"Sorry, I couldn't generate a chart for {instrument} at this time. Please try again later.",
+                        reply_markup=InlineKeyboardMarkup([[
+                            InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal" if is_from_signal else "back_instrument")
+                        ]])
+                    )
+                    return MENU
+                
+                # Create caption with analysis
+                caption = f"<b>Technical Analysis for {instrument}</b>"
+                
+                # Add buttons for different actions - back button depends on where we came from
+                keyboard = [
+                    [InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal" if is_from_signal else "back_instrument")]
+                ]
+                
+                # Send the chart with caption
+                from io import BytesIO
+                photo = BytesIO(chart_data)
+                photo.name = f"{instrument}_chart.png"
+                
+                await query.message.reply_photo(
+                    photo=photo,
+                    caption=caption,
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.HTML
+                )
+                
+                # Delete the loading message
+                await query.edit_message_text(
+                    text=f"Here's your technical analysis for {instrument}:"
+                )
+                
+            except Exception as chart_error:
+                logger.error(f"Error generating chart: {str(chart_error)}")
+                logger.exception(chart_error)
+                await query.edit_message_text(
+                    text=f"Sorry, there was a problem generating the chart for {instrument}. Please try again later.",
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal" if is_from_signal else "back_instrument")
+                    ]])
+                )
+            
+            return SHOW_RESULT
+            
+        except Exception as e:
+            logger.error(f"Error in show_technical_analysis: {str(e)}")
+            logger.exception(e)
+            
+            # Send fallback message
+            try:
+                await query.edit_message_text(
+                    text=f"Sorry, I couldn't analyze {instrument} at this time. Please try again later.",
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal" if is_from_signal else "back_instrument")
+                    ]])
+                )
+            except Exception as inner_e:
+                logger.error(f"Failed to send fallback message: {str(inner_e)}")
+            
+            return MENU
+
+    async def show_sentiment_analysis(self, update: Update, context=None, instrument: str = None) -> int:
+        """Show sentiment analysis for a specific instrument"""
+        query = update.callback_query
+        
+        try:
+            # Check if we're coming from a signal
+            is_from_signal = False
+            if context and hasattr(context, 'user_data'):
+                is_from_signal = context.user_data.get('from_signal', False)
+                
+            # First, show a loading message
+            await query.edit_message_text(
+                text=f"Analyzing market sentiment for {instrument}. Please wait..."
+            )
+            
+            # Store the analysis type in context for proper back button handling
+            if context and hasattr(context, 'user_data'):
+                context.user_data['analysis_type'] = 'sentiment'
+                
+                # Determine and store the market type based on the instrument
+                market = self._detect_market(instrument) if instrument else 'forex'
+                context.user_data['market'] = market
+                logger.info(f"Stored context for back navigation: analysis_type=sentiment, market={market}")
+            
+            # Log what we're doing
+            logger.info(f"Toon sentiment analyse voor {instrument}")
+            
+            # Get sentiment analysis from the service
+            sentiment = await self.get_sentiment_analysis(instrument)
+            
+            # Create button to go back - choose back_to_signal if coming from a signal
+            keyboard = [
+                [InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal" if is_from_signal else "back_instrument_sentiment")]
+            ]
+            
+            # Send the sentiment analysis
+            await query.edit_message_text(
+                text=sentiment,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode=ParseMode.HTML
+            )
+            
+            return SHOW_RESULT
+            
+        except Exception as e:
+            logger.error(f"Error in show_sentiment_analysis: {str(e)}")
+            logger.exception(e)
+            
+            # Send fallback message
+            try:
+                await query.edit_message_text(
+                    text=f"Sorry, I couldn't analyze sentiment for {instrument} at this time. Please try again later.",
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal" if is_from_signal else "back_instrument_sentiment")
+                    ]])
+                )
+            except Exception as inner_e:
+                logger.error(f"Failed to send fallback message: {str(inner_e)}")
+            
+            return MENU
+
+    async def show_economic_calendar(self, update: Update, context=None, instrument: str = None) -> int:
+        """Show economic calendar for a specific instrument"""
+        query = update.callback_query
+        
+        try:
+            # Check if we're coming from a signal
+            is_from_signal = False
+            if context and hasattr(context, 'user_data'):
+                is_from_signal = context.user_data.get('from_signal', False)
+                
+            # First, show a loading message
+            await query.edit_message_text(
+                text=f"Fetching economic calendar for {instrument if instrument else 'global markets'}. Please wait..."
+            )
+            
+            # Log what we're doing
+            logger.info(f"Toon economic calendar voor {instrument if instrument else 'global markets'}")
+            
+            try:
+                # Get calendar data
+                calendar_data = await self.calendar.get_instrument_calendar(instrument or "GLOBAL")
+                
+                # Create button to go back
+                keyboard = [
+                    [InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal" if is_from_signal else "back_instrument")]
+                ]
+                
+                # Send the calendar analysis
+                await query.edit_message_text(
+                    text=calendar_data,
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.HTML
+                )
+                
+                return SHOW_RESULT
+                
+            except Exception as e:
+                logger.error(f"Error getting calendar data: {str(e)}")
+                logger.exception(e)
+                
+                # Show error message
+                await query.edit_message_text(
+                    text=f"Sorry, I couldn't retrieve the economic calendar at this time. Please try again later.",
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal" if is_from_signal else "back_instrument")
+                    ]])
+                )
+                
+                return MENU
+            
+        except Exception as e:
+            logger.error(f"Error in show_economic_calendar: {str(e)}")
+            logger.exception(e)
+            
+            # Show error message
+            try:
+                await query.edit_message_text(
+                    text=f"Sorry, I couldn't retrieve the economic calendar at this time. Please try again later.",
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal" if is_from_signal else "back_instrument")
+                    ]])
+                )
+            except Exception as inner_e:
+                logger.error(f"Failed to send fallback message: {str(inner_e)}")
+            
+            return MENU
