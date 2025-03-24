@@ -541,12 +541,12 @@ class TelegramService:
         logger.info(f"Bot initialized with webhook URL: {self.webhook_url} and path: {self.webhook_path}")
         
         # Initialize API services
-        self.chart = ChartService()  # Chart generation service
-        self.calendar = EconomicCalendarService()  # Economic calendar service
-        self.sentiment = MarketSentimentService()  # Market sentiment service
+        self.technical_service = ChartService()  # Chart generation service
+        self.calendar_service = EconomicCalendarService()  # Economic calendar service
+        self.sentiment_service = MarketSentimentService()  # Market sentiment service
         
         # Initialize chart service
-        asyncio.create_task(self.chart.initialize())
+        asyncio.create_task(self.technical_service.initialize())
         
         # Bot application initialization
         self.persistence = None
@@ -1255,7 +1255,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             )
             
             # Get global calendar events directly
-            calendar_data = await self.calendar.get_instrument_calendar("GLOBAL")
+            calendar_data = await self.calendar_service.get_instrument_calendar("GLOBAL")
             
             # Create keyboard with back button
             keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data=CALLBACK_BACK_ANALYSIS)]]
@@ -1718,7 +1718,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     )
                     
                     # Get calendar data - use instrument if available, otherwise global view
-                    calendar_data = await self.calendar.get_instrument_calendar("GLOBAL" if not instrument else instrument)
+                    calendar_data = await self.calendar_service.get_instrument_calendar(instrument or "GLOBAL")
                     
                     # Show the calendar with back button
                     await query.edit_message_text(
@@ -2287,7 +2287,7 @@ Click the button below to start your FREE 14-day trial.
         """Get sentiment analysis for a specific instrument"""
         try:
             # Get sentiment data from the service
-            sentiment_data = await self.sentiment.get_market_sentiment(instrument)
+            sentiment_data = await self.sentiment_service.get_sentiment_analysis(instrument)
             
             if not sentiment_data:
                 return f"No sentiment data available for {instrument} at this time."
@@ -3446,7 +3446,7 @@ Click the button below to start your FREE 14-day trial.
                 raise ValueError("Missing required signal data")
             
             # Get technical analysis
-            analysis = await self.get_technical_analysis(instrument)
+            analysis = await self.technical_service.get_technical_analysis(instrument, timeframe)
             
             # Format the message
             message = (
@@ -3507,7 +3507,7 @@ Click the button below to start your FREE 14-day trial.
                 raise ValueError("Missing required signal data")
             
             # Get sentiment analysis
-            sentiment = await self.get_sentiment_analysis(instrument)
+            sentiment = await self.sentiment_service.get_sentiment_analysis(instrument)
             
             # Format the message
             message = (
@@ -4071,7 +4071,7 @@ Click the button below to start your FREE 14-day trial.
             
             try:
                 # Get calendar data
-                calendar_data = await self.calendar.get_instrument_calendar(instrument or "GLOBAL")
+                calendar_data = await self.calendar_service.get_instrument_calendar(instrument or "GLOBAL")
                 
                 # Create button to go back
                 keyboard = [
