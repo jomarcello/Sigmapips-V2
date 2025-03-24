@@ -11,6 +11,7 @@ import threading
 import re
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
+import copy
 
 from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery, InputMediaPhoto, BotCommand
 from telegram.ext import (
@@ -60,10 +61,11 @@ CHOOSE_SIGNALS = 2
 CHOOSE_MARKET = 3
 CHOOSE_INSTRUMENT = 4
 CHOOSE_STYLE = 5
-SHOW_RESULT = 4
-CHOOSE_TIMEFRAME = 5
-SIGNAL_DETAILS = 6
-SUBSCRIBE = 7
+SHOW_RESULT = 6
+CHOOSE_TIMEFRAME = 7
+SIGNAL_DETAILS = 8
+SIGNAL = 9
+SUBSCRIBE = 10
 
 # Messages
 WELCOME_MESSAGE = """
@@ -635,12 +637,41 @@ class TelegramService:
             os.makedirs('data', exist_ok=True)
             
             # Convert user_ids (integer keys) to strings for JSON serialization
-            signals_to_save = {str(k): v for k, v in self.user_signals.items()}
+            signals_to_save = {}
+            
+            # Process each signal to make sure it's fully serializable
+            for user_id, signal_data in self.user_signals.items():
+                # Create a deep copy of the signal data to avoid modifying the original
+                signal_copy = copy.deepcopy(signal_data)
+                
+                # Make sure all required fields are present
+                if 'instrument' not in signal_copy:
+                    signal_copy['instrument'] = 'Unknown'
+                if 'direction' not in signal_copy:
+                    signal_copy['direction'] = 'Unknown'
+                if 'message' not in signal_copy:
+                    # Generate a default message as fallback
+                    signal_copy['message'] = f"Trading signal for {signal_copy.get('instrument', 'Unknown')}"
+                if 'timestamp' not in signal_copy:
+                    signal_copy['timestamp'] = self._get_formatted_timestamp()
+                
+                # Remove potentially problematic fields for serialization
+                if 'bot' in signal_copy:
+                    del signal_copy['bot']
+                if 'context' in signal_copy:
+                    del signal_copy['context']
+                
+                # Store in the dictionary with string key
+                signals_to_save[str(user_id)] = signal_copy
+            
+            # Save to file with pretty formatting for easier debugging
             with open('data/signals.json', 'w') as f:
-                json.dump(signals_to_save, f)
+                json.dump(signals_to_save, f, indent=2, default=str)
+                
             logger.info(f"Saved {len(self.user_signals)} signals to file")
         except Exception as e:
             logger.error(f"Error saving signals: {str(e)}")
+            logger.exception(e)
             
     def get_subscribers(self):
         """Get all subscribers from database"""
@@ -1660,68 +1691,100 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         logger.info(f"Back to signal callback invoked by user {user_id}")
         
         try:
-            # Try to retrieve the original message ID and chat ID from context
-            if context and hasattr(context, 'user_data'):
-                instrument = context.user_data.get('instrument', '')
-                original_message_id = context.user_data.get('message_id')
-                chat_id = context.user_data.get('chat_id')
-                logger.info(f"Retrieved from context - message_id: {original_message_id}, chat_id: {chat_id}, instrument: {instrument}")
+            # Ensure signals are loaded from file
+            self._load_signals()
+            
+            # Try to retrieve the instrument from context or callback data
+            instrument = None
+            
+            # First check callback data for instrument
+            if query.data and len(query.data.split('_')) > 3:
+                instrument = query.data.split('_')[3]
+                logger.info(f"Found instrument in callback data: {instrument}")
+            
+            # Try context if available
+            if not instrument and context and hasattr(context, 'user_data'):
+                instrument = context.user_data.get('instrument')
+                logger.info(f"Found instrument in context: {instrument}")
+            
+            # Try to find from message text as last resort
+            if not instrument and hasattr(query.message, 'text'):
+                # Look for patterns like "EURUSD" or "XAUUSD" in the message
+                instrument_match = re.search(r'(?:Instrument|analysis for):\s*([A-Z0-9]{4,8})', query.message.text)
+                if instrument_match:
+                    instrument = instrument_match.group(1)
+                    logger.info(f"Extracted instrument from message text: {instrument}")
+            
+            logger.info(f"Looking for signal with instrument: {instrument} for user: {user_id}")
+            
+            # Now try to find the signal in user_signals
+            if user_id in self.user_signals:
+                signal_data = self.user_signals[user_id]
+                logger.info(f"Found signal data for user {user_id}")
                 
-                # Check if we have the original signal in user_signals
-                if user_id in self.user_signals:
-                    signal_data = self.user_signals[user_id]
-                    logger.info(f"Found signal data for user {user_id}: {signal_data}")
+                # If we have a valid message and it matches the instrument we want
+                if 'message' in signal_data and (not instrument or signal_data.get('instrument') == instrument):
+                    message = signal_data['message']
+                    signal_instrument = signal_data.get('instrument', 'Unknown')
                     
-                    # Check if instrument matches or if message_id matches
-                    if signal_data.get('instrument') == instrument or signal_data.get('message_id') == original_message_id:
-                        # We found the matching signal - use its message if available
-                        if 'message' in signal_data and signal_data['message']:
-                            logger.info(f"Using stored signal message for user {user_id}")
-                            message = signal_data['message']
-                            
-                            # Recreate the original keyboard
-                            keyboard = [
-                                [
-                                    InlineKeyboardButton("🔍 Analyze Market", callback_data=f"analyze_from_signal_{instrument}")
-                                ]
-                            ]
-                            
-                            # Edit message to original signal
-                            await query.edit_message_text(
-                                text=message,
-                                reply_markup=InlineKeyboardMarkup(keyboard),
-                                parse_mode=ParseMode.HTML
-                            )
-                            return SIGNAL
-                        else:
-                            logger.warning(f"Signal data found but no message for user {user_id}")
-                    else:
-                        logger.warning(f"Instrument mismatch in signal data. Context: {instrument}, Stored: {signal_data.get('instrument')}")
+                    # Recreate the original keyboard
+                    keyboard = [
+                        [
+                            InlineKeyboardButton("🔍 Analyze Market", callback_data=f"analyze_from_signal_{signal_instrument}")
+                        ]
+                    ]
+                    
+                    # Edit message to show the original signal
+                    await query.edit_message_text(
+                        text=message,
+                        reply_markup=InlineKeyboardMarkup(keyboard),
+                        parse_mode=ParseMode.HTML
+                    )
+                    logger.info(f"Successfully returned to original signal for {signal_instrument}")
+                    return SIGNAL_DETAILS
+                else:
+                    logger.warning(f"Signal data found for user {user_id} but no message or instrument mismatch")
             
-            # Fallback: recreate a basic signal message from context data if available
-            logger.info(f"Falling back to recreating signal from context data for user {user_id}")
-            
+            # Fallback: recreate a basic signal message from context data
             if context and hasattr(context, 'user_data'):
-                # Extract all possible signal data from context
-                instrument = context.user_data.get('instrument', 'Unknown')
+                # Extract data from context
+                instrument = instrument or context.user_data.get('instrument', 'Unknown')
                 direction = context.user_data.get('direction', 'UNKNOWN')
                 price = context.user_data.get('price', 'N/A')
                 stop_loss = context.user_data.get('stop_loss', 'N/A')
-                tp1 = context.user_data.get('tp1', 'N/A')
+                take_profits = context.user_data.get('take_profits', [])
                 timeframe = context.user_data.get('timeframe', '1h')
                 strategy = context.user_data.get('strategy', 'Unknown')
                 
-                # Create a simple fallback message
-                emoji = "🟢" if direction == "BUY" else "🔴" if direction == "SELL" else "⚪"
+                # Determine emoji for direction
+                direction_emoji = "📈" if direction == "BUY" else "📉"
                 
+                # Format take profits
+                tp_lines = []
+                for i, tp in enumerate(take_profits, 1):
+                    tp_formatted = self._format_price(tp) if callable(getattr(self, '_format_price', None)) else str(tp)
+                    tp_lines.append(f"Take Profit {i}: {tp_formatted} 🎯")
+                
+                tp_text = "\n".join(tp_lines) if tp_lines else "No take profit levels defined"
+                
+                # Create message in the same format as original signals
                 fallback_message = (
-                    f"<b>{emoji} SIGNAL {direction} {instrument}</b>\n"
-                    f"<b>Price:</b> {price}\n"
-                    f"<b>Stop Loss:</b> {stop_loss}\n"
-                    f"<b>Take Profit:</b> {tp1}\n"
-                    f"<b>Timeframe:</b> {timeframe}\n"
-                    f"<b>Strategy:</b> {strategy}\n"
-                    f"\n<i>Note: This is a recreated signal as the original could not be found.</i>"
+                    f"🎯 New Trading Signal 🎯\n\n"
+                    f"Instrument: {instrument}\n"
+                    f"Action: {direction} {direction_emoji}\n\n"
+                    f"Entry Price: {price}\n"
+                    f"Stop Loss: {stop_loss} 🔴\n"
+                    f"{tp_text}\n\n"
+                    f"Timeframe: {timeframe}\n"
+                    f"Strategy: {strategy}\n\n"
+                    f"————————————————————\n\n"
+                    f"Risk Management:\n"
+                    f"• Position size: 1-2% max\n"
+                    f"• Use proper stop loss\n"
+                    f"• Follow your trading plan\n\n"
+                    f"————————————————————\n\n"
+                    f"🤖 SigmaPips AI Verdict:\n"
+                    f"<i>Note: This is a recreated signal as the original could not be found.</i>"
                 )
                 
                 keyboard = [
@@ -1736,7 +1799,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     parse_mode=ParseMode.HTML
                 )
                 logger.info(f"Created fallback signal message for {instrument} for user {user_id}")
-                return SIGNAL
+                return SIGNAL_DETAILS
             
             # Ultimate fallback if we can't recreate a proper signal
             logger.warning(f"Could not retrieve or recreate signal for user {user_id}, returning to menu")
@@ -2585,13 +2648,21 @@ Click the button below to start your FREE 14-day trial.
                     }
                     
                     # Send the signal
-                    await self.bot.send_message(
+                    sent_message = await self.bot.send_message(
                         chat_id=user_id,
                         text=message,
                         parse_mode=ParseMode.HTML,
                         reply_markup=InlineKeyboardMarkup(keyboard)
                     )
                     logger.info(f"Signal sent to user {user_id}")
+                    
+                    # Store the message_id for later reference
+                    if sent_message and hasattr(sent_message, 'message_id'):
+                        self.user_signals[user_id]['message_id'] = sent_message.message_id
+                        self.user_signals[user_id]['chat_id'] = user_id
+                        logger.info(f"Stored message_id {sent_message.message_id} for user {user_id}")
+                    else:
+                        logger.warning(f"Could not store message_id for user {user_id}")
                     
                 except BadRequest as e:
                     logger.error(f"Bad request error processing signal: {str(e)}")
@@ -3813,23 +3884,38 @@ Click the button below to start your FREE 14-day trial.
             user_id = update.effective_user.id
             
             # Extract instrument from callback data
-            # Extract instrument from callback data
             instrument = query.data.replace('analyze_from_signal_', '')
             logger.info(f"Analyze from signal callback for instrument: {instrument}")
             
-            # Store the instrument in context for later use
+            # Store the signal information in context for later use
             if context and hasattr(context, 'user_data'):
+                # Save signal information
                 context.user_data['instrument'] = instrument
                 context.user_data['from_signal'] = True
-                context.user_data['from_signal_message'] = True
                 context.user_data['message_id'] = update.callback_query.message.message_id
                 context.user_data['chat_id'] = update.callback_query.message.chat_id
+                
+                # Also save current signal message for easy retrieval
+                if hasattr(update.callback_query, 'message') and hasattr(update.callback_query.message, 'text'):
+                    context.user_data['signal_message'] = update.callback_query.message.text
+                    logger.info(f"Stored signal message in context for user {user_id}")
+                
+                # If we have this instrument in user_signals, store additional details
+                if user_id in self.user_signals and self.user_signals[user_id].get('instrument') == instrument:
+                    signal_data = self.user_signals[user_id]
+                    context.user_data['direction'] = signal_data.get('direction', 'UNKNOWN')
+                    context.user_data['price'] = signal_data.get('price', 0)
+                    context.user_data['stop_loss'] = signal_data.get('stop_loss', 0)
+                    context.user_data['take_profits'] = signal_data.get('take_profits', [])
+                    context.user_data['timeframe'] = signal_data.get('timeframe', '1h')
+                    context.user_data['strategy'] = signal_data.get('strategy', 'Unknown')
+                    logger.info(f"Stored additional signal data from user_signals for user {user_id}")
             
-            # Show analysis options for this instrument (similar to analysis_callback but with preselected instrument)
+            # Show analysis options for this instrument
             keyboard = [
                 [
                     InlineKeyboardButton("📈 Technical Analysis", callback_data="analysis_technical"),
-                    InlineKeyboardButton("💬 Sentiment Analysis", callback_data="analysis_sentiment")
+                    InlineKeyboardButton("🧠 Sentiment Analysis", callback_data="analysis_sentiment")
                 ],
                 [
                     InlineKeyboardButton("📅 Economic Calendar", callback_data="analysis_calendar")
@@ -3845,6 +3931,20 @@ Click the button below to start your FREE 14-day trial.
             return CHOOSE_ANALYSIS
         except Exception as e:
             logger.error(f"Error in analyze_from_signal_callback: {str(e)}")
+            logger.exception(e)
+            
+            # Attempt to show a fallback menu if there's an error
+            try:
+                await query.edit_message_text(
+                    text=f"Error accessing analysis options. Please try again or go back to the signal.",
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal")],
+                        [InlineKeyboardButton("🏠 Main Menu", callback_data="back_menu")]
+                    ])
+                )
+            except Exception as inner_e:
+                logger.error(f"Failed to recover from error: {str(inner_e)}")
+            
             return MENU
 
 # Indices keyboard voor sentiment analyse
