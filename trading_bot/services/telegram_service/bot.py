@@ -2333,13 +2333,64 @@ Click the button below to start your FREE 14-day trial.
         """Get sentiment analysis for a specific instrument"""
         try:
             # Get sentiment data from the service
-            sentiment_text = await self.sentiment.get_market_sentiment(instrument)
+            sentiment_data = await self.sentiment.get_market_sentiment(instrument)
             
-            if not sentiment_text:
+            if not sentiment_data:
                 return f"No sentiment data available for {instrument} at this time."
             
-            # The sentiment service already returns a formatted message
-            return sentiment_text
+            # Parse the JSON if it's a string
+            if isinstance(sentiment_data, str):
+                try:
+                    sentiment_data = json.loads(sentiment_data)
+                except json.JSONDecodeError:
+                    # If it's already formatted text, return it as is
+                    return sentiment_data
+            
+            # Format the analysis into a readable message
+            message = f"🎯 {instrument} Market Analysis\n\n"
+            
+            # Market Direction
+            message += "📈 Market Direction:\n"
+            direction_text = sentiment_data.get('analysis', '').split('\n\n')[1]
+            if direction_text.startswith('📈 Market Direction:\n'):
+                direction_text = direction_text[len('📈 Market Direction:\n'):]
+            message += f"{direction_text}\n\n"
+            
+            # Latest News & Events
+            message += "📰 Latest News & Events:\n"
+            news_text = sentiment_data.get('analysis', '').split('\n\n')[2]
+            if news_text.startswith('📰 Latest News & Events:\n'):
+                news_text = news_text[len('📰 Latest News & Events:\n'):]
+            message += f"{news_text}\n\n"
+            
+            # Key Levels
+            message += "🎯 Key Levels:\n"
+            support = sentiment_data.get('support_level', 'See analysis for details')
+            resistance = sentiment_data.get('resistance_level', 'See analysis for details')
+            
+            # Try to extract levels from analysis text if available
+            levels_text = sentiment_data.get('analysis', '').split('\n\n')[3]
+            if '🎯 Key Levels:' in levels_text:
+                message += levels_text[levels_text.index('🎯 Key Levels:') + len('🎯 Key Levels:\n'):] + "\n\n"
+            else:
+                message += f"• Support: {support}\n"
+                message += f"• Resistance: {resistance}\n\n"
+            
+            # Risk Factors
+            message += "⚠️ Risk Factors:\n"
+            risk_text = sentiment_data.get('analysis', '').split('\n\n')[4]
+            if risk_text.startswith('⚠️ Risk Factors:\n'):
+                risk_text = risk_text[len('⚠️ Risk Factors:\n'):]
+            message += f"{risk_text}\n\n"
+            
+            # Conclusion
+            message += "💡 Conclusion:\n"
+            conclusion_text = sentiment_data.get('analysis', '').split('\n\n')[5]
+            if conclusion_text.startswith('💡 Conclusion:\n'):
+                conclusion_text = conclusion_text[len('💡 Conclusion:\n'):]
+            message += conclusion_text
+            
+            return message
                 
         except Exception as e:
             logger.error(f"Error getting sentiment analysis: {str(e)}")
