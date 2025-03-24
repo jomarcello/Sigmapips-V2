@@ -562,14 +562,8 @@ class TelegramService:
         
         # Initialize API services
         self.chart = ChartService()  # Chart generation service
-        self.calendar = EconomicCalendarService(
-            tavily_service=TavilyService(api_key=TAVILY_API_KEY),
-            deepseek_service=DeepseekService(api_key=DEEPSEEK_API_KEY)
-        )  # Economic calendar service
+        self.calendar = EconomicCalendarService()  # Economic calendar service
         self.sentiment = MarketSentimentService()  # Market sentiment service
-        self.sentiment.deepseek_api_key = DEEPSEEK_API_KEY
-        self.sentiment.tavily_api_key = TAVILY_API_KEY
-        self.sentiment.use_mock = False  # Force using real data
         
         # Initialize chart service
         asyncio.create_task(self.chart.initialize())
