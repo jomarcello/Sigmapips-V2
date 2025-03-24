@@ -329,7 +329,6 @@ class MarketSentimentService:
             ssl_context.verify_mode = ssl.CERT_NONE
             
             # Use the original domain name in URL to match certificate domain
-            # This is critical for proper TLS handshake
             deepseek_url = "https://api.deepseek.com/v1/chat/completions"
             
             # Configure longer timeouts
@@ -352,12 +351,17 @@ class MarketSentimentService:
                         "Accept": "application/json"
                     }
                     
-                    # Prepare the payload
-                    prompt = f"""Using the following market data, create a structured market analysis for {instrument} to be displayed in a Telegram bot:
+                    # Prepare the payload with updated prompt
+                    prompt = f"""You are a professional market analyst creating a concise market analysis for {instrument}. 
+DO NOT include any introductory text like "Here's the analysis" or "Here's the market analysis formatted for Telegram".
+Start directly with the market analysis format below.
 
+Use the following market data to create your analysis:
+
+Market Data:
 {market_data}
 
-Format the analysis as follows:
+Format your response EXACTLY as follows, with no additional text before or after:
 
 🎯 {instrument} Market Analysis
 
@@ -365,35 +369,29 @@ Format the analysis as follows:
 [Current trend, momentum and price action analysis]
 
 📰 Latest News & Events:
-• [Key market-moving news item 1 - remove the news source name]
-• [Key market-moving news item 2 - remove the news source name]
-• [Key market-moving news item 3 - remove the news source name]
-
-🎯 Key Levels:
-• Support Levels:
-  - [Current support levels with context]
-• Resistance Levels:
-  - [Current resistance levels with context]
+• [Key market-moving news item 1 - remove any source references]
+• [Key market-moving news item 2 - remove any source references]
+• [Key market-moving news item 3 - remove any source references]
 
 ⚠️ Risk Factors:
 • [Key risk factor 1]
 • [Key risk factor 2]
+• [Key risk factor 3]
 
 💡 Conclusion:
 [Trading recommendation based on analysis. Always include a specific recommendation for either <b>long positions</b> or <b>short positions</b> in bold. If uncertain, recommend <b>wait for clearer signals</b> in bold.]
 
 Use HTML formatting for Telegram: <b>bold</b>, <i>italic</i>, etc.
 Keep the analysis concise but informative, focusing on actionable insights.
-If certain information is not available in the market data, make reasonable assumptions based on what is provided.
-DO NOT include any references to where the data came from (no "This analysis is based on data from Tavily API" or similar).
-DO NOT include news source names like "FXStreet", "Reuters", etc. Just include the news content.
-IMPORTANT: Always include a clear trading recommendation (long positions, short positions, or waiting) in the conclusion section and make sure it's in bold tags.
-"""
+DO NOT include any references to data sources.
+DO NOT include any introductory or closing text.
+DO NOT include any notes or placeholder sections.
+IMPORTANT: Always include a clear trading recommendation in bold tags in the conclusion section."""
                     
                     payload = {
                         "model": "deepseek-chat",
                         "messages": [
-                            {"role": "system", "content": "You are an expert financial analyst creating market analysis summaries for traders."},
+                            {"role": "system", "content": "You are an expert financial analyst creating market analysis summaries for traders. Start your analysis directly with the market analysis format, without any introductory text."},
                             {"role": "user", "content": prompt}
                         ],
                         "temperature": 0.3,
@@ -428,16 +426,16 @@ IMPORTANT: Always include a clear trading recommendation (long positions, short 
                                     content = re.sub(r'^```html\s*', '', content)
                                     content = re.sub(r'\s*```$', '', content)
                                     
-                                    # Remove system messages and formatting
-                                    content = re.sub(r"Here's (?:the )?(?:structured )?market analysis for [A-Z/]+ formatted for Telegram:\s*", "", content)
+                                    # Remove any remaining system messages or formatting
+                                    content = re.sub(r"Here(?:'s|\s+is)\s+(?:the\s+)?(?:structured\s+)?(?:market\s+)?analysis\s+for\s+[A-Z/]+(?:\s+formatted\s+for\s+(?:a\s+)?Telegram(?:\s+bot)?)?:?\s*", "", content)
                                     content = re.sub(r"Let me know if you'd like any adjustments!.*$", "", content)
+                                    content = re.sub(r"Notes:.*?(?=\n\n|$)", "", content, flags=re.DOTALL)
                                     content = re.sub(r"---\s*", "", content)
                                     
                                     # Ensure section headers are bold
                                     content = re.sub(r"(🎯 [A-Z/]+ Market Analysis)", r"<b>\1</b>", content)
                                     content = re.sub(r"(📈 Market Direction:)", r"<b>\1</b>", content)
                                     content = re.sub(r"(📰 Latest News & Events:)", r"<b>\1</b>", content)
-                                    content = re.sub(r"(🎯 Key Levels:)", r"<b>\1</b>", content)
                                     content = re.sub(r"(⚠️ Risk Factors:)", r"<b>\1</b>", content)
                                     content = re.sub(r"(💡 Conclusion:)", r"<b>\1</b>", content)
                                     
