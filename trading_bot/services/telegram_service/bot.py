@@ -1836,31 +1836,31 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             logger.info(f"Looking for signal with instrument: {instrument} for user: {user_id}")
             
             # Now try to find the signal in user_signals
-                if user_id in self.user_signals:
-                    signal_data = self.user_signals[user_id]
+            if user_id in self.user_signals:
+                signal_data = self.user_signals[user_id]
                 logger.info(f"Found signal data for user {user_id}")
                 
                 # If we have a valid message and it matches the instrument we want
                 if 'message' in signal_data and (not instrument or signal_data.get('instrument') == instrument):
-                            message = signal_data['message']
+                    message = signal_data['message']
                     signal_instrument = signal_data.get('instrument', 'Unknown')
-                            
-                            # Recreate the original keyboard
-                            keyboard = [
-                                [
+                    
+                    # Recreate the original keyboard
+                    keyboard = [
+                        [
                             InlineKeyboardButton("🔍 Analyze Market", callback_data=f"analyze_from_signal_{signal_instrument}")
-                                ]
-                            ]
-                            
+                        ]
+                    ]
+                    
                     # Edit message to show the original signal
-                            await query.edit_message_text(
-                                text=message,
-                                reply_markup=InlineKeyboardMarkup(keyboard),
-                                parse_mode=ParseMode.HTML
-                            )
+                    await query.edit_message_text(
+                        text=message,
+                        reply_markup=InlineKeyboardMarkup(keyboard),
+                        parse_mode=ParseMode.HTML
+                    )
                     logger.info(f"Successfully returned to original signal for {signal_instrument}")
                     return SIGNAL_DETAILS
-                        else:
+                else:
                     logger.warning(f"Signal data found for user {user_id} but no message or instrument mismatch")
                     logger.info(f"Signal data keys: {signal_data.keys()}")
                     logger.info(f"Signal data instrument: {signal_data.get('instrument', 'None')}")
