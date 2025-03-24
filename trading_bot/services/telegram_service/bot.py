@@ -2351,44 +2351,100 @@ Click the button below to start your FREE 14-day trial.
             
             # Market Direction
             message += "📈 Market Direction:\n"
-            direction_text = sentiment_data.get('analysis', '').split('\n\n')[1]
-            if direction_text.startswith('📈 Market Direction:\n'):
-                direction_text = direction_text[len('📈 Market Direction:\n'):]
-            message += f"{direction_text}\n\n"
+            if sentiment_data.get('overall_sentiment'):
+                direction = "bullish" if sentiment_data['overall_sentiment'] == "bullish" else "bearish"
+                strength = sentiment_data.get('trend_strength', 'moderate').lower()
+                score = sentiment_data.get('sentiment_score', 0.5) * 100
+                message += f"The {instrument} is currently {direction} with {strength} momentum. "
+                message += f"Overall sentiment is {score:.0f}% {direction}.\n\n"
+            else:
+                message += "Market direction data not available.\n\n"
             
             # Latest News & Events
             message += "📰 Latest News & Events:\n"
-            news_text = sentiment_data.get('analysis', '').split('\n\n')[2]
-            if news_text.startswith('📰 Latest News & Events:\n'):
-                news_text = news_text[len('📰 Latest News & Events:\n'):]
-            message += f"{news_text}\n\n"
+            if sentiment_data.get('analysis'):
+                # Extract and clean up the news summary
+                analysis = sentiment_data['analysis']
+                news_lines = []
+                for line in analysis.split('\n'):
+                    # Skip lines that look like titles or dates
+                    if not line.startswith('•') and not re.match(r'.*\d{2}/\d{2}.*', line) and not re.match(r'.*\d{4}.*', line):
+                        if line.strip() and not any(header in line for header in ['Market Direction:', 'Latest News & Events:', 'Key Levels:', 'Risk Factors:', 'Conclusion:']):
+                            news_lines.append(line.strip())
+                
+                # Join the cleaned news lines
+                if news_lines:
+                    message += '\n'.join(news_lines) + '\n\n'
+                else:
+                    message += "Recent market developments and news impact analysis not available.\n\n"
+            else:
+                message += "News and events data not available.\n\n"
             
             # Key Levels
             message += "🎯 Key Levels:\n"
-            support = sentiment_data.get('support_level', 'See analysis for details')
-            resistance = sentiment_data.get('resistance_level', 'See analysis for details')
+            support = sentiment_data.get('support_level')
+            resistance = sentiment_data.get('resistance_level')
             
-            # Try to extract levels from analysis text if available
-            levels_text = sentiment_data.get('analysis', '').split('\n\n')[3]
-            if '🎯 Key Levels:' in levels_text:
-                message += levels_text[levels_text.index('🎯 Key Levels:') + len('🎯 Key Levels:\n'):] + "\n\n"
-            else:
+            if support and resistance and not support.startswith('See') and not resistance.startswith('See'):
                 message += f"• Support: {support}\n"
                 message += f"• Resistance: {resistance}\n\n"
+            else:
+                # Try to extract levels from analysis
+                analysis = sentiment_data.get('analysis', '')
+                support_match = re.search(r'Support.*?:(.*?)(?=\n|$)', analysis)
+                resistance_match = re.search(r'Resistance.*?:(.*?)(?=\n|$)', analysis)
+                
+                if support_match and resistance_match:
+                    message += f"• Support:{support_match.group(1)}\n"
+                    message += f"• Resistance:{resistance_match.group(1)}\n\n"
+                else:
+                    message += "Key price levels not available.\n\n"
             
             # Risk Factors
             message += "⚠️ Risk Factors:\n"
-            risk_text = sentiment_data.get('analysis', '').split('\n\n')[4]
-            if risk_text.startswith('⚠️ Risk Factors:\n'):
-                risk_text = risk_text[len('⚠️ Risk Factors:\n'):]
-            message += f"{risk_text}\n\n"
+            volatility = sentiment_data.get('volatility', '').lower()
+            if volatility:
+                message += f"• Market Volatility: {volatility} volatility conditions\n"
+            
+            if sentiment_data.get('analysis'):
+                # Extract risk factors from analysis
+                analysis = sentiment_data['analysis']
+                risks = []
+                risk_section = False
+                for line in analysis.split('\n'):
+                    if '⚠️ Risk Factors:' in line:
+                        risk_section = True
+                        continue
+                    elif risk_section and line.strip() and not line.startswith('💡'):
+                        if line.startswith('•'):
+                            risks.append(line.strip())
+                
+                if risks:
+                    message += '\n'.join(risks) + '\n\n'
+                else:
+                    message += "• Monitor upcoming economic events and market sentiment shifts\n\n"
+            else:
+                message += "Risk factors data not available.\n\n"
             
             # Conclusion
             message += "💡 Conclusion:\n"
-            conclusion_text = sentiment_data.get('analysis', '').split('\n\n')[5]
-            if conclusion_text.startswith('💡 Conclusion:\n'):
-                conclusion_text = conclusion_text[len('💡 Conclusion:\n'):]
-            message += conclusion_text
+            if sentiment_data.get('recommendation'):
+                message += sentiment_data['recommendation']
+            elif sentiment_data.get('analysis'):
+                # Extract conclusion from analysis
+                analysis = sentiment_data['analysis']
+                conclusion = ''
+                for line in analysis.split('\n'):
+                    if line.startswith('The market shows') or 'conclusion' in line.lower():
+                        conclusion = line.replace('💡 Conclusion:', '').strip()
+                        break
+                
+                if conclusion:
+                    message += conclusion
+                else:
+                    message += "Consider market conditions and risk management before taking positions."
+            else:
+                message += "Analysis conclusion not available."
             
             return message
                 
