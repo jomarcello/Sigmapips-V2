@@ -1064,6 +1064,17 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         """Handle analysis callback"""
         query = update.callback_query
         
+        # Reset signal flow status and clear signal-related context
+        if context and hasattr(context, 'user_data'):
+            context.user_data['in_signals_flow'] = False
+            logger.info("Setting in_signals_flow to False in analysis_callback")
+            
+            # Clear any signal-related context
+            if 'from_signal' in context.user_data:
+                del context.user_data['from_signal']
+            if 'previous_state' in context.user_data and context.user_data['previous_state'] == 'SIGNAL':
+                del context.user_data['previous_state']
+        
         # Toon het analyse menu
         try:
             await query.edit_message_text(
@@ -1141,6 +1152,9 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             if context and hasattr(context, 'user_data'):
                 context.user_data['analysis_type'] = 'technical'
                 
+                # First check if we're in signals flow
+                in_signals_flow = context.user_data.get('in_signals_flow', False)
+                
                 # Set from_signal if this came via signal flow
                 if is_from_signal:
                     context.user_data['from_signal'] = True
@@ -1148,13 +1162,20 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     if instrument:
                         context.user_data['instrument'] = instrument
                 
-                # Check if we have an instrument from signal
-                if (context.user_data.get('from_signal') or context.user_data.get('previous_state') == 'SIGNAL') and (instrument or context.user_data.get('instrument')):
+                # Only use signal context if we're specifically in signals flow
+                if in_signals_flow and (context.user_data.get('from_signal') or context.user_data.get('previous_state') == 'SIGNAL') and (instrument or context.user_data.get('instrument')):
                     instrument = instrument or context.user_data.get('instrument')
-                    logger.info(f"Using instrument from signal: {instrument} for technical analysis")
+                    logger.info(f"Using instrument from signal: {instrument} for technical analysis (in_signals_flow={in_signals_flow})")
                     
                     # Go directly to technical analysis for this instrument
                     return await self.show_technical_analysis(update, context, instrument=instrument)
+                elif not in_signals_flow and (context.user_data.get('from_signal') or context.user_data.get('previous_state') == 'SIGNAL'):
+                    # Clear signal-related context when we're not in signals flow
+                    logger.info("Clearing signal context because we're not in signals flow")
+                    if 'from_signal' in context.user_data:
+                        del context.user_data['from_signal']
+                    if 'previous_state' in context.user_data and context.user_data['previous_state'] == 'SIGNAL':
+                        del context.user_data['previous_state']
             
             # If not coming from signal, show normal market selection
             await query.edit_message_text(
@@ -1190,6 +1211,9 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             if context and hasattr(context, 'user_data'):
                 context.user_data['analysis_type'] = 'sentiment'
                 
+                # First check if we're in signals flow
+                in_signals_flow = context.user_data.get('in_signals_flow', False)
+                
                 # Set from_signal if this came via signal flow
                 if is_from_signal:
                     context.user_data['from_signal'] = True
@@ -1197,13 +1221,20 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     if instrument:
                         context.user_data['instrument'] = instrument
                 
-                # Check if we have an instrument from signal
-                if (context.user_data.get('from_signal') or context.user_data.get('previous_state') == 'SIGNAL') and (instrument or context.user_data.get('instrument')):
+                # Only use signal context if we're specifically in signals flow
+                if in_signals_flow and (context.user_data.get('from_signal') or context.user_data.get('previous_state') == 'SIGNAL') and (instrument or context.user_data.get('instrument')):
                     instrument = instrument or context.user_data.get('instrument')
-                    logger.info(f"Using instrument from signal: {instrument} for sentiment analysis")
+                    logger.info(f"Using instrument from signal: {instrument} for sentiment analysis (in_signals_flow={in_signals_flow})")
                     
                     # Go directly to sentiment analysis for this instrument
                     return await self.show_sentiment_analysis(update, context, instrument=instrument)
+                elif not in_signals_flow and (context.user_data.get('from_signal') or context.user_data.get('previous_state') == 'SIGNAL'):
+                    # Clear signal-related context when we're not in signals flow
+                    logger.info("Clearing signal context because we're not in signals flow")
+                    if 'from_signal' in context.user_data:
+                        del context.user_data['from_signal']
+                    if 'previous_state' in context.user_data and context.user_data['previous_state'] == 'SIGNAL':
+                        del context.user_data['previous_state']
             
             # If not coming from signal, show normal market selection
             await query.edit_message_text(
@@ -1223,6 +1254,17 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         await query.answer()
         
         try:
+            # Check if we need to clear signal context when not in signals flow
+            if context and hasattr(context, 'user_data'):
+                in_signals_flow = context.user_data.get('in_signals_flow', False)
+                if not in_signals_flow and (context.user_data.get('from_signal') or context.user_data.get('previous_state') == 'SIGNAL'):
+                    # Clear signal-related context when we're not in signals flow
+                    logger.info("Clearing signal context because we're not in signals flow")
+                    if 'from_signal' in context.user_data:
+                        del context.user_data['from_signal']
+                    if 'previous_state' in context.user_data and context.user_data['previous_state'] == 'SIGNAL':
+                        del context.user_data['previous_state']
+            
             # Show loading message
             await query.edit_message_text(
                 text="Please wait, fetching economic calendar data..."
@@ -2060,6 +2102,24 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         except Exception as e:
             # Log de fout, maar ga door met afhandeling (voorkomt blokkering)
             logger.warning(f"Kon callback query niet beantwoorden: {str(e)}")
+        
+        # Clear transition between flows - guarantee proper flow state
+        if context and hasattr(context, 'user_data'):
+            # Main menu flows - explicitly mark when starting main menu flows
+            if query.data == "menu_analyse" or query.data == "menu_signals" or query.data == "back_menu":
+                if context.user_data.get('in_signals_flow', False) == True:
+                    # We're switching from signal flow to menu flow - clean up signal context
+                    context.user_data['in_signals_flow'] = False
+                    logger.info("Transition from signal flow to menu flow - cleaning up signal context")
+                    # Clear signal-related context
+                    for key in ['from_signal', 'previous_state', 'signal_message', 'from_signal_message']:
+                        if key in context.user_data:
+                            del context.user_data[key]
+            
+            # Signal flows - explicitly mark when starting signal flow
+            elif query.data.startswith("analyze_from_signal_") or query.data == "back_to_signal":
+                context.user_data['in_signals_flow'] = True
+                logger.info("Transition to signal flow")
         
         # Menu navigation handlers
         if query.data == "menu_analyse":
