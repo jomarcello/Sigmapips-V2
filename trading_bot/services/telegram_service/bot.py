@@ -798,6 +798,12 @@ class TelegramService:
         user_id = user.id
         first_name = user.first_name
         
+        # Reset signal flow status when starting a new session
+        if context and hasattr(context, 'user_data'):
+            if 'in_signals_flow' in context.user_data:
+                context.user_data['in_signals_flow'] = False
+                logger.info(f"Resetting in_signals_flow to False for user {user_id} in start_command")
+        
         # Try to add the user to the database if they don't exist yet
         try:
             # Get user subscription since we can't check if user exists directly
@@ -1013,6 +1019,11 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         query = update.callback_query
         
         try:
+            # Set in_signals_flow to False since we are in the main menu flow
+            if context and hasattr(context, 'user_data'):
+                context.user_data['in_signals_flow'] = False
+                logger.info("Setting in_signals_flow to False in menu_analyse_callback")
+            
             # Show the analysis menu
             await query.edit_message_text(
                 text="Select your analysis type:",
@@ -1035,6 +1046,11 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
     async def menu_signals_callback(self, update: Update, context=None) -> int:
         """Handle menu_signals callback"""
         query = update.callback_query
+        
+        # Set in_signals_flow to False since we are in the main menu flow
+        if context and hasattr(context, 'user_data'):
+            context.user_data['in_signals_flow'] = False
+            logger.info("Setting in_signals_flow to False in menu_signals_callback")
         
         # Show the signals menu
         await query.edit_message_text(
@@ -1547,7 +1563,9 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             if context and hasattr(context, 'user_data'):
                 context.user_data['market'] = market
                 context.user_data['analysis_type'] = analysis_type
-                logger.info(f"Stored in context: market={market}, analysis_type={analysis_type}")
+                # Explicitly mark that we're not in signals flow
+                context.user_data['in_signals_flow'] = False
+                logger.info(f"Stored in context: market={market}, analysis_type={analysis_type}, in_signals_flow=False")
             
             # Choose the keyboard based on market and analysis type
             keyboard = None
@@ -1765,6 +1783,10 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 logger.info(f"previous_state: {context.user_data.get('previous_state')}")
                 logger.info(f"instrument: {context.user_data.get('instrument')}")
                 
+                # Set in_signals_flow to True when returning to a signal
+                context.user_data['in_signals_flow'] = True
+                logger.info("Setting in_signals_flow to True in back_to_signal_callback")
+                
                 if 'signal_message' in context.user_data:
                     logger.info("Signal message found in context")
             
@@ -1935,6 +1957,12 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
     async def show_main_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> None:
         """Show the main menu with all bot features"""
         user_id = update.effective_user.id
+        
+        # Reset signal flow status when explicitly showing the main menu
+        if context and hasattr(context, 'user_data'):
+            if 'in_signals_flow' in context.user_data:
+                context.user_data['in_signals_flow'] = False
+                logger.info(f"Resetting in_signals_flow to False for user {user_id}")
         
         # Check if the user has a subscription
         is_subscribed = await self.db.is_user_subscribed(user_id)
@@ -3785,6 +3813,8 @@ Click the button below to start your FREE 14-day trial.
                 context.user_data['from_signal_message'] = True
                 context.user_data['message_id'] = update.callback_query.message.message_id
                 context.user_data['chat_id'] = update.callback_query.message.chat_id
+                context.user_data['in_signals_flow'] = True  # Explicitly set that we're in signals flow
+                logger.info("Setting in_signals_flow to True in analyze_from_signal_callback")
             
             # Show analysis options for this instrument (similar to analysis_callback but with preselected instrument)
             keyboard = [
