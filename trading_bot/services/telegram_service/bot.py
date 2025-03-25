@@ -1825,6 +1825,13 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 logger.info(f"previous_state: {context.user_data.get('previous_state')}")
                 logger.info(f"instrument: {context.user_data.get('instrument')}")
                 
+                # Log detailed signal data from context
+                logger.info(f"signal_instrument: {context.user_data.get('signal_instrument')}")
+                logger.info(f"signal_direction: {context.user_data.get('signal_direction')}")
+                logger.info(f"signal_price: {context.user_data.get('signal_price')}")
+                logger.info(f"signal_stop_loss: {context.user_data.get('signal_stop_loss')}")
+                logger.info(f"signal_take_profits: {context.user_data.get('signal_take_profits')}")
+                
                 # Set in_signals_flow to True when returning to a signal
                 context.user_data['in_signals_flow'] = True
                 logger.info("Setting in_signals_flow to True in back_to_signal_callback")
@@ -1835,18 +1842,83 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Ensure signals are loaded from file
             self._load_signals()
             
-            # Prioritize retrieving signal from context first
-            if context and hasattr(context, 'user_data'):
-                # Get instrument - try different ways in order of preference
-                instrument = None
-                if 'instrument' in context.user_data:
-                    instrument = context.user_data['instrument']
-                elif 'signal_instrument' in context.user_data:
-                    instrument = context.user_data['signal_instrument']
+            # FIRST PRIORITY: Use signal_message from context if available
+            if context and hasattr(context, 'user_data') and 'signal_message' in context.user_data and context.user_data.get('instrument'):
+                instrument = context.user_data.get('instrument')
+                message = context.user_data['signal_message']
                 
-                # Check if we have a signal_message in context - this is our first priority
-                if 'signal_message' in context.user_data and instrument:
-                    message = context.user_data['signal_message']
+                # Recreate the original keyboard
+                keyboard = [
+                    [
+                        InlineKeyboardButton("🔍 Analyze Market", callback_data=f"analyze_from_signal_{instrument}")
+                    ]
+                ]
+                
+                # Edit message to show the original signal
+                await query.edit_message_text(
+                    text=message,
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.HTML
+                )
+                logger.info(f"Successfully returned to original signal from context for {instrument}")
+                
+                # Make sure user_signals is updated with this message
+                if user_id in self.user_signals:
+                    self.user_signals[user_id]['message'] = message
+                    self.user_signals[user_id]['instrument'] = instrument
+                    # Also update other fields from context if available
+                    for key in ['direction', 'price', 'stop_loss', 'take_profits', 'timeframe', 'strategy']:
+                        signal_key = f'signal_{key}'
+                        if signal_key in context.user_data:
+                            self.user_signals[user_id][key] = context.user_data[signal_key]
+                    self._save_signals()
+                
+                return SIGNAL_DETAILS
+            
+            # SECOND PRIORITY: Recreate message from signal-prefixed context values
+            if context and hasattr(context, 'user_data') and context.user_data.get('instrument'):
+                instrument = context.user_data.get('instrument')
+                
+                # If we have signal_* prefixed fields in context, use those to recreate the message
+                if any(key.startswith('signal_') for key in context.user_data.keys()):
+                    logger.info("Recreating signal message from context with signal_ prefixed fields")
+                    
+                    # Extract data with signal_ prefix
+                    direction = context.user_data.get('signal_direction', 'UNKNOWN')
+                    price = context.user_data.get('signal_price', 'N/A')
+                    stop_loss = context.user_data.get('signal_stop_loss', 'N/A')
+                    take_profits = context.user_data.get('signal_take_profits', [])
+                    timeframe = context.user_data.get('signal_timeframe', '1h')
+                    strategy = context.user_data.get('signal_strategy', 'Unknown')
+                    
+                    # Format the message
+                    message = self._format_signal_message(
+                        instrument=instrument,
+                        direction=direction,
+                        price=price,
+                        stop_loss=stop_loss,
+                        take_profits=take_profits,
+                        timeframe=timeframe,
+                        strategy=strategy
+                    )
+                    
+                    # Update context with the formatted message
+                    context.user_data['signal_message'] = message
+                    
+                    # Update user_signals
+                    self.user_signals[user_id] = {
+                        'instrument': instrument,
+                        'direction': direction,
+                        'price': price,
+                        'stop_loss': stop_loss,
+                        'take_profits': take_profits,
+                        'message': message,
+                        'base_message': message,
+                        'timestamp': self._get_formatted_timestamp(),
+                        'timeframe': timeframe,
+                        'strategy': strategy
+                    }
+                    self._save_signals()
                     
                     # Recreate the original keyboard
                     keyboard = [
@@ -1855,27 +1927,19 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                         ]
                     ]
                     
-                    # Edit message to show the original signal
+                    # Edit message to show the recreated signal
                     await query.edit_message_text(
                         text=message,
                         reply_markup=InlineKeyboardMarkup(keyboard),
                         parse_mode=ParseMode.HTML
                     )
-                    logger.info(f"Successfully returned to original signal from context for {instrument}")
+                    logger.info(f"Successfully returned to recreated signal from context data for {instrument}")
                     return SIGNAL_DETAILS
             
-            # Check if we were previously in SIGNAL state (directly from a signal)
-            if context and hasattr(context, 'user_data') and (context.user_data.get('previous_state') == 'SIGNAL' or context.user_data.get('from_signal', False)):
-                logger.info(f"Back to signal from analysis for user {user_id}")
-                
-                # Clear the previous menu selection to prevent issues
-                if 'selected_menu' in context.user_data:
-                    del context.user_data['selected_menu']
-            
-            # Now try to find the signal in user_signals (second priority)
+            # THIRD PRIORITY: Check user_signals data
             if user_id in self.user_signals:
                 signal_data = self.user_signals[user_id]
-                logger.info(f"Found signal data for user {user_id}")
+                logger.info(f"Found signal data in user_signals for user {user_id}")
                 
                 # If we have a valid message
                 if 'message' in signal_data:
@@ -1883,9 +1947,20 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     message = signal_data.get('base_message', signal_data['message'])
                     signal_instrument = signal_data.get('instrument', 'Unknown')
                     
-                    # If we have instrument in context, prioritize that one
+                    # If we have instrument in context, prioritize that one over what's in user_signals
                     if context and hasattr(context, 'user_data') and 'instrument' in context.user_data:
-                        signal_instrument = context.user_data['instrument']
+                        instrument_from_context = context.user_data.get('instrument')
+                        if instrument_from_context and instrument_from_context != signal_instrument:
+                            logger.info(f"Instrument mismatch: context has {instrument_from_context} but user_signals has {signal_instrument}. Using context value.")
+                            signal_instrument = instrument_from_context
+                            
+                            # Update the message with the correct instrument
+                            # Use regex to replace the instrument in the message
+                            message = re.sub(
+                                r'Instrument:\s+[A-Z0-9]+', 
+                                f'Instrument: {signal_instrument}', 
+                                message
+                            )
                     
                     # Recreate the original keyboard
                     keyboard = [
@@ -1900,12 +1975,18 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                         reply_markup=InlineKeyboardMarkup(keyboard),
                         parse_mode=ParseMode.HTML
                     )
-                    logger.info(f"Successfully returned to original signal for {signal_instrument}")
+                    logger.info(f"Successfully returned to original signal from user_signals for {signal_instrument}")
+                    
+                    # Also update context with this message
+                    if context and hasattr(context, 'user_data'):
+                        context.user_data['signal_message'] = message
+                    
                     return SIGNAL_DETAILS
                 else:
                     logger.warning(f"Signal data found for user {user_id} but no message")
                     logger.info(f"Signal data keys: {signal_data.keys()}")
             
+            # FOURTH PRIORITY: Fallback to extracting data from anything we can find
             # Fallback: Try to extract instrument from current message or context
             instrument = None
             
@@ -1928,7 +2009,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                         instrument = any_instrument.group(1)
                         logger.info(f"Extracted instrument from general pattern: {instrument}")
             
-            # Fallback: recreate a basic signal message from context data
+            # LAST RESORT: recreate a basic signal message from context data
             if context and hasattr(context, 'user_data'):
                 # Extract data from context
                 instrument = instrument or context.user_data.get('instrument', 'Unknown')
@@ -1976,6 +2057,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     'stop_loss': stop_loss,
                     'take_profits': take_profits,
                     'message': fallback_message,
+                    'base_message': fallback_message,
                     'timestamp': self._get_formatted_timestamp(),
                     'timeframe': timeframe,
                     'strategy': strategy
@@ -2300,6 +2382,20 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             
             # Store the analysis type and instrument in context for future reference
             if context and hasattr(context, 'user_data'):
+                # Clear any signal flow flags when selecting an instrument directly
+                # This ensures we're not carrying over signal context inappropriately
+                signal_flow_fields = [
+                    'in_signals_flow', 'from_signal', 'previous_state', 'from_signal_message'
+                ]
+                for field in signal_flow_fields:
+                    if field in context.user_data:
+                        del context.user_data[field]
+                        logger.info(f"Cleared {field} from context")
+                
+                # Store the current instrument
+                context.user_data['instrument'] = instrument
+                logger.info(f"Stored instrument in context: {instrument}")
+                
                 # Store analysis type to ensure proper back button navigation
                 if analysis_type == "sentiment":
                     context.user_data['analysis_type'] = 'sentiment'
@@ -3867,6 +3963,7 @@ Click the button below to start your FREE 14-day trial.
                 context.user_data['chat_id'] = update.callback_query.message.chat_id
                 context.user_data['in_signals_flow'] = True  # Explicitly set that we're in signals flow
                 logger.info("Setting in_signals_flow to True in analyze_from_signal_callback")
+                logger.info(f"Saved instrument {instrument} in context")
                 
                 # Store the original message text in context
                 if original_message_text:
@@ -3915,17 +4012,61 @@ Click the button below to start your FREE 14-day trial.
                         strategy = strategy_match.group(1).strip()
                         context.user_data['signal_strategy'] = strategy
                         logger.info(f"Extracted strategy from message: {strategy}")
+                    
+                    # Verify if the extracted instrument matches the callback instrument
+                    instrument_match = re.search(r'Instrument:\s*([A-Z0-9]+)', original_message_text)
+                    if instrument_match:
+                        message_instrument = instrument_match.group(1)
+                        if message_instrument != instrument:
+                            logger.warning(f"Instrument mismatch: message has {message_instrument} but callback has {instrument}")
+                            # Update the message in context with the correct instrument
+                            corrected_message = re.sub(
+                                r'Instrument:\s+[A-Z0-9]+', 
+                                f'Instrument: {instrument}', 
+                                original_message_text
+                            )
+                            context.user_data['signal_message'] = corrected_message
+                            logger.info(f"Updated signal_message with correct instrument {instrument}")
                 
                 # Also store additional signal data from user_signals if available
                 if user_id in self.user_signals:
                     signal_data = self.user_signals[user_id]
-                    # Copy over all signal data fields to context
+                    logger.info(f"Found signal data in user_signals for user {user_id}")
+                    
+                    # Check for instrument mismatch and fix it in user_signals
+                    if signal_data.get('instrument') != instrument:
+                        logger.warning(f"Instrument mismatch in user_signals: has {signal_data.get('instrument')} but callback has {instrument}")
+                        signal_data['instrument'] = instrument
+                        
+                        # Update the message in user_signals with the correct instrument
+                        if 'message' in signal_data:
+                            corrected_message = re.sub(
+                                r'Instrument:\s+[A-Z0-9]+', 
+                                f'Instrument: {instrument}', 
+                                signal_data['message']
+                            )
+                            signal_data['message'] = corrected_message
+                            logger.info(f"Updated message in user_signals with correct instrument {instrument}")
+                        
+                        # Do the same for base_message if it exists
+                        if 'base_message' in signal_data:
+                            corrected_base = re.sub(
+                                r'Instrument:\s+[A-Z0-9]+', 
+                                f'Instrument: {instrument}', 
+                                signal_data['base_message']
+                            )
+                            signal_data['base_message'] = corrected_base
+                        
+                        # Save the updated user signals
+                        self._save_signals()
+                    
+                    # Copy over all signal data fields to context with signal_ prefix
                     for key, value in signal_data.items():
                         if key not in ['bot', 'context']:  # Skip non-serializable objects
                             context.user_data[f'signal_{key}'] = value
                     logger.info(f"Copied signal data from user_signals to context: {list(signal_data.keys())}")
                     
-                    # Store the direction, price, etc.
+                    # Also store in standard context fields for compatibility
                     context.user_data['direction'] = signal_data.get('direction', 'UNKNOWN')
                     context.user_data['price'] = signal_data.get('price', 0)
                     context.user_data['stop_loss'] = signal_data.get('stop_loss', 0)
@@ -3956,6 +4097,7 @@ Click the button below to start your FREE 14-day trial.
                             'stop_loss': stop_loss,
                             'take_profits': take_profits,
                             'message': original_message_text,
+                            'base_message': original_message_text,
                             'timestamp': self._get_formatted_timestamp(),
                             'timeframe': timeframe,
                             'strategy': strategy
