@@ -1835,17 +1835,17 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Ensure signals are loaded from file
             self._load_signals()
             
-            # Check if we were previously in SIGNAL state (directly from a signal)
-            if context and hasattr(context, 'user_data') and (context.user_data.get('previous_state') == 'SIGNAL' or context.user_data.get('from_signal', False)):
-                logger.info(f"Back to signal from analysis for user {user_id}")
+            # Prioritize retrieving signal from context first
+            if context and hasattr(context, 'user_data'):
+                # Get instrument - try different ways in order of preference
+                instrument = None
+                if 'instrument' in context.user_data:
+                    instrument = context.user_data['instrument']
+                elif 'signal_instrument' in context.user_data:
+                    instrument = context.user_data['signal_instrument']
                 
-                # Clear the previous menu selection to prevent issues
-                if 'selected_menu' in context.user_data:
-                    del context.user_data['selected_menu']
-                
-                # Try to get the original signal from context first
-                if 'signal_message' in context.user_data and context.user_data.get('instrument'):
-                    instrument = context.user_data.get('instrument')
+                # Check if we have a signal_message in context - this is our first priority
+                if 'signal_message' in context.user_data and instrument:
                     message = context.user_data['signal_message']
                     
                     # Recreate the original keyboard
@@ -1864,44 +1864,28 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     logger.info(f"Successfully returned to original signal from context for {instrument}")
                     return SIGNAL_DETAILS
             
-            # Try to retrieve the instrument from context or callback data
-            instrument = None
+            # Check if we were previously in SIGNAL state (directly from a signal)
+            if context and hasattr(context, 'user_data') and (context.user_data.get('previous_state') == 'SIGNAL' or context.user_data.get('from_signal', False)):
+                logger.info(f"Back to signal from analysis for user {user_id}")
+                
+                # Clear the previous menu selection to prevent issues
+                if 'selected_menu' in context.user_data:
+                    del context.user_data['selected_menu']
             
-            # First check callback data for instrument
-            if query.data and len(query.data.split('_')) > 3:
-                instrument = query.data.split('_')[3]
-                logger.info(f"Found instrument in callback data: {instrument}")
-            
-            # Try context if available
-            if not instrument and context and hasattr(context, 'user_data'):
-                instrument = context.user_data.get('instrument')
-                logger.info(f"Found instrument in context: {instrument}")
-            
-            # Try to find from message text as last resort
-            if not instrument and hasattr(query.message, 'text'):
-                # Look for patterns like "EURUSD" or "XAUUSD" in the message
-                instrument_match = re.search(r'(?:Instrument|analysis for|chart for|for\s+):\s*([A-Z0-9]{4,8})', query.message.text, re.IGNORECASE)
-                if instrument_match:
-                    instrument = instrument_match.group(1)
-                    logger.info(f"Extracted instrument from message text: {instrument}")
-                else:
-                    # Try more general pattern
-                    any_instrument = re.search(r'([A-Z]{3}[A-Z]{3}|XAU[A-Z]{3}|XAG[A-Z]{3})', query.message.text)
-                    if any_instrument:
-                        instrument = any_instrument.group(1)
-                        logger.info(f"Extracted instrument from general pattern: {instrument}")
-            
-            logger.info(f"Looking for signal with instrument: {instrument} for user: {user_id}")
-            
-            # Now try to find the signal in user_signals
+            # Now try to find the signal in user_signals (second priority)
             if user_id in self.user_signals:
                 signal_data = self.user_signals[user_id]
                 logger.info(f"Found signal data for user {user_id}")
                 
-                # If we have a valid message and it matches the instrument we want
-                if 'message' in signal_data and (not instrument or signal_data.get('instrument') == instrument):
-                    message = signal_data['message']
+                # If we have a valid message
+                if 'message' in signal_data:
+                    # Prefer base_message if available (without the verdict), otherwise use the full message
+                    message = signal_data.get('base_message', signal_data['message'])
                     signal_instrument = signal_data.get('instrument', 'Unknown')
+                    
+                    # If we have instrument in context, prioritize that one
+                    if context and hasattr(context, 'user_data') and 'instrument' in context.user_data:
+                        signal_instrument = context.user_data['instrument']
                     
                     # Recreate the original keyboard
                     keyboard = [
@@ -1919,50 +1903,53 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     logger.info(f"Successfully returned to original signal for {signal_instrument}")
                     return SIGNAL_DETAILS
                 else:
-                    logger.warning(f"Signal data found for user {user_id} but no message or instrument mismatch")
+                    logger.warning(f"Signal data found for user {user_id} but no message")
                     logger.info(f"Signal data keys: {signal_data.keys()}")
-                    logger.info(f"Signal data instrument: {signal_data.get('instrument', 'None')}")
+            
+            # Fallback: Try to extract instrument from current message or context
+            instrument = None
+            
+            # Try context if available
+            if context and hasattr(context, 'user_data'):
+                instrument = context.user_data.get('instrument')
+                logger.info(f"Found instrument in context: {instrument}")
+            
+            # Try to find from message text as last resort
+            if not instrument and hasattr(query.message, 'text'):
+                # Look for patterns like "EURUSD" or "XAUUSD" in the message
+                instrument_match = re.search(r'(?:Instrument|analysis for|chart for|for\s+):\s*([A-Z0-9]{4,8})', query.message.text, re.IGNORECASE)
+                if instrument_match:
+                    instrument = instrument_match.group(1)
+                    logger.info(f"Extracted instrument from message text: {instrument}")
+                else:
+                    # Try more general pattern
+                    any_instrument = re.search(r'([A-Z]{3}[A-Z]{3}|XAU[A-Z]{3}|XAG[A-Z]{3})', query.message.text)
+                    if any_instrument:
+                        instrument = any_instrument.group(1)
+                        logger.info(f"Extracted instrument from general pattern: {instrument}")
             
             # Fallback: recreate a basic signal message from context data
             if context and hasattr(context, 'user_data'):
                 # Extract data from context
                 instrument = instrument or context.user_data.get('instrument', 'Unknown')
-                direction = context.user_data.get('direction', 'UNKNOWN')
-                price = context.user_data.get('price', 'N/A')
-                stop_loss = context.user_data.get('stop_loss', 'N/A')
-                take_profits = context.user_data.get('take_profits', [])
-                timeframe = context.user_data.get('timeframe', '1h')
-                strategy = context.user_data.get('strategy', 'Unknown')
                 
-                # Determine emoji for direction
-                direction_emoji = "📈" if direction == "BUY" else "📉"
+                # Try to get signal data from context with prefix or direct keys
+                direction = context.user_data.get('signal_direction', context.user_data.get('direction', 'UNKNOWN'))
+                price = context.user_data.get('signal_price', context.user_data.get('price', 'N/A'))
+                stop_loss = context.user_data.get('signal_stop_loss', context.user_data.get('stop_loss', 'N/A'))
+                take_profits = context.user_data.get('signal_take_profits', context.user_data.get('take_profits', []))
+                timeframe = context.user_data.get('signal_timeframe', context.user_data.get('timeframe', '1h'))
+                strategy = context.user_data.get('signal_strategy', context.user_data.get('strategy', 'Unknown'))
                 
-                # Format take profits
-                tp_lines = []
-                for i, tp in enumerate(take_profits, 1):
-                    tp_formatted = self._format_price(tp) if callable(getattr(self, '_format_price', None)) else str(tp)
-                    tp_lines.append(f"Take Profit {i}: {tp_formatted} 🎯")
-                
-                tp_text = "\n".join(tp_lines) if tp_lines else "No take profit levels defined"
-                
-                # Create message in the same format as original signals
-                fallback_message = (
-                    f"🎯 New Trading Signal 🎯\n\n"
-                    f"Instrument: {instrument}\n"
-                    f"Action: {direction} {direction_emoji}\n\n"
-                    f"Entry Price: {price}\n"
-                    f"Stop Loss: {stop_loss} 🔴\n"
-                    f"{tp_text}\n\n"
-                    f"Timeframe: {timeframe}\n"
-                    f"Strategy: {strategy}\n\n"
-                    f"————————————————————\n\n"
-                    f"Risk Management:\n"
-                    f"• Position size: 1-2% max\n"
-                    f"• Use proper stop loss\n"
-                    f"• Follow your trading plan\n\n"
-                    f"————————————————————\n\n"
-                    f"🤖 SigmaPips AI Verdict:\n"
-                    f"<i>Note: This is a recreated signal as the original could not be found.</i>"
+                # Use the helper method to format the signal message
+                fallback_message = self._format_signal_message(
+                    instrument=instrument,
+                    direction=direction,
+                    price=price,
+                    stop_loss=stop_loss,
+                    take_profits=take_profits,
+                    timeframe=timeframe,
+                    strategy=strategy
                 )
                 
                 keyboard = [
@@ -1976,6 +1963,25 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     reply_markup=InlineKeyboardMarkup(keyboard),
                     parse_mode=ParseMode.HTML
                 )
+                
+                # Store this message in context and user_signals for future use
+                if context and hasattr(context, 'user_data'):
+                    context.user_data['signal_message'] = fallback_message
+                
+                # Update user_signals as well
+                self.user_signals[user_id] = {
+                    'instrument': instrument,
+                    'direction': direction,
+                    'price': price,
+                    'stop_loss': stop_loss,
+                    'take_profits': take_profits,
+                    'message': fallback_message,
+                    'timestamp': self._get_formatted_timestamp(),
+                    'timeframe': timeframe,
+                    'strategy': strategy
+                }
+                self._save_signals()
+                
                 logger.info(f"Created fallback signal message for {instrument} for user {user_id}")
                 return SIGNAL_DETAILS
             
@@ -2739,17 +2745,6 @@ Click the button below to start your FREE 14-day trial.
                 logger.warning(f"No subscribers found for {market}/{instrument}")
                 return True  # Return True because signal was processed successfully (just no subscribers)
             
-            # Format take profits for display
-            tp_values = []
-            for i, tp in enumerate(take_profits, 1):
-                tp_formatted = self._format_price(tp)
-                tp_values.append(f"TP{i}: {tp_formatted}")
-            
-            tp_text = "\n".join(tp_values) if tp_values else "No take profit levels defined"
-            
-            # Generate emoji based on signal direction
-            emoji = "🟢" if direction == "BUY" else "🔴" if direction == "SELL" else "⚪"
-            
             # Generate verdict using sentiment and chart analysis
             verdict = "Signal analysis not available"
             try:
@@ -2768,36 +2763,23 @@ Click the button below to start your FREE 14-day trial.
             except Exception as e:
                 logger.error(f"Error generating verdict: {e}")
             
-            # Format the message
+            # Format the signal message using our helper
             timestamp = self._get_formatted_timestamp()
             
-            # Determine emoji for action/direction
-            direction_emoji = "📈" if direction == "BUY" else "📉"
+            # Get the base message from our helper
+            base_message = self._format_signal_message(
+                instrument=instrument,
+                direction=direction,
+                price=price,
+                stop_loss=stop_loss,
+                take_profits=take_profits,
+                timeframe=interval,
+                strategy=strategy
+            )
             
-            # Format take profits for display
-            tp_lines = []
-            for i, tp in enumerate(take_profits, 1):
-                tp_formatted = self._format_price(tp)
-                tp_lines.append(f"Take Profit {i}: {tp_formatted} 🎯")
-            
-            tp_text = "\n".join(tp_lines) if tp_lines else "No take profit levels defined"
-            
-            # Create message in the desired format
+            # Add verdict to the base message
             message = (
-                f"🎯 New Trading Signal 🎯\n\n"
-                f"Instrument: {instrument}\n"
-                f"Action: {direction} {direction_emoji}\n\n"
-                f"Entry Price: {self._format_price(price)}\n"
-                f"Stop Loss: {self._format_price(stop_loss)} 🔴\n"
-                f"{tp_text}\n\n"
-                f"Timeframe: {interval}\n"
-                f"Strategy: {strategy}\n\n"
-                f"————————————————————\n\n"
-                f"Risk Management:\n"
-                f"• Position size: 1-2% max\n"
-                f"• Use proper stop loss\n"
-                f"• Follow your trading plan\n\n"
-                f"————————————————————\n\n"
+                f"{base_message}\n\n"
                 f"🤖 SigmaPips AI Verdict:\n"
                 f"{verdict}"
             )
@@ -2822,7 +2804,8 @@ Click the button below to start your FREE 14-day trial.
                         'message': message,
                         'timestamp': timestamp,
                         'timeframe': interval,
-                        'strategy': strategy
+                        'strategy': strategy,
+                        'base_message': base_message  # Store the base message without the verdict for easy reuse
                     }
                     
                     # Send the signal
@@ -3866,15 +3849,119 @@ Click the button below to start your FREE 14-day trial.
             instrument = query.data.replace('analyze_from_signal_', '')
             logger.info(f"Analyze from signal callback for instrument: {instrument}")
             
+            # Make sure signals are loaded
+            self._load_signals()
+            
+            # Store the original signal message text in context for later use
+            original_message_text = query.message.text if query.message and hasattr(query.message, 'text') else None
+            
             # Store the instrument in context for later use
             if context and hasattr(context, 'user_data'):
+                # Save state and flow information
                 context.user_data['instrument'] = instrument
+                context.user_data['signal_instrument'] = instrument
                 context.user_data['from_signal'] = True
+                context.user_data['previous_state'] = 'SIGNAL'
                 context.user_data['from_signal_message'] = True
                 context.user_data['message_id'] = update.callback_query.message.message_id
                 context.user_data['chat_id'] = update.callback_query.message.chat_id
                 context.user_data['in_signals_flow'] = True  # Explicitly set that we're in signals flow
                 logger.info("Setting in_signals_flow to True in analyze_from_signal_callback")
+                
+                # Store the original message text in context
+                if original_message_text:
+                    context.user_data['signal_message'] = original_message_text
+                    logger.info(f"Stored original signal message in context ({len(original_message_text)} chars)")
+                
+                # Try to extract key information from message text for fallback purposes
+                if original_message_text:
+                    # Try to extract direction from message
+                    direction_match = re.search(r'Action:\s*(\w+)', original_message_text)
+                    if direction_match:
+                        direction = direction_match.group(1).upper()
+                        context.user_data['signal_direction'] = direction
+                        logger.info(f"Extracted direction from message: {direction}")
+                    
+                    # Try to extract price from message
+                    price_match = re.search(r'Entry Price:\s*([\d\.]+)', original_message_text)
+                    if price_match:
+                        price = price_match.group(1)
+                        context.user_data['signal_price'] = price
+                        logger.info(f"Extracted price from message: {price}")
+                    
+                    # Try to extract stop loss from message
+                    sl_match = re.search(r'Stop Loss:\s*([\d\.]+)', original_message_text)
+                    if sl_match:
+                        stop_loss = sl_match.group(1)
+                        context.user_data['signal_stop_loss'] = stop_loss
+                        logger.info(f"Extracted stop loss from message: {stop_loss}")
+                    
+                    # Try to extract take profits from message
+                    tp_matches = re.findall(r'Take Profit \d+:\s*([\d\.]+)', original_message_text)
+                    if tp_matches:
+                        take_profits = tp_matches
+                        context.user_data['signal_take_profits'] = take_profits
+                        logger.info(f"Extracted take profits from message: {take_profits}")
+                    
+                    # Try to extract timeframe and strategy
+                    tf_match = re.search(r'Timeframe:\s*(\w+)', original_message_text)
+                    if tf_match:
+                        timeframe = tf_match.group(1)
+                        context.user_data['signal_timeframe'] = timeframe
+                        logger.info(f"Extracted timeframe from message: {timeframe}")
+                    
+                    strategy_match = re.search(r'Strategy:\s*(.+?)(?:\n|$)', original_message_text)
+                    if strategy_match:
+                        strategy = strategy_match.group(1).strip()
+                        context.user_data['signal_strategy'] = strategy
+                        logger.info(f"Extracted strategy from message: {strategy}")
+                
+                # Also store additional signal data from user_signals if available
+                if user_id in self.user_signals:
+                    signal_data = self.user_signals[user_id]
+                    # Copy over all signal data fields to context
+                    for key, value in signal_data.items():
+                        if key not in ['bot', 'context']:  # Skip non-serializable objects
+                            context.user_data[f'signal_{key}'] = value
+                    logger.info(f"Copied signal data from user_signals to context: {list(signal_data.keys())}")
+                    
+                    # Store the direction, price, etc.
+                    context.user_data['direction'] = signal_data.get('direction', 'UNKNOWN')
+                    context.user_data['price'] = signal_data.get('price', 0)
+                    context.user_data['stop_loss'] = signal_data.get('stop_loss', 0)
+                    context.user_data['take_profits'] = signal_data.get('take_profits', [])
+                    context.user_data['timeframe'] = signal_data.get('timeframe', '1h')
+                    context.user_data['strategy'] = signal_data.get('strategy', 'Unknown')
+                    
+                    # Make sure the signal message is stored
+                    if 'message' in signal_data and not context.user_data.get('signal_message'):
+                        context.user_data['signal_message'] = signal_data['message']
+                else:
+                    logger.warning(f"No signal data found in user_signals for user {user_id}")
+                    # Create a new entry in user_signals if we have message
+                    if original_message_text:
+                        # Use extracted data or defaults
+                        direction = context.user_data.get('signal_direction', 'UNKNOWN')
+                        price = context.user_data.get('signal_price', 'N/A')
+                        stop_loss = context.user_data.get('signal_stop_loss', 'N/A')
+                        take_profits = context.user_data.get('signal_take_profits', [])
+                        timeframe = context.user_data.get('signal_timeframe', '1h')
+                        strategy = context.user_data.get('signal_strategy', 'Unknown')
+                        
+                        # Create entry in user_signals
+                        self.user_signals[user_id] = {
+                            'instrument': instrument,
+                            'direction': direction,
+                            'price': price,
+                            'stop_loss': stop_loss,
+                            'take_profits': take_profits,
+                            'message': original_message_text,
+                            'timestamp': self._get_formatted_timestamp(),
+                            'timeframe': timeframe,
+                            'strategy': strategy
+                        }
+                        self._save_signals()
+                        logger.info(f"Created new entry in user_signals for user {user_id}")
             
             # Show analysis options for this instrument (similar to analysis_callback but with preselected instrument)
             keyboard = [
@@ -3895,7 +3982,7 @@ Click the button below to start your FREE 14-day trial.
             
             return CHOOSE_ANALYSIS
         except Exception as e:
-            logger.error(f"Error in analyze_from_signal_callback: {str(e)}")
+            logger.error(f"Error in analyze_from_signal_callback: {str(e)}", exc_info=True)
             return MENU
 
     async def show_technical_analysis(self, update: Update, context=None, instrument: str = None, timeframe: str = "1h", fullscreen: bool = False) -> int:
@@ -4110,3 +4197,96 @@ Click the button below to start your FREE 14-day trial.
                 logger.error(f"Failed to send fallback message: {str(inner_e)}")
             
             return MENU
+
+    def _format_signal_message(self, instrument, direction, price, stop_loss, take_profits, timeframe='1h', strategy='Unknown'):
+        """Format a signal message in a standardized way"""
+        try:
+            # Determine emoji for direction
+            direction = str(direction).upper()
+            direction_emoji = "📈" if direction == "BUY" else "📉"
+            
+            # Format take profits
+            tp_lines = []
+            if isinstance(take_profits, list) and take_profits:
+                for i, tp in enumerate(take_profits, 1):
+                    # Handle price formatting manually since we can't call async methods from sync
+                    if isinstance(tp, str):
+                        tp_formatted = tp
+                    else:
+                        # Basic formatting without async call
+                        try:
+                            if 'JPY' in str(instrument):
+                                tp_formatted = f"{float(tp):.3f}"
+                            else:
+                                tp_formatted = f"{float(tp):.5f}"
+                        except:
+                            tp_formatted = str(tp)
+                    
+                    tp_lines.append(f"Take Profit {i}: {tp_formatted} 🎯")
+            
+            tp_text = "\n".join(tp_lines) if tp_lines else "No take profit levels defined"
+            
+            # Format price and stop loss without async calls
+            if isinstance(price, str):
+                price_formatted = price
+            else:
+                try:
+                    if 'JPY' in str(instrument):
+                        price_formatted = f"{float(price):.3f}"
+                    else:
+                        price_formatted = f"{float(price):.5f}"
+                except:
+                    price_formatted = str(price)
+                    
+            if isinstance(stop_loss, str):
+                sl_formatted = stop_loss
+            else:
+                try:
+                    if 'JPY' in str(instrument):
+                        sl_formatted = f"{float(stop_loss):.3f}"
+                    else:
+                        sl_formatted = f"{float(stop_loss):.5f}"
+                except:
+                    sl_formatted = str(stop_loss)
+            
+            # Create message in the same format as original signals
+            signal_message = (
+                f"🎯 Trading Signal 🎯\n\n"
+                f"Instrument: {instrument}\n"
+                f"Action: {direction} {direction_emoji}\n\n"
+                f"Entry Price: {price_formatted}\n"
+                f"Stop Loss: {sl_formatted} 🔴\n"
+                f"{tp_text}\n\n"
+                f"Timeframe: {timeframe}\n"
+                f"Strategy: {strategy}\n\n"
+                f"————————————————————\n\n"
+                f"Risk Management:\n"
+                f"• Position size: 1-2% max\n"
+                f"• Use proper stop loss\n"
+                f"• Follow your trading plan\n\n"
+                f"————————————————————\n\n"
+                f"🤖 SigmaPips AI"
+            )
+            
+            return signal_message
+        except Exception as e:
+            logger.error(f"Error formatting signal message: {str(e)}", exc_info=True)
+            return f"Trading Signal for {instrument}"
+            
+    def _get_formatted_timestamp(self):
+        """Get current timestamp formatted in a human-readable way"""
+        return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+    async def _format_price(self, price):
+        """Format price with appropriate number of decimal places"""
+        try:
+            if isinstance(price, str):
+                price = float(price)
+            
+            # Format with 5 decimal places for most forex, 2 for JPY pairs
+            if 'JPY' in str(price):
+                return f"{price:.3f}"
+            else:
+                return f"{price:.5f}"
+        except:
+            return str(price)
