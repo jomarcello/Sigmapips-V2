@@ -541,25 +541,12 @@ class TelegramService:
         logger.info(f"Bot initialized with webhook URL: {self.webhook_url} and path: {self.webhook_path}")
         
         # Initialize API services
-        try:
-            self.technical_service = ChartService()
-            logger.info("ChartService initialized")
-            self.calendar_service = EconomicCalendarService()
-            logger.info("EconomicCalendarService initialized")
-            self.sentiment_service = MarketSentimentService()
-            logger.info("MarketSentimentService initialized")
-            
-            # Initialize chart service asynchronously
-            loop = asyncio.get_event_loop()
-            if loop.is_closed():
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-            loop.create_task(self.technical_service.initialize())
-            logger.info("ChartService initialization task created")
-        except Exception as e:
-            logger.error(f"Error initializing services: {str(e)}")
-            logger.exception(e)
-            raise
+        self.chart = ChartService()  # Chart generation service
+        self.calendar = EconomicCalendarService()  # Economic calendar service
+        self.sentiment = MarketSentimentService()  # Market sentiment service
+        
+        # Initialize chart service
+        asyncio.create_task(self.chart.initialize())
         
         # Bot application initialization
         self.persistence = None
@@ -807,13 +794,6 @@ class TelegramService:
 
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> None:
         """Send a welcome message when the bot is started."""
-        # Reset any existing flow state
-        if context and hasattr(context, 'user_data'):
-            # Clear any previous flow data
-            context.user_data.clear()
-            # Set current flow to menu
-            context.user_data['current_flow'] = 'menu'
-            
         user = update.effective_user
         user_id = user.id
         first_name = user.first_name
@@ -1136,30 +1116,16 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             is_from_signal = False
             instrument = None
             
-            # Check current flow
-            current_flow = context.user_data.get('current_flow') if context and hasattr(context, 'user_data') else None
-            
             if query.data.startswith("analysis_technical_signal_"):
                 is_from_signal = True
                 instrument = query.data.replace("analysis_technical_signal_", "")
                 logger.info(f"Technical analysis for instrument {instrument} from signal")
-                
-                # Ensure we're in signal flow
-                if context and hasattr(context, 'user_data'):
-                    if current_flow != 'signal':
-                        context.user_data.clear()
-                        context.user_data['current_flow'] = 'signal'
-            else:
-                # If not from signal, ensure we're in menu flow
-                if context and hasattr(context, 'user_data'):
-                    if current_flow != 'menu':
-                        context.user_data.clear()
-                        context.user_data['current_flow'] = 'menu'
             
             # Store analysis type in user_data
             if context and hasattr(context, 'user_data'):
                 context.user_data['analysis_type'] = 'technical'
                 
+                # Set from_signal if this came via signal flow
                 if is_from_signal:
                     context.user_data['from_signal'] = True
                     context.user_data['previous_state'] = 'SIGNAL'
@@ -1181,12 +1147,11 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             )
             
             return CHOOSE_MARKET
-            
         except Exception as e:
             logger.error(f"Error in analysis_technical_callback: {str(e)}")
             logger.exception(e)
             return MENU
-
+    
     async def analysis_sentiment_callback(self, update: Update, context=None) -> int:
         """Handle sentiment analysis selection"""
         query = update.callback_query
@@ -1200,35 +1165,16 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             is_from_signal = False
             instrument = None
             
-            # Check current flow
-            current_flow = context.user_data.get('current_flow') if context and hasattr(context, 'user_data') else None
-            
             if query.data.startswith("analysis_sentiment_signal_"):
                 is_from_signal = True
                 instrument = query.data.replace("analysis_sentiment_signal_", "")
                 logger.info(f"Sentiment analysis for instrument {instrument} from signal")
-                
-                # Ensure we're in signal flow
-                if context and hasattr(context, 'user_data'):
-                    if current_flow != 'signal':
-                        context.user_data.clear()
-                        context.user_data['current_flow'] = 'signal'
-            else:
-                # If not from signal, check if we're in signal flow with an instrument
-                if context and hasattr(context, 'user_data'):
-                    if current_flow == 'signal':
-                        is_from_signal = True
-                        instrument = context.user_data.get('instrument')
-                        logger.info(f"Sentiment analysis from signal flow for instrument {instrument}")
-                    else:
-                        # If not from signal, ensure we're in menu flow
-                        context.user_data.clear()
-                        context.user_data['current_flow'] = 'menu'
             
             # Store analysis type in user_data
             if context and hasattr(context, 'user_data'):
                 context.user_data['analysis_type'] = 'sentiment'
                 
+                # Set from_signal if this came via signal flow
                 if is_from_signal:
                     context.user_data['from_signal'] = True
                     context.user_data['previous_state'] = 'SIGNAL'
@@ -1250,7 +1196,6 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             )
             
             return CHOOSE_MARKET
-            
         except Exception as e:
             logger.error(f"Error in analysis_sentiment_callback: {str(e)}")
             logger.exception(e)
@@ -1268,7 +1213,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             )
             
             # Get global calendar events directly
-            calendar_data = await self.calendar_service.get_instrument_calendar("GLOBAL")
+            calendar_data = await self.calendar.get_instrument_calendar("GLOBAL")
             
             # Create keyboard with back button
             keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data=CALLBACK_BACK_ANALYSIS)]]
@@ -1731,7 +1676,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     )
                     
                     # Get calendar data - use instrument if available, otherwise global view
-                    calendar_data = await self.calendar_service.get_instrument_calendar(instrument or "GLOBAL")
+                    calendar_data = await self.calendar.get_instrument_calendar("GLOBAL" if not instrument else instrument)
                     
                     # Show the calendar with back button
                     await query.edit_message_text(
@@ -1808,13 +1753,6 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         query = update.callback_query
         await query.answer()
         
-        # Check if we're in the signal flow
-        if not context or not hasattr(context, 'user_data') or context.user_data.get('current_flow') != 'signal':
-            logger.warning("Attempted to go back to signal while not in signal flow")
-            # Return to main menu as fallback
-            await self.show_main_menu(update, context)
-            return MENU
-            
         # Get user ID for tracking purposes
         user_id = update.effective_user.id
         logger.info(f"Back to signal callback invoked by user {user_id}")
@@ -1826,73 +1764,176 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 logger.info(f"from_signal: {context.user_data.get('from_signal')}")
                 logger.info(f"previous_state: {context.user_data.get('previous_state')}")
                 logger.info(f"instrument: {context.user_data.get('instrument')}")
-                logger.info(f"signal_message: {context.user_data.get('signal_message')}")
-            
-            # Check if we have the original signal message in context
-            if context and hasattr(context, 'user_data') and context.user_data.get('signal_message'):
-                instrument = context.user_data.get('instrument')
-                message = context.user_data['signal_message']
                 
-                # Recreate the original keyboard
+                if 'signal_message' in context.user_data:
+                    logger.info("Signal message found in context")
+            
+            # Ensure signals are loaded from file
+            self._load_signals()
+            
+            # Check if we were previously in SIGNAL state (directly from a signal)
+            if context and hasattr(context, 'user_data') and (context.user_data.get('previous_state') == 'SIGNAL' or context.user_data.get('from_signal', False)):
+                logger.info(f"Back to signal from analysis for user {user_id}")
+                
+                # Clear the previous menu selection to prevent issues
+                if 'selected_menu' in context.user_data:
+                    del context.user_data['selected_menu']
+                
+                # Try to get the original signal from context first
+                if 'signal_message' in context.user_data and context.user_data.get('instrument'):
+                    instrument = context.user_data.get('instrument')
+                    message = context.user_data['signal_message']
+                    
+                    # Recreate the original keyboard
+                    keyboard = [
+                        [
+                            InlineKeyboardButton("🔍 Analyze Market", callback_data=f"analyze_from_signal_{instrument}")
+                        ]
+                    ]
+                    
+                    # Edit message to show the original signal
+                    await query.edit_message_text(
+                        text=message,
+                        reply_markup=InlineKeyboardMarkup(keyboard),
+                        parse_mode=ParseMode.HTML
+                    )
+                    logger.info(f"Successfully returned to original signal from context for {instrument}")
+                    return SIGNAL_DETAILS
+            
+            # Try to retrieve the instrument from context or callback data
+            instrument = None
+            
+            # First check callback data for instrument
+            if query.data and len(query.data.split('_')) > 3:
+                instrument = query.data.split('_')[3]
+                logger.info(f"Found instrument in callback data: {instrument}")
+            
+            # Try context if available
+            if not instrument and context and hasattr(context, 'user_data'):
+                instrument = context.user_data.get('instrument')
+                logger.info(f"Found instrument in context: {instrument}")
+            
+            # Try to find from message text as last resort
+            if not instrument and hasattr(query.message, 'text'):
+                # Look for patterns like "EURUSD" or "XAUUSD" in the message
+                instrument_match = re.search(r'(?:Instrument|analysis for|chart for|for\s+):\s*([A-Z0-9]{4,8})', query.message.text, re.IGNORECASE)
+                if instrument_match:
+                    instrument = instrument_match.group(1)
+                    logger.info(f"Extracted instrument from message text: {instrument}")
+                else:
+                    # Try more general pattern
+                    any_instrument = re.search(r'([A-Z]{3}[A-Z]{3}|XAU[A-Z]{3}|XAG[A-Z]{3})', query.message.text)
+                    if any_instrument:
+                        instrument = any_instrument.group(1)
+                        logger.info(f"Extracted instrument from general pattern: {instrument}")
+            
+            logger.info(f"Looking for signal with instrument: {instrument} for user: {user_id}")
+            
+            # Now try to find the signal in user_signals
+            if user_id in self.user_signals:
+                signal_data = self.user_signals[user_id]
+                logger.info(f"Found signal data for user {user_id}")
+                
+                # If we have a valid message and it matches the instrument we want
+                if 'message' in signal_data and (not instrument or signal_data.get('instrument') == instrument):
+                    message = signal_data['message']
+                    signal_instrument = signal_data.get('instrument', 'Unknown')
+                    
+                    # Recreate the original keyboard
+                    keyboard = [
+                        [
+                            InlineKeyboardButton("🔍 Analyze Market", callback_data=f"analyze_from_signal_{signal_instrument}")
+                        ]
+                    ]
+                    
+                    # Edit message to show the original signal
+                    await query.edit_message_text(
+                        text=message,
+                        reply_markup=InlineKeyboardMarkup(keyboard),
+                        parse_mode=ParseMode.HTML
+                    )
+                    logger.info(f"Successfully returned to original signal for {signal_instrument}")
+                    return SIGNAL_DETAILS
+                else:
+                    logger.warning(f"Signal data found for user {user_id} but no message or instrument mismatch")
+                    logger.info(f"Signal data keys: {signal_data.keys()}")
+                    logger.info(f"Signal data instrument: {signal_data.get('instrument', 'None')}")
+            
+            # Fallback: recreate a basic signal message from context data
+            if context and hasattr(context, 'user_data'):
+                # Extract data from context
+                instrument = instrument or context.user_data.get('instrument', 'Unknown')
+                direction = context.user_data.get('direction', 'UNKNOWN')
+                price = context.user_data.get('price', 'N/A')
+                stop_loss = context.user_data.get('stop_loss', 'N/A')
+                take_profits = context.user_data.get('take_profits', [])
+                timeframe = context.user_data.get('timeframe', '1h')
+                strategy = context.user_data.get('strategy', 'Unknown')
+                
+                # Determine emoji for direction
+                direction_emoji = "📈" if direction == "BUY" else "📉"
+                
+                # Format take profits
+                tp_lines = []
+                for i, tp in enumerate(take_profits, 1):
+                    tp_formatted = self._format_price(tp) if callable(getattr(self, '_format_price', None)) else str(tp)
+                    tp_lines.append(f"Take Profit {i}: {tp_formatted} 🎯")
+                
+                tp_text = "\n".join(tp_lines) if tp_lines else "No take profit levels defined"
+                
+                # Create message in the same format as original signals
+                fallback_message = (
+                    f"🎯 New Trading Signal 🎯\n\n"
+                    f"Instrument: {instrument}\n"
+                    f"Action: {direction} {direction_emoji}\n\n"
+                    f"Entry Price: {price}\n"
+                    f"Stop Loss: {stop_loss} 🔴\n"
+                    f"{tp_text}\n\n"
+                    f"Timeframe: {timeframe}\n"
+                    f"Strategy: {strategy}\n\n"
+                    f"————————————————————\n\n"
+                    f"Risk Management:\n"
+                    f"• Position size: 1-2% max\n"
+                    f"• Use proper stop loss\n"
+                    f"• Follow your trading plan\n\n"
+                    f"————————————————————\n\n"
+                    f"🤖 SigmaPips AI Verdict:\n"
+                    f"<i>Note: This is a recreated signal as the original could not be found.</i>"
+                )
+                
                 keyboard = [
                     [
                         InlineKeyboardButton("🔍 Analyze Market", callback_data=f"analyze_from_signal_{instrument}")
                     ]
                 ]
                 
-                try:
-                    # Try to edit the message
-                    await query.edit_message_text(
-                        text=message,
-                        reply_markup=InlineKeyboardMarkup(keyboard),
-                        parse_mode=ParseMode.HTML
-                    )
-                    return SIGNAL_DETAILS
-                except BadRequest as e:
-                    if "message is not modified" in str(e).lower():
-                        # Message is already in the correct state
-                        return SIGNAL_DETAILS
-                    elif "there is no text in the message to edit" in str(e).lower():
-                        # Message might be a photo or other media type
-                        # Send a new message instead
-                        await query.message.reply_text(
-                            text=message,
-                            reply_markup=InlineKeyboardMarkup(keyboard),
-                            parse_mode=ParseMode.HTML
-                        )
-                        return SIGNAL_DETAILS
-                    else:
-                        raise e
+                await query.edit_message_text(
+                    text=fallback_message,
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.HTML
+                )
+                logger.info(f"Created fallback signal message for {instrument} for user {user_id}")
+                return SIGNAL_DETAILS
             
-            # If we can't restore the original message, show a fallback
-            await query.message.reply_text(
-                text="Could not restore the original signal. Please return to the main menu.",
-                reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("⬅️ Back to Menu", callback_data="back_menu")
-                ]])
+            # Ultimate fallback if we can't recreate a proper signal
+            logger.warning(f"Could not retrieve or recreate signal for user {user_id}, returning to menu")
+            await query.edit_message_text(
+                text="Sorry, I couldn't find the original signal. Please return to the main menu.",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back to Menu", callback_data="back_menu")]])
             )
             return MENU
             
         except Exception as e:
             logger.error(f"Error in back_to_signal_callback: {str(e)}", exc_info=True)
             # Send an error message
-            await query.message.reply_text(
+            await query.edit_message_text(
                 text="Sorry, an error occurred while trying to return to the signal. Please try again or go back to the main menu.",
-                reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("⬅️ Back to Menu", callback_data="back_menu")
-                ]])
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back to Menu", callback_data="back_menu")]])
             )
             return MENU
 
     async def show_main_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> None:
         """Show the main menu with all bot features"""
-        # Reset any existing flow state
-        if context and hasattr(context, 'user_data'):
-            # Clear any previous flow data
-            context.user_data.clear()
-            # Set current flow to menu
-            context.user_data['current_flow'] = 'menu'
-            
         user_id = update.effective_user.id
         
         # Check if the user has a subscription
@@ -1984,20 +2025,12 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         query = update.callback_query
         logger.info(f"Button callback opgeroepen met data: {query.data}")
         
-        # Check current flow
-        current_flow = context.user_data.get('current_flow') if context and hasattr(context, 'user_data') else None
-        
-        # If this is a menu command but we're in signal flow, reset the flow
-        if any(cmd in query.data for cmd in ["menu_analyse", "menu_signals", "back_menu"]) and current_flow == 'signal':
-            if context and hasattr(context, 'user_data'):
-                context.user_data.clear()
-                context.user_data['current_flow'] = 'menu'
-                logger.info("Reset flow from signal to menu")
-        
         # Beantwoord de callback query met een timeout-afhandeling
         try:
+            # Answer without a timeout parameter (it's not supported in python-telegram-bot v20)
             await query.answer()
         except Exception as e:
+            # Log de fout, maar ga door met afhandeling (voorkomt blokkering)
             logger.warning(f"Kon callback query niet beantwoorden: {str(e)}")
         
         # Menu navigation handlers
@@ -2191,10 +2224,11 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Maak de juiste analyse op basis van het type
             if analysis_type == "chart":
                 logger.info(f"Toon technische analyse (chart) voor {instrument}")
-                await self.show_technical_analysis(update, context, instrument)
+                await self.show_technical_analysis(update, context, instrument, timeframe="1h", fullscreen=True)
                 return CHOOSE_TIMEFRAME
             elif analysis_type == "sentiment":
                 logger.info(f"Toon sentiment analyse voor {instrument}")
+                # Always use show_sentiment_analysis for sentiment, never show_technical_analysis
                 await self.show_sentiment_analysis(update, context, instrument)
                 return SHOW_RESULT
             elif analysis_type == "calendar":
@@ -2204,7 +2238,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             else:
                 # Als het type niet herkend wordt, toon technische analyse als fallback
                 logger.info(f"Onbekend analyse type: {analysis_type}, toon technische analyse voor {instrument}")
-                await self.show_technical_analysis(update, context, instrument)
+                await self.show_technical_analysis(update, context, instrument, fullscreen=True)
                 return CHOOSE_TIMEFRAME
         except Exception as e:
             logger.error(f"Error in instrument_callback: {str(e)}")
@@ -2299,158 +2333,13 @@ Click the button below to start your FREE 14-day trial.
         """Get sentiment analysis for a specific instrument"""
         try:
             # Get sentiment data from the service
-            sentiment_data = await self.sentiment_service.get_sentiment_analysis(instrument)
+            sentiment_text = await self.sentiment.get_market_sentiment(instrument)
             
-            if not sentiment_data:
+            if not sentiment_text:
                 return f"No sentiment data available for {instrument} at this time."
             
-            # Parse the JSON if it's a string
-            if isinstance(sentiment_data, str):
-                try:
-                    sentiment_data = json.loads(sentiment_data)
-                except json.JSONDecodeError:
-                    # Clean any HTML tags and meta-text from the text
-                    clean_text = re.sub(r'<[^>]+>', '', sentiment_data)
-                    # Remove all variations of the system message
-                    clean_text = re.sub(r"Here(?:'s|\s+is)\s+(?:the\s+)?(?:structured\s+)?(?:market\s+)?analysis\s+for\s+[A-Z/]+(?:\s+formatted\s+for\s+(?:a\s+)?Telegram(?:\s+bot)?)?:?\s*", '', clean_text)
-                    # Remove notes section
-                    clean_text = re.sub(r"Notes:.*?(?=\n\n|$)", "", clean_text, flags=re.DOTALL)
-                    # Remove placeholder text for key levels
-                    clean_text = re.sub(r"\$XX,XXX\s*\(.*?\)", "", clean_text)
-                    return clean_text.strip()
-            
-            # Format the analysis into a readable message
-            message = f"🎯 {instrument} Market Analysis\n\n"
-            
-            # Market Direction
-            message += "<b>📈 Market Direction:</b>\n"
-            if sentiment_data.get('overall_sentiment'):
-                direction = "bullish" if sentiment_data['overall_sentiment'] == "bullish" else "bearish"
-                strength = sentiment_data.get('trend_strength', 'moderate').lower()
-                score = sentiment_data.get('sentiment_score', 0.5) * 100
-                message += f"The {instrument} is currently {direction} with {strength} momentum. "
-                message += f"Overall sentiment is {score:.0f}% {direction}.\n\n"
-            else:
-                message += "Market direction data not available.\n\n"
-            
-            # Latest News & Events
-            message += "<b>📰 Latest News & Events:</b>\n"
-            if sentiment_data.get('analysis'):
-                # Extract and clean up the news summary
-                analysis = sentiment_data['analysis']
-                
-                # Remove meta-text about formatting
-                analysis = re.sub(r"Here(?:'s|\s+is)\s+(?:the\s+)?(?:structured\s+)?(?:market\s+)?analysis\s+for\s+[A-Z/]+(?:\s+formatted\s+for\s+(?:a\s+)?Telegram(?:\s+bot)?)?:?\s*", '', analysis)
-                
-                # Find the news section
-                news_match = re.search(r'Latest News & Events:(.*?)(?:Key Levels:|Risk Factors:|$)', analysis, re.DOTALL)
-                if news_match:
-                    news_text = news_match.group(1).strip()
-                    # Clean up bullet points and remove dates/years
-                    news_lines = []
-                    for line in news_text.split('\n'):
-                        line = line.strip()
-                        if line and not re.search(r'\d{4}|\d{2}/\d{2}', line):
-                            # Remove bullet points and clean up
-                            line = re.sub(r'^[•\-\*]\s*', '', line)
-                            if line and not any(header in line for header in ['Market Direction:', 'Latest News & Events:', 'Key Levels:', 'Risk Factors:', 'Conclusion:']):
-                                news_lines.append(f"• {line}")
-                
-                if news_lines:
-                    message += '\n'.join(news_lines) + "\n\n"
-                else:
-                    message += "Recent market developments and news impact analysis not available.\n\n"
-            else:
-                message += "News and events data not available.\n\n"
-            
-            # Key Levels
-            message += "<b>🎯 Key Levels:</b>\n"
-            support = sentiment_data.get('support_level')
-            resistance = sentiment_data.get('resistance_level')
-            
-            if support and resistance and not support.startswith('See') and not resistance.startswith('See'):
-                # Remove dollar signs and clean up
-                support = re.sub(r'\$', '', support)
-                resistance = re.sub(r'\$', '', resistance)
-                message += f"• Support: {support}\n"
-                message += f"• Resistance: {resistance}\n\n"
-            else:
-                # Try to extract levels from analysis
-                analysis = sentiment_data.get('analysis', '')
-                levels_match = re.search(r'Key Levels:(.*?)(?:Risk Factors:|$)', analysis, re.DOTALL)
-                if levels_match:
-                    levels_text = levels_match.group(1).strip()
-                    # Extract support and resistance lines, ignoring placeholder values
-                    support_lines = re.findall(r'Support.*?:\s*([^$].*?)(?:\n|$)', levels_text)
-                    resistance_lines = re.findall(r'Resistance.*?:\s*([^$].*?)(?:\n|$)', levels_text)
-                    
-                    if support_lines:
-                        # Remove dollar signs and clean up
-                        support_text = re.sub(r'\$', '', support_lines[0].strip())
-                        if not 'XX,XXX' in support_text:  # Only include if not a placeholder
-                            message += f"• Support: {support_text}\n"
-                    if resistance_lines:
-                        # Remove dollar signs and clean up
-                        resistance_text = re.sub(r'\$', '', resistance_lines[0].strip())
-                        if not 'XX,XXX' in resistance_text:  # Only include if not a placeholder
-                            message += f"• Resistance: {resistance_text}\n"
-                    message += "\n"
-                else:
-                    message += "Key price levels not available.\n\n"
-            
-            # Risk Factors
-            message += "<b>⚠️ Risk Factors:</b>\n"
-            if sentiment_data.get('analysis'):
-                # Extract risk factors from analysis
-                analysis = sentiment_data['analysis']
-                risks_match = re.search(r'Risk Factors:(.*?)(?:Conclusion:|$)', analysis, re.DOTALL)
-                if risks_match:
-                    risks_text = risks_match.group(1).strip()
-                    risks = []
-                    for line in risks_text.split('\n'):
-                        line = line.strip()
-                        if line:
-                            # Remove bullet points and clean up
-                            line = re.sub(r'^[•\-\*]\s*', '', line)
-                            line = re.sub(r'💡', '', line)  # Remove any stray emojis
-                            if line and not line.startswith('Market Volatility:'):
-                                risks.append(f"• {line}")
-                
-                # Filter out empty bullets and placeholder text
-                risks = [risk for risk in risks if not risk.strip() == '•' and not 'XX,XXX' in risk]
-                
-                if risks:
-                    message += '\n'.join(risks) + "\n\n"
-                else:
-                    message += "• Monitor upcoming economic events and market sentiment shifts\n\n"
-            else:
-                message += "Risk factors data not available.\n\n"
-            
-            # Conclusion
-            message += "<b>💡 Conclusion:</b>\n"
-            if sentiment_data.get('recommendation'):
-                conclusion = sentiment_data['recommendation'].strip()
-                # Remove any meta-text about formatting and notes
-                conclusion = re.sub(r"Here(?:'s|\s+is)\s+(?:the\s+)?(?:structured\s+)?(?:market\s+)?analysis\s+for\s+[A-Z/]+(?:\s+formatted\s+for\s+(?:a\s+)?Telegram(?:\s+bot)?)?:?\s*", '', conclusion)
-                conclusion = re.sub(r"Notes:.*?(?=\n\n|$)", "", conclusion, flags=re.DOTALL)
-                message += conclusion
-            elif sentiment_data.get('analysis'):
-                # Extract conclusion from analysis
-                analysis = sentiment_data['analysis']
-                conclusion_match = re.search(r'Conclusion:(.*?)(?:Notes:|$)', analysis, re.DOTALL)
-                if conclusion_match:
-                    conclusion = conclusion_match.group(1).strip()
-                    message += conclusion
-                else:
-                    message += "Consider market conditions and risk management before taking positions."
-            else:
-                message += "Analysis conclusion not available."
-            
-            # Clean any remaining HTML tags and normalize whitespace
-            message = re.sub(r'\n\s*\n', '\n\n', message)
-            message = message.strip()
-            
-            return message
+            # The sentiment service already returns a formatted message
+            return sentiment_text
                 
         except Exception as e:
             logger.error(f"Error getting sentiment analysis: {str(e)}")
@@ -3458,7 +3347,7 @@ Click the button below to start your FREE 14-day trial.
                 raise ValueError("Missing required signal data")
             
             # Get technical analysis
-            analysis = await self.technical_service.get_technical_analysis(instrument, timeframe)
+            analysis = await self.get_technical_analysis(instrument)
             
             # Format the message
             message = (
@@ -3519,7 +3408,7 @@ Click the button below to start your FREE 14-day trial.
                 raise ValueError("Missing required signal data")
             
             # Get sentiment analysis
-            sentiment = await self.sentiment_service.get_sentiment_analysis(instrument)
+            sentiment = await self.get_sentiment_analysis(instrument)
             
             # Format the message
             message = (
@@ -3722,12 +3611,6 @@ Click the button below to start your FREE 14-day trial.
         query = update.callback_query
         
         try:
-            # Reset any flow state when going back to main menu
-            if context and hasattr(context, 'user_data'):
-                context.user_data.clear()
-                context.user_data['current_flow'] = 'menu'
-                logger.info("Reset flow state to menu")
-            
             # Show the main menu
             await query.edit_message_text(
                 text=WELCOME_MESSAGE,
@@ -3895,28 +3778,22 @@ Click the button below to start your FREE 14-day trial.
             instrument = query.data.replace('analyze_from_signal_', '')
             logger.info(f"Analyze from signal callback for instrument: {instrument}")
             
-            # Store the signal flow context
+            # Store the instrument in context for later use
             if context and hasattr(context, 'user_data'):
-                # Clear any previous flow data
-                context.user_data.clear()
-                # Set current flow and data
-                context.user_data['current_flow'] = 'signal'
                 context.user_data['instrument'] = instrument
                 context.user_data['from_signal'] = True
-                context.user_data['previous_state'] = 'SIGNAL'
-                context.user_data['signal_message'] = query.message.text
-                context.user_data['message_id'] = query.message.message_id
-                context.user_data['chat_id'] = query.message.chat_id
-                logger.info(f"Set signal flow context for instrument {instrument}")
+                context.user_data['from_signal_message'] = True
+                context.user_data['message_id'] = update.callback_query.message.message_id
+                context.user_data['chat_id'] = update.callback_query.message.chat_id
             
-            # Show analysis options for this instrument
+            # Show analysis options for this instrument (similar to analysis_callback but with preselected instrument)
             keyboard = [
                 [
-                    InlineKeyboardButton("📈 Technical Analysis", callback_data=f"analysis_technical_signal_{instrument}"),
-                    InlineKeyboardButton("💬 Sentiment Analysis", callback_data=f"analysis_sentiment_signal_{instrument}")
+                    InlineKeyboardButton("📈 Technical Analysis", callback_data="analysis_technical"),
+                    InlineKeyboardButton("💬 Sentiment Analysis", callback_data="analysis_sentiment")
                 ],
                 [
-                    InlineKeyboardButton("📅 Economic Calendar", callback_data=f"analysis_calendar_signal_{instrument}")
+                    InlineKeyboardButton("📅 Economic Calendar", callback_data="analysis_calendar")
                 ],
                 [InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal")]
             ]
@@ -3931,160 +3808,151 @@ Click the button below to start your FREE 14-day trial.
             logger.error(f"Error in analyze_from_signal_callback: {str(e)}")
             return MENU
 
-    async def show_technical_analysis(self, update: Update, context=None, instrument=None, timeframe=None, fullscreen=False) -> int:
-        """Show technical analysis for an instrument"""
+    async def show_technical_analysis(self, update: Update, context=None, instrument: str = None, timeframe: str = "1h", fullscreen: bool = False) -> int:
+        """Show technical analysis for a specific instrument"""
         query = update.callback_query
-        await query.answer()
         
         try:
-            # Get instrument from callback data if not provided
-            if not instrument:
-                if query.data.startswith("analysis_technical_signal_"):
-                    instrument = query.data.replace("analysis_technical_signal_", "")
-                    # Set signal flow context
-                    if context and hasattr(context, 'user_data'):
-                        context.user_data['current_flow'] = 'signal'
-                        context.user_data['from_signal'] = True
-                else:
-                    instrument = query.data.replace("analysis_technical_", "")
-            
-            # Get market from context or detect it
-            market = None
+            # Check if we're coming from a signal
+            is_from_signal = False
             if context and hasattr(context, 'user_data'):
-                market = context.user_data.get('market')
+                is_from_signal = context.user_data.get('from_signal', False)
             
-            if not market:
-                market = self._detect_market(instrument)
-            
-            # Get timeframe from context or use default
-            if not timeframe:
-                timeframe = context.user_data.get('timeframe', '1h') if context and hasattr(context, 'user_data') else '1h'
-            
-            # Show loading message
+            # First, show a loading message
             await query.edit_message_text(
-                text=f"Generating technical analysis for {instrument}...",
-                reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("⬅️ Back", callback_data="back_to_analysis")
-                ]])
+                text=f"Generating technical analysis for {instrument}. Please wait..."
             )
             
-            # Ensure technical service is initialized
-            if not hasattr(self, 'technical_service'):
-                logger.error("Technical service not initialized")
-                self.technical_service = ChartService()
-                await self.technical_service.initialize()
-            
-            # Get analysis from technical service
+            # Generate the chart using the chart service
             try:
-                logger.info(f"Getting technical analysis for {instrument} with timeframe {timeframe}")
-                analysis = await self.technical_service.get_technical_analysis(instrument=instrument, timeframe=timeframe)
-                logger.info(f"Successfully got technical analysis for {instrument}")
-            except Exception as service_error:
-                logger.error(f"Error getting technical analysis from service: {str(service_error)}")
-                logger.exception(service_error)
-                raise
-            
-            # Create keyboard with appropriate back button based on flow
-            current_flow = context.user_data.get('current_flow') if context and hasattr(context, 'user_data') else None
-            if current_flow == 'signal':
+                # Generate chart image using get_chart instead of generate_chart
+                chart_data = await self.chart.get_chart(instrument, timeframe=timeframe, fullscreen=fullscreen)
+                
+                if not chart_data:
+                    # If chart generation fails, send a text message
+                    logger.error(f"Failed to generate chart for {instrument}")
+                    await query.edit_message_text(
+                        text=f"Sorry, I couldn't generate a chart for {instrument} at this time. Please try again later.",
+                        reply_markup=InlineKeyboardMarkup([[
+                            InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal" if is_from_signal else "back_instrument")
+                        ]])
+                    )
+                    return MENU
+                
+                # Create caption with analysis
+                caption = f"<b>Technical Analysis for {instrument}</b>"
+                
+                # Add buttons for different actions - back button depends on where we came from
                 keyboard = [
-                    [InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal")]
+                    [InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal" if is_from_signal else "back_instrument")]
                 ]
-            else:
-                keyboard = [
-                    [InlineKeyboardButton("⬅️ Back", callback_data="back_to_analysis")]
-                ]
+                
+                # Send the chart with caption
+                from io import BytesIO
+                photo = BytesIO(chart_data)
+                photo.name = f"{instrument}_chart.png"
+                
+                await query.message.reply_photo(
+                    photo=photo,
+                    caption=caption,
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.HTML
+                )
+                
+                # Delete the loading message
+                await query.edit_message_text(
+                    text=f"Here's your technical analysis for {instrument}:"
+                )
+                
+            except Exception as chart_error:
+                logger.error(f"Error generating chart: {str(chart_error)}")
+                logger.exception(chart_error)
+                await query.edit_message_text(
+                    text=f"Sorry, there was a problem generating the chart for {instrument}. Please try again later.",
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal" if is_from_signal else "back_instrument")
+                    ]])
+                )
             
-            # Show the analysis
-            await query.edit_message_text(
-                text=analysis,
-                reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode=ParseMode.HTML
-            )
-            
-            return CHOOSE_ANALYSIS
+            return SHOW_RESULT
             
         except Exception as e:
             logger.error(f"Error in show_technical_analysis: {str(e)}")
             logger.exception(e)
-            # Show error message with appropriate back button
-            current_flow = context.user_data.get('current_flow') if context and hasattr(context, 'user_data') else None
-            if current_flow == 'signal':
-                keyboard = [[InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal")]]
-            else:
-                keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_to_analysis")]]
-                
-            await query.edit_message_text(
-                text=f"Error getting technical analysis for {instrument}. Please try again.",
-                reply_markup=InlineKeyboardMarkup(keyboard)
-            )
-            return CHOOSE_ANALYSIS
+            
+            # Send fallback message
+            try:
+                await query.edit_message_text(
+                    text=f"Sorry, I couldn't analyze {instrument} at this time. Please try again later.",
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal" if is_from_signal else "back_instrument")
+                    ]])
+                )
+            except Exception as inner_e:
+                logger.error(f"Failed to send fallback message: {str(inner_e)}")
+            
+            return MENU
 
     async def show_sentiment_analysis(self, update: Update, context=None, instrument: str = None) -> int:
-        """Show sentiment analysis for an instrument"""
+        """Show sentiment analysis for a specific instrument"""
         query = update.callback_query
-        await query.answer()
         
         try:
-            # Get instrument from callback data if not provided
-            if not instrument:
-                if query.data.startswith("analysis_sentiment_signal_"):
-                    instrument = query.data.replace("analysis_sentiment_signal_", "")
-                    # Set signal flow context
-                    if context and hasattr(context, 'user_data'):
-                        context.user_data['current_flow'] = 'signal'
-                        context.user_data['from_signal'] = True
-                else:
-                    instrument = query.data.replace("analysis_sentiment_", "")
-            
-            # Get market from context or detect it
-            market = None
+            # Check if we're coming from a signal
+            is_from_signal = False
             if context and hasattr(context, 'user_data'):
-                market = context.user_data.get('market')
-            
-            if not market:
-                market = self._detect_market(instrument)
-            
-            # Get timeframe from context or use default
-            timeframe = context.user_data.get('timeframe', '1h') if context and hasattr(context, 'user_data') else '1h'
-            
-            # Get analysis from sentiment service
-            analysis = await self.sentiment_service.get_sentiment_analysis(instrument, timeframe)
-            
-            # Create keyboard with appropriate back button based on flow
-            current_flow = context.user_data.get('current_flow') if context and hasattr(context, 'user_data') else None
-            if current_flow == 'signal':
-                keyboard = [
-                    [InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal")]
-                ]
-            else:
-                keyboard = [
-                    [InlineKeyboardButton("⬅️ Back", callback_data="back_to_analysis")]
-                ]
-            
-            # Show the analysis
+                is_from_signal = context.user_data.get('from_signal', False)
+                
+            # First, show a loading message
             await query.edit_message_text(
-                text=analysis,
+                text=f"Analyzing market sentiment for {instrument}. Please wait..."
+            )
+            
+            # Store the analysis type in context for proper back button handling
+            if context and hasattr(context, 'user_data'):
+                context.user_data['analysis_type'] = 'sentiment'
+                
+                # Determine and store the market type based on the instrument
+                market = self._detect_market(instrument) if instrument else 'forex'
+                context.user_data['market'] = market
+                logger.info(f"Stored context for back navigation: analysis_type=sentiment, market={market}")
+            
+            # Log what we're doing
+            logger.info(f"Toon sentiment analyse voor {instrument}")
+            
+            # Get sentiment analysis from the service
+            sentiment = await self.get_sentiment_analysis(instrument)
+            
+            # Create button to go back - choose back_to_signal if coming from a signal
+            keyboard = [
+                [InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal" if is_from_signal else "back_instrument_sentiment")]
+            ]
+            
+            # Send the sentiment analysis
+            await query.edit_message_text(
+                text=sentiment,
                 reply_markup=InlineKeyboardMarkup(keyboard),
                 parse_mode=ParseMode.HTML
             )
             
-            return CHOOSE_ANALYSIS
+            return SHOW_RESULT
             
         except Exception as e:
             logger.error(f"Error in show_sentiment_analysis: {str(e)}")
-            # Show error message with appropriate back button
-            current_flow = context.user_data.get('current_flow') if context and hasattr(context, 'user_data') else None
-            if current_flow == 'signal':
-                keyboard = [[InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal")]]
-            else:
-                keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_to_analysis")]]
-                
-            await query.edit_message_text(
-                text=f"Error getting sentiment analysis for {instrument}. Please try again.",
-                reply_markup=InlineKeyboardMarkup(keyboard)
-            )
-            return CHOOSE_ANALYSIS
+            logger.exception(e)
+            
+            # Send fallback message
+            try:
+                await query.edit_message_text(
+                    text=f"Sorry, I couldn't analyze sentiment for {instrument} at this time. Please try again later.",
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal" if is_from_signal else "back_instrument_sentiment")
+                    ]])
+                )
+            except Exception as inner_e:
+                logger.error(f"Failed to send fallback message: {str(inner_e)}")
+            
+            return MENU
 
     async def show_economic_calendar(self, update: Update, context=None, instrument: str = None) -> int:
         """Show economic calendar for a specific instrument"""
@@ -4106,7 +3974,7 @@ Click the button below to start your FREE 14-day trial.
             
             try:
                 # Get calendar data
-                calendar_data = await self.calendar_service.get_instrument_calendar(instrument or "GLOBAL")
+                calendar_data = await self.calendar.get_instrument_calendar(instrument or "GLOBAL")
                 
                 # Create button to go back
                 keyboard = [
