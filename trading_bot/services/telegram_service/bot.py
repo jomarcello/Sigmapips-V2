@@ -1172,29 +1172,21 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         
         return CHOOSE_SIGNALS
 
-    async def help_callback(self, update: Update, context=None) -> int:
-        """Handle help callback"""
-        query = update.callback_query
-        
+    async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> None:
+        """Send a help message when the /help command is issued."""
         try:
-            # Toon help informatie
-            await query.edit_message_text(
+            # Send help message
+            await update.message.reply_text(
                 text=HELP_MESSAGE,
                 parse_mode=ParseMode.HTML
             )
-            
-            return MENU
+            return MAIN_MENU
         except Exception as e:
-            logger.error(f"Error in help_callback: {str(e)}")
-            try:
-                await query.message.reply_text(
-                    text=HELP_MESSAGE,
-                    parse_mode=ParseMode.HTML
-                )
-                return MENU
-            except Exception as inner_e:
-                logger.error(f"Failed to recover from error: {str(inner_e)}")
-                return MENU
+            logger.error(f"Error in help command: {str(e)}")
+            await update.message.reply_text(
+                text="An error occurred. Please try /start to begin again."
+            )
+            return ConversationHandler.END
 
     async def analysis_technical_callback(self, update: Update, context=None) -> int:
         """Handle technical analysis selection"""
