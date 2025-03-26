@@ -873,6 +873,106 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 parse_mode=ParseMode.HTML
             )
             
+    async def show_main_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
+        """Show the main menu with analysis and signals options."""
+        try:
+            # Get user ID
+            user_id = update.effective_user.id
+            
+            # Check if user has an active subscription
+            is_subscribed = await self.db.is_user_subscribed(user_id)
+            
+            # Check if payment has failed
+            payment_failed = await self.db.has_payment_failed(user_id)
+            
+            if is_subscribed and not payment_failed:
+                # Show the normal welcome message with all features
+                message_text = WELCOME_MESSAGE
+                keyboard = START_KEYBOARD
+            elif payment_failed:
+                # Show payment failure message
+                message_text = """
+❗ <b>Subscription Payment Failed</b> ❗
+
+Your subscription payment could not be processed and your service has been deactivated.
+
+To continue using Sigmapips AI and receive trading signals, please reactivate your subscription by clicking the button below.
+                """
+                
+                # Use direct URL link for reactivation
+                reactivation_url = "https://buy.stripe.com/9AQcPf3j63HL5JS145"
+                
+                # Create button for reactivation
+                keyboard = [
+                    [InlineKeyboardButton("🔄 Reactivate Subscription", url=reactivation_url)]
+                ]
+            else:
+                # Show the welcome message with trial option
+                message_text = """
+🚀 <b>Welcome to Sigmapips AI!</b> 🚀
+
+<b>Discover powerful trading signals for various markets:</b>
+• <b>Forex</b> - Major and minor currency pairs
+• <b>Crypto</b> - Bitcoin, Ethereum and other top cryptocurrencies
+• <b>Indices</b> - Global market indices
+• <b>Commodities</b> - Gold, silver and oil
+
+<b>Features:</b>
+✅ Real-time trading signals
+✅ Multi-timeframe analysis (1m, 15m, 1h, 4h)
+✅ Advanced chart analysis
+✅ Sentiment indicators
+✅ Economic calendar integration
+
+<b>Start today with a FREE 14-day trial!</b>
+                """
+                
+                # Use direct URL link for trial
+                checkout_url = "https://buy.stripe.com/3cs3eF9Hu9256NW9AA"
+                
+                # Create button for trial
+                keyboard = [
+                    [InlineKeyboardButton("🔥 Start 14-day FREE Trial", url=checkout_url)]
+                ]
+            
+            # Handle both message and callback query updates
+            if update.callback_query:
+                await update.callback_query.answer()
+                await update.callback_query.edit_message_text(
+                    text=message_text,
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.HTML
+                )
+            else:
+                await update.message.reply_text(
+                    text=message_text,
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.HTML
+                )
+            
+            return MAIN_MENU
+            
+        except Exception as e:
+            logger.error(f"Error showing main menu: {str(e)}")
+            logger.exception(e)
+            
+            # Try to send a fallback message
+            try:
+                if update.callback_query:
+                    await update.callback_query.message.reply_text(
+                        text="An error occurred. Please try /start to begin again.",
+                        reply_markup=None
+                    )
+                else:
+                    await update.message.reply_text(
+                        text="An error occurred. Please try /start to begin again.",
+                        reply_markup=None
+                    )
+            except Exception:
+                pass
+            
+            return ConversationHandler.END
+
     async def set_subscription_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> None:
         """Secret command to manually set subscription status for a user"""
         # Check if the command has correct arguments
