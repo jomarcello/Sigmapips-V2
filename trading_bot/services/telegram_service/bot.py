@@ -3686,19 +3686,12 @@ Click the button below to start your FREE 14-day trial.
                 
                 # Create back button based on origin
                 back_button = InlineKeyboardButton(
-                    "⬅️ Back to Signal" if is_from_signal else "⬅️ Back", 
-                    callback_data="back_to_signal" if is_from_signal else "back_instrument"
+                    "⬅️ Back to Signal" if is_from_signal else "⬅️ Back to Analysis", 
+                    callback_data="back_to_signal" if is_from_signal else "back_to_signal_analysis"
                 )
                 
-                # Add technical analysis button
-                action_button = InlineKeyboardButton(
-                    "📈 Technical Analysis", 
-                    callback_data=f"instrument_{instrument}_technical"
-                )
-                
-                # Create keyboard
+                # Create keyboard - verwijder de Technical Analysis knop
                 keyboard = [
-                    [action_button],
                     [back_button]
                 ]
                 
@@ -4180,6 +4173,7 @@ Click the button below to start your FREE 14-day trial.
             if context and hasattr(context, 'user_data'):
                 # Set flag to indicate we're in the signal flow, not the main menu flow
                 context.user_data['in_signal_flow'] = True
+                context.user_data['previous_state'] = 'SIGNAL'
                 
                 # Store instrument in context if we extracted it
                 if instrument:
@@ -4189,6 +4183,23 @@ Click the button below to start your FREE 14-day trial.
                 else:
                     instrument = context.user_data.get('instrument')
                     logger.info(f"Using instrument {instrument} from context")
+                
+                # Store the original signal message if available
+                if hasattr(query, 'message') and hasattr(query.message, 'text'):
+                    context.user_data['signal_message'] = query.message.text
+                    logger.info("Stored original signal message in context")
+                
+                # Check if we have user signals for this user
+                user_id = update.effective_user.id
+                if hasattr(self, 'user_signals') and user_id in self.user_signals:
+                    logger.info(f"Found signal data for user {user_id}")
+                    
+                    # Store important signal data in context for later use
+                    signal_data = self.user_signals[user_id]
+                    for key in ['instrument', 'direction', 'price', 'stop_loss', 'take_profits', 'message', 'timeframe', 'strategy']:
+                        if key in signal_data:
+                            context.user_data[key] = signal_data[key]
+                            logger.info(f"Stored signal data {key} in context")
             
             # Fall back to a default if we still don't have it
             if not instrument:
