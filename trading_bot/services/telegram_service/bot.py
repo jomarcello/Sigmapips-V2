@@ -817,6 +817,10 @@ class TelegramService:
             elif query.data == "back_to_signal":
                 return await self.back_to_signal_callback(update, context)
                 
+            # Handler for analyze from signal
+            elif query.data.startswith("analyze_from_signal_"):
+                return await self.analyze_from_signal_callback(update, context)
+            
             # Log unhandled callbacks
             logger.warning(f"Unhandled callback data: {query.data}")
             
@@ -2277,7 +2281,77 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 pass
                 
             return CHOOSE_ANALYSIS
+    
+    async def analyze_from_signal_callback(self, update: Update, context=None) -> int:
+        """Handle analyze_from_signal callback to present analysis options for the selected signal"""
+        query = update.callback_query
+        await query.answer()
+        callback_data = query.data
+        
+        try:
+            # Extract signal ID or instrument from callback data
+            # Format is typically "analyze_from_signal_SIGNAL_ID" or "analyze_from_signal_INSTRUMENT"
+            if callback_data.startswith("analyze_from_signal_"):
+                signal_id_or_instrument = callback_data.replace("analyze_from_signal_", "")
+                logger.info(f"Extracted signal ID or instrument: {signal_id_or_instrument} from callback data")
+                
+                # Store in context for consistent navigation
+                if context and hasattr(context, 'user_data'):
+                    # Set from_signal flag to track that we came from a signal
+                    context.user_data['from_signal'] = True
+                    context.user_data['previous_state'] = 'SIGNAL'
+                    
+                    # Try to interpret if this is a signal ID (numeric) or instrument name
+                    try:
+                        signal_id = int(signal_id_or_instrument)
+                        # If it's a number, it's likely a signal ID
+                        context.user_data['signal_id'] = signal_id
+                        
+                        # If we have a signal ID, try to get the instrument from user signals
+                        user_id = update.effective_user.id
+                        if hasattr(self, 'user_signals') and user_id in self.user_signals and signal_id in self.user_signals[user_id]:
+                            instrument = self.user_signals[user_id][signal_id].get('instrument')
+                            if instrument:
+                                context.user_data['instrument'] = instrument
+                                logger.info(f"Found instrument {instrument} for signal ID {signal_id}")
+                    except ValueError:
+                        # If not a number, it's likely an instrument name
+                        instrument = signal_id_or_instrument
+                        context.user_data['instrument'] = instrument
+                        logger.info(f"Using instrument {instrument} directly")
             
+            # Create keyboard with analysis options
+            keyboard = [
+                [InlineKeyboardButton("📈 Technical Analysis", callback_data="signal_technical")],
+                [InlineKeyboardButton("🧠 Market Sentiment", callback_data="signal_sentiment")],
+                [InlineKeyboardButton("📅 Economic Calendar", callback_data="signal_calendar")],
+                [InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal")]
+            ]
+            
+            # Show analysis options menu
+            await query.edit_message_text(
+                text="Select analysis type:",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            
+            return CHOOSE_ANALYSIS
+            
+        except Exception as e:
+            logger.error(f"Error in analyze_from_signal_callback: {str(e)}")
+            logger.exception(e)
+            
+            try:
+                await query.edit_message_text(
+                    text="An error occurred. Please try again.",
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal")
+                    ]])
+                )
+            except Exception:
+                pass
+                
+            return CHOOSE_ANALYSIS
+
     async def signal_calendar_callback(self, update: Update, context=None) -> int:
         """Handle signal_calendar callback to show economic calendar for the selected instrument"""
         query = update.callback_query
@@ -2541,104 +2615,6 @@ COMMODITIES_SENTIMENT_KEYBOARD = [
     ],
     [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
 ]
-
-async def analyze_from_signal_callback(self, update: Update, context=None) -> int:
-    """Handle analyze_from_signal callback to show analysis options for the selected signal"""
-    query = update.callback_query
-    await query.answer()
-    
-    try:
-        logger.info(f"Analyze from signal callback invoked by user {update.effective_user.id}")
-        
-        # Get signal ID or instrument from the callback data if available
-        callback_data = query.data
-        signal_id = None
-        instrument = None
-        
-        # Check if format is analyze_signal_ID
-        if callback_data.startswith("analyze_signal_"):
-            signal_id = callback_data[len("analyze_signal_"):]
-            logger.info(f"Signal ID extracted from callback: {signal_id}")
-        
-        # Check if format is analyze_from_signal_INSTRUMENT
-        elif callback_data.startswith("analyze_from_signal_"):
-            instrument = callback_data[len("analyze_from_signal_"):]
-            logger.info(f"Instrument extracted directly from callback: {instrument}")
-        
-        # Check if we have user data context
-        if context and hasattr(context, 'user_data'):
-            user_id = update.effective_user.id
-            
-            # Mark that we're in the signal flow and coming from a signal
-            context.user_data['in_signal_flow'] = True
-            context.user_data['from_signal'] = True
-            
-            # Try to get the signal from signals
-            if not instrument and signal_id:
-                # Try to get the instrument from user's signals if available
-                logger.info(f"Loading user signals for {user_id}")
-                if hasattr(self, 'user_signals') and user_id in self.user_signals:
-                    # If we have a signal ID, try to get the instrument from it
-                    signals = self.user_signals.get(user_id, {})
-                    if signal_id in signals:
-                        instrument = signals[signal_id].get('instrument')
-                        logger.info(f"Found instrument {instrument} from signal_id {signal_id}")
-                    
-            # If instrument was found, store it in context for later use
-            if instrument:
-                context.user_data['instrument'] = instrument
-                logger.info(f"Stored instrument {instrument} in context for user {user_id}")
-            else:
-                # Try to get from context if already set
-                instrument = context.user_data.get('instrument')
-                logger.info(f"Using instrument {instrument} from context")
-            
-            # Format message text
-            if instrument:
-                text = f"<b>Choose Analysis Type for {instrument}</b>\n\nSelect what type of analysis you want to view:"
-                
-                # Create dynamic keyboard with the instrument
-                keyboard = [
-                    [InlineKeyboardButton("📊 Technical Analysis", callback_data=f"signal_technical_{instrument}")],
-                    [InlineKeyboardButton("💭 Sentiment Analysis", callback_data=f"signal_sentiment_{instrument}")],
-                    [InlineKeyboardButton("📅 Economic Calendar", callback_data=f"signal_calendar_{instrument}")],
-                    [InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal")]
-                ]
-            else:
-                logger.warning(f"No instrument found for analyze_from_signal for user {user_id}")
-                text = "Could not determine which instrument to analyze."
-                keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal")]]
-            
-            # Edit message to show analysis options
-            await query.edit_message_text(
-                text=text,
-                reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode=ParseMode.HTML
-            )
-            
-            return CHOOSE_ANALYSIS
-            
-        else:
-            logger.warning("No context available for signal analysis")
-            await query.edit_message_text(
-                text="Error: Could not retrieve analysis context.",
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal")]])
-            )
-            return ConversationHandler.END
-            
-    except Exception as e:
-        logger.error(f"Error in analyze_from_signal_callback: {str(e)}")
-        logger.exception(e)
-        
-        try:
-            await query.edit_message_text(
-                text="An error occurred. Please try again.",
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back")]])
-            )
-        except Exception:
-            pass
-            
-        return ConversationHandler.END
 
     async def signals_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
         """Handle the /signals command - directs users to the signals menu."""
