@@ -4152,7 +4152,7 @@ Click the button below to start your FREE 14-day trial.
             return CHOOSE_SIGNALS
 
     async def analyze_from_signal_callback(self, update: Update, context=None) -> int:
-        """Handle analyze market option for an instrument from a signal by directly showing technical analysis"""
+        """Handle analyze market option for an instrument from a signal by showing analysis menu first"""
         query = update.callback_query
         await query.answer()
         
@@ -4171,7 +4171,6 @@ Click the button below to start your FREE 14-day trial.
             if context and hasattr(context, 'user_data'):
                 # Set flag to indicate we're in the signal flow, not the main menu flow
                 context.user_data['in_signal_flow'] = True
-                context.user_data['analysis_type'] = 'technical'
                 
                 # Store instrument in context if we extracted it
                 if instrument:
@@ -4196,65 +4195,21 @@ Click the button below to start your FREE 14-day trial.
                 )
                 return CHOOSE_ANALYSIS
             
-            # Show loading message
+            # Create custom keyboard for analysis options that includes the instrument
+            analysis_keyboard = [
+                [InlineKeyboardButton("📈 Technical Analysis", callback_data=f"analysis_technical_signal_{instrument}")],
+                [InlineKeyboardButton("🧠 Market Sentiment", callback_data=f"analysis_sentiment_signal_{instrument}")],
+                [InlineKeyboardButton("📅 Economic Calendar", callback_data=f"analysis_calendar_signal_{instrument}")],
+                [InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal")]
+            ]
+            
+            # Show analysis menu
             await query.edit_message_text(
-                text=f"Generating technical analysis for {instrument}. Please wait..."
+                text=f"Choose analysis type for {instrument}:",
+                reply_markup=InlineKeyboardMarkup(analysis_keyboard)
             )
             
-            # Get timeframe from context or use default
-            timeframe = context.user_data.get('timeframe', '1h') if context and hasattr(context, 'user_data') else '1h'
-            
-            try:
-                # Generate chart
-                chart_data = await self.chart.get_chart(instrument, timeframe=timeframe, fullscreen=False)
-                
-                if not chart_data:
-                    logger.error(f"Failed to generate chart for {instrument}")
-                    await query.edit_message_text(
-                        text=f"Sorry, I couldn't generate a chart for {instrument} at this time. Please try again later.",
-                        reply_markup=InlineKeyboardMarkup([[
-                            InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal")
-                        ]])
-                    )
-                    return CHOOSE_ANALYSIS
-                
-                # Create caption
-                caption = f"<b>Technical Analysis for {instrument}</b> ({timeframe})"
-                
-                # Create keyboard with back button
-                keyboard = [
-                    [InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal")]
-                ]
-                
-                # Send the chart
-                from io import BytesIO
-                photo = BytesIO(chart_data)
-                photo.name = f"{instrument}_chart.png"
-                
-                await query.message.reply_photo(
-                    photo=photo,
-                    caption=caption,
-                    reply_markup=InlineKeyboardMarkup(keyboard),
-                    parse_mode=ParseMode.HTML
-                )
-                
-                # Update the loading message
-                await query.edit_message_text(
-                    text=f"Here's your technical analysis for {instrument}:"
-                )
-                
-                return SIGNAL_DETAILS
-                
-            except Exception as chart_error:
-                logger.error(f"Error generating chart: {str(chart_error)}")
-                logger.exception(chart_error)
-                await query.edit_message_text(
-                    text=f"Sorry, there was a problem generating the chart for {instrument}. Please try again later.",
-                    reply_markup=InlineKeyboardMarkup([[
-                        InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal")
-                    ]])
-                )
-                return CHOOSE_ANALYSIS
+            return CHOOSE_ANALYSIS
             
         except Exception as e:
             logger.error(f"Error in analyze_from_signal_callback: {str(e)}")
@@ -4271,7 +4226,7 @@ Click the button below to start your FREE 14-day trial.
                 pass
                 
             return CHOOSE_ANALYSIS
-            
+
     async def signal_technical_callback(self, update: Update, context=None) -> int:
         """Handle signal technical analysis selection - exclusively for the signal flow"""
         query = update.callback_query
