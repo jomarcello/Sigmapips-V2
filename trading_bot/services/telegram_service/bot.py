@@ -1162,25 +1162,36 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             instrument = None
             
             if query.data.startswith("analysis_sentiment_signal_"):
-                is_from_signal = True
                 instrument = query.data.replace("analysis_sentiment_signal_", "")
-                logger.info(f"Sentiment analysis for instrument {instrument} from signal")
+                
+                # Check if we're actually in a signal flow by looking at BOTH from_signal and previous_state
+                if context and hasattr(context, 'user_data'):
+                    is_from_signal = context.user_data.get('in_signal_flow', False)
+                    
+                logger.info(f"Sentiment analysis for instrument {instrument} from signal: {is_from_signal}")
             
             # Store analysis type in user_data
             if context and hasattr(context, 'user_data'):
                 context.user_data['analysis_type'] = 'sentiment'
                 
-                # Set from_signal if this came via signal flow
+                # Set from_signal if this came via signal flow AND we're actually in a signal flow
                 if is_from_signal:
                     context.user_data['from_signal'] = True
                     context.user_data['previous_state'] = 'SIGNAL'
-                    if instrument:
-                        context.user_data['instrument'] = instrument
+                    context.user_data['in_signal_flow'] = True  # Explicitly set in_signal_flow flag
+                else:
+                    # Ensure from_signal is NOT set if we're not coming from a signal
+                    context.user_data['from_signal'] = False
+                    if 'previous_state' in context.user_data and context.user_data['previous_state'] == 'SIGNAL':
+                        context.user_data['previous_state'] = None
                 
-                # Check if we have an instrument from signal
-                if (context.user_data.get('from_signal') or context.user_data.get('previous_state') == 'SIGNAL') and (instrument or context.user_data.get('instrument')):
+                if instrument:
+                    context.user_data['instrument'] = instrument
+                
+                # Check if we have an instrument
+                if instrument or context.user_data.get('instrument'):
                     instrument = instrument or context.user_data.get('instrument')
-                    logger.info(f"Using instrument from signal: {instrument} for sentiment analysis")
+                    logger.info(f"Using instrument: {instrument} for sentiment analysis")
                     
                     # Go directly to sentiment analysis for this instrument
                     return await self.show_sentiment_analysis(update, context, instrument=instrument)
@@ -3543,7 +3554,16 @@ Click the button below to start your FREE 14-day trial.
             # Check if we're coming from a signal
             is_from_signal = False
             if context and hasattr(context, 'user_data'):
-                is_from_signal = context.user_data.get('from_signal', False) or context.user_data.get('previous_state') == 'SIGNAL'
+                # We moeten echt ALLE signaal-gerelateerde vlaggen controleren
+                is_really_from_signal = all([
+                    context.user_data.get('from_signal', False) or context.user_data.get('previous_state') == 'SIGNAL',
+                    context.user_data.get('in_signal_flow', False)
+                ])
+                # Alleen als we ECHT van een signaal komen, gebruiken we de signaal-terug-knop
+                is_from_signal = is_really_from_signal
+                
+                # Debug log
+                logger.info(f"show_technical_analysis - is_from_signal: {is_from_signal}")
             
             # First, show a loading message
             await query.edit_message_text(
@@ -3628,11 +3648,19 @@ Click the button below to start your FREE 14-day trial.
             # Check if we're coming from a signal
             is_from_signal = False
             if context and hasattr(context, 'user_data'):
-                is_from_signal = context.user_data.get('from_signal', False) or context.user_data.get('previous_state') == 'SIGNAL'
+                # We moeten echt ALLE signaal-gerelateerde vlaggen controleren
+                is_really_from_signal = all([
+                    context.user_data.get('from_signal', False) or context.user_data.get('previous_state') == 'SIGNAL',
+                    context.user_data.get('in_signal_flow', False)
+                ])
+                # Alleen als we ECHT van een signaal komen, gebruiken we de signaal-terug-knop
+                is_from_signal = is_really_from_signal
+                
                 # Debug log
                 logger.info(f"show_sentiment_analysis - is_from_signal: {is_from_signal}")
                 logger.info(f"show_sentiment_analysis - context.user_data['from_signal']: {context.user_data.get('from_signal')}")
                 logger.info(f"show_sentiment_analysis - context.user_data['previous_state']: {context.user_data.get('previous_state')}")
+                logger.info(f"show_sentiment_analysis - context.user_data['in_signal_flow']: {context.user_data.get('in_signal_flow')}")
                 logger.info(f"show_sentiment_analysis - context.user_data: {context.user_data}")
                 
             # First, show a loading message
@@ -3764,7 +3792,16 @@ Click the button below to start your FREE 14-day trial.
             # Check if we're coming from a signal
             is_from_signal = False
             if context and hasattr(context, 'user_data'):
-                is_from_signal = context.user_data.get('from_signal', False) or context.user_data.get('previous_state') == 'SIGNAL'
+                # We moeten echt ALLE signaal-gerelateerde vlaggen controleren
+                is_really_from_signal = all([
+                    context.user_data.get('from_signal', False) or context.user_data.get('previous_state') == 'SIGNAL',
+                    context.user_data.get('in_signal_flow', False)
+                ])
+                # Alleen als we ECHT van een signaal komen, gebruiken we de signaal-terug-knop
+                is_from_signal = is_really_from_signal
+                
+                # Debug log
+                logger.info(f"show_economic_calendar - is_from_signal: {is_from_signal}")
                 
                 # Store the analysis type in context for proper back button handling
                 context.user_data['analysis_type'] = 'calendar'
@@ -4394,6 +4431,7 @@ Click the button below to start your FREE 14-day trial.
                 context.user_data['analysis_type'] = 'sentiment'
                 context.user_data['from_signal'] = True  # Explicitly set from_signal flag
                 context.user_data['previous_state'] = 'SIGNAL'  # Ensure previous_state is set
+                context.user_data['in_signal_flow'] = True  # Explicitly set in_signal_flow flag
                 
                 # Get the instrument from context
                 instrument = context.user_data.get('instrument')
