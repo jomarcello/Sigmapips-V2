@@ -3629,6 +3629,11 @@ Click the button below to start your FREE 14-day trial.
             is_from_signal = False
             if context and hasattr(context, 'user_data'):
                 is_from_signal = context.user_data.get('from_signal', False) or context.user_data.get('previous_state') == 'SIGNAL'
+                # Debug log
+                logger.info(f"show_sentiment_analysis - is_from_signal: {is_from_signal}")
+                logger.info(f"show_sentiment_analysis - context.user_data['from_signal']: {context.user_data.get('from_signal')}")
+                logger.info(f"show_sentiment_analysis - context.user_data['previous_state']: {context.user_data.get('previous_state')}")
+                logger.info(f"show_sentiment_analysis - context.user_data: {context.user_data}")
                 
             # First, show a loading message
             await query.edit_message_text(
@@ -4174,6 +4179,7 @@ Click the button below to start your FREE 14-day trial.
                 # Set flag to indicate we're in the signal flow, not the main menu flow
                 context.user_data['in_signal_flow'] = True
                 context.user_data['previous_state'] = 'SIGNAL'
+                context.user_data['from_signal'] = True  # Explicitly set from_signal flag
                 
                 # Store instrument in context if we extracted it
                 if instrument:
@@ -4258,6 +4264,8 @@ Click the button below to start your FREE 14-day trial.
             if context and hasattr(context, 'user_data'):
                 # Set this for consistent back navigation
                 context.user_data['analysis_type'] = 'technical'
+                context.user_data['from_signal'] = True  # Explicitly set from_signal flag
+                context.user_data['previous_state'] = 'SIGNAL'  # Ensure previous_state is set
                 
                 # Get the instrument from context
                 instrument = context.user_data.get('instrument')
@@ -4384,6 +4392,8 @@ Click the button below to start your FREE 14-day trial.
             if context and hasattr(context, 'user_data'):
                 # Set this for consistent back navigation
                 context.user_data['analysis_type'] = 'sentiment'
+                context.user_data['from_signal'] = True  # Explicitly set from_signal flag
+                context.user_data['previous_state'] = 'SIGNAL'  # Ensure previous_state is set
                 
                 # Get the instrument from context
                 instrument = context.user_data.get('instrument')
@@ -4486,6 +4496,8 @@ Click the button below to start your FREE 14-day trial.
             if context and hasattr(context, 'user_data'):
                 # Set this for consistent back navigation
                 context.user_data['analysis_type'] = 'calendar'
+                context.user_data['from_signal'] = True  # Explicitly set from_signal flag
+                context.user_data['previous_state'] = 'SIGNAL'  # Ensure previous_state is set
                 
                 # Get the instrument from context
                 instrument = context.user_data.get('instrument')
