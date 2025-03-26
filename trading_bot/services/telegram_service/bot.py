@@ -3561,7 +3561,7 @@ Click the button below to start your FREE 14-day trial.
                     await query.edit_message_text(
                         text=f"Sorry, I couldn't generate a chart for {instrument} at this time. Please try again later.",
                         reply_markup=InlineKeyboardMarkup([[
-                            InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal" if is_from_signal else "back_instrument")
+                            InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal" if is_from_signal else "back_to_signal_analysis")
                         ]])
                     )
                     return MENU
@@ -3571,7 +3571,7 @@ Click the button below to start your FREE 14-day trial.
                 
                 # Add buttons for different actions - back button depends on where we came from
                 keyboard = [
-                    [InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal" if is_from_signal else "back_instrument")]
+                    [InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal" if is_from_signal else "back_to_signal_analysis")]
                 ]
                 
                 # Send the chart with caption
@@ -3597,7 +3597,7 @@ Click the button below to start your FREE 14-day trial.
                 await query.edit_message_text(
                     text=f"Sorry, there was a problem generating the chart for {instrument}. Please try again later.",
                     reply_markup=InlineKeyboardMarkup([[
-                        InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal" if is_from_signal else "back_instrument")
+                        InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal" if is_from_signal else "back_to_signal_analysis")
                     ]])
                 )
             
@@ -3612,7 +3612,7 @@ Click the button below to start your FREE 14-day trial.
                 await query.edit_message_text(
                     text=f"Error: {str(e)}",
                     reply_markup=InlineKeyboardMarkup([[
-                        InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal" if context and hasattr(context, 'user_data') and context.user_data.get('from_signal', False) else "back_instrument")
+                        InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal" if context and hasattr(context, 'user_data') and context.user_data.get('from_signal', False) else "back_to_signal_analysis")
                     ]])
                 )
             except Exception:
@@ -3726,7 +3726,7 @@ Click the button below to start your FREE 14-day trial.
                 await query.edit_message_text(
                     text=f"Sorry, I couldn't analyze sentiment for {instrument} at this time. Please try again later.",
                     reply_markup=InlineKeyboardMarkup([[
-                        InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal" if is_from_signal else "back_instrument")
+                        InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal" if is_from_signal else "back_to_signal_analysis")
                     ]])
                 )
             except Exception:
@@ -3742,7 +3742,7 @@ Click the button below to start your FREE 14-day trial.
             await query.edit_message_text(
                 text=error_text,
                 reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal" if is_from_signal else "back_instrument")
+                    InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal" if is_from_signal else "back_to_signal_analysis")
                 ]])
             )
             
@@ -3791,7 +3791,7 @@ Click the button below to start your FREE 14-day trial.
                     await query.edit_message_text(
                         text=f"No upcoming economic events found for {instrument}.",
                         reply_markup=InlineKeyboardMarkup([[
-                            InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal" if is_from_signal else "back_instrument")
+                            InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal" if is_from_signal else "back_to_signal_analysis")
                         ]])
                     )
                     return SHOW_RESULT
@@ -3835,7 +3835,7 @@ Click the button below to start your FREE 14-day trial.
                 
                 # Add button to go back
                 keyboard = [
-                    [InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal" if is_from_signal else "back_instrument")]
+                    [InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal" if is_from_signal else "back_to_signal_analysis")]
                 ]
                 
                 # Send the calendar
@@ -3852,7 +3852,7 @@ Click the button below to start your FREE 14-day trial.
                 await query.edit_message_text(
                     text=f"The economic calendar is taking too long to load. Please try again later.",
                     reply_markup=InlineKeyboardMarkup([[
-                        InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal" if is_from_signal else "back_instrument")
+                        InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal" if is_from_signal else "back_to_signal_analysis")
                     ]])
                 )
                 return MENU
@@ -3863,7 +3863,7 @@ Click the button below to start your FREE 14-day trial.
                 await query.edit_message_text(
                     text=f"Sorry, I couldn't load the economic calendar for {instrument}. Please try again later.",
                     reply_markup=InlineKeyboardMarkup([[
-                        InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal" if is_from_signal else "back_instrument")
+                        InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal" if is_from_signal else "back_to_signal_analysis")
                     ]])
                 )
                 return MENU
@@ -3877,7 +3877,7 @@ Click the button below to start your FREE 14-day trial.
                 await query.edit_message_text(
                     text=f"Sorry, I couldn't access the economic calendar. Please try again later.",
                     reply_markup=InlineKeyboardMarkup([[
-                        InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal" if is_from_signal else "back_instrument")
+                        InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal" if is_from_signal else "back_to_signal_analysis")
                     ]])
                 )
             except Exception as inner_e:
