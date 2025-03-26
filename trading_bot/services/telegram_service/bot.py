@@ -513,6 +513,12 @@ os.environ["PERPLEXITY_API_KEY"] = PERPLEXITY_API_KEY
 os.environ["DEEPSEEK_API_KEY"] = DEEPSEEK_API_KEY
 os.environ["TAVILY_API_KEY"] = TAVILY_API_KEY
 
+# Voor de class TelegramService definitie
+# Conversation states
+MAIN_MENU, ANALYZE_MENU, SIGNALS_MENU, MARKET_CHOICE, INSTRUMENT_CHOICE, TIMEFRAME_CHOICE = range(6)
+ANALYSIS_CHOICE, SIGNAL_DETAILS, CHOOSE_ANALYSIS, MANAGE_PREFERENCES = range(6, 10)
+DELETE_PREFERENCES, CONFIRM_DELETE = range(10, 12)
+
 class TelegramService:
     def __init__(self, db: Database, stripe_service=None, bot_token: Optional[str] = None, proxy_url: Optional[str] = None):
         """Initialize the bot with given database and config."""
@@ -2396,11 +2402,6 @@ COMMODITIES_SENTIMENT_KEYBOARD = [
 ]
 
 # Keyboards voor signal flow worden nu dynamisch gegenereerd in de callbacks
-
-# Conversation states
-MAIN_MENU, ANALYZE_MENU, SIGNALS_MENU, MARKET_CHOICE, INSTRUMENT_CHOICE, TIMEFRAME_CHOICE = range(6)
-ANALYSIS_CHOICE, SIGNAL_DETAILS, CHOOSE_ANALYSIS, MANAGE_PREFERENCES = range(6, 10)
-DELETE_PREFERENCES, CONFIRM_DELETE = range(10, 12)
 
     async def analyze_from_signal_callback(self, update: Update, context=None) -> int:
         """Handle analyze_from_signal callback to show analysis options for the selected signal"""
