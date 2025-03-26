@@ -2040,11 +2040,11 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             logger.warning(f"Kon callback query niet beantwoorden: {str(e)}")
         
         # Special signal flow handlers for the dedicated signal analysis
-        if query.data == "signal_technical":
+        if query.data == "signal_technical" or query.data.startswith("signal_technical_"):
             return await self.signal_technical_callback(update, context)
-        elif query.data == "signal_sentiment":
+        elif query.data == "signal_sentiment" or query.data.startswith("signal_sentiment_"):
             return await self.signal_sentiment_callback(update, context)
-        elif query.data == "signal_calendar":
+        elif query.data == "signal_calendar" or query.data.startswith("signal_calendar_"):
             return await self.signal_calendar_callback(update, context)
         elif query.data == "back_to_signal_analysis":
             return await self.back_to_signal_analysis_callback(update, context)
@@ -4247,115 +4247,114 @@ Click the button below to start your FREE 14-day trial.
             return CHOOSE_ANALYSIS
 
     async def signal_technical_callback(self, update: Update, context=None) -> int:
-        """Handle signal technical analysis selection - exclusively for the signal flow"""
+        """Handle signal_technical callback to show technical analysis for the selected instrument"""
         query = update.callback_query
         await query.answer()
+        callback_data = query.data
         
         try:
-            logger.info("signal_technical_callback called")
+            # Extract instrument from callback data if it's in the format signal_technical_INSTRUMENT
+            instrument = None
+            if callback_data.startswith('signal_technical_'):
+                instrument = callback_data[len('signal_technical_'):]
+                logger.info(f"Extracted instrument {instrument} from callback data {callback_data}")
+                # Store instrument in context for consistent back navigation
+                if context and hasattr(context, 'user_data'):
+                    context.user_data['instrument'] = instrument
             
-            if context and hasattr(context, 'user_data'):
-                # Set this for consistent back navigation
-                context.user_data['analysis_type'] = 'technical'
-                
-                # Get the instrument from context
+            # If instrument not found in callback, try to get from context
+            if not instrument and context and hasattr(context, 'user_data'):
                 instrument = context.user_data.get('instrument')
-                
-                # If instrument not found in context, try to retrieve from user's last signal
-                if not instrument:
-                    user_id = update.effective_user.id
-                    logger.info(f"Trying to retrieve instrument from user signals for user {user_id}")
-                    
-                    # Try to get from user_signals if available
-                    if hasattr(self, 'user_signals') and user_id in self.user_signals:
-                        signal_data = self.user_signals[user_id]
-                        if 'instrument' in signal_data:
-                            instrument = signal_data['instrument']
-                            logger.info(f"Retrieved instrument {instrument} from user signals")
-                            # Save to context for future use
-                            context.user_data['instrument'] = instrument
-                
-                if not instrument:
-                    logger.warning("Instrument not found in context for signal technical analysis")
-                    await query.edit_message_text(
-                        text="Error: Could not determine which instrument to analyze.",
-                        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal")]])
-                    )
-                    return CHOOSE_ANALYSIS
-                
-                logger.info(f"Signal technical analysis for instrument: {instrument}")
-                
-                # Show loading message
+                logger.info(f"Using instrument {instrument} from context")
+            
+            # If still no instrument, try to find it in user's signals
+            if not instrument and context and hasattr(context, 'user_data'):
+                user_id = update.effective_user.id
+                signals = context.user_data.get('signals', {})
+                if signals:
+                    # Get the most recent signal's instrument
+                    latest_signal = list(signals.values())[-1]
+                    instrument = latest_signal.get('instrument')
+                    logger.info(f"Using instrument {instrument} from user's signals")
+            
+            if not instrument:
+                logger.warning(f"Could not determine instrument for technical analysis for user {update.effective_user.id}")
                 await query.edit_message_text(
-                    text=f"Generating technical analysis for {instrument}. Please wait..."
+                    text="Error: Could not determine which instrument to analyze. Please try again.",
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal_analysis")]])
                 )
+                return CHOOSE_ANALYSIS
+            
+            logger.info(f"Showing technical analysis for {instrument} to user {update.effective_user.id}")
+            
+            # Maintain existing functionality
+            await query.edit_message_text(
+                text=f"Generating technical analysis for {instrument}...",
+                parse_mode=ParseMode.HTML
+            )
+            
+            # Show loading message
+            await query.edit_message_text(
+                text=f"Generating technical analysis for {instrument}...",
+                parse_mode=ParseMode.HTML
+            )
+            
+            # Generate the chart
+            try:
+                # Get timeframe from context or use default
+                timeframe = context.user_data.get('timeframe', '1h')
                 
-                # Generate the chart
-                try:
-                    # Get timeframe from context or use default
-                    timeframe = context.user_data.get('timeframe', '1h')
-                    
-                    # Generate chart
-                    chart_data = await self.chart.get_chart(instrument, timeframe=timeframe, fullscreen=False)
-                    
-                    if not chart_data:
-                        logger.error(f"Failed to generate chart for {instrument}")
-                        await query.edit_message_text(
-                            text=f"Sorry, I couldn't generate a chart for {instrument} at this time. Please try again later.",
-                            reply_markup=InlineKeyboardMarkup([[
-                                InlineKeyboardButton("⬅️ Back to Signal Analysis", callback_data="back_to_signal_analysis")
-                            ]])
-                        )
-                        return CHOOSE_ANALYSIS
-                    
-                    # Create caption
-                    caption = f"<b>Technical Analysis for {instrument}</b> ({timeframe})"
-                    
-                    # Create keyboard with back button
-                    keyboard = [
-                        [InlineKeyboardButton("⬅️ Back to Signal Analysis", callback_data="back_to_signal_analysis")]
-                    ]
-                    
-                    # Send the chart
-                    from io import BytesIO
-                    photo = BytesIO(chart_data)
-                    photo.name = f"{instrument}_chart.png"
-                    
-                    await query.message.reply_photo(
-                        photo=photo,
-                        caption=caption,
-                        reply_markup=InlineKeyboardMarkup(keyboard),
-                        parse_mode=ParseMode.HTML
-                    )
-                    
-                    # Update the loading message
+                # Generate chart
+                chart_data = await self.chart.get_chart(instrument, timeframe=timeframe, fullscreen=False)
+                
+                if not chart_data:
+                    logger.error(f"Failed to generate chart for {instrument}")
                     await query.edit_message_text(
-                        text=f"Here's your technical analysis for {instrument}:"
-                    )
-                    
-                    return SIGNAL_DETAILS
-                    
-                except Exception as chart_error:
-                    logger.error(f"Error generating chart: {str(chart_error)}")
-                    logger.exception(chart_error)
-                    await query.edit_message_text(
-                        text=f"Sorry, there was a problem generating the chart for {instrument}. Please try again later.",
+                        text=f"Sorry, I couldn't generate a chart for {instrument} at this time. Please try again later.",
                         reply_markup=InlineKeyboardMarkup([[
                             InlineKeyboardButton("⬅️ Back to Signal Analysis", callback_data="back_to_signal_analysis")
                         ]])
                     )
                     return CHOOSE_ANALYSIS
                 
+                # Create caption
+                caption = f"<b>Technical Analysis for {instrument}</b> ({timeframe})"
                 
-            else:
-                # No context available
-                logger.warning("No context available for signal technical analysis")
+                # Create keyboard with back button
+                keyboard = [
+                    [InlineKeyboardButton("⬅️ Back to Signal Analysis", callback_data="back_to_signal_analysis")]
+                ]
+                
+                # Send the chart
+                from io import BytesIO
+                photo = BytesIO(chart_data)
+                photo.name = f"{instrument}_chart.png"
+                
+                await query.message.reply_photo(
+                    photo=photo,
+                    caption=caption,
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.HTML
+                )
+                
+                # Update the loading message
                 await query.edit_message_text(
-                    text="Error: Could not retrieve analysis context.",
-                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal")]])
+                    text=f"Here's your technical analysis for {instrument}:"
+                )
+                
+                return SIGNAL_DETAILS
+                
+            except Exception as chart_error:
+                logger.error(f"Error generating chart: {str(chart_error)}")
+                logger.exception(chart_error)
+                await query.edit_message_text(
+                    text=f"Sorry, there was a problem generating the chart for {instrument}. Please try again later.",
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("⬅️ Back to Signal Analysis", callback_data="back_to_signal_analysis")
+                    ]])
                 )
                 return CHOOSE_ANALYSIS
-                
+            
         except Exception as e:
             logger.error(f"Error in signal_technical_callback: {str(e)}")
             logger.exception(e)
@@ -4380,12 +4379,25 @@ Click the button below to start your FREE 14-day trial.
         try:
             logger.info("signal_sentiment_callback called")
             
+            # Extract instrument from callback data if available
+            instrument = None
+            if query.data.startswith("signal_sentiment_"):
+                instrument = query.data[len("signal_sentiment_"):]
+                logger.info(f"Extracted instrument from callback data: {instrument}")
+            
             if context and hasattr(context, 'user_data'):
                 # Set this for consistent back navigation
                 context.user_data['analysis_type'] = 'sentiment'
+                context.user_data['from_signal'] = True
                 
-                # Get the instrument from context
-                instrument = context.user_data.get('instrument')
+                # Store the instrument in context if we extracted it
+                if instrument:
+                    context.user_data['instrument'] = instrument
+                    logger.info(f"Stored instrument in context: {instrument}")
+                else:
+                    # Get the instrument from context if not in callback data
+                    instrument = context.user_data.get('instrument')
+                
                 if not instrument:
                     logger.warning("Instrument not found in context for signal sentiment analysis")
                     await query.edit_message_text(
@@ -4482,12 +4494,25 @@ Click the button below to start your FREE 14-day trial.
         try:
             logger.info("signal_calendar_callback called")
             
+            # Extract instrument from callback data if available
+            instrument = None
+            if query.data.startswith("signal_calendar_"):
+                instrument = query.data[len("signal_calendar_"):]
+                logger.info(f"Extracted instrument from callback data: {instrument}")
+            
             if context and hasattr(context, 'user_data'):
                 # Set this for consistent back navigation
                 context.user_data['analysis_type'] = 'calendar'
+                context.user_data['from_signal'] = True
                 
-                # Get the instrument from context
-                instrument = context.user_data.get('instrument')
+                # Store the instrument in context if we extracted it
+                if instrument:
+                    context.user_data['instrument'] = instrument
+                    logger.info(f"Stored instrument in context: {instrument}")
+                else:
+                    # Get the instrument from context if not in callback data
+                    instrument = context.user_data.get('instrument')
+                
                 if not instrument:
                     logger.warning("Instrument not found in context for signal calendar analysis")
                     await query.edit_message_text(
@@ -4621,12 +4646,25 @@ Click the button below to start your FREE 14-day trial.
                 instrument = context.user_data.get('instrument')
             
             # Format message text
-            text = f"Choose analysis type for {instrument}:" if instrument else "Choose analysis type:"
+            if instrument:
+                text = f"<b>Choose Analysis Type for {instrument}</b>\n\nSelect what type of analysis you want to view:"
+                
+                # Create dynamic keyboard with the instrument
+                keyboard = [
+                    [InlineKeyboardButton("📊 Technical Analysis", callback_data=f"signal_technical_{instrument}")],
+                    [InlineKeyboardButton("💭 Sentiment Analysis", callback_data=f"signal_sentiment_{instrument}")],
+                    [InlineKeyboardButton("📅 Economic Calendar", callback_data=f"signal_calendar_{instrument}")],
+                    [InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal")]
+                ]
+            else:
+                text = "Choose analysis type:"
+                keyboard = SIGNAL_ANALYSIS_KEYBOARD
             
             # Show analysis options
             await query.edit_message_text(
                 text=text,
-                reply_markup=InlineKeyboardMarkup(SIGNAL_ANALYSIS_KEYBOARD)
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode=ParseMode.HTML
             )
             
             return CHOOSE_ANALYSIS
