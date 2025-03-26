@@ -3655,21 +3655,30 @@ Click the button below to start your FREE 14-day trial.
                 
                 logger.info(f"Sentiment data received for {instrument}")
                 
-                # Extract sentiment data
-                bullish_score = sentiment_data.get('bullish_percentage', 50)
-                bearish_score = 100 - bullish_score
-                overall = sentiment_data.get('overall_sentiment', 'neutral').capitalize()
-                
-                # Determine emoji based on sentiment
-                if overall.lower() == 'bullish':
-                    emoji = "📈"
-                elif overall.lower() == 'bearish':
-                    emoji = "📉"
+                # Check if sentiment_data is a string or a dictionary
+                if isinstance(sentiment_data, str):
+                    # If it's a string, use it directly as the analysis
+                    analysis = sentiment_data
+                    overall = "Neutral"  # Default value
+                    bullish_score = 50    # Default value
+                    bearish_score = 50    # Default value
+                    emoji = "⚖️"         # Default neutral emoji
                 else:
-                    emoji = "⚖️"
-                
-                # Get the analysis content
-                analysis = sentiment_data.get('analysis', 'Analysis not available')
+                    # If it's a dictionary, extract the values as before
+                    bullish_score = sentiment_data.get('bullish_percentage', 50)
+                    bearish_score = 100 - bullish_score
+                    overall = sentiment_data.get('overall_sentiment', 'neutral').capitalize()
+                    
+                    # Determine emoji based on sentiment
+                    if overall.lower() == 'bullish':
+                        emoji = "📈"
+                    elif overall.lower() == 'bearish':
+                        emoji = "📉"
+                    else:
+                        emoji = "⚖️"
+                    
+                    # Get the analysis content
+                    analysis = sentiment_data.get('analysis', 'Analysis not available')
                 
                 # Clean up any markdown formatting that might be in the analysis
                 analysis = re.sub(r'^```html\s*', '', analysis)
