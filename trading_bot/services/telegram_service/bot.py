@@ -54,18 +54,10 @@ CALLBACK_SIGNALS_MANAGE = "signals_manage"
 CALLBACK_MENU_ANALYSE = "menu_analyse"
 CALLBACK_MENU_SIGNALS = "menu_signals"
 
-# States
-MENU = 0
-CHOOSE_ANALYSIS = 1
-CHOOSE_SIGNALS = 2
-CHOOSE_MARKET = 3
-CHOOSE_INSTRUMENT = 4
-CHOOSE_STYLE = 5
-SHOW_RESULT = 6
-CHOOSE_TIMEFRAME = 7
-SIGNAL_DETAILS = 8
-SIGNAL = 9
-SUBSCRIBE = 10
+# Conversation states
+MAIN_MENU, ANALYZE_MENU, SIGNALS_MENU, MARKET_CHOICE, INSTRUMENT_CHOICE, TIMEFRAME_CHOICE = range(6)
+ANALYSIS_CHOICE, SIGNAL_DETAILS, CHOOSE_ANALYSIS, MANAGE_PREFERENCES = range(6, 10)
+DELETE_PREFERENCES, CONFIRM_DELETE = range(10, 12)
 
 # Messages
 WELCOME_MESSAGE = """
@@ -485,7 +477,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     reply_markup=InlineKeyboardMarkup(keyboard),
                     parse_mode=ParseMode.HTML
                 )
-            return MENU
+            return MAIN_MENU
     
     return wrapper
 
@@ -513,7 +505,6 @@ os.environ["PERPLEXITY_API_KEY"] = PERPLEXITY_API_KEY
 os.environ["DEEPSEEK_API_KEY"] = DEEPSEEK_API_KEY
 os.environ["TAVILY_API_KEY"] = TAVILY_API_KEY
 
-# Voor de class TelegramService definitie
 # Conversation states
 MAIN_MENU, ANALYZE_MENU, SIGNALS_MENU, MARKET_CHOICE, INSTRUMENT_CHOICE, TIMEFRAME_CHOICE = range(6)
 ANALYSIS_CHOICE, SIGNAL_DETAILS, CHOOSE_ANALYSIS, MANAGE_PREFERENCES = range(6, 10)
