@@ -13,7 +13,7 @@ from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
 import copy
 
-from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery, InputMediaPhoto, BotCommand
+from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery, InputMediaPhoto, BotCommand, ReplyKeyboardRemove
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -714,8 +714,9 @@ class TelegramService:
         logger.info(f"Signal processing {'enabled' if value else 'disabled'}")
 
     def _register_handlers(self, application: Application):
+        """Register all command and message handlers."""
         try:
-            # Register all command handlers first
+            # Command handlers
             application.add_handler(CommandHandler("start", self.start_command))
             application.add_handler(CommandHandler("help", self.help_command))
             application.add_handler(CommandHandler("menu", self.show_main_menu))
@@ -726,22 +727,24 @@ class TelegramService:
             application.add_handler(CommandHandler("cancel", self.cancel_command))
             
             # Admin commands
-            application.add_handler(CommandHandler("broadcast", self.broadcast_command))
-            application.add_handler(CommandHandler("list_users", self.list_users_command))
-            application.add_handler(CommandHandler("get_user", self.get_user_command))
-            application.add_handler(CommandHandler("delete_user", self.delete_user_command))
-            application.add_handler(CommandHandler("update_user", self.update_user_command))
-            application.add_handler(CommandHandler("add_user", self.add_user_command))
-            application.add_handler(CommandHandler("enable_signals", self.enable_signals_command))
-            application.add_handler(CommandHandler("disable_signals", self.disable_signals_command))
+            # Commented out until implementations are added
+            # application.add_handler(CommandHandler("broadcast", self.broadcast_command))
+            # application.add_handler(CommandHandler("list_users", self.list_users_command))
+            # application.add_handler(CommandHandler("get_user", self.get_user_command))
+            # application.add_handler(CommandHandler("delete_user", self.delete_user_command))
+            # application.add_handler(CommandHandler("update_user", self.update_user_command))
+            # application.add_handler(CommandHandler("add_user", self.add_user_command))
+            # application.add_handler(CommandHandler("enable_signals", self.enable_signals_command))
+            # application.add_handler(CommandHandler("disable_signals", self.disable_signals_command))
             
-            # Register error handler
-            application.add_error_handler(self.error_handler)
-            
-            # Register callback query handler last
+            # Callback query handler for inline keyboard buttons
             application.add_handler(CallbackQueryHandler(self.button_callback))
             
+            # Error handler
+            application.add_error_handler(self.error_handler)
+            
             logger.info("All handlers registered successfully")
+            
         except Exception as e:
             logger.error(f"Error registering handlers: {str(e)}")
             raise
@@ -936,98 +939,96 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Get user ID
             user_id = update.effective_user.id
             
-            # Check if user has an active subscription
+            # Check user subscription
             is_subscribed = await self.db.is_user_subscribed(user_id)
-            
-            # Check if payment has failed
             payment_failed = await self.db.has_payment_failed(user_id)
             
-            if is_subscribed and not payment_failed:
-                # Show the normal welcome message with all features
-                message_text = WELCOME_MESSAGE
-                keyboard = START_KEYBOARD
-            elif payment_failed:
-                # Show payment failure message
-                message_text = """
-❗ <b>Subscription Payment Failed</b> ❗
-
-Your subscription payment could not be processed and your service has been deactivated.
-
-To continue using Sigmapips AI and receive trading signals, please reactivate your subscription by clicking the button below.
-                """
-                
-                # Use direct URL link for reactivation
-                reactivation_url = "https://buy.stripe.com/9AQcPf3j63HL5JS145"
-                
-                # Create button for reactivation
-                keyboard = [
-                    [InlineKeyboardButton("🔄 Reactivate Subscription", url=reactivation_url)]
-                ]
-            else:
-                # Show the welcome message with trial option
-                message_text = """
-🚀 <b>Welcome to Sigmapips AI!</b> 🚀
-
-<b>Discover powerful trading signals for various markets:</b>
-• <b>Forex</b> - Major and minor currency pairs
-• <b>Crypto</b> - Bitcoin, Ethereum and other top cryptocurrencies
-• <b>Indices</b> - Global market indices
-• <b>Commodities</b> - Gold, silver and oil
-
-<b>Features:</b>
-✅ Real-time trading signals
-✅ Multi-timeframe analysis (1m, 15m, 1h, 4h)
-✅ Advanced chart analysis
-✅ Sentiment indicators
-✅ Economic calendar integration
-
-<b>Start today with a FREE 14-day trial!</b>
-                """
-                
-                # Use direct URL link for trial
-                checkout_url = "https://buy.stripe.com/3cs3eF9Hu9256NW9AA"
-                
-                # Create button for trial
-                keyboard = [
-                    [InlineKeyboardButton("🔥 Start 14-day FREE Trial", url=checkout_url)]
-                ]
-            
-            # Handle both message and callback query updates
+            # Handle update type
             if update.callback_query:
-                await update.callback_query.answer()
-                await update.callback_query.edit_message_text(
-                    text=message_text,
-                    reply_markup=InlineKeyboardMarkup(keyboard),
-                    parse_mode=ParseMode.HTML
-                )
+                query = update.callback_query
+                await query.answer()
+                
+                # Check subscription status and show appropriate menu
+                if is_subscribed and not payment_failed:
+                    # Full menu for subscribed users
+                    await query.edit_message_text(
+                        text=WELCOME_MESSAGE,
+                        reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
+                        parse_mode=ParseMode.HTML
+                    )
+                elif payment_failed:
+                    # Payment failed message
+                    reactivation_url = "https://buy.stripe.com/9AQcPf3j63HL5JS145"
+                    keyboard = [
+                        [InlineKeyboardButton("🔄 Reactivate Subscription", url=reactivation_url)]
+                    ]
+                    
+                    await query.edit_message_text(
+                        text=PAYMENT_FAILED_MESSAGE,
+                        reply_markup=InlineKeyboardMarkup(keyboard),
+                        parse_mode=ParseMode.HTML
+                    )
+                else:
+                    # Trial option for new/unsubscribed users
+                    checkout_url = "https://buy.stripe.com/3cs3eF9Hu9256NW9AA"
+                    keyboard = [
+                        [InlineKeyboardButton("🔥 Start 14-day FREE Trial", url=checkout_url)]
+                    ]
+                    
+                    await query.edit_message_text(
+                        text=TRIAL_WELCOME_MESSAGE,
+                        reply_markup=InlineKeyboardMarkup(keyboard),
+                        parse_mode=ParseMode.HTML
+                    )
             else:
-                await update.message.reply_text(
-                    text=message_text,
-                    reply_markup=InlineKeyboardMarkup(keyboard),
-                    parse_mode=ParseMode.HTML
-                )
+                # Handle direct command or message
+                if is_subscribed and not payment_failed:
+                    # Full menu for subscribed users
+                    await update.message.reply_text(
+                        text=WELCOME_MESSAGE,
+                        reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
+                        parse_mode=ParseMode.HTML
+                    )
+                elif payment_failed:
+                    # Payment failed message
+                    reactivation_url = "https://buy.stripe.com/9AQcPf3j63HL5JS145"
+                    keyboard = [
+                        [InlineKeyboardButton("🔄 Reactivate Subscription", url=reactivation_url)]
+                    ]
+                    
+                    await update.message.reply_text(
+                        text=PAYMENT_FAILED_MESSAGE,
+                        reply_markup=InlineKeyboardMarkup(keyboard),
+                        parse_mode=ParseMode.HTML
+                    )
+                else:
+                    # Trial option for new/unsubscribed users
+                    checkout_url = "https://buy.stripe.com/3cs3eF9Hu9256NW9AA"
+                    keyboard = [
+                        [InlineKeyboardButton("🔥 Start 14-day FREE Trial", url=checkout_url)]
+                    ]
+                    
+                    await update.message.reply_text(
+                        text=TRIAL_WELCOME_MESSAGE,
+                        reply_markup=InlineKeyboardMarkup(keyboard),
+                        parse_mode=ParseMode.HTML
+                    )
             
             return MAIN_MENU
             
         except Exception as e:
             logger.error(f"Error showing main menu: {str(e)}")
-            logger.exception(e)
             
-            # Try to send a fallback message
+            # Try to send a simplified message
             try:
                 if update.callback_query:
-                    await update.callback_query.message.reply_text(
-                        text="An error occurred. Please try /start to begin again.",
-                        reply_markup=None
-                    )
+                    await update.callback_query.answer()
+                    await update.callback_query.edit_message_text("Error displaying menu. Please try again later.")
                 else:
-                    await update.message.reply_text(
-                        text="An error occurred. Please try /start to begin again.",
-                        reply_markup=None
-                    )
-            except Exception:
-                pass
-            
+                    await update.message.reply_text("Error displaying menu. Please try again later.")
+            except Exception as inner_e:
+                logger.error(f"Error sending fallback message: {str(inner_e)}")
+                
             return ConversationHandler.END
 
     async def set_subscription_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> None:
@@ -2638,3 +2639,185 @@ async def analyze_from_signal_callback(self, update: Update, context=None) -> in
             pass
             
         return ConversationHandler.END
+
+    async def signals_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
+        """Handle the /signals command - directs users to the signals menu."""
+        try:
+            user_id = update.effective_user.id
+            
+            # Check subscription status
+            is_subscribed = await self.db.is_user_subscribed(user_id)
+            
+            if not is_subscribed:
+                # Non-subscribers get a message about subscription
+                checkout_url = "https://buy.stripe.com/3cs3eF9Hu9256NW9AA"
+                keyboard = [
+                    [InlineKeyboardButton("🔥 Start 14-day FREE Trial", url=checkout_url)]
+                ]
+                
+                await update.message.reply_text(
+                    text="📊 <b>Trading Signals</b> are only available to subscribers.\n\nStart your 14-day free trial to get access to signals across all markets.",
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.HTML
+                )
+                return MAIN_MENU
+            
+            # For subscribers, go to signals menu
+            return await self.menu_signals_callback(update, context)
+            
+        except Exception as e:
+            logger.error(f"Error in signals_command: {str(e)}")
+            
+            try:
+                await update.message.reply_text(
+                    "There was an error processing your command. Please try again later.",
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back to Menu", callback_data=CALLBACK_BACK_MENU)]])
+                )
+            except Exception:
+                pass
+                
+            return MAIN_MENU
+
+    async def analyze_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
+        """Handle the /analyze command - directs users to the analysis menu."""
+        try:
+            user_id = update.effective_user.id
+            
+            # Check subscription status
+            is_subscribed = await self.db.is_user_subscribed(user_id)
+            
+            if not is_subscribed:
+                # Non-subscribers get a message about subscription
+                checkout_url = "https://buy.stripe.com/3cs3eF9Hu9256NW9AA"
+                keyboard = [
+                    [InlineKeyboardButton("🔥 Start 14-day FREE Trial", url=checkout_url)]
+                ]
+                
+                await update.message.reply_text(
+                    text="📈 <b>Advanced Analysis</b> is only available to subscribers.\n\nStart your 14-day free trial to unlock all analysis features.",
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.HTML
+                )
+                return MAIN_MENU
+            
+            # For subscribers, go to analysis menu
+            return await self.menu_analyse_callback(update, context)
+            
+        except Exception as e:
+            logger.error(f"Error in analyze_command: {str(e)}")
+            
+            try:
+                await update.message.reply_text(
+                    "There was an error processing your command. Please try again later.",
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back to Menu", callback_data=CALLBACK_BACK_MENU)]])
+                )
+            except Exception:
+                pass
+                
+            return MAIN_MENU
+
+    async def settings_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
+        """Handle the /settings command - shows user settings."""
+        try:
+            user_id = update.effective_user.id
+            
+            # Get user subscription status
+            is_subscribed = await self.db.is_user_subscribed(user_id)
+            
+            if not is_subscribed:
+                # Non-subscribers can't access settings
+                checkout_url = "https://buy.stripe.com/3cs3eF9Hu9256NW9AA"
+                keyboard = [
+                    [InlineKeyboardButton("🔥 Start 14-day FREE Trial", url=checkout_url)]
+                ]
+                
+                await update.message.reply_text(
+                    text="⚙️ <b>User Settings</b> are only available to subscribers.\n\nStart your 14-day free trial to access all features.",
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.HTML
+                )
+                return MAIN_MENU
+            
+            # Display settings options
+            settings_text = "⚙️ <b>User Settings</b>\n\nManage your preferences and signals here."
+            
+            keyboard = [
+                [InlineKeyboardButton("📊 Manage Trading Signals", callback_data="signals_manage")],
+                [InlineKeyboardButton("🗑️ Delete All Preferences", callback_data="delete_prefs")],
+                [InlineKeyboardButton("⬅️ Back to Menu", callback_data=CALLBACK_BACK_MENU)]
+            ]
+            
+            await update.message.reply_text(
+                text=settings_text,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode=ParseMode.HTML
+            )
+            
+            return MANAGE_PREFERENCES
+            
+        except Exception as e:
+            logger.error(f"Error in settings_command: {str(e)}")
+            
+            try:
+                await update.message.reply_text(
+                    "There was an error accessing settings. Please try again later.",
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back to Menu", callback_data=CALLBACK_BACK_MENU)]])
+                )
+            except Exception:
+                pass
+                
+            return MAIN_MENU
+
+    async def cancel_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
+        """Cancel and end the conversation."""
+        try:
+            await update.message.reply_text(
+                "Command cancelled. Use /menu to return to the main menu.",
+                reply_markup=ReplyKeyboardRemove()
+            )
+        except Exception as e:
+            logger.error(f"Error in cancel_command: {str(e)}")
+            
+            try:
+                await update.message.reply_text(
+                    "Error cancelling command. Use /menu to return to the main menu."
+                )
+            except Exception:
+                pass
+        
+        return ConversationHandler.END
+
+    async def error_handler(self, update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle errors in the dispatcher."""
+        try:
+            if update:
+                # Log the error
+                logger.error(f"Update {update} caused error: {context.error}")
+                
+                # Get the exception info
+                error_str = str(context.error)
+                error_type = type(context.error).__name__
+                
+                # Log traceback info
+                logger.error(f"Error type: {error_type}")
+                logger.error(f"Error message: {error_str}")
+                logger.error(f"Traceback: {traceback.format_exc()}")
+                
+                # Send a message to the user
+                if hasattr(update, 'effective_chat') and update.effective_chat:
+                    try:
+                        await context.bot.send_message(
+                            chat_id=update.effective_chat.id,
+                            text="Sorry, an error occurred. Our team has been notified. Please try again later."
+                        )
+                    except Exception as inner_e:
+                        logger.error(f"Error sending error message: {str(inner_e)}")
+            else:
+                logger.error(f"Update object was None. Error: {context.error}")
+                
+        except Exception as e:
+            logger.error(f"Error in error_handler: {str(e)}")
+            logger.error(traceback.format_exc())
+
+    async def set_subscription_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> None:
+        """Set a user subscription status for testing."""
