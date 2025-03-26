@@ -2618,7 +2618,6 @@ COMMODITIES_SENTIMENT_KEYBOARD = [
 
     async def signals_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
         """Handle the /signals command - directs users to the signals menu."""
-        try:
             user_id = update.effective_user.id
             
             # Check subscription status
@@ -2795,5 +2794,6 @@ COMMODITIES_SENTIMENT_KEYBOARD = [
             logger.error(f"Error in error_handler: {str(e)}")
             logger.error(traceback.format_exc())
 
+    c def set_subscription_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> None:
     async def set_subscription_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> None:
         """Set a user subscription status for testing."""
