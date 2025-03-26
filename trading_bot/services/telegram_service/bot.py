@@ -697,33 +697,11 @@ class TelegramService:
                     return test_users
                 else:
                     # If no admin or test users defined, use a default test user
-                    # Replace this with your own Telegram user ID for testing
-                    default_test_user = os.getenv("DEFAULT_TEST_USER", "")
-                    if default_test_user and default_test_user.isdigit():
-                        default_user_id = int(default_test_user)
-                        logger.info(f"Using default test user: {default_user_id}")
-                        return [default_user_id]
-                        
-                    # If you want to hardcode a user ID for testing, uncomment and modify the line below
-                    return [1093307376]  # Jovanni's Telegram user ID (vervang dit met jouw eigen ID als dit niet correct is)
-                    
-                    logger.warning("No admin or test users defined, returning empty list")
-                    return []
+                    return [1234567890]  # Default test user ID
         except Exception as e:
             logger.error(f"Error getting subscribers: {str(e)}")
-            # Try to get test users as fallback
-            try:
-                test_users = []
-                test_ids = os.getenv("TEST_USER_IDS", "")
-                if test_ids:
-                    test_users = [int(user_id.strip()) for user_id in test_ids.split(",") if user_id.strip()]
-                    logger.info(f"Using test users as fallback: {test_users}")
-                    return test_users
-            except Exception as inner_e:
-                logger.error(f"Error getting test users: {str(inner_e)}")
-            # Ultimate fallback
-            return self.admin_users if hasattr(self, 'admin_users') else []
-            
+            return []
+
     @property
     def signals_enabled(self):
         """Property to check if signal processing is enabled"""
@@ -735,55 +713,134 @@ class TelegramService:
         self._signals_enabled = bool(value)
         logger.info(f"Signal processing {'enabled' if value else 'disabled'}")
 
-    def _register_handlers(self, application):
-        """Register all command and callback handlers with the application"""
-        # Ensure application is initialized
-        if not application:
-            logger.error("Cannot register handlers: application not initialized")
-            return
-        
-        # Command handlers
-        application.add_handler(CommandHandler("start", self.start_command))
-        application.add_handler(CommandHandler("menu", self.show_main_menu))
-        application.add_handler(CommandHandler("help", self.help_command))
-        application.add_handler(CommandHandler("set_subscription", self.set_subscription_command))
-        
-        # Register the payment failed command with both underscore and no-underscore versions
-        application.add_handler(CommandHandler("set_payment_failed", self.set_payment_failed_command))
-        application.add_handler(CommandHandler("setpaymentfailed", self.set_payment_failed_command))
-        
-        # Add specific handlers for signal analysis flows
-        application.add_handler(CallbackQueryHandler(self.analysis_technical_callback, pattern="^analysis_technical$"))
-        application.add_handler(CallbackQueryHandler(self.analysis_technical_callback, pattern="^analysis_technical_signal_.*$"))
-        
-        application.add_handler(CallbackQueryHandler(self.analysis_sentiment_callback, pattern="^analysis_sentiment$"))
-        application.add_handler(CallbackQueryHandler(self.analysis_sentiment_callback, pattern="^analysis_sentiment_signal_.*$"))
-        
-        application.add_handler(CallbackQueryHandler(self.analysis_calendar_callback, pattern="^analysis_calendar$"))
-        application.add_handler(CallbackQueryHandler(self.analysis_calendar_callback, pattern="^analysis_calendar_signal_.*$"))
-        
-        application.add_handler(CallbackQueryHandler(self.back_to_signal_callback, pattern="^back_to_signal$"))
-        
-        # Callback query handler for all button presses
-        application.add_handler(CallbackQueryHandler(self.button_callback))
-        
-        # Ensure signal handlers are registered
-        logger.info("Enabling and initializing signals functionality")
-        
-        # Load any saved signals
-        self._load_signals()
-        
-        logger.info("All handlers registered successfully")
+    def _register_handlers(self, application: Application):
+        try:
+            # Register all command handlers first
+            application.add_handler(CommandHandler("start", self.start_command))
+            application.add_handler(CommandHandler("help", self.help_command))
+            application.add_handler(CommandHandler("menu", self.show_main_menu))
+            application.add_handler(CommandHandler("set_subscription", self.set_subscription_command))
+            application.add_handler(CommandHandler("signals", self.signals_command))
+            application.add_handler(CommandHandler("analyze", self.analyze_command))
+            application.add_handler(CommandHandler("settings", self.settings_command))
+            application.add_handler(CommandHandler("cancel", self.cancel_command))
+            
+            # Admin commands
+            application.add_handler(CommandHandler("broadcast", self.broadcast_command))
+            application.add_handler(CommandHandler("list_users", self.list_users_command))
+            application.add_handler(CommandHandler("get_user", self.get_user_command))
+            application.add_handler(CommandHandler("delete_user", self.delete_user_command))
+            application.add_handler(CommandHandler("update_user", self.update_user_command))
+            application.add_handler(CommandHandler("add_user", self.add_user_command))
+            application.add_handler(CommandHandler("enable_signals", self.enable_signals_command))
+            application.add_handler(CommandHandler("disable_signals", self.disable_signals_command))
+            
+            # Register error handler
+            application.add_error_handler(self.error_handler)
+            
+            # Register callback query handler last
+            application.add_handler(CallbackQueryHandler(self.button_callback))
+            
+            logger.info("All handlers registered successfully")
+        except Exception as e:
+            logger.error(f"Error registering handlers: {str(e)}")
+            raise
 
-        # Signal flow analysis handlers - update patterns to match both with and without instrument
-        application.add_handler(CallbackQueryHandler(
-            self.signal_technical_callback, pattern="^signal_technical.*"))
-        application.add_handler(CallbackQueryHandler(
-            self.signal_sentiment_callback, pattern="^signal_sentiment.*"))
-        application.add_handler(CallbackQueryHandler(
-            self.signal_calendar_callback, pattern="^signal_calendar.*"))
-        application.add_handler(CallbackQueryHandler(
-            self.back_to_signal_analysis_callback, pattern="^back_to_signal_analysis$"))
+    async def button_callback(self, update: Update, context=None) -> int:
+        """Handle button presses from inline keyboards"""
+        query = update.callback_query
+        logger.info(f"Button callback called with data: {query.data}")
+        
+        try:
+            # Answer the callback query
+            await query.answer()
+            
+            # Special signal flow handlers for the dedicated signal analysis
+            if query.data == "signal_technical":
+                return await self.signal_technical_callback(update, context)
+            elif query.data == "signal_sentiment":
+                return await self.signal_sentiment_callback(update, context)
+            elif query.data == "signal_calendar":
+                return await self.signal_calendar_callback(update, context)
+            elif query.data == "back_to_signal_analysis":
+                return await self.back_to_signal_analysis_callback(update, context)
+            
+            # Special signal flow handlers for the regular analysis
+            # Technical analysis from signal
+            if query.data.startswith("analysis_technical_signal_"):
+                return await self.analysis_technical_callback(update, context)
+                
+            # Sentiment analysis from signal
+            if query.data.startswith("analysis_sentiment_signal_"):
+                return await self.analysis_sentiment_callback(update, context)
+                
+            # Calendar analysis from signal
+            if query.data.startswith("analysis_calendar_signal_"):
+                return await self.analysis_calendar_callback(update, context)
+            
+            # Basic analysis types without signal context
+            if query.data == "analysis_technical":
+                return await self.analysis_technical_callback(update, context)
+            elif query.data == "analysis_sentiment":
+                return await self.analysis_sentiment_callback(update, context)
+            elif query.data == "analysis_calendar":
+                return await self.analysis_calendar_callback(update, context)
+                
+            # Menu navigation
+            if query.data == CALLBACK_MENU_ANALYSE:
+                return await self.menu_analyse_callback(update, context)
+            elif query.data == CALLBACK_MENU_SIGNALS:
+                return await self.menu_signals_callback(update, context)
+            elif query.data == CALLBACK_BACK_MENU:
+                return await self.show_main_menu(update, context)
+                
+            # Market selection
+            if query.data.startswith("market_"):
+                return await self.market_callback(update, context)
+                
+            # Signal management
+            if query.data == "signals_add":
+                return await self.signals_add_callback(update, context)
+            elif query.data == "signals_manage":
+                return await self.signals_manage_callback(update, context)
+            elif query.data == "delete_prefs":
+                return await self.delete_preferences_callback(update, context)
+            elif query.data.startswith("delete_pref_"):
+                return await self.delete_single_preference_callback(update, context)
+                
+            # Back navigation
+            if query.data == "back_signals":
+                return await self.market_signals_callback(update, context)
+            elif query.data == "back_to_signal":
+                return await self.back_to_signal_callback(update, context)
+                
+            # Log unhandled callbacks
+            logger.warning(f"Unhandled callback data: {query.data}")
+            
+            # Default: return to main menu
+            try:
+                await query.edit_message_text(
+                    text="Command not recognized. Returning to main menu.",
+                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
+                )
+            except Exception as e:
+                logger.error(f"Error showing default menu: {str(e)}")
+                
+            return MAIN_MENU
+            
+        except Exception as e:
+            logger.error(f"Error in button_callback: {str(e)}")
+            logger.exception(e)
+            
+            try:
+                await query.edit_message_text(
+                    text="An error occurred. Please try again.",
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_menu")]])
+                )
+            except Exception:
+                pass
+                
+            return MAIN_MENU
 
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> None:
         """Send a welcome message when the bot is started."""
@@ -2581,103 +2638,3 @@ async def analyze_from_signal_callback(self, update: Update, context=None) -> in
             pass
             
         return ConversationHandler.END
-
-    async def show_main_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
-        """Show the main menu with analysis and signals options."""
-        try:
-            # Get user ID
-            user_id = update.effective_user.id
-            
-            # Check if user has an active subscription
-            is_subscribed = await self.db.is_user_subscribed(user_id)
-            
-            # Check if payment has failed
-            payment_failed = await self.db.has_payment_failed(user_id)
-            
-            if is_subscribed and not payment_failed:
-                # Show the normal welcome message with all features
-                message_text = WELCOME_MESSAGE
-                keyboard = START_KEYBOARD
-            elif payment_failed:
-                # Show payment failure message
-                message_text = """
-❗ <b>Subscription Payment Failed</b> ❗
-
-Your subscription payment could not be processed and your service has been deactivated.
-
-To continue using Sigmapips AI and receive trading signals, please reactivate your subscription by clicking the button below.
-                """
-                
-                # Use direct URL link for reactivation
-                reactivation_url = "https://buy.stripe.com/9AQcPf3j63HL5JS145"
-                
-                # Create button for reactivation
-                keyboard = [
-                    [InlineKeyboardButton("🔄 Reactivate Subscription", url=reactivation_url)]
-                ]
-            else:
-                # Show the welcome message with trial option
-                message_text = """
-🚀 <b>Welcome to Sigmapips AI!</b> 🚀
-
-<b>Discover powerful trading signals for various markets:</b>
-• <b>Forex</b> - Major and minor currency pairs
-• <b>Crypto</b> - Bitcoin, Ethereum and other top cryptocurrencies
-• <b>Indices</b> - Global market indices
-• <b>Commodities</b> - Gold, silver and oil
-
-<b>Features:</b>
-✅ Real-time trading signals
-✅ Multi-timeframe analysis (1m, 15m, 1h, 4h)
-✅ Advanced chart analysis
-✅ Sentiment indicators
-✅ Economic calendar integration
-
-<b>Start today with a FREE 14-day trial!</b>
-                """
-                
-                # Use direct URL link for trial
-                checkout_url = "https://buy.stripe.com/3cs3eF9Hu9256NW9AA"
-                
-                # Create button for trial
-                keyboard = [
-                    [InlineKeyboardButton("🔥 Start 14-day FREE Trial", url=checkout_url)]
-                ]
-            
-            # Handle both message and callback query updates
-            if update.callback_query:
-                await update.callback_query.answer()
-                await update.callback_query.edit_message_text(
-                    text=message_text,
-                    reply_markup=InlineKeyboardMarkup(keyboard),
-                    parse_mode=ParseMode.HTML
-                )
-            else:
-                await update.message.reply_text(
-                    text=message_text,
-                    reply_markup=InlineKeyboardMarkup(keyboard),
-                    parse_mode=ParseMode.HTML
-                )
-            
-            return MAIN_MENU
-            
-        except Exception as e:
-            logger.error(f"Error showing main menu: {str(e)}")
-            logger.exception(e)
-            
-            # Try to send a fallback message
-            try:
-                if update.callback_query:
-                    await update.callback_query.message.reply_text(
-                        text="An error occurred. Please try /start to begin again.",
-                        reply_markup=None
-                    )
-                else:
-                    await update.message.reply_text(
-                        text="An error occurred. Please try /start to begin again.",
-                        reply_markup=None
-                    )
-            except Exception:
-                pass
-            
-            return ConversationHandler.END
