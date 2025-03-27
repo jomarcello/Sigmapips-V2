@@ -22,3 +22,21 @@ async def send_welcome_gif(bot, chat_id, caption=None):
     except Exception as e:
         logger.error(f"Error sending welcome GIF: {str(e)}")
         return False
+
+async def send_menu_gif(bot, chat_id, caption=None):
+    """Send a menu GIF to the user."""
+    try:
+        # GIF URL voor bovenaan het menubericht
+        gif_url = "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExcXZuZWx0ZXc5Zjlvb2t3cXJjbWR2bHR6OHdsMHBzaHozaGY5emU3cyZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/qgQUggAC3Pfv687qPC/giphy.gif"
+        
+        # Stuur de GIF animatie
+        await bot.send_animation(
+            chat_id=chat_id,
+            animation=gif_url,
+            caption=caption or "📊 <b>SigmaPips AI Menu</b>",
+            parse_mode=ParseMode.HTML
+        )
+        return True
+    except Exception as e:
+        logger.error(f"Error sending menu GIF: {str(e)}")
+        return False
