@@ -36,7 +36,7 @@ from trading_bot.services.sentiment_service.sentiment import MarketSentimentServ
 from trading_bot.services.calendar_service.calendar import EconomicCalendarService
 from trading_bot.services.payment_service.stripe_service import StripeService
 from trading_bot.services.payment_service.stripe_config import get_subscription_features
-from trading_bot.services.telegram_service.gif_utils import get_welcome_gif, get_menu_gif, get_analyse_gif, get_signals_gif, send_welcome_gif, send_menu_gif, send_analyse_gif, send_signals_gif
+from trading_bot.services.telegram_service.gif_utils import get_welcome_gif, get_menu_gif, get_analyse_gif, get_signals_gif, send_welcome_gif, send_menu_gif, send_analyse_gif, send_signals_gif, send_gif_with_caption
 from fastapi import Request, HTTPException, status
 
 logger = logging.getLogger(__name__)
@@ -1054,36 +1054,26 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         # Create the message with the GIF using only <a> tags
         text = f'<a href="{gif_url}">&#8205;</a>\nWhat would you like to do with trading signals?'
         
-        # Show the signals menu
-        await query.edit_message_text(
-            text=text,
-            parse_mode=ParseMode.HTML,
-            reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD)
-        )
-        
-        return CHOOSE_SIGNALS
-
-    async def analysis_callback(self, update: Update, context=None) -> int:
-        """Handle analysis callback"""
-        query = update.callback_query
-        
-        # Toon het analyse menu
         try:
+            # Show the signals menu
             await query.edit_message_text(
-                text="Select your analysis type:",
-                reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
+                text=text,
+                parse_mode=ParseMode.HTML,
+                reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD)
             )
-            return CHOOSE_ANALYSIS
+            
+            return CHOOSE_SIGNALS
         except Exception as e:
-            logger.error(f"Error in analysis_callback: {str(e)}")
+            logger.error(f"Error in menu_signals_callback: {str(e)}")
             try:
+                # Fallback to sending a new message if editing fails
                 await query.message.reply_text(
-                    text="Select your analysis type:",
-                    reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
+                    text="What would you like to do with trading signals?",
+                    reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD)
                 )
-                return CHOOSE_ANALYSIS
+                return CHOOSE_SIGNALS
             except Exception as inner_e:
-                logger.error(f"Failed to recover from error: {str(inner_e)}")
+                logger.error(f"Failed to recover from error in menu_signals_callback: {str(inner_e)}")
                 return MENU
 
     async def signals_callback(self, update: Update, context=None) -> int:
