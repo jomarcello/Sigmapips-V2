@@ -1087,3 +1087,36 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             text=HELP_MESSAGE,
             parse_mode=ParseMode.HTML
         )
+
+    async def analysis_technical_callback(self, update: Update, context=None) -> int:
+        """Handle analysis_technical button press"""
+        query = update.callback_query
+        await query.answer()
+        
+        # Check if signal-specific data is present in callback data
+        signal_data = None
+        if context and hasattr(context, 'user_data'):
+            context.user_data['analysis_type'] = 'technical'
+        
+        # Set the callback data
+        callback_data = query.data
+        
+        # Set the instrument if it was passed in the callback data
+        if callback_data.startswith("analysis_technical_signal_"):
+            # Extract instrument from the callback data
+            instrument = callback_data.replace("analysis_technical_signal_", "")
+            if context and hasattr(context, 'user_data'):
+                context.user_data['instrument'] = instrument
+            
+            logger.info(f"Technical analysis for specific instrument: {instrument}")
+            
+            # Show analysis directly for this instrument
+            return await self.show_technical_analysis(update, context, instrument=instrument)
+        
+        # Show the market selection menu
+        await query.edit_message_text(
+            text="Select market for technical analysis:",
+            reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
+        )
+        
+        return CHOOSE_MARKET
