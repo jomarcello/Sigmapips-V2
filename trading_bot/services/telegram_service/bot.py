@@ -69,7 +69,7 @@ SUBSCRIBE = 10
 
 # Messages
 WELCOME_MESSAGE = """
-🚀 <b>Welcome to SigmaPips Trading Bot!</b> 🚀
+🚀 <b>Welcome to Sigmapips AI!</b> 🚀
 
 I'm your AI-powered trading assistant, designed to help you make better trading decisions.
 
@@ -87,7 +87,7 @@ Select an option below to get started:
 
 # Abonnementsbericht voor nieuwe gebruikers
 SUBSCRIPTION_WELCOME_MESSAGE = """
-🚀 <b>Welcome to SigmaPips Trading Bot!</b> 🚀
+🚀 <b>Welcome to Sigmapips AI!</b> 🚀
 
 To access all features, you need a subscription:
 
@@ -100,7 +100,7 @@ Click the button below to subscribe:
 """
 
 MENU_MESSAGE = """
-Welcome to SigmaPips Trading Bot!
+Welcome to Sigmapips AI!
 
 Choose a command:
 
@@ -2019,25 +2019,27 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         # Use context.bot if available, otherwise use self.bot
         bot = context.bot if context is not None else self.bot
         
-        # First send the welcome GIF
+        # Welcome GIF URL
         welcome_gif_url = "https://media1.giphy.com/media/v1.Y2lkPTc5MGI3NjExaWVkdzcxZHMydm8ybnBjYW9rNjd3b2gzeng2b3BhMjA0d3p5dDV1ZSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/gSzIKNrqtotEYrZv7i/giphy.gif"
         
         try:
+            # Send the GIF with caption containing the welcome message
             await bot.send_animation(
                 chat_id=update.effective_chat.id,
                 animation=welcome_gif_url,
-                disable_notification=True
+                caption=WELCOME_MESSAGE,
+                parse_mode='HTML',
+                reply_markup=reply_markup
             )
         except Exception as e:
-            logger.error(f"Error sending welcome GIF: {str(e)}")
-        
-        # Then send the welcome message with buttons
-        await bot.send_message(
-            chat_id=update.effective_chat.id,
-            text=WELCOME_MESSAGE,
-            parse_mode='HTML',
-            reply_markup=reply_markup
-        )
+            logger.error(f"Error sending welcome GIF with caption: {str(e)}")
+            # Fallback to text-only message if GIF fails
+            await bot.send_message(
+                chat_id=update.effective_chat.id,
+                text=WELCOME_MESSAGE,
+                parse_mode='HTML',
+                reply_markup=reply_markup
+            )
 
     async def button_callback(self, update: Update, context=None) -> int:
         """Handle button presses from inline keyboards"""
