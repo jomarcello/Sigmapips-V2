@@ -2205,6 +2205,129 @@ async def show_economic_calendar(self, update: Update, context=None, instrument:
                 
             return CHOOSE_ANALYSIS
             
+    async def signal_technical_callback(self, update: Update, context=None) -> int:
+        """Handle signal technical analysis callback"""
+        query = update.callback_query
+        await query.answer()
+        
+        try:
+            logger.info(f"Signal technical analysis for user {update.effective_user.id}")
+            
+            # Extract instrument from context
+            instrument = None
+            if context and hasattr(context, 'user_data'):
+                instrument = context.user_data.get('instrument')
+                context.user_data['in_signal_flow'] = True  # Mark that we're in signal flow
+            
+            if instrument:
+                # Directly show technical analysis for this instrument
+                return await self.show_technical_analysis(update, context, instrument=instrument)
+            else:
+                # Fallback: show market selection
+                await query.edit_message_text(
+                    text="Select a market for technical analysis:",
+                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
+                )
+                return CHOOSE_MARKET
+                
+        except Exception as e:
+            logger.error(f"Error in signal_technical_callback: {str(e)}")
+            logger.exception(e)
+            
+            try:
+                await query.edit_message_text(
+                    text="An error occurred. Please try again or go back to the signal analysis menu.",
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal_analysis")
+                    ]])
+                )
+            except Exception:
+                pass
+                
+            return CHOOSE_ANALYSIS
+            
+    async def signal_sentiment_callback(self, update: Update, context=None) -> int:
+        """Handle signal sentiment analysis callback"""
+        query = update.callback_query
+        await query.answer()
+        
+        try:
+            logger.info(f"Signal sentiment analysis for user {update.effective_user.id}")
+            
+            # Extract instrument from context
+            instrument = None
+            if context and hasattr(context, 'user_data'):
+                instrument = context.user_data.get('instrument')
+                context.user_data['in_signal_flow'] = True  # Mark that we're in signal flow
+            
+            if instrument:
+                # Directly show sentiment analysis for this instrument
+                return await self.show_sentiment_analysis(update, context, instrument=instrument)
+            else:
+                # Fallback: show market selection
+                await query.edit_message_text(
+                    text="Select a market for sentiment analysis:",
+                    reply_markup=InlineKeyboardMarkup(MARKET_SENTIMENT_KEYBOARD)
+                )
+                return CHOOSE_MARKET
+                
+        except Exception as e:
+            logger.error(f"Error in signal_sentiment_callback: {str(e)}")
+            logger.exception(e)
+            
+            try:
+                await query.edit_message_text(
+                    text="An error occurred. Please try again or go back to the signal analysis menu.",
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal_analysis")
+                    ]])
+                )
+            except Exception:
+                pass
+                
+            return CHOOSE_ANALYSIS
+            
+    async def signal_calendar_callback(self, update: Update, context=None) -> int:
+        """Handle signal calendar analysis callback"""
+        query = update.callback_query
+        await query.answer()
+        
+        try:
+            logger.info(f"Signal calendar analysis for user {update.effective_user.id}")
+            
+            # Extract instrument from context
+            instrument = None
+            if context and hasattr(context, 'user_data'):
+                instrument = context.user_data.get('instrument')
+                context.user_data['in_signal_flow'] = True  # Mark that we're in signal flow
+            
+            if instrument:
+                # Directly show calendar data for this instrument
+                return await self.show_economic_calendar(update, context, instrument=instrument)
+            else:
+                # Fallback: show market selection
+                await query.edit_message_text(
+                    text="Select a market for economic calendar:",
+                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
+                )
+                return CHOOSE_MARKET
+                
+        except Exception as e:
+            logger.error(f"Error in signal_calendar_callback: {str(e)}")
+            logger.exception(e)
+            
+            try:
+                await query.edit_message_text(
+                    text="An error occurred. Please try again or go back to the signal analysis menu.",
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal_analysis")
+                    ]])
+                )
+            except Exception:
+                pass
+                
+            return CHOOSE_ANALYSIS
+
     async def signals_add_callback(self, update: Update, context=None) -> int:
         """Handle signals_add callback to add new signal preferences"""
         query = update.callback_query
