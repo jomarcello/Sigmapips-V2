@@ -840,12 +840,12 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 parse_mode=ParseMode.HTML
             )
         else:
-            # Gebruik een statische afbeelding in plaats van GIF
-            image_url = "https://i.imgur.com/mqt4Y9m.png"
+            # Get the welcome GIF URL
+            gif_url = await get_welcome_gif()
             
-            # Show the welcome message with trial option and include static image
+            # Show the welcome message with trial option and include GIF with just <a> tag
             welcome_text = f"""
-<a href="{image_url}"><img src="{image_url}" width="200" height="100"></a>
+<a href="{gif_url}">&#8205;</a>
 🚀 <b>Welcome to Sigmapips AI!</b> 🚀
 
 <b>Discover powerful trading signals for various markets:</b>
@@ -1014,8 +1014,8 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Get the analyse GIF URL
             gif_url = await get_analyse_gif()
             
-            # Create the message with the GIF using stronger HTML
-            text = f'<a href="{gif_url}"><img src="{gif_url}" width="200" height="100"></a>\nSelect your analysis type:'
+            # Create the message with the GIF using only <a> tags
+            text = f'<a href="{gif_url}">&#8205;</a>\nSelect your analysis type:'
             
             # Show the analysis menu
             await query.edit_message_text(
@@ -1031,8 +1031,8 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 # Get the analyse GIF URL
                 gif_url = await get_analyse_gif()
                 
-                # Create the message with the GIF using stronger HTML
-                text = f'<a href="{gif_url}"><img src="{gif_url}" width="200" height="100"></a>\nSelect your analysis type:'
+                # Create the message with the GIF using only <a> tags
+                text = f'<a href="{gif_url}">&#8205;</a>\nSelect your analysis type:'
                 
                 await query.message.reply_text(
                     text=text,
@@ -1051,8 +1051,8 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         # Get the signals GIF URL
         gif_url = await get_signals_gif()
         
-        # Create the message with the GIF using stronger HTML
-        text = f'<a href="{gif_url}"><img src="{gif_url}" width="200" height="100"></a>\nWhat would you like to do with trading signals?'
+        # Create the message with the GIF using only <a> tags
+        text = f'<a href="{gif_url}">&#8205;</a>\nWhat would you like to do with trading signals?'
         
         # Show the signals menu
         await query.edit_message_text(
@@ -2016,7 +2016,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 
                 # Show the welcome message with trial option for non-subscribed users and include the GIF
                 welcome_text = f"""
-<a href="{gif_url}"><img src="{gif_url}" width="200" height="100"></a>
+<a href="{gif_url}">&#8205;</a>
 🚀 <b>Welcome to Sigmapips AI!</b> 🚀
 
 <b>Discover powerful trading signals for various markets:</b>
@@ -2063,7 +2063,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         # Create message text with optional GIF
         message_text = ""
         if gif_url:
-            message_text += f'<a href="{gif_url}"><img src="{gif_url}" width="200" height="100"></a>\n'
+            message_text += f'<a href="{gif_url}">&#8205;</a>\n'
         
         # Add the main welcome message
         message_text += WELCOME_MESSAGE
@@ -2688,8 +2688,8 @@ Click the button below to start your FREE 14-day trial.
         # Get the welcome GIF URL
         gif_url = await get_welcome_gif()
         
-        # Create help message with GIF using stronger HTML
-        help_text = f'<a href="{gif_url}"><img src="{gif_url}" width="200" height="100"></a>\n{HELP_MESSAGE}'
+        # Create help message with GIF using only <a> tags
+        help_text = f'<a href="{gif_url}">&#8205;</a>\n{HELP_MESSAGE}'
         
         # Send the message with the GIF and help text
         await update.message.reply_text(
