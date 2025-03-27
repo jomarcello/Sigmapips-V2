@@ -5,28 +5,28 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# Functions for retrieving GIF URLs
+# Nieuwe functies voor het ophalen van GIF URLs
 async def get_welcome_gif():
     """Get the welcome GIF URL."""
-    # Use the Giphy URL
-    return "https://media4.giphy.com/media/v1.Y2lkPTc5MGI3NjExaDlteTY3dHl2bjdlN3RlMDRwMTV4bjV6c3dlczQzMmQ1NHlncHUzNiZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/zqKzzCRDhMsvGuxhfS/giphy.gif"
+    # Use the new Giphy URL
+    return "https://media1.giphy.com/media/v1.Y2lkPTc5MGI3NjExaWVkdzcxZHMydm8ybnBjYW9rNjd3b2gzeng2b3BhMjA0d3p5dDV1ZSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/gSzIKNrqtotEYrZv7i/giphy.gif"
 
 async def get_menu_gif():
     """Get the menu GIF URL."""
-    # Use the Giphy URL
+    # Gebruik de nieuwe Giphy URL
     return "https://media4.giphy.com/media/v1.Y2lkPTc5MGI3NjExaDlteTY3dHl2bjdlN3RlMDRwMTV4bjV6c3dlczQzMmQ1NHlncHUzNiZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/zqKzzCRDhMsvGuxhfS/giphy.gif"
 
 async def get_analyse_gif():
     """Get the analysis GIF URL."""
-    # Use the Giphy URL
+    # Gebruik de nieuwe Giphy URL
     return "https://media4.giphy.com/media/v1.Y2lkPTc5MGI3NjExaDlteTY3dHl2bjdlN3RlMDRwMTV4bjV6c3dlczQzMmQ1NHlncHUzNiZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/zqKzzCRDhMsvGuxhfS/giphy.gif"
 
 async def get_signals_gif():
     """Get the signals GIF URL."""
-    # Use the Giphy URL
+    # Gebruik de nieuwe Giphy URL
     return "https://media4.giphy.com/media/v1.Y2lkPTc5MGI3NjExaDlteTY3dHl2bjdlN3RlMDRwMTV4bjV6c3dlczQzMmQ1NHlncHUzNiZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/zqKzzCRDhMsvGuxhfS/giphy.gif"
 
-# Function for sending a GIF with caption and keyboard
+# Nieuwe functie voor het verzenden van een GIF met caption en keyboard
 async def send_gif_with_caption(update: Update, gif_url: str, caption: str, reply_markup=None, parse_mode=ParseMode.HTML):
     """
     Send a GIF with caption and optional keyboard.
@@ -42,7 +42,7 @@ async def send_gif_with_caption(update: Update, gif_url: str, caption: str, repl
         True if successful, False otherwise
     """
     try:
-        # Send the GIF with caption and keyboard
+        # Verzend de GIF met caption en keyboard
         await update.message.reply_animation(
             animation=gif_url,
             caption=caption,
@@ -53,7 +53,7 @@ async def send_gif_with_caption(update: Update, gif_url: str, caption: str, repl
     except Exception as e:
         logger.error(f"Error sending GIF with caption: {str(e)}")
         
-        # Fallback: only send text if GIF fails
+        # Fallback: stuur alleen text als GIF faalt
         try:
             await update.message.reply_text(
                 text=caption,
@@ -65,14 +65,14 @@ async def send_gif_with_caption(update: Update, gif_url: str, caption: str, repl
             logger.error(f"Fallback failed too: {str(e2)}")
             return False
 
-# Old functions for backward compatibility
+# Oude functies voor backward compatibility
 async def send_welcome_gif(bot, chat_id, caption=None):
     """Send a welcome GIF to the user."""
     try:
-        # GIF URL for welcome message
+        # GIF URL voor bovenaan het welkomstbericht
         gif_url = "https://i.imgur.com/bSwVALm.gif"
         
-        # Send the GIF animation
+        # Stuur de GIF animatie
         await bot.send_animation(
             chat_id=chat_id,
             animation=gif_url,
@@ -87,10 +87,10 @@ async def send_welcome_gif(bot, chat_id, caption=None):
 async def send_menu_gif(bot, chat_id, caption=None):
     """Send a menu GIF to the user."""
     try:
-        # GIF URL for menu message
+        # GIF URL voor bovenaan het menubericht
         gif_url = "https://i.imgur.com/bSwVALm.gif"
         
-        # Send the GIF animation
+        # Stuur de GIF animatie
         await bot.send_animation(
             chat_id=chat_id,
             animation=gif_url,
@@ -105,10 +105,10 @@ async def send_menu_gif(bot, chat_id, caption=None):
 async def send_analyse_gif(bot, chat_id, caption=None):
     """Send an analysis GIF to the user."""
     try:
-        # GIF URL for analysis message
+        # GIF URL voor bovenaan het analysebericht
         gif_url = "https://i.imgur.com/bSwVALm.gif"
         
-        # Send the GIF animation
+        # Stuur de GIF animatie
         await bot.send_animation(
             chat_id=chat_id,
             animation=gif_url,
@@ -123,10 +123,10 @@ async def send_analyse_gif(bot, chat_id, caption=None):
 async def send_signals_gif(bot, chat_id, caption=None):
     """Send a signals GIF to the user."""
     try:
-        # GIF URL for signals message
+        # GIF URL voor bovenaan het signalenbericht
         gif_url = "https://i.imgur.com/bSwVALm.gif"
         
-        # Send the GIF animation
+        # Stuur de GIF animatie
         await bot.send_animation(
             chat_id=chat_id,
             animation=gif_url,
@@ -136,4 +136,4 @@ async def send_signals_gif(bot, chat_id, caption=None):
         return True
     except Exception as e:
         logger.error(f"Error sending signals GIF: {str(e)}")
-        return False 
+        return False
