@@ -131,14 +131,14 @@ ANALYSIS_KEYBOARD = [
     [InlineKeyboardButton("📈 Technical Analysis", callback_data=CALLBACK_ANALYSIS_TECHNICAL)],
     [InlineKeyboardButton("🧠 Market Sentiment", callback_data=CALLBACK_ANALYSIS_SENTIMENT)],
     [InlineKeyboardButton("📅 Economic Calendar", callback_data=CALLBACK_ANALYSIS_CALENDAR)],
-    [InlineKeyboardButton("⬅️", callback_data=CALLBACK_BACK_MENU)]
+    [InlineKeyboardButton("⬅️ Back", callback_data=CALLBACK_BACK_MENU)]
 ]
 
 # Signals menu keyboard
 SIGNALS_KEYBOARD = [
     [InlineKeyboardButton("➕ Add New Pairs", callback_data=CALLBACK_SIGNALS_ADD)],
     [InlineKeyboardButton("⚙️ Manage Preferences", callback_data=CALLBACK_SIGNALS_MANAGE)],
-    [InlineKeyboardButton("⬅️", callback_data=CALLBACK_BACK_MENU)]
+    [InlineKeyboardButton("⬅️ Back", callback_data=CALLBACK_BACK_MENU)]
 ]
 
 # Market keyboard voor signals
@@ -147,7 +147,7 @@ MARKET_KEYBOARD_SIGNALS = [
     [InlineKeyboardButton("Crypto", callback_data="market_crypto_signals")],
     [InlineKeyboardButton("Commodities", callback_data="market_commodities_signals")],
     [InlineKeyboardButton("Indices", callback_data="market_indices_signals")],
-    [InlineKeyboardButton("⬅️", callback_data="back_signals")]
+    [InlineKeyboardButton("⬅️ Back", callback_data="back_signals")]
 ]
 
 # Market keyboard voor analyse
@@ -156,7 +156,7 @@ MARKET_KEYBOARD = [
     [InlineKeyboardButton("Crypto", callback_data="market_crypto")],
     [InlineKeyboardButton("Commodities", callback_data="market_commodities")],
     [InlineKeyboardButton("Indices", callback_data="market_indices")],
-    [InlineKeyboardButton("⬅️", callback_data="back_analysis")]
+    [InlineKeyboardButton("⬅️ Back", callback_data="back_analysis")]
 ]
 
 # Market keyboard specifiek voor sentiment analyse
@@ -3719,7 +3719,7 @@ Click the button below to start your FREE 14-day trial.
                 
                 # Create back button based on origin
                 back_button = InlineKeyboardButton(
-                    "⬅️ Signal" if is_from_signal else "⬅️ Analysis", 
+                    "⬅️ Back", 
                     callback_data="back_to_signal" if is_from_signal else "back_to_signal_analysis"
                 )
                 
@@ -3759,7 +3759,7 @@ Click the button below to start your FREE 14-day trial.
                 await query.edit_message_text(
                     text=f"Sorry, I couldn't analyze sentiment for {instrument} at this time. Please try again later.",
                     reply_markup=InlineKeyboardMarkup([[
-                        InlineKeyboardButton("⬅️ Signal", callback_data="back_to_signal" if is_from_signal else "back_to_signal_analysis")
+                        InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal" if is_from_signal else "back_to_signal_analysis")
                     ]])
                 )
             except Exception:
@@ -3775,7 +3775,7 @@ Click the button below to start your FREE 14-day trial.
             await query.edit_message_text(
                 text=error_text,
                 reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("⬅️ Signal", callback_data="back_to_signal" if is_from_signal else "back_to_signal_analysis")
+                    InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal" if is_from_signal else "back_to_signal_analysis")
                 ]])
             )
             
@@ -3833,7 +3833,7 @@ Click the button below to start your FREE 14-day trial.
                     await query.edit_message_text(
                         text=f"No upcoming economic events found for {instrument}.",
                         reply_markup=InlineKeyboardMarkup([[
-                            InlineKeyboardButton("⬅️ Signal", callback_data="back_to_signal" if is_from_signal else "back_to_signal_analysis")
+                            InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal" if is_from_signal else "back_to_signal_analysis")
                         ]])
                     )
                     return SHOW_RESULT
@@ -3877,7 +3877,7 @@ Click the button below to start your FREE 14-day trial.
                 
                 # Add button to go back
                 keyboard = [
-                    [InlineKeyboardButton("⬅️ Signal", callback_data="back_to_signal" if is_from_signal else "back_to_signal_analysis")]
+                    [InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal" if is_from_signal else "back_to_signal_analysis")]
                 ]
                 
                 # Send the calendar
@@ -3894,7 +3894,7 @@ Click the button below to start your FREE 14-day trial.
                 await query.edit_message_text(
                     text=f"The economic calendar is taking too long to load. Please try again later.",
                     reply_markup=InlineKeyboardMarkup([[
-                        InlineKeyboardButton("⬅️ Signal", callback_data="back_to_signal" if is_from_signal else "back_to_signal_analysis")
+                        InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal" if is_from_signal else "back_to_signal_analysis")
                     ]])
                 )
                 return MENU
@@ -3905,7 +3905,7 @@ Click the button below to start your FREE 14-day trial.
                 await query.edit_message_text(
                     text=f"Sorry, I couldn't load the economic calendar for {instrument}. Please try again later.",
                     reply_markup=InlineKeyboardMarkup([[
-                        InlineKeyboardButton("⬅️ Signal", callback_data="back_to_signal" if is_from_signal else "back_to_signal_analysis")
+                        InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal" if is_from_signal else "back_to_signal_analysis")
                     ]])
                 )
                 return MENU
@@ -3919,7 +3919,7 @@ Click the button below to start your FREE 14-day trial.
                 await query.edit_message_text(
                     text=f"Sorry, I couldn't access the economic calendar. Please try again later.",
                     reply_markup=InlineKeyboardMarkup([[
-                        InlineKeyboardButton("⬅️ Signal", callback_data="back_to_signal" if is_from_signal else "back_to_signal_analysis")
+                        InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal" if is_from_signal else "back_to_signal_analysis")
                     ]])
                 )
             except Exception as inner_e:
@@ -4253,7 +4253,7 @@ Click the button below to start your FREE 14-day trial.
                 await query.edit_message_text(
                     text="Could not determine which instrument to analyze.",
                     reply_markup=InlineKeyboardMarkup([[
-                        InlineKeyboardButton("⬅️ Signal", callback_data="back_to_signal")
+                        InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal")
                     ]])
                 )
                 return CHOOSE_ANALYSIS
@@ -4264,7 +4264,7 @@ Click the button below to start your FREE 14-day trial.
                 [InlineKeyboardButton("📈 Technical Analysis", callback_data="signal_technical")],
                 [InlineKeyboardButton("🧠 Sentiment Analysis", callback_data="signal_sentiment")],
                 [InlineKeyboardButton("📅 Economic Calendar", callback_data="signal_calendar")],
-                [InlineKeyboardButton("⬅️ Signal", callback_data="back_to_signal")]
+                [InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal")]
             ]
             
             # Show analysis menu
@@ -4283,7 +4283,7 @@ Click the button below to start your FREE 14-day trial.
                 await query.edit_message_text(
                     text="An error occurred. Please try again.",
                     reply_markup=InlineKeyboardMarkup([[
-                        InlineKeyboardButton("⬅️ Signal", callback_data="back_to_signal")
+                        InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal")
                     ]])
                 )
             except Exception:
@@ -4326,7 +4326,7 @@ Click the button below to start your FREE 14-day trial.
                     logger.warning("Instrument not found in context for signal technical analysis")
                     await query.edit_message_text(
                         text="Error: Could not determine which instrument to analyze.",
-                        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal")]])
+                        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal")]])
                     )
                     return CHOOSE_ANALYSIS
                 
@@ -4350,7 +4350,7 @@ Click the button below to start your FREE 14-day trial.
                         await query.edit_message_text(
                             text=f"Sorry, I couldn't generate a chart for {instrument} at this time. Please try again later.",
                             reply_markup=InlineKeyboardMarkup([[
-                                InlineKeyboardButton("⬅️ Signal Analysis", callback_data="back_to_signal_analysis")
+                                InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal_analysis")
                             ]])
                         )
                         return CHOOSE_ANALYSIS
@@ -4360,7 +4360,7 @@ Click the button below to start your FREE 14-day trial.
                     
                     # Create keyboard with back button
                     keyboard = [
-                        [InlineKeyboardButton("⬅️ Signal Analysis", callback_data="back_to_signal_analysis")]
+                        [InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal_analysis")]
                     ]
                     
                     # Send the chart
@@ -4388,7 +4388,7 @@ Click the button below to start your FREE 14-day trial.
                     await query.edit_message_text(
                         text=f"Sorry, there was a problem generating the chart for {instrument}. Please try again later.",
                         reply_markup=InlineKeyboardMarkup([[
-                            InlineKeyboardButton("⬅️ Signal Analysis", callback_data="back_to_signal_analysis")
+                            InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal_analysis")
                         ]])
                     )
                     return CHOOSE_ANALYSIS
@@ -4399,7 +4399,7 @@ Click the button below to start your FREE 14-day trial.
                 logger.warning("No context available for signal technical analysis")
                 await query.edit_message_text(
                     text="Error: Could not retrieve analysis context.",
-                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Signal", callback_data="back_to_signal")]])
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal")]])
                 )
                 return CHOOSE_ANALYSIS
                 
@@ -4411,7 +4411,7 @@ Click the button below to start your FREE 14-day trial.
                 await query.edit_message_text(
                     text=f"An error occurred while generating the technical analysis. Please try again.",
                     reply_markup=InlineKeyboardMarkup([[
-                        InlineKeyboardButton("⬅️ Signal", callback_data="back_to_signal")
+                        InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal")
                     ]])
                 )
             except Exception:
@@ -4440,7 +4440,7 @@ Click the button below to start your FREE 14-day trial.
                     logger.warning("Instrument not found in context for signal sentiment analysis")
                     await query.edit_message_text(
                         text="Error: Could not determine which instrument to analyze.",
-                        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal")]])
+                        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal")]])
                     )
                     return CHOOSE_ANALYSIS
                 
@@ -4462,7 +4462,7 @@ Click the button below to start your FREE 14-day trial.
                         await query.edit_message_text(
                             text=f"Sorry, I couldn't generate sentiment analysis for {instrument} at this time.",
                             reply_markup=InlineKeyboardMarkup([[
-                                InlineKeyboardButton("⬅️ Signal Analysis", callback_data="back_to_signal_analysis")
+                                InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal_analysis")
                             ]])
                         )
                         return CHOOSE_ANALYSIS
@@ -4479,7 +4479,7 @@ Click the button below to start your FREE 14-day trial.
                     
                     # Create keyboard with back button
                     keyboard = [
-                        [InlineKeyboardButton("⬅️ Signal Analysis", callback_data="back_to_signal_analysis")]
+                        [InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal_analysis")]
                     ]
                     
                     # Send the analysis
@@ -4497,7 +4497,7 @@ Click the button below to start your FREE 14-day trial.
                     await query.edit_message_text(
                         text=f"Sorry, there was a problem generating sentiment analysis for {instrument}. Please try again later.",
                         reply_markup=InlineKeyboardMarkup([[
-                            InlineKeyboardButton("⬅️ Signal Analysis", callback_data="back_to_signal_analysis")
+                            InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal_analysis")
                         ]])
                     )
                     return CHOOSE_ANALYSIS
@@ -4507,7 +4507,7 @@ Click the button below to start your FREE 14-day trial.
                 logger.warning("No context available for signal sentiment analysis")
                 await query.edit_message_text(
                     text="Error: Could not retrieve analysis context.",
-                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Signal", callback_data="back_to_signal")]])
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal")]])
                 )
                 return CHOOSE_ANALYSIS
                 
@@ -4519,7 +4519,7 @@ Click the button below to start your FREE 14-day trial.
                 await query.edit_message_text(
                     text=f"An error occurred while generating the sentiment analysis. Please try again.",
                     reply_markup=InlineKeyboardMarkup([[
-                        InlineKeyboardButton("⬅️ Signal Analysis", callback_data="back_to_signal_analysis")
+                        InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal_analysis")
                     ]])
                 )
             except Exception:
@@ -4547,7 +4547,7 @@ Click the button below to start your FREE 14-day trial.
                     logger.warning("Instrument not found in context for signal calendar analysis")
                     await query.edit_message_text(
                         text="Error: Could not determine which instrument to analyze.",
-                        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal")]])
+                        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal")]])
                     )
                     return CHOOSE_ANALYSIS
                 
@@ -4571,7 +4571,7 @@ Click the button below to start your FREE 14-day trial.
                         await query.edit_message_text(
                             text=f"No upcoming economic events found for {instrument}.",
                             reply_markup=InlineKeyboardMarkup([[
-                                InlineKeyboardButton("⬅️ Signal Analysis", callback_data="back_to_signal_analysis")
+                                InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal_analysis")
                             ]])
                         )
                         return CHOOSE_ANALYSIS
@@ -4614,7 +4614,7 @@ Click the button below to start your FREE 14-day trial.
                     
                     # Create keyboard with back button
                     keyboard = [
-                        [InlineKeyboardButton("⬅️ Signal Analysis", callback_data="back_to_signal_analysis")]
+                        [InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal_analysis")]
                     ]
                     
                     # Send the calendar
@@ -4632,7 +4632,7 @@ Click the button below to start your FREE 14-day trial.
                     await query.edit_message_text(
                         text=f"Sorry, there was a problem loading the economic calendar for {instrument}. Please try again later.",
                         reply_markup=InlineKeyboardMarkup([[
-                            InlineKeyboardButton("⬅️ Signal Analysis", callback_data="back_to_signal_analysis")
+                            InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal_analysis")
                         ]])
                     )
                     return CHOOSE_ANALYSIS
@@ -4642,7 +4642,7 @@ Click the button below to start your FREE 14-day trial.
                 logger.warning("No context available for signal calendar analysis")
                 await query.edit_message_text(
                     text="Error: Could not retrieve analysis context.",
-                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Signal", callback_data="back_to_signal")]])
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal")]])
                 )
                 return CHOOSE_ANALYSIS
                 
@@ -4654,7 +4654,7 @@ Click the button below to start your FREE 14-day trial.
                 await query.edit_message_text(
                     text=f"An error occurred while loading the economic calendar. Please try again.",
                     reply_markup=InlineKeyboardMarkup([[
-                        InlineKeyboardButton("⬅️ Signal", callback_data="back_to_signal")
+                        InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal")
                     ]])
                 )
             except Exception:
@@ -4689,21 +4689,17 @@ Click the button below to start your FREE 14-day trial.
             
             # Dynamically create the keyboard based on whether we're in signal flow
             analysis_keyboard = [
-                [
-                    InlineKeyboardButton("📈 Technical Analysis", callback_data="signal_technical"),
-                    InlineKeyboardButton("🧠 Sentiment Analysis", callback_data="signal_sentiment")
-                ],
-                [
-                    InlineKeyboardButton("📅 Economic Calendar", callback_data="signal_calendar")
-                ]
+                [InlineKeyboardButton("📈 Technical Analysis", callback_data="signal_technical")],
+                [InlineKeyboardButton("🧠 Sentiment Analysis", callback_data="signal_sentiment")],
+                [InlineKeyboardButton("📅 Economic Calendar", callback_data="signal_calendar")]
             ]
             
             # Only add the "Back to Signal" button if we're really from a signal
             if is_from_signal:
-                analysis_keyboard.append([InlineKeyboardButton("⬅️ Signal", callback_data="back_to_signal")])
+                analysis_keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal")])
             else:
                 # If not from signal, add back to instrument menu
-                analysis_keyboard.append([InlineKeyboardButton("⬅️", callback_data="back_instrument")])
+                analysis_keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="back_instrument")])
             
             # Show analysis options
             await query.edit_message_text(
@@ -4721,7 +4717,7 @@ Click the button below to start your FREE 14-day trial.
                 await query.edit_message_text(
                     text="An error occurred. Please try again or go back to the signal.",
                     reply_markup=InlineKeyboardMarkup([[
-                        InlineKeyboardButton("⬅️ Signal", callback_data="back_to_signal")
+                        InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal")
                     ]])
                 )
             except Exception:
@@ -4777,7 +4773,7 @@ INDICES_SENTIMENT_KEYBOARD = [
         InlineKeyboardButton("US500", callback_data="instrument_US500_sentiment"),
         InlineKeyboardButton("US100", callback_data="instrument_US100_sentiment")
     ],
-    [InlineKeyboardButton("⬅️", callback_data="back_market")]
+    [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
 ]
 
 # Commodities keyboard voor sentiment analyse
@@ -4787,17 +4783,19 @@ COMMODITIES_SENTIMENT_KEYBOARD = [
         InlineKeyboardButton("SILVER", callback_data="instrument_XAGUSD_sentiment"),
         InlineKeyboardButton("OIL", callback_data="instrument_USOIL_sentiment")
     ],
-    [InlineKeyboardButton("⬅️", callback_data="back_market")]
+    [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
 ]
 
 # Keyboards voor signal flow (apart van reguliere menu flow)
 SIGNAL_ANALYSIS_KEYBOARD = [
     [
-        InlineKeyboardButton("📈 Technical Analysis", callback_data="signal_technical"),
+        InlineKeyboardButton("📈 Technical Analysis", callback_data="signal_technical")
+    ],
+    [
         InlineKeyboardButton("🧠 Sentiment Analysis", callback_data="signal_sentiment")
     ],
     [
         InlineKeyboardButton("📅 Economic Calendar", callback_data="signal_calendar")
     ],
-    [InlineKeyboardButton("⬅️ Signal", callback_data="back_to_signal")]
+    [InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal")]
 ]
