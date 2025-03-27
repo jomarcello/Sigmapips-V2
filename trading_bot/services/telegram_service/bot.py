@@ -112,15 +112,6 @@ Add new market/instrument/timeframe combinations to receive signals
 
 /manage - Manage your preferences
 View, edit or delete your saved trading pairs
-
-Need help? Use /help to see all available commands.
-"""
-
-HELP_MESSAGE = """
-Available commands:
-/menu - Show main menu
-/start - Set up new trading pairs
-/help - Show this help message
 """
 
 # Start menu keyboard
@@ -748,7 +739,8 @@ class TelegramService:
         """Register message handlers with the application."""
         # Command handlers
         application.add_handler(CommandHandler("start", self.start_command))
-        application.add_handler(CommandHandler("help", self.help_command))
+        # Verwijderen van de help_command registratie
+        # application.add_handler(CommandHandler("help", self.help_command))
         application.add_handler(CommandHandler("menu", self.menu_command))
         
         # Secret admin command for subscription management
@@ -1086,30 +1078,6 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         )
         
         return CHOOSE_SIGNALS
-
-    async def help_callback(self, update: Update, context=None) -> int:
-        """Handle help callback"""
-        query = update.callback_query
-        
-        try:
-            # Toon help informatie
-            await query.edit_message_text(
-                text=HELP_MESSAGE,
-                parse_mode=ParseMode.HTML
-            )
-            
-            return MENU
-        except Exception as e:
-            logger.error(f"Error in help_callback: {str(e)}")
-            try:
-                await query.message.reply_text(
-                    text=HELP_MESSAGE,
-                    parse_mode=ParseMode.HTML
-                )
-                return MENU
-            except Exception as inner_e:
-                logger.error(f"Failed to recover from error: {str(inner_e)}")
-                return MENU
 
     async def analysis_technical_callback(self, update: Update, context=None) -> int:
         """Handle technical analysis selection"""
@@ -1970,12 +1938,6 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         # Simply show the main menu
         await self.show_main_menu(update, context)
 
-    async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> None:
-        """Show help message when the command /help is issued."""
-        await update.message.reply_text(
-            text=HELP_MESSAGE,
-            parse_mode=ParseMode.HTML
-        )
 
 # Indices keyboard voor sentiment analyse
 INDICES_SENTIMENT_KEYBOARD = [
