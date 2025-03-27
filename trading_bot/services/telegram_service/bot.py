@@ -36,7 +36,7 @@ from trading_bot.services.sentiment_service.sentiment import MarketSentimentServ
 from trading_bot.services.calendar_service.calendar import EconomicCalendarService
 from trading_bot.services.payment_service.stripe_service import StripeService
 from trading_bot.services.payment_service.stripe_config import get_subscription_features
-from trading_bot.services.telegram_service.gif_utils import send_welcome_gif
+from trading_bot.services.telegram_service.gif_utils import send_welcome_gif, send_menu_gif, send_analyse_gif, send_signals_gif
 from fastapi import Request, HTTPException, status
 
 logger = logging.getLogger(__name__)
@@ -1013,6 +1013,10 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         query = update.callback_query
         
         try:
+            # Stuur eerst de analyse GIF
+            chat_id = update.effective_chat.id
+            await send_analyse_gif(self.bot, chat_id)
+            
             # Show the analysis menu
             await query.edit_message_text(
                 text="Select your analysis type:",
@@ -1035,6 +1039,10 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
     async def menu_signals_callback(self, update: Update, context=None) -> int:
         """Handle menu_signals callback"""
         query = update.callback_query
+        
+        # Stuur eerst de signals GIF
+        chat_id = update.effective_chat.id
+        await send_signals_gif(self.bot, chat_id)
         
         # Show the signals menu
         await query.edit_message_text(
@@ -2037,7 +2045,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         # Alleen de GIF verzenden als skip_gif niet True is
         if not skip_gif:
             # Stuur eerst de GIF animatie met de nieuwe hulpfunctie
-            await send_welcome_gif(bot, update.effective_chat.id)
+            await send_menu_gif(bot, update.effective_chat.id)
         
         # Stuur vervolgens het welkomstbericht met de menu-opties
         await bot.send_message(
@@ -2654,6 +2662,10 @@ Click the button below to start your FREE 14-day trial.
 
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> None:
         """Send a help message when the command /help is issued."""
+        # Stuur eerst de welkom GIF
+        await send_welcome_gif(self.bot, update.effective_chat.id)
+        
+        # Stuur het helpbericht
         await update.message.reply_text(
             text=HELP_MESSAGE,
             parse_mode=ParseMode.HTML,
@@ -2661,7 +2673,7 @@ Click the button below to start your FREE 14-day trial.
                 [InlineKeyboardButton("🏠 Main Menu", callback_data="back_menu")]
             ])
         )
-        
+
     async def process_signal(self, signal_data: dict, users=None, test_mode=False) -> bool:
         """Process incoming signal and send to users"""
         try:
