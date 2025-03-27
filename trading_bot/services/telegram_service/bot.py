@@ -868,11 +868,11 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 [InlineKeyboardButton("🔥 Start 14-day FREE Trial", url=checkout_url)]
             ]
             
-            # Correct way to send GIF
-            await update.message.reply_animation(
-                animation=gif_url,
+            # Use the proper send_gif_with_caption function instead of HTML href hack
+            await send_gif_with_caption(
+                update=update,
+                gif_url=gif_url,
                 caption=welcome_text,
-                parse_mode=ParseMode.HTML,
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
             
@@ -1005,52 +1005,35 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             await update.message.reply_text(error_msg)
 
     async def menu_analyse_callback(self, update: Update, context=None) -> int:
-        """Handle menu_analyse callback"""
+        """Handle 'Analyze Market' button click"""
         query = update.callback_query
         
         try:
-            # Get the analyse GIF URL
-            gif_url = await get_analyse_gif()
+            # Answer the callback query
+            await query.answer()
             
-            # Send a new message with GIF
-            try:
-                # Create the message with the GIF
-                await query.message.reply_animation(
-                    animation=gif_url,
-                    caption="Select your analysis type:",
-                    reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
-                    parse_mode=ParseMode.HTML
-                )
-                
-                # Update original message
-                await query.edit_message_text(
-                    text="Choose an analysis option from below."
-                )
-                
-                return CHOOSE_ANALYSIS
-            except Exception as gif_error:
-                logger.error(f"Error sending GIF: {str(gif_error)}")
-                
-                # Fallback to just text if GIF sending fails
-                await query.edit_message_text(
-                    text="Select analysis type:",
-                    reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
-                )
-                
-                return CHOOSE_ANALYSIS
-                
+            # Show analysis options
+            keyboard = ANALYSIS_KEYBOARD
+            
+            await query.edit_message_text(
+                text="Select analysis type:",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            
+            return CHOOSE_ANALYSIS
+            
         except Exception as e:
             logger.error(f"Error in menu_analyse_callback: {str(e)}")
+            logger.exception(e)
+            
+            # Send a new message as fallback
             try:
-                # Fallback to sending a new message if editing fails
-                await query.message.reply_text(
-                    text="Select analysis type:",
-                    reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
-                )
-                return CHOOSE_ANALYSIS
-            except Exception as inner_e:
-                logger.error(f"Failed to recover from error in menu_analyse_callback: {str(inner_e)}")
-                return MENU
+                # When showing the main menu after an error, skip the GIF to avoid confusion
+                await self.show_main_menu(update, context, skip_gif=True)
+            except Exception:
+                pass
+            
+            return MENU
 
     async def menu_signals_callback(self, update: Update, context=None) -> int:
         """Handle menu_signals callback"""
@@ -1717,6 +1700,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 parse_mode=ParseMode.HTML
             )
             
+            return CHOOSE_SIGNALS
         except Exception as e:
             logger.error(f"Error in signals_manage_callback: {str(e)}")
             logger.exception(e)
@@ -1733,6 +1717,302 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 logger.error(f"Failed to recover from error: {str(inner_e)}")
                 return MENU
 
+    async def show_technical_analysis(self, update: Update, context=None, instrument: str = None, timeframe: str = "1h", fullscreen: bool = False) -> int:
+        """Show technical analysis for a specific instrument"""
+        query = update.callback_query
+        
+        try:
+            # Show loading message with GIF
+            try:
+                from trading_bot.services.telegram_service.gif_utils import send_loading_gif
+                await send_loading_gif(
+                    self.bot,
+                    update.effective_chat.id,
+                    caption=f"⏳ <b>Analyzing technical data for {instrument}...</b>"
+                )
+            except Exception as gif_error:
+                logger.warning(f"Could not show loading GIF: {str(gif_error)}")
+            
+            # Check if we're coming from a signal
+            is_from_signal = False
+            if context and hasattr(context, 'user_data'):
+                # We moeten echt ALLE signaal-gerelateerde vlaggen controleren
+                is_really_from_signal = all([
+                    context.user_data.get('from_signal', False) or context.user_data.get('previous_state') == 'SIGNAL',
+                    context.user_data.get('in_signal_flow', False)
+                ])
+                # Alleen als we ECHT van een signaal komen, gebruiken we de signaal-terug-knop
+                is_from_signal = is_really_from_signal
+                
+                # Debug log
+                logger.info(f"show_technical_analysis - is_from_signal: {is_from_signal}")
+            
+            # First, show a loading message
+            await query.edit_message_text(
+                text=f"Generating technical analysis for {instrument}. Please wait..."
+            )
+            
+            # Generate the chart using the chart service
+            try:
+                # Generate chart image using get_chart instead of generate_chart
+                chart_data = await self.chart.get_chart(instrument, timeframe=timeframe, fullscreen=fullscreen)
+                
+                if not chart_data:
+                    # If chart generation fails, send a text message
+                    logger.error(f"Failed to generate chart for {instrument}")
+                    await query.edit_message_text(
+                        text=f"Sorry, I couldn't generate a chart for {instrument} at this time. Please try again later.",
+                        reply_markup=InlineKeyboardMarkup([[
+                            InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal" if is_from_signal else "back_to_signal_analysis")
+                        ]])
+                    )
+                    return MENU
+                
+                # Create caption with analysis
+                caption = f"<b>Technical Analysis for {instrument}</b>"
+                
+                # Add buttons for different actions - back button depends on where we came from
+                keyboard = [
+                    [InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal" if is_from_signal else "back_to_signal_analysis")]
+                ]
+                
+                # Send the chart with caption
+                from io import BytesIO
+                photo = BytesIO(chart_data)
+                photo.name = f"{instrument}_chart.png"
+                
+                await query.message.reply_photo(
+                    photo=photo,
+                    caption=caption,
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.HTML
+                )
+                
+                # Delete the loading message
+                await query.edit_message_text(
+                    text=f"Here's your technical analysis for {instrument}:"
+                )
+                
+            except Exception as chart_error:
+                logger.error(f"Error generating chart: {str(chart_error)}")
+                logger.exception(chart_error)
+                await query.edit_message_text(
+                    text=f"Sorry, there was a problem generating the chart for {instrument}. Please try again later.",
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal" if is_from_signal else "back_to_signal_analysis")
+                    ]])
+                )
+            
+            return SHOW_RESULT
+            
+        except Exception as e:
+            logger.error(f"Error in show_technical_analysis: {str(e)}")
+            logger.exception(e)
+            
+            # Attempt to recover from error
+            try:
+                await query.edit_message_text(
+                    text=f"Error: {str(e)}",
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal" if context and hasattr(context, 'user_data') and context.user_data.get('from_signal', False) else "back_to_signal_analysis")
+                    ]])
+                )
+            except Exception:
+                pass
+            
+            return MENU
+
+    async def show_sentiment_analysis(self, update: Update, context=None, instrument: str = None) -> int:
+        """Show sentiment analysis for a specific instrument"""
+        query = update.callback_query
+        
+        try:
+            # Show loading message with GIF
+            try:
+                from trading_bot.services.telegram_service.gif_utils import send_loading_gif
+                await send_loading_gif(
+                    self.bot,
+                    update.effective_chat.id,
+                    caption=f"⏳ <b>Analyzing market sentiment for {instrument}...</b>"
+                )
+            except Exception as gif_error:
+                logger.warning(f"Could not show loading GIF: {str(gif_error)}")
+            
+            # Check if we're coming from a signal
+            is_from_signal = False
+            if context and hasattr(context, 'user_data'):
+                instrument = context.user_data.get('instrument')
+                
+                # Check if we're really from a signal flow
+                is_from_signal = all([
+                    context.user_data.get('from_signal', False) or context.user_data.get('previous_state') == 'SIGNAL',
+                    context.user_data.get('in_signal_flow', False)
+                ])
+                logger.info(f"Back to signal analysis - is_from_signal: {is_from_signal}")
+                logger.info(f"Back to signal analysis - context: {context.user_data}")
+            
+            # Format message text
+            text = f"Choose analysis type for {instrument}:" if instrument else "Choose analysis type:"
+            
+            # Dynamically create the keyboard based on whether we're in signal flow
+            analysis_keyboard = [
+                [InlineKeyboardButton("📈 Technical Analysis", callback_data="signal_technical")],
+                [InlineKeyboardButton("🧠 Sentiment Analysis", callback_data="signal_sentiment")],
+                [InlineKeyboardButton("📅 Economic Calendar", callback_data="signal_calendar")]
+            ]
+            
+            # Only add the "Back to Signal" button if we're really from a signal
+            if is_from_signal:
+                analysis_keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal")])
+            else:
+                # If not from signal, add back to instrument menu
+                analysis_keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="back_instrument")])
+            
+            # Show analysis options
+            await query.edit_message_text(
+                text=text,
+                reply_markup=InlineKeyboardMarkup(analysis_keyboard)
+            )
+            
+            return CHOOSE_ANALYSIS
+            
+        except Exception as e:
+            logger.error(f"Error in back_to_signal_analysis_callback: {str(e)}")
+            logger.exception(e)
+            
+            try:
+                await query.edit_message_text(
+                    text="An error occurred. Please try again or go back to the signal.",
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal")
+                    ]])
+                )
+            except Exception:
+                pass
+                
+            return CHOOSE_ANALYSIS
+
+    def _extract_currency_codes(self, instrument: str) -> List[str]:
+        """Extract currency codes from instrument string like EURUSD or XAUUSD"""
+        if not instrument:
+            return []
+            
+        # Known currencies
+        known_currencies = ['USD', 'EUR', 'GBP', 'JPY', 'AUD', 'NZD', 'CAD', 'CHF']
+        
+        # Special case for gold/silver
+        if instrument.startswith('XAU'):
+            return ['USD']  # For gold, just return USD
+        if instrument.startswith('XAG'):
+            return ['USD']  # For silver, just return USD
+            
+        # Extract currency codes from forex pair
+        result = []
+        instrument = instrument.upper()
+        for currency in known_currencies:
+            if currency in instrument:
+                result.append(currency)
+                
+        logger.info(f"Extracted currencies {result} from instrument {instrument}")
+        return result
+        
+    def _get_instrument_currency(self, instrument: str) -> str:
+        """Get the primary currency from an instrument"""
+        if not instrument:
+            return None
+            
+        # Handle special cases
+        if instrument.startswith('XAU'):
+            return 'USD'  # For gold
+        if instrument.startswith('XAG'):
+            return 'USD'  # For silver
+            
+        # For normal forex pairs, return the first 3 letters
+        if len(instrument) >= 3:
+            return instrument[:3]
+            
+        return None
+
+    async def menu_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> None:
+        """Show the main menu when the command /menu is issued."""
+        # Simply show the main menu
+        await self.show_main_menu(update, context)
+
+
+# Indices keyboard voor sentiment analyse
+INDICES_SENTIMENT_KEYBOARD = [
+    [
+        InlineKeyboardButton("US30", callback_data="instrument_US30_sentiment"),
+        InlineKeyboardButton("US500", callback_data="instrument_US500_sentiment"),
+        InlineKeyboardButton("US100", callback_data="instrument_US100_sentiment")
+    ],
+    [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
+]
+
+# Commodities keyboard voor sentiment analyse
+COMMODITIES_SENTIMENT_KEYBOARD = [
+    [
+        InlineKeyboardButton("GOLD", callback_data="instrument_XAUUSD_sentiment"),
+        InlineKeyboardButton("SILVER", callback_data="instrument_XAGUSD_sentiment"),
+        InlineKeyboardButton("OIL", callback_data="instrument_USOIL_sentiment")
+    ],
+    [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
+]
+
+# Keyboards voor signal flow (apart van reguliere menu flow)
+SIGNAL_ANALYSIS_KEYBOARD = [
+    [
+        InlineKeyboardButton("📈 Technical Analysis", callback_data="signal_technical")
+    ],
+    [
+        InlineKeyboardButton("🧠 Sentiment Analysis", callback_data="signal_sentiment")
+    ],
+    [
+        InlineKeyboardButton("📅 Economic Calendar", callback_data="signal_calendar")
+    ],
+    [InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal")]
+]
+
+    async def back_to_signal_analysis_callback(self, update: Update, context=None) -> int:
+        """Handle back_to_signal_analysis to return to the signal analysis menu"""
+        query = update.callback_query
+        await query.answer()
+        
+        try:
+            logger.info(f"Back to signal analysis for user {update.effective_user.id}")
+            
+            # Get instrument from context
+            instrument = None
+            if context and hasattr(context, 'user_data'):
+                instrument = context.user_data.get('instrument')
+            
+            # Format message text
+            text = f"Choose analysis type for {instrument}:" if instrument else "Choose analysis type:"
+            
+            # Show analysis options
+            await query.edit_message_text(
+                text=text,
+                reply_markup=InlineKeyboardMarkup(SIGNAL_ANALYSIS_KEYBOARD)
+            )
+            
+            return CHOOSE_ANALYSIS
+            
+        except Exception as e:
+            logger.error(f"Error in back_to_signal_analysis_callback: {str(e)}")
+            logger.exception(e)
+            
+            try:
+                await query.edit_message_text(
+                    text="An error occurred. Please try again or go back to the signal.",
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal")
+                    ]])
+                )
+            except Exception:
+                pass
+                
+            return CHOOSE_ANALYSIS
+            
     async def show_economic_calendar(self, update: Update, context=None, instrument: str = None) -> int:
         """Show economic calendar for a specific instrument"""
         query = update.callback_query
@@ -1819,3 +2099,27 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 pass
                 
             return MENU
+            
+    async def signals_add_callback(self, update: Update, context=None) -> int:
+        """Handle signals_add callback to add new signal preferences"""
+        query = update.callback_query
+        
+        try:
+            # Show market selection for signals
+            await query.edit_message_text(
+                text="Select a market for trading signals:",
+                reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD_SIGNALS)
+            )
+            
+            return CHOOSE_MARKET
+        except Exception as e:
+            logger.error(f"Error in signals_add_callback: {str(e)}")
+            try:
+                await query.message.reply_text(
+                    text="Select a market for trading signals:",
+                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD_SIGNALS)
+                )
+                return CHOOSE_MARKET
+            except Exception as inner_e:
+                logger.error(f"Failed to recover from error: {str(inner_e)}")
+                return MENU
