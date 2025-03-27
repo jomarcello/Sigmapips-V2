@@ -816,8 +816,12 @@ class TelegramService:
         payment_failed = await self.db.has_payment_failed(user_id)
         
         if is_subscribed and not payment_failed:
-            # Show the normal welcome message with all features
-            await self.show_main_menu(update, context)
+            # For subscribed users, direct them to use the /menu command instead
+            await update.message.reply_text(
+                text="Welcome back! Please use the /menu command to access all features.",
+                parse_mode=ParseMode.HTML
+            )
+            return
         elif payment_failed:
             # Show payment failure message
             failed_payment_text = f"""
@@ -843,23 +847,31 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             )
         else:
             # Show the welcome message with trial option from the screenshot
-            welcome_text = f"""
-🚀 <b>Welcome to Sigmapips AI!</b> 🚀
+            welcome_text = """
+🚀 Welcome to Sigmapips AI! 🚀
 
-<b>Discover powerful trading signals for various markets:</b>
-• <b>Forex</b> - Major and minor currency pairs
-• <b>Crypto</b> - Bitcoin, Ethereum and other top cryptocurrencies
-• <b>Indices</b> - Global market indices
-• <b>Commodities</b> - Gold, silver and oil
+Discover powerful trading signals for various markets:
+• Forex - Major and minor currency pairs
 
-<b>Features:</b>
+• Crypto - Bitcoin, Ethereum and other top
+ cryptocurrencies
+
+• Indices - Global market indices
+
+• Commodities - Gold, silver and oil
+
+Features:
 ✅ Real-time trading signals
+
 ✅ Multi-timeframe analysis (1m, 15m, 1h, 4h)
+
 ✅ Advanced chart analysis
+
 ✅ Sentiment indicators
+
 ✅ Economic calendar integration
 
-<b>Start today with a FREE 14-day trial!</b>
+Start today with a FREE 14-day trial!
             """
             
             # Use direct URL link instead of callback for the trial button
@@ -1966,78 +1978,12 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Bot to use for sending messages
             bot = context.bot if context is not None else self.bot
             
-            if payment_failed:
-                # Show payment failure message
-                failed_payment_text = f"""
-❗ <b>Subscription Payment Failed</b> ❗
-
-Your subscription payment could not be processed and your service has been deactivated.
-
-To continue using Sigmapips AI and receive trading signals, please reactivate your subscription by clicking the button below.
-                """
-                
-                # Use direct URL link for reactivation
-                reactivation_url = "https://buy.stripe.com/9AQcPf3j63HL5JS145"
-                
-                # Create button for reactivation
-                keyboard = [
-                    [InlineKeyboardButton("🔄 Reactivate Subscription", url=reactivation_url)]
-                ]
-                
-                await bot.send_message(
-                    chat_id=update.effective_chat.id,
-                    text=failed_payment_text,
-                    parse_mode=ParseMode.HTML,
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
-            else:
-                # Show the welcome message with trial option for non-subscribed users
-                welcome_text = f"""
-🚀 <b>Welcome to Sigmapips AI!</b> 🚀
-
-<b>Discover powerful trading signals for various markets:</b>
-• <b>Forex</b> - Major and minor currency pairs
-• <b>Crypto</b> - Bitcoin, Ethereum and other top cryptocurrencies
-• <b>Indices</b> - Global market indices
-• <b>Commodities</b> - Gold, silver and oil
-
-<b>Features:</b>
-✅ Real-time trading signals
-✅ Multi-timeframe analysis (1m, 15m, 1h, 4h)
-✅ Advanced chart analysis
-✅ Sentiment indicators
-✅ Economic calendar integration
-
-<b>Start today with a FREE 14-day trial!</b>
-                """
-                
-                # Use direct URL link instead of callback for the trial button
-                checkout_url = "https://buy.stripe.com/3cs3eF9Hu9256NW9AA"
-                
-                # Create buttons - Trial button goes straight to Stripe checkout
-                keyboard = [
-                    [InlineKeyboardButton("🔥 Start 14-day FREE Trial", url=checkout_url)]
-                ]
-                
-                # Welcome GIF URL
-                welcome_gif_url = "https://media1.giphy.com/media/v1.Y2lkPTc5MGI3NjExaWVkdzcxZHMydm8ybnBjYW9rNjd3b2gzeng2b3BhMjA0d3p5dDV1ZSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/gSzIKNrqtotEYrZv7i/giphy.gif"
-                
-                try:
-                    # Send the GIF with caption containing the welcome message
-                    await update.message.reply_animation(
-                        animation=welcome_gif_url,
-                        caption=welcome_text,
-                        parse_mode=ParseMode.HTML,
-                        reply_markup=InlineKeyboardMarkup(keyboard)
-                    )
-                except Exception as e:
-                    logger.error(f"Error sending welcome GIF with caption: {str(e)}")
-                    # Fallback to text-only message if GIF fails
-                    await update.message.reply_text(
-                        text=welcome_text,
-                        parse_mode=ParseMode.HTML,
-                        reply_markup=InlineKeyboardMarkup(keyboard)
-                    )
+            # For non-subscribed users, direct them to use the /start command instead
+            await bot.send_message(
+                chat_id=update.effective_chat.id,
+                text="To view subscription options, please use the /start command.",
+                parse_mode=ParseMode.HTML
+            )
             return
         
         # Show the normal menu with all options for subscribed users
