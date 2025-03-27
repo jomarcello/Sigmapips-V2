@@ -135,7 +135,7 @@ async def send_signals_gif(bot, chat_id, caption=None):
         return False
 
 async def send_loading_gif(bot, chat_id, caption=None):
-    """Send a loading GIF message to the user."""
+    """Send a loading GIF to the user."""
     try:
         # Loading GIF URL
         gif_url = "https://media4.giphy.com/media/v1.Y2lkPTc5MGI3NjExaDlteTY3dHl2bjdlN3RlMDRwMTV4bjV6c3dlczQzMmQ1NHlncHUzNiZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/zqKzzCRDhMsvGuxhfS/giphy.gif"
@@ -151,3 +151,7 @@ async def send_loading_gif(bot, chat_id, caption=None):
     except Exception as e:
         logger.error(f"Error sending loading GIF: {str(e)}")
         return False
+
+async def get_loading_gif():
+    """Get the loading GIF URL."""
+    return "https://media4.giphy.com/media/v1.Y2lkPTc5MGI3NjExaDlteTY3dHl2bjdlN3RlMDRwMTV4bjV6c3dlczQzMmQ1NHlncHUzNiZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/zqKzzCRDhMsvGuxhfS/giphy.gif"
