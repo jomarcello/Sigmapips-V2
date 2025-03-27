@@ -1058,3 +1058,25 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             except Exception as inner_e:
                 logger.error(f"Failed to recover from error: {str(inner_e)}")
                 return MENU
+
+    async def show_main_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> None:
+        """Show the main menu when /menu command is used"""
+        # Use context.bot if available, otherwise use self.bot
+        bot = context.bot if context is not None else self.bot
+        
+        # Check if the user has a subscription
+        user_id = update.effective_user.id
+        is_subscribed = await self.db.is_user_subscribed(user_id)
+        payment_failed = await self.db.has_payment_failed(user_id)
+        
+        if is_subscribed and not payment_failed:
+            # Show the main menu for subscribed users
+            reply_markup = InlineKeyboardMarkup(START_KEYBOARD)
+            await update.message.reply_text(
+                text=WELCOME_MESSAGE,
+                parse_mode='HTML',
+                reply_markup=reply_markup
+            )
+        else:
+            # Handle non-subscribed users similar to start command
+            await self.start_command(update, context)
