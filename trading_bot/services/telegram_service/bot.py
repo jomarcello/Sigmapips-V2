@@ -843,9 +843,8 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Get the welcome GIF URL
             gif_url = await get_welcome_gif()
             
-            # Show the welcome message with trial option and include GIF with just <a> tag
+            # Show the welcome message with trial option
             welcome_text = f"""
-<a href="{gif_url}">&#8205;</a>
 🚀 <b>Welcome to Sigmapips AI!</b> 🚀
 
 <b>Discover powerful trading signals for various markets:</b>
@@ -872,10 +871,12 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 [InlineKeyboardButton("🔥 Start 14-day FREE Trial", url=checkout_url)]
             ]
             
-            await update.message.reply_text(
-                text=welcome_text,
-                reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode=ParseMode.HTML
+            # Use the proper send_gif_with_caption function instead of HTML href hack
+            await send_gif_with_caption(
+                update=update,
+                gif_url=gif_url,
+                caption=welcome_text,
+                reply_markup=InlineKeyboardMarkup(keyboard)
             )
             
     async def set_subscription_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> None:
@@ -2004,9 +2005,8 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 # Get the welcome GIF URL
                 gif_url = await get_welcome_gif()
                 
-                # Show the welcome message with trial option for non-subscribed users and include the GIF
+                # Show the welcome message with trial option for non-subscribed users
                 welcome_text = f"""
-<a href="{gif_url}">&#8205;</a>
 🚀 <b>Welcome to Sigmapips AI!</b> 🚀
 
 <b>Discover powerful trading signals for various markets:</b>
@@ -2033,9 +2033,12 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     [InlineKeyboardButton("🔥 Start 14-day FREE Trial", url=checkout_url)]
                 ]
                 
-                await bot.send_message(
+                # Since this is called with the bot instance instead of from an update handler,
+                # we need to use bot.send_animation directly
+                await bot.send_animation(
                     chat_id=update.effective_chat.id,
-                    text=welcome_text,
+                    animation=gif_url,
+                    caption=welcome_text,
                     parse_mode=ParseMode.HTML,
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
@@ -2050,21 +2053,23 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         # Get the menu GIF URL
         gif_url = await get_menu_gif() if not skip_gif else None
         
-        # Create message text with optional GIF
-        message_text = ""
         if gif_url:
-            message_text += f'<a href="{gif_url}">&#8205;</a>\n'
-        
-        # Add the main welcome message
-        message_text += WELCOME_MESSAGE
-        
-        # Send the message with GIF and menu buttons
-        await bot.send_message(
-            chat_id=update.effective_chat.id,
-            text=message_text,
-            parse_mode='HTML',
-            reply_markup=reply_markup
-        )
+            # Send the GIF with the welcome message
+            await bot.send_animation(
+                chat_id=update.effective_chat.id,
+                animation=gif_url,
+                caption=WELCOME_MESSAGE,
+                parse_mode=ParseMode.HTML,
+                reply_markup=reply_markup
+            )
+        else:
+            # Send just the text if skip_gif is True
+            await bot.send_message(
+                chat_id=update.effective_chat.id,
+                text=WELCOME_MESSAGE,
+                parse_mode=ParseMode.HTML,
+                reply_markup=reply_markup
+            )
 
     async def button_callback(self, update: Update, context=None) -> int:
         """Handle button presses from inline keyboards"""
