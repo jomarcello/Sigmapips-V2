@@ -4258,11 +4258,12 @@ Click the button below to start your FREE 14-day trial.
                 )
                 return CHOOSE_ANALYSIS
             
-            # Create custom keyboard for analysis options that includes the instrument
+            # Create custom keyboard for analysis options for a real signal flow
+            # Since we're being called directly from a signal, this should always show the "Back to Signal" button
             analysis_keyboard = [
-                [InlineKeyboardButton("📈 Technical Analysis", callback_data=f"analysis_technical_signal_{instrument}")],
-                [InlineKeyboardButton("🧠 Market Sentiment", callback_data=f"analysis_sentiment_signal_{instrument}")],
-                [InlineKeyboardButton("📅 Economic Calendar", callback_data=f"analysis_calendar_signal_{instrument}")],
+                [InlineKeyboardButton("📈 Technical Analysis", callback_data="signal_technical")],
+                [InlineKeyboardButton("🧠 Market Sentiment", callback_data="signal_sentiment")],
+                [InlineKeyboardButton("📅 Economic Calendar", callback_data="signal_calendar")],
                 [InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal")]
             ]
             
@@ -4668,16 +4669,43 @@ Click the button below to start your FREE 14-day trial.
             
             # Get instrument from context
             instrument = None
+            is_from_signal = False
             if context and hasattr(context, 'user_data'):
                 instrument = context.user_data.get('instrument')
+                
+                # Check if we're really from a signal flow
+                is_from_signal = all([
+                    context.user_data.get('from_signal', False) or context.user_data.get('previous_state') == 'SIGNAL',
+                    context.user_data.get('in_signal_flow', False)
+                ])
+                logger.info(f"Back to signal analysis - is_from_signal: {is_from_signal}")
+                logger.info(f"Back to signal analysis - context: {context.user_data}")
             
             # Format message text
             text = f"Choose analysis type for {instrument}:" if instrument else "Choose analysis type:"
             
+            # Dynamically create the keyboard based on whether we're in signal flow
+            analysis_keyboard = [
+                [
+                    InlineKeyboardButton("📈 Technical Analysis", callback_data="signal_technical"),
+                    InlineKeyboardButton("🧠 Sentiment Analysis", callback_data="signal_sentiment")
+                ],
+                [
+                    InlineKeyboardButton("📅 Economic Calendar", callback_data="signal_calendar")
+                ]
+            ]
+            
+            # Only add the "Back to Signal" button if we're really from a signal
+            if is_from_signal:
+                analysis_keyboard.append([InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal")])
+            else:
+                # If not from signal, add back to instrument menu
+                analysis_keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="back_instrument")])
+            
             # Show analysis options
             await query.edit_message_text(
                 text=text,
-                reply_markup=InlineKeyboardMarkup(SIGNAL_ANALYSIS_KEYBOARD)
+                reply_markup=InlineKeyboardMarkup(analysis_keyboard)
             )
             
             return CHOOSE_ANALYSIS
