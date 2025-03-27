@@ -2079,6 +2079,18 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Log de fout, maar ga door met afhandeling (voorkomt blokkering)
             logger.warning(f"Kon callback query niet beantwoorden: {str(e)}")
         
+        # Handle specific button callbacks and return immediately to prevent double handling
+        
+        # Handle menu_analyse callback
+        if query.data == "menu_analyse":
+            return await self.menu_analyse_callback(update, context)
+            
+        # Handle menu_signals callback
+        if query.data == "menu_signals":
+            return await self.menu_signals_callback(update, context)
+
+        # Continue with other button callbacks
+        
         # Special signal flow handlers for the dedicated signal analysis
         if query.data == "signal_technical":
             return await self.signal_technical_callback(update, context)
