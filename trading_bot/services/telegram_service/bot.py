@@ -2019,12 +2019,25 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     [InlineKeyboardButton("🔥 Start 14-day FREE Trial", url=checkout_url)]
                 ]
                 
-                await bot.send_message(
-                    chat_id=update.effective_chat.id,
-                    text=welcome_text,
-                    parse_mode=ParseMode.HTML,
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
+                # Welcome GIF URL
+                welcome_gif_url = "https://media1.giphy.com/media/v1.Y2lkPTc5MGI3NjExaWVkdzcxZHMydm8ybnBjYW9rNjd3b2gzeng2b3BhMjA0d3p5dDV1ZSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/gSzIKNrqtotEYrZv7i/giphy.gif"
+                
+                try:
+                    # Send the GIF with caption containing the welcome message
+                    await update.message.reply_animation(
+                        animation=welcome_gif_url,
+                        caption=welcome_text,
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+                except Exception as e:
+                    logger.error(f"Error sending welcome GIF with caption: {str(e)}")
+                    # Fallback to text-only message if GIF fails
+                    await update.message.reply_text(
+                        text=welcome_text,
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
             return
         
         # Show the normal menu with all options for subscribed users
