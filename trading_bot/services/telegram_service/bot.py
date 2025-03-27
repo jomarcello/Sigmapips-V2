@@ -69,20 +69,17 @@ SUBSCRIBE = 10
 
 # Messages
 WELCOME_MESSAGE = """
-🚀 <b>Welcome to Sigmapips AI!</b> 🚀
+🚀 Sigmapips AI - Main Menu 🚀
 
-I'm your AI-powered trading assistant, designed to help you make better trading decisions.
+Choose an option to access advanced trading support:
 
-📊 <b>My Services:</b>
-• <b>Technical Analysis</b> - Get real-time chart analysis and key levels
+📊 Services:
+• Technical Analysis – Real-time chart analysis and key levels
+• Market Sentiment – Understand market trends and sentiment
+• Economic Calendar – Stay updated on market-moving events
+• Trading Signals – Get precise entry/exit points for your favorite pairs
 
-• <b>Market Sentiment</b> - Understand market sentiment and trends
-
-• <b>Economic Calendar</b> - Stay updated on market-moving events
-
-• <b>Trading Signals</b> - Receive precise entry/exit points for your favorite pairs
-
-Select an option below to get started:
+Select your option to continue:
 """
 
 # Abonnementsbericht voor nieuwe gebruikers
