@@ -868,11 +868,11 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 [InlineKeyboardButton("🔥 Start 14-day FREE Trial", url=checkout_url)]
             ]
             
-            # Use the proper send_gif_with_caption function instead of HTML href hack
-            await send_gif_with_caption(
-                update=update,
-                gif_url=gif_url,
+            # Correct way to send GIF
+            await update.message.reply_animation(
+                animation=gif_url,
                 caption=welcome_text,
+                parse_mode=ParseMode.HTML,
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
             
@@ -1005,35 +1005,52 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             await update.message.reply_text(error_msg)
 
     async def menu_analyse_callback(self, update: Update, context=None) -> int:
-        """Handle 'Analyze Market' button click"""
+        """Handle menu_analyse callback"""
         query = update.callback_query
         
         try:
-            # Answer the callback query
-            await query.answer()
+            # Get the analyse GIF URL
+            gif_url = await get_analyse_gif()
             
-            # Show analysis options
-            keyboard = ANALYSIS_KEYBOARD
-            
-            await query.edit_message_text(
-                text="Select analysis type:",
-                reply_markup=InlineKeyboardMarkup(keyboard)
-            )
-            
-            return CHOOSE_ANALYSIS
-            
+            # Send a new message with GIF
+            try:
+                # Create the message with the GIF
+                await query.message.reply_animation(
+                    animation=gif_url,
+                    caption="Select your analysis type:",
+                    reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
+                    parse_mode=ParseMode.HTML
+                )
+                
+                # Update original message
+                await query.edit_message_text(
+                    text="Choose an analysis option from below."
+                )
+                
+                return CHOOSE_ANALYSIS
+            except Exception as gif_error:
+                logger.error(f"Error sending GIF: {str(gif_error)}")
+                
+                # Fallback to just text if GIF sending fails
+                await query.edit_message_text(
+                    text="Select analysis type:",
+                    reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
+                )
+                
+                return CHOOSE_ANALYSIS
+                
         except Exception as e:
             logger.error(f"Error in menu_analyse_callback: {str(e)}")
-            logger.exception(e)
-            
-            # Send a new message as fallback
             try:
-                # When showing the main menu after an error, skip the GIF to avoid confusion
-                await self.show_main_menu(update, context, skip_gif=True)
-            except Exception:
-                pass
-            
-            return MENU
+                # Fallback to sending a new message if editing fails
+                await query.message.reply_text(
+                    text="Select analysis type:",
+                    reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
+                )
+                return CHOOSE_ANALYSIS
+            except Exception as inner_e:
+                logger.error(f"Failed to recover from error in menu_analyse_callback: {str(inner_e)}")
+                return MENU
 
     async def menu_signals_callback(self, update: Update, context=None) -> int:
         """Handle menu_signals callback"""
@@ -1962,7 +1979,7 @@ COMMODITIES_SENTIMENT_KEYBOARD = [
 # Keyboards voor signal flow (apart van reguliere menu flow)
 SIGNAL_ANALYSIS_KEYBOARD = [
     [
-        InlineKeyboardButton("📈 Technical Analysis", callback_data="signal_technical")
+        InlineKeyboardButton("📊 Technical Analysis", callback_data="signal_technical")
     ],
     [
         InlineKeyboardButton("🧠 Sentiment Analysis", callback_data="signal_sentiment")
@@ -1973,92 +1990,92 @@ SIGNAL_ANALYSIS_KEYBOARD = [
     [InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal")]
 ]
 
-async def show_economic_calendar(self, update: Update, context=None, instrument: str = None) -> int:
-    """Show economic calendar for a specific instrument"""
-    query = update.callback_query
-    
-    try:
-        # Show loading message with GIF
-        try:
-            from trading_bot.services.telegram_service.gif_utils import send_loading_gif
-            await send_loading_gif(
-                self.bot,
-                update.effective_chat.id,
-                caption=f"⏳ <b>Loading economic calendar for {instrument}...</b>"
-            )
-        except Exception as gif_error:
-            logger.warning(f"Could not show loading GIF: {str(gif_error)}")
-        
-        # Check if we're coming from a signal
-        is_from_signal = False
-        if context and hasattr(context, 'user_data'):
-            # We need to check ALL signal-related flags
-            is_really_from_signal = all([
-                context.user_data.get('from_signal', False) or context.user_data.get('previous_state') == 'SIGNAL',
-                context.user_data.get('in_signal_flow', False)
-            ])
-            # Only if we're REALLY from a signal, use the signal back button
-            is_from_signal = is_really_from_signal
-            
-            # Debug log
-            logger.info(f"show_economic_calendar - is_from_signal: {is_from_signal}")
-        
-        # Show loading message
-        await query.edit_message_text(
-            text=f"Fetching economic calendar for {instrument}. Please wait..."
-        )
+    async def show_economic_calendar(self, update: Update, context=None, instrument: str = None) -> int:
+        """Show economic calendar for a specific instrument"""
+        query = update.callback_query
         
         try:
-            # Get calendar for the specific instrument
-            calendar_data = await self.calendar.get_instrument_calendar(instrument or "GLOBAL")
+            # Show loading message with GIF
+            try:
+                loading_gif_url = await get_loading_gif()
+                await query.message.reply_animation(
+                    animation=loading_gif_url,
+                    caption=f"⏳ <b>Loading economic calendar for {instrument or 'GLOBAL'}...</b>",
+                    parse_mode=ParseMode.HTML
+                )
+            except Exception as gif_error:
+                logger.warning(f"Could not show loading GIF: {str(gif_error)}")
             
-            # Make sure we have calendar data
-            if not calendar_data or (isinstance(calendar_data, str) and calendar_data.strip() == ""):
-                calendar_data = "No economic events found for the selected period."
-            
-            # Show calendar with back button - dynamic based on where we came from
-            back_button = "back_to_signal" if is_from_signal else "back_to_signal_analysis"
-            
-            await query.edit_message_text(
-                text=calendar_data,
-                reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("⬅️ Back", callback_data=back_button)
-                ]]),
-                parse_mode=ParseMode.HTML
-            )
-            
-            return SHOW_RESULT
+            # Check if we're coming from a signal
+            is_from_signal = False
+            if context and hasattr(context, 'user_data'):
+                # We need to check ALL signal-related flags
+                is_really_from_signal = all([
+                    context.user_data.get('from_signal', False) or context.user_data.get('previous_state') == 'SIGNAL',
+                    context.user_data.get('in_signal_flow', False)
+                ])
+                # Only if we're REALLY from a signal, use the signal back button
+                is_from_signal = is_really_from_signal
                 
-        except Exception as calendar_error:
-            logger.error(f"Error getting calendar: {str(calendar_error)}")
-            logger.exception(calendar_error)
+                # Debug log
+                logger.info(f"show_economic_calendar - is_from_signal: {is_from_signal}")
             
-            # Show error message with back button
+            # Show loading message
             await query.edit_message_text(
-                text="Sorry, there was a problem retrieving the economic calendar. Please try again later.",
-                reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal" if is_from_signal else "back_to_signal_analysis")
-                ]])
+                text=f"Fetching economic calendar for {instrument or 'GLOBAL'}. Please wait..."
             )
             
+            try:
+                # Get calendar for the specific instrument
+                calendar_data = await self.calendar.get_instrument_calendar(instrument or "GLOBAL")
+                
+                # Make sure we have calendar data
+                if not calendar_data or (isinstance(calendar_data, str) and calendar_data.strip() == ""):
+                    calendar_data = "No economic events found for the selected period."
+                
+                # Show calendar with back button - dynamic based on where we came from
+                back_button = "back_to_signal" if is_from_signal else "back_to_signal_analysis"
+                
+                await query.edit_message_text(
+                    text=calendar_data,
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("⬅️ Back", callback_data=back_button)
+                    ]]),
+                    parse_mode=ParseMode.HTML
+                )
+                
+                return SHOW_RESULT
+                    
+            except Exception as calendar_error:
+                logger.error(f"Error getting calendar: {str(calendar_error)}")
+                logger.exception(calendar_error)
+                
+                # Show error message with back button
+                await query.edit_message_text(
+                    text="Sorry, there was a problem retrieving the economic calendar. Please try again later.",
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal" if is_from_signal else "back_to_signal_analysis")
+                    ]])
+                )
+                
+                return MENU
+                
+        except Exception as e:
+            logger.error(f"Error in show_economic_calendar: {str(e)}")
+            logger.exception(e)
+            
+            # Attempt to recover
+            try:
+                await query.edit_message_text(
+                    text="An error occurred. Please try again.",
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal_analysis")
+                    ]])
+                )
+            except Exception:
+                pass
+                
             return MENU
-                
-    except Exception as e:
-        logger.error(f"Error in show_economic_calendar: {str(e)}")
-        logger.exception(e)
-        
-        # Attempt to recover
-        try:
-            await query.edit_message_text(
-                text="An error occurred. Please try again.",
-                reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal_analysis")
-                ]])
-            )
-        except Exception:
-            pass
-            
-        return MENU
 
     async def back_to_signal_callback(self, update: Update, context=None) -> int:
         """Handle back_to_signal callback to return to signal message"""
