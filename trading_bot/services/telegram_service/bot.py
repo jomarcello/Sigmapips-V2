@@ -1120,3 +1120,209 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         )
         
         return CHOOSE_MARKET
+
+    async def analysis_sentiment_callback(self, update: Update, context=None) -> int:
+        """Handle analysis_sentiment button press"""
+        query = update.callback_query
+        await query.answer()
+        
+        # Set analysis type in context
+        if context and hasattr(context, 'user_data'):
+            context.user_data['analysis_type'] = 'sentiment'
+        
+        # Check if signal-specific data is present in callback data
+        callback_data = query.data
+        
+        # Set the instrument if it was passed in the callback data
+        if callback_data.startswith("analysis_sentiment_signal_"):
+            # Extract instrument from the callback data
+            instrument = callback_data.replace("analysis_sentiment_signal_", "")
+            if context and hasattr(context, 'user_data'):
+                context.user_data['instrument'] = instrument
+            
+            logger.info(f"Sentiment analysis for specific instrument: {instrument}")
+            
+            # Show analysis directly for this instrument
+            return await self.show_sentiment_analysis(update, context, instrument=instrument)
+        
+        # Show the market selection menu
+        await query.edit_message_text(
+            text="Select market for sentiment analysis:",
+            reply_markup=InlineKeyboardMarkup(MARKET_SENTIMENT_KEYBOARD)
+        )
+        
+        return CHOOSE_MARKET
+
+    async def analysis_calendar_callback(self, update: Update, context=None) -> int:
+        """Handle analysis_calendar button press"""
+        query = update.callback_query
+        await query.answer()
+        
+        # Set analysis type in context
+        if context and hasattr(context, 'user_data'):
+            context.user_data['analysis_type'] = 'calendar'
+        
+        # Check if signal-specific data is present in callback data
+        callback_data = query.data
+        
+        # Set the instrument if it was passed in the callback data
+        if callback_data.startswith("analysis_calendar_signal_"):
+            # Extract instrument from the callback data
+            instrument = callback_data.replace("analysis_calendar_signal_", "")
+            if context and hasattr(context, 'user_data'):
+                context.user_data['instrument'] = instrument
+            
+            logger.info(f"Calendar analysis for specific instrument: {instrument}")
+            
+            # Show analysis directly for this instrument
+            return await self.show_calendar_analysis(update, context, instrument=instrument)
+        
+        # Show the market selection menu
+        await query.edit_message_text(
+            text="Select market for economic calendar analysis:",
+            reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
+        )
+        
+        return CHOOSE_MARKET
+
+    async def signal_technical_callback(self, update: Update, context=None) -> int:
+        """Handle signal_technical button press"""
+        query = update.callback_query
+        await query.answer()
+        
+        # Save analysis type in context
+        if context and hasattr(context, 'user_data'):
+            context.user_data['analysis_type'] = 'technical'
+        
+        # Get the instrument from context
+        instrument = None
+        if context and hasattr(context, 'user_data'):
+            instrument = context.user_data.get('instrument')
+        
+        if instrument:
+            # Show technical analysis for this instrument
+            return await self.show_technical_analysis(update, context, instrument=instrument)
+        else:
+            # Error handling - go back to signal analysis menu
+            await query.edit_message_text(
+                text="Could not find the instrument. Please try again.",
+                reply_markup=InlineKeyboardMarkup(SIGNAL_ANALYSIS_KEYBOARD)
+            )
+            return CHOOSE_ANALYSIS
+
+    async def signal_sentiment_callback(self, update: Update, context=None) -> int:
+        """Handle signal_sentiment button press"""
+        query = update.callback_query
+        await query.answer()
+        
+        # Save analysis type in context
+        if context and hasattr(context, 'user_data'):
+            context.user_data['analysis_type'] = 'sentiment'
+        
+        # Get the instrument from context
+        instrument = None
+        if context and hasattr(context, 'user_data'):
+            instrument = context.user_data.get('instrument')
+        
+        if instrument:
+            # Show sentiment analysis for this instrument
+            return await self.show_sentiment_analysis(update, context, instrument=instrument)
+        else:
+            # Error handling - go back to signal analysis menu
+            await query.edit_message_text(
+                text="Could not find the instrument. Please try again.",
+                reply_markup=InlineKeyboardMarkup(SIGNAL_ANALYSIS_KEYBOARD)
+            )
+            return CHOOSE_ANALYSIS
+
+    async def signal_calendar_callback(self, update: Update, context=None) -> int:
+        """Handle signal_calendar button press"""
+        query = update.callback_query
+        await query.answer()
+        
+        # Save analysis type in context
+        if context and hasattr(context, 'user_data'):
+            context.user_data['analysis_type'] = 'calendar'
+        
+        # Get the instrument from context
+        instrument = None
+        if context and hasattr(context, 'user_data'):
+            instrument = context.user_data.get('instrument')
+        
+        if instrument:
+            # Show calendar analysis for this instrument
+            return await self.show_calendar_analysis(update, context, instrument=instrument)
+        else:
+            # Error handling - go back to signal analysis menu
+            await query.edit_message_text(
+                text="Could not find the instrument. Please try again.",
+                reply_markup=InlineKeyboardMarkup(SIGNAL_ANALYSIS_KEYBOARD)
+            )
+            return CHOOSE_ANALYSIS
+
+    async def back_to_signal_callback(self, update: Update, context=None) -> int:
+        """Handle back_to_signal button press"""
+        query = update.callback_query
+        await query.answer()
+        
+        try:
+            # Get signal data from context
+            signal_id = None
+            if context and hasattr(context, 'user_data'):
+                signal_id = context.user_data.get('current_signal_id')
+            
+            if not signal_id:
+                # No signal ID, return to main menu
+                await query.edit_message_text(
+                    text="Signal not found. Returning to main menu...",
+                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
+                )
+                return MENU
+            
+            # Get the original signal from context or database
+            signal = None
+            if context and hasattr(context, 'user_data'):
+                signal = context.user_data.get('current_signal')
+            
+            if not signal:
+                # Try to get signal from the database or cached signals
+                user_id = update.effective_user.id
+                if str(user_id) in self.user_signals:
+                    signal = self.user_signals[str(user_id)]
+            
+            if not signal:
+                # Still no signal, return to main menu
+                await query.edit_message_text(
+                    text="Signal details not found. Returning to main menu...",
+                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
+                )
+                return MENU
+            
+            # Show the signal again with the analysis options
+            signal_text = signal.get('message', 'Signal details not available')
+            
+            # Format the keyboard for signal analysis
+            keyboard = SIGNAL_ANALYSIS_KEYBOARD
+            
+            # Show the signal with analysis options
+            await query.edit_message_text(
+                text=signal_text,
+                parse_mode=ParseMode.HTML,
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            
+            return SIGNAL_DETAILS
+            
+        except Exception as e:
+            logger.error(f"Error in back_to_signal_callback: {str(e)}")
+            
+            # Error recovery
+            try:
+                await query.edit_message_text(
+                    text="An error occurred. Please try again from the main menu.",
+                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
+                )
+            except Exception:
+                pass
+            
+            return MENU
