@@ -4633,45 +4633,45 @@ Click the button below to start your FREE 14-day trial.
                 
             return CHOOSE_ANALYSIS
             
-        async def back_to_signal_analysis_callback(self, update: Update, context=None) -> int:
-            """Handle back_to_signal_analysis to return to the signal analysis menu"""
-            query = update.callback_query
-            await query.answer()
+    async def back_to_signal_analysis_callback(self, update: Update, context=None) -> int:
+        """Handle back_to_signal_analysis to return to the signal analysis menu"""
+        query = update.callback_query
+        await query.answer()
+        
+        try:
+            logger.info(f"Back to signal analysis for user {update.effective_user.id}")
+            
+            # Get instrument from context
+            instrument = None
+            if context and hasattr(context, 'user_data'):
+                instrument = context.user_data.get('instrument')
+            
+            # Format message text
+            text = f"Choose analysis type for {instrument}:" if instrument else "Choose analysis type:"
+            
+            # Show analysis options
+            await query.edit_message_text(
+                text=text,
+                reply_markup=InlineKeyboardMarkup(SIGNAL_ANALYSIS_KEYBOARD)
+            )
+            
+            return CHOOSE_ANALYSIS
+            
+        except Exception as e:
+            logger.error(f"Error in back_to_signal_analysis_callback: {str(e)}")
+            logger.exception(e)
             
             try:
-                logger.info(f"Back to signal analysis for user {update.effective_user.id}")
-                
-                # Get instrument from context
-                instrument = None
-                if context and hasattr(context, 'user_data'):
-                    instrument = context.user_data.get('instrument')
-                
-                # Format message text
-                text = f"Choose analysis type for {instrument}:" if instrument else "Choose analysis type:"
-                
-                # Show analysis options
                 await query.edit_message_text(
-                    text=text,
-                    reply_markup=InlineKeyboardMarkup(SIGNAL_ANALYSIS_KEYBOARD)
+                    text="An error occurred. Please try again or go back to the signal.",
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal")
+                    ]])
                 )
+            except Exception:
+                pass
                 
-                return CHOOSE_ANALYSIS
-                
-            except Exception as e:
-                logger.error(f"Error in back_to_signal_analysis_callback: {str(e)}")
-                logger.exception(e)
-                
-                try:
-                    await query.edit_message_text(
-                        text="An error occurred. Please try again or go back to the signal.",
-                        reply_markup=InlineKeyboardMarkup([[
-                            InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal")
-                        ]])
-                    )
-                except Exception:
-                    pass
-                    
-                return CHOOSE_ANALYSIS
+            return CHOOSE_ANALYSIS
 
     def _extract_currency_codes(self, instrument: str) -> List[str]:
         """Extract currency codes from instrument string like EURUSD or XAUUSD"""
