@@ -2059,3 +2059,172 @@ async def show_economic_calendar(self, update: Update, context=None, instrument:
             pass
             
         return MENU
+
+    async def back_to_signal_callback(self, update: Update, context=None) -> int:
+        """Handle back_to_signal callback to return to signal message"""
+        query = update.callback_query
+        await query.answer()
+        
+        # Get user ID for tracking purposes
+        user_id = update.effective_user.id
+        logger.info(f"Back to signal callback invoked by user {user_id}")
+        
+        try:
+            # Try to retrieve the original message ID and chat ID from context
+            if context and hasattr(context, 'user_data'):
+                instrument = context.user_data.get('instrument', '')
+                original_message_id = context.user_data.get('message_id')
+                chat_id = context.user_data.get('chat_id')
+                logger.info(f"Retrieved from context - message_id: {original_message_id}, chat_id: {chat_id}, instrument: {instrument}")
+                
+                # Check if we have the original signal in user_signals
+                if user_id in self.user_signals:
+                    signal_data = self.user_signals[user_id]
+                    logger.info(f"Found signal data for user {user_id}: {signal_data}")
+                    
+                    # Check if instrument matches or if message_id matches
+                    if signal_data.get('instrument') == instrument or signal_data.get('message_id') == original_message_id:
+                        # We found the matching signal - use its message if available
+                        if 'message' in signal_data and signal_data['message']:
+                            logger.info(f"Using stored signal message for user {user_id}")
+                            message = signal_data['message']
+                            
+                            # Recreate the original keyboard
+                            keyboard = [
+                                [
+                                    InlineKeyboardButton("🔍 Analyze Market", callback_data=f"analyze_from_signal_{instrument}")
+                                ]
+                            ]
+                            
+                            # Edit message to original signal
+                            await query.edit_message_text(
+                                text=message,
+                                reply_markup=InlineKeyboardMarkup(keyboard),
+                                parse_mode=ParseMode.HTML
+                            )
+                            return SIGNAL
+                        else:
+                            logger.warning(f"Signal data found but no message for user {user_id}")
+                    else:
+                        logger.warning(f"Instrument mismatch in signal data. Context: {instrument}, Stored: {signal_data.get('instrument')}")
+            
+            # Fallback: recreate a basic signal message from context data if available
+            logger.info(f"Falling back to recreating signal from context data for user {user_id}")
+            
+            if context and hasattr(context, 'user_data'):
+                # Extract all possible signal data from context
+                instrument = context.user_data.get('instrument', 'Unknown')
+                direction = context.user_data.get('direction', 'UNKNOWN')
+                price = context.user_data.get('price', 'N/A')
+                stop_loss = context.user_data.get('stop_loss', 'N/A')
+                tp1 = context.user_data.get('tp1', 'N/A')
+                timeframe = context.user_data.get('timeframe', '1h')
+                strategy = context.user_data.get('strategy', 'Unknown')
+                
+                # Create a simple fallback message
+                emoji = "🟢" if direction == "BUY" else "🔴" if direction == "SELL" else "⚪"
+                
+                fallback_message = (
+                    f"<b>{emoji} SIGNAL {direction} {instrument}</b>\n"
+                    f"<b>Price:</b> {price}\n"
+                    f"<b>Stop Loss:</b> {stop_loss}\n"
+                    f"<b>Take Profit:</b> {tp1}\n"
+                    f"<b>Timeframe:</b> {timeframe}\n"
+                    f"<b>Strategy:</b> {strategy}\n"
+                    f"\n<i>Note: This is a recreated signal as the original could not be found.</i>"
+                )
+                
+                keyboard = [
+                    [
+                        InlineKeyboardButton("🔍 Analyze Market", callback_data=f"analyze_from_signal_{instrument}")
+                    ]
+                ]
+                
+                await query.edit_message_text(
+                    text=fallback_message,
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.HTML
+                )
+                logger.info(f"Created fallback signal message for {instrument} for user {user_id}")
+                return SIGNAL
+            
+            # Ultimate fallback if we can't recreate a proper signal
+            logger.warning(f"Could not retrieve or recreate signal for user {user_id}, returning to menu")
+            await query.edit_message_text(
+                text="Sorry, I couldn't find the original signal. Please return to the main menu.",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back to Menu", callback_data="back_menu")]])
+            )
+            return MENU
+            
+        except Exception as e:
+            logger.error(f"Error in back_to_signal_callback: {str(e)}")
+            # Send an error message
+            await query.edit_message_text(
+                text="Sorry, an error occurred while trying to return to the signal. Please try again or go back to the main menu.",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back to Menu", callback_data="back_menu")]])
+            )
+            return MENU
+
+    async def back_to_signal_analysis_callback(self, update: Update, context=None) -> int:
+        """Handle back_to_signal_analysis to return to the signal analysis menu"""
+        query = update.callback_query
+        await query.answer()
+        
+        try:
+            logger.info(f"Back to signal analysis for user {update.effective_user.id}")
+            
+            # Get instrument from context
+            instrument = None
+            if context and hasattr(context, 'user_data'):
+                instrument = context.user_data.get('instrument')
+            
+            # Format message text
+            text = f"Choose analysis type for {instrument}:" if instrument else "Choose analysis type:"
+            
+            # Show analysis options
+            await query.edit_message_text(
+                text=text,
+                reply_markup=InlineKeyboardMarkup(SIGNAL_ANALYSIS_KEYBOARD)
+            )
+            
+            return CHOOSE_ANALYSIS
+            
+        except Exception as e:
+            logger.error(f"Error in back_to_signal_analysis_callback: {str(e)}")
+            logger.exception(e)
+            
+            try:
+                await query.edit_message_text(
+                    text="An error occurred. Please try again or go back to the signal.",
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal")
+                    ]])
+                )
+            except Exception:
+                pass
+                
+            return CHOOSE_ANALYSIS
+            
+    async def signals_add_callback(self, update: Update, context=None) -> int:
+        """Handle signals_add callback to add new signal preferences"""
+        query = update.callback_query
+        
+        try:
+            # Show market selection for signals
+            await query.edit_message_text(
+                text="Select a market for trading signals:",
+                reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD_SIGNALS)
+            )
+            
+            return CHOOSE_MARKET
+        except Exception as e:
+            logger.error(f"Error in signals_add_callback: {str(e)}")
+            try:
+                await query.message.reply_text(
+                    text="Select a market for trading signals:",
+                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD_SIGNALS)
+                )
+                return CHOOSE_MARKET
+            except Exception as inner_e:
+                logger.error(f"Failed to recover from error: {str(inner_e)}")
+                return MENU
