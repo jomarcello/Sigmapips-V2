@@ -5,6 +5,28 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# Nieuwe functies voor het ophalen van GIF URLs
+async def get_welcome_gif():
+    """Get the welcome GIF URL."""
+    # Gebruik een constante URL voor de welkomst GIF
+    return "https://i.ibb.co/bzhvz2v/welcome.gif"
+
+async def get_menu_gif():
+    """Get the menu GIF URL."""
+    # Gebruik een constante URL voor de menu GIF
+    return "https://i.ibb.co/bzhvz2v/welcome.gif"
+
+async def get_analyse_gif():
+    """Get the analysis GIF URL."""
+    # Gebruik een constante URL voor de analyse GIF
+    return "https://i.ibb.co/bzhvz2v/welcome.gif"
+
+async def get_signals_gif():
+    """Get the signals GIF URL."""
+    # Gebruik een constante URL voor de signalen GIF
+    return "https://i.ibb.co/bzhvz2v/welcome.gif"
+
+# Oude functies voor backward compatibility
 async def send_welcome_gif(bot, chat_id, caption=None):
     """Send a welcome GIF to the user."""
     try:
