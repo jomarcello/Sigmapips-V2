@@ -2698,7 +2698,7 @@ Click the button below to start your FREE 14-day trial.
                 logger.info(f"Converted TradingView format to internal format: {signal_data}")
                 
             # Extract required fields with validation
-            required_fields = ['instrument', 'signal', 'price']
+            required_fields = ['instrument', 'price', 'stop_loss']
             missing_fields = [field for field in required_fields if field not in signal_data or not signal_data[field]]
             
             if missing_fields:
@@ -2707,12 +2707,21 @@ Click the button below to start your FREE 14-day trial.
             
             # Extract signal components
             instrument = signal_data.get('instrument', '').upper()
-            direction = signal_data.get('signal', '').upper()
             price = float(signal_data.get('price', 0))
             
             # Extract optional fields with fallbacks
             take_profits = signal_data.get('take_profits', [])
-            stop_loss = signal_data.get('stop_loss', 0)
+            stop_loss = float(signal_data.get('stop_loss', 0))
+            
+            # Determine direction based on the relationship between stop loss and entry price
+            if stop_loss > price:
+                direction = "SELL"
+            else:
+                direction = "BUY"
+            
+            # Log the determined direction
+            logger.info(f"Direction determined from stop loss ({stop_loss}) and entry price ({price}): {direction}")
+            
             interval = signal_data.get('interval', '1h')
             strategy = signal_data.get('strategy', 'Unknown')
             market = signal_data.get('market', self._detect_market(instrument))
