@@ -36,6 +36,7 @@ from trading_bot.services.sentiment_service.sentiment import MarketSentimentServ
 from trading_bot.services.calendar_service.calendar import EconomicCalendarService
 from trading_bot.services.payment_service.stripe_service import StripeService
 from trading_bot.services.payment_service.stripe_config import get_subscription_features
+from trading_bot.services.telegram_service.gif_utils import send_welcome_gif
 from fastapi import Request, HTTPException, status
 
 logger = logging.getLogger(__name__)
@@ -816,6 +817,9 @@ class TelegramService:
         payment_failed = await self.db.has_payment_failed(user_id)
         
         if is_subscribed and not payment_failed:
+            # Stuur eerst de GIF animatie
+            await send_welcome_gif(self.bot, update.effective_chat.id)
+            
             # Show the normal welcome message with all features
             await self.show_main_menu(update, context)
         elif payment_failed:
@@ -1949,7 +1953,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             )
             return MENU
 
-    async def show_main_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> None:
+    async def show_main_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None, skip_gif: bool = False) -> None:
         """Show the main menu with all bot features"""
         user_id = update.effective_user.id
         
@@ -2030,6 +2034,12 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         # Use context.bot if available, otherwise use self.bot
         bot = context.bot if context is not None else self.bot
         
+        # Alleen de GIF verzenden als skip_gif niet True is
+        if not skip_gif:
+            # Stuur eerst de GIF animatie met de nieuwe hulpfunctie
+            await send_welcome_gif(bot, update.effective_chat.id)
+        
+        # Stuur vervolgens het welkomstbericht met de menu-opties
         await bot.send_message(
             chat_id=update.effective_chat.id,
             text=WELCOME_MESSAGE,
