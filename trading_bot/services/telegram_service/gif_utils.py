@@ -69,10 +69,10 @@ async def send_gif_with_caption(update: Update, gif_url: str, caption: str, repl
 async def send_welcome_gif(bot, chat_id, caption=None):
     """Send a welcome GIF to the user."""
     try:
-        # GIF URL voor bovenaan het welkomstbericht
-        gif_url = "https://i.imgur.com/bSwVALm.gif"
+        # Use the new welcome GIF URL
+        gif_url = "https://media1.giphy.com/media/v1.Y2lkPTc5MGI3NjExaWVkdzcxZHMydm8ybnBjYW9rNjd3b2gzeng2b3BhMjA0d3p5dDV1ZSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/gSzIKNrqtotEYrZv7i/giphy.gif"
         
-        # Stuur de GIF animatie
+        # Send the GIF animation
         await bot.send_animation(
             chat_id=chat_id,
             animation=gif_url,
@@ -85,21 +85,17 @@ async def send_welcome_gif(bot, chat_id, caption=None):
         return False
 
 async def send_menu_gif(bot, chat_id, caption=None):
-    """Send a menu GIF to the user."""
+    """Send a menu message to the user (without GIF)."""
     try:
-        # GIF URL voor bovenaan het menubericht
-        gif_url = "https://i.imgur.com/bSwVALm.gif"
-        
-        # Stuur de GIF animatie
-        await bot.send_animation(
+        # Send only the text without GIF
+        await bot.send_message(
             chat_id=chat_id,
-            animation=gif_url,
-            caption=caption or "📊 <b>SigmaPips AI Menu</b>",
+            text=caption or "📊 <b>SigmaPips AI Menu</b>",
             parse_mode=ParseMode.HTML
         )
         return True
     except Exception as e:
-        logger.error(f"Error sending menu GIF: {str(e)}")
+        logger.error(f"Error sending menu message: {str(e)}")
         return False
 
 async def send_analyse_gif(bot, chat_id, caption=None):
@@ -136,4 +132,22 @@ async def send_signals_gif(bot, chat_id, caption=None):
         return True
     except Exception as e:
         logger.error(f"Error sending signals GIF: {str(e)}")
+        return False
+
+async def send_loading_gif(bot, chat_id, caption=None):
+    """Send a loading GIF message to the user."""
+    try:
+        # Loading GIF URL
+        gif_url = "https://media4.giphy.com/media/v1.Y2lkPTc5MGI3NjExaDlteTY3dHl2bjdlN3RlMDRwMTV4bjV6c3dlczQzMmQ1NHlncHUzNiZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/zqKzzCRDhMsvGuxhfS/giphy.gif"
+        
+        # Send the loading GIF animation
+        await bot.send_animation(
+            chat_id=chat_id,
+            animation=gif_url,
+            caption=caption or "⏳ <b>Analyzing...</b>",
+            parse_mode=ParseMode.HTML
+        )
+        return True
+    except Exception as e:
+        logger.error(f"Error sending loading GIF: {str(e)}")
         return False
