@@ -39,9 +39,6 @@ from trading_bot.services.payment_service.stripe_config import get_subscription_
 from trading_bot.services.telegram_service.gif_utils import get_welcome_gif, get_menu_gif, get_analyse_gif, get_signals_gif, send_welcome_gif, send_menu_gif, send_analyse_gif, send_signals_gif, send_gif_with_caption
 from fastapi import Request, HTTPException, status
 
-from trading_bot.services.technical_analysis.technical_analysis import TechnicalAnalysis
-from trading_bot.services.calendar.calendar import CalendarService
-from trading_bot.services.telegram_service.gif_utils import send_welcome_gif, send_menu_gif, send_signals_gif, get_welcome_gif, get_menu_gif, get_signals_gif
 import trading_bot.services.telegram_service.gif_utils as gif_utils
 
 logger = logging.getLogger(__name__)
@@ -526,8 +523,9 @@ class TelegramService:
         self.stripe_service = stripe_service
         self.signals = self._load_signals()
         self.signals_enabled_value = True  # Default to enabled
-        self.technical_analysis = TechnicalAnalysis()
-        self.calendar = CalendarService()
+        # Gebruik de bestaande services
+        self.chart = ChartService()  # Use this instead of TechnicalAnalysis
+        self.calendar = EconomicCalendarService()  # Use this instead of CalendarService
         self.polling_thread = None
         self.gif_utils = gif_utils  # Initialize gif_utils as an attribute
         self.user_signals = {}
@@ -566,8 +564,9 @@ class TelegramService:
             
         logger.info(f"Bot initialized with webhook URL: {self.webhook_url} and path: {self.webhook_path}")
         
-        # Initialize API services
-        self.chart = ChartService()  # Chart generation service
+        # Initialize API services - Verwijderen van dubbele instanties
+        # self.chart = ChartService()  # Chart generation service verwijderd (al ingesteld hierboven)
+        # self.calendar = EconomicCalendarService()  # Economic calendar service verwijderd (al ingesteld hierboven)
         self.sentiment = MarketSentimentService()  # Market sentiment service
         
         # Initialize chart service
@@ -2041,28 +2040,13 @@ async def show_economic_calendar(self, update: Update, context=None, instrument:
         )
         
         try:
-            # Get calendar by currency/instrument
-            calendar_data = None
+            # Get calendar for the specific instrument
+            calendar_data = await self.calendar.get_instrument_calendar(instrument or "GLOBAL")
             
-            # First, try to get currency-specific calendar if we have an instrument
-            if instrument:
-                # Extract currency code from the instrument
-                currencies = self._extract_currency_codes(instrument)
-                
-                if currencies:
-                    # Get calendar data with currency filter
-                    logger.info(f"Getting calendar for currencies: {currencies}")
-                    calendar_data = await self.calendar.get_economic_calendar(currencies=currencies)
-            
-            # If no data found or no instrument specified, get the general calendar
-            if not calendar_data:
-                logger.info("Getting general economic calendar")
-                calendar_data = await self.calendar.get_economic_calendar()
-                
             # Make sure we have calendar data
-            if not calendar_data or calendar_data.strip() == "":
+            if not calendar_data or (isinstance(calendar_data, str) and calendar_data.strip() == ""):
                 calendar_data = "No economic events found for the selected period."
-                
+            
             # Show calendar with back button - dynamic based on where we came from
             back_button = "back_to_signal" if is_from_signal else "back_to_signal_analysis"
             
