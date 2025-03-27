@@ -74,10 +74,13 @@ WELCOME_MESSAGE = """
 Choose an option to access advanced trading support:
 
 📊 Services:
-• Technical Analysis – Real-time chart analysis and key levels
-• Market Sentiment – Understand market trends and sentiment
-• Economic Calendar – Stay updated on market-moving events
-• Trading Signals – Get precise entry/exit points for your favorite pairs
+• <b>Technical Analysis</b> – Real-time chart analysis and key levels
+
+• <b>Market Sentiment</b> – Understand market trends and sentiment
+
+• <b>Economic Calendar</b> – Stay updated on market-moving events
+
+• <b>Trading Signals</b> – Get precise entry/exit points for your favorite pairs
 
 Select your option to continue:
 """
