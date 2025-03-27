@@ -36,7 +36,7 @@ from trading_bot.services.sentiment_service.sentiment import MarketSentimentServ
 from trading_bot.services.calendar_service.calendar import EconomicCalendarService
 from trading_bot.services.payment_service.stripe_service import StripeService
 from trading_bot.services.payment_service.stripe_config import get_subscription_features
-from trading_bot.services.telegram_service.gif_utils import send_welcome_gif, send_menu_gif, send_analyse_gif, send_signals_gif
+from trading_bot.services.telegram_service.gif_utils import get_welcome_gif, get_menu_gif, get_analyse_gif, get_signals_gif
 from fastapi import Request, HTTPException, status
 
 logger = logging.getLogger(__name__)
@@ -740,16 +740,13 @@ class TelegramService:
         logger.info(f"Signal processing {'enabled' if value else 'disabled'}")
 
     def _register_handlers(self, application):
-        """Register all command and callback handlers with the application"""
-        # Ensure application is initialized
-        if not application:
-            logger.error("Cannot register handlers: application not initialized")
-            return
-        
+        """Register message handlers with the application."""
         # Command handlers
         application.add_handler(CommandHandler("start", self.start_command))
-        application.add_handler(CommandHandler("menu", self.show_main_menu))
         application.add_handler(CommandHandler("help", self.help_command))
+        application.add_handler(CommandHandler("menu", self.menu_command))
+        
+        # Secret admin command for subscription management
         application.add_handler(CommandHandler("set_subscription", self.set_subscription_command))
         
         # Register the payment failed command with both underscore and no-underscore versions
@@ -817,9 +814,6 @@ class TelegramService:
         payment_failed = await self.db.has_payment_failed(user_id)
         
         if is_subscribed and not payment_failed:
-            # Stuur eerst de GIF animatie
-            await send_welcome_gif(self.bot, update.effective_chat.id)
-            
             # Show the normal welcome message with all features
             await self.show_main_menu(update, context)
         elif payment_failed:
@@ -846,8 +840,12 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 parse_mode=ParseMode.HTML
             )
         else:
-            # Show the welcome message with trial option from the screenshot
+            # Get the welcome GIF URL
+            gif_url = await get_welcome_gif()
+            
+            # Show the welcome message with trial option and include GIF
             welcome_text = f"""
+<a href="{gif_url}">&#8205;</a>
 🚀 <b>Welcome to Sigmapips AI!</b> 🚀
 
 <b>Discover powerful trading signals for various markets:</b>
@@ -1013,13 +1011,16 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         query = update.callback_query
         
         try:
-            # Stuur eerst de analyse GIF
-            chat_id = update.effective_chat.id
-            await send_analyse_gif(self.bot, chat_id)
+            # Get the analyse GIF URL
+            gif_url = await get_analyse_gif()
+            
+            # Create the message with the GIF
+            text = f'<a href="{gif_url}">&#8205;</a>\nSelect your analysis type:'
             
             # Show the analysis menu
             await query.edit_message_text(
-                text="Select your analysis type:",
+                text=text,
+                parse_mode=ParseMode.HTML,
                 reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
             )
             
@@ -1027,8 +1028,15 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         except Exception as e:
             logger.error(f"Error in menu_analyse_callback: {str(e)}")
             try:
+                # Get the analyse GIF URL
+                gif_url = await get_analyse_gif()
+                
+                # Create the message with the GIF
+                text = f'<a href="{gif_url}">&#8205;</a>\nSelect your analysis type:'
+                
                 await query.message.reply_text(
-                    text="Select your analysis type:",
+                    text=text,
+                    parse_mode=ParseMode.HTML,
                     reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
                 )
                 return CHOOSE_ANALYSIS
@@ -1040,13 +1048,16 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         """Handle menu_signals callback"""
         query = update.callback_query
         
-        # Stuur eerst de signals GIF
-        chat_id = update.effective_chat.id
-        await send_signals_gif(self.bot, chat_id)
+        # Get the signals GIF URL
+        gif_url = await get_signals_gif()
+        
+        # Create the message with the GIF
+        text = f'<a href="{gif_url}">&#8205;</a>\nWhat would you like to do with trading signals?'
         
         # Show the signals menu
         await query.edit_message_text(
-            text="What would you like to do with trading signals?",
+            text=text,
+            parse_mode=ParseMode.HTML,
             reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD)
         )
         
@@ -2000,8 +2011,12 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
             else:
-                # Show the welcome message with trial option for non-subscribed users
+                # Get the welcome GIF URL
+                gif_url = await get_welcome_gif()
+                
+                # Show the welcome message with trial option for non-subscribed users and include the GIF
                 welcome_text = f"""
+<a href="{gif_url}">&#8205;</a>
 🚀 <b>Welcome to Sigmapips AI!</b> 🚀
 
 <b>Discover powerful trading signals for various markets:</b>
@@ -2042,15 +2057,21 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         # Use context.bot if available, otherwise use self.bot
         bot = context.bot if context is not None else self.bot
         
-        # Alleen de GIF verzenden als skip_gif niet True is
-        if not skip_gif:
-            # Stuur eerst de GIF animatie met de nieuwe hulpfunctie
-            await send_menu_gif(bot, update.effective_chat.id)
+        # Get the menu GIF URL
+        gif_url = await get_menu_gif() if not skip_gif else None
         
-        # Stuur vervolgens het welkomstbericht met de menu-opties
+        # Create message text with optional GIF
+        message_text = ""
+        if gif_url:
+            message_text += f'<a href="{gif_url}">&#8205;</a>\n'
+        
+        # Add the main welcome message
+        message_text += WELCOME_MESSAGE
+        
+        # Send the message with GIF and menu buttons
         await bot.send_message(
             chat_id=update.effective_chat.id,
-            text=WELCOME_MESSAGE,
+            text=message_text,
             parse_mode='HTML',
             reply_markup=reply_markup
         )
@@ -2227,8 +2248,10 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         
         # Command handlers
         application.add_handler(CommandHandler("start", self.start_command))
-        application.add_handler(CommandHandler("menu", self.show_main_menu))
         application.add_handler(CommandHandler("help", self.help_command))
+        application.add_handler(CommandHandler("menu", self.menu_command))
+        
+        # Secret admin command for subscription management
         application.add_handler(CommandHandler("set_subscription", self.set_subscription_command))
         application.add_handler(CommandHandler("set_payment_failed", self.set_payment_failed_command))
         
@@ -2662,12 +2685,15 @@ Click the button below to start your FREE 14-day trial.
 
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> None:
         """Send a help message when the command /help is issued."""
-        # Stuur eerst de welkom GIF
-        await send_welcome_gif(self.bot, update.effective_chat.id)
+        # Get the welcome GIF URL
+        gif_url = await get_welcome_gif()
         
-        # Stuur het helpbericht
+        # Create help message with GIF
+        help_text = f'<a href="{gif_url}">&#8205;</a>\n{HELP_MESSAGE}'
+        
+        # Send the message with the GIF and help text
         await update.message.reply_text(
-            text=HELP_MESSAGE,
+            text=help_text,
             parse_mode=ParseMode.HTML,
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("🏠 Main Menu", callback_data="back_menu")]
@@ -4796,6 +4822,11 @@ Click the button below to start your FREE 14-day trial.
             return instrument[:3]
             
         return None
+
+    async def menu_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> None:
+        """Show the main menu when the command /menu is issued."""
+        # Simply show the main menu
+        await self.show_main_menu(update, context)
 
 # Indices keyboard voor sentiment analyse
 INDICES_SENTIMENT_KEYBOARD = [
