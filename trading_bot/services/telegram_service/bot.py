@@ -2032,7 +2032,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 keyboard = [
                     [InlineKeyboardButton("🔥 Start 14-day FREE Trial", url=checkout_url)]
                 ]
-                
+
                 # Since this is called with the bot instance instead of from an update handler,
                 # we need to use bot.send_animation directly
                 await bot.send_animation(
@@ -2050,11 +2050,12 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         # Use context.bot if available, otherwise use self.bot
         bot = context.bot if context is not None else self.bot
         
-        # Use the menu_gif utility but with text only (no GIF)
-        await self.gif_utils.send_menu_gif(
-            bot=bot,
+        # Send just the text for the menu (no GIF)
+        await bot.send_message(
             chat_id=update.effective_chat.id,
-            caption=WELCOME_MESSAGE
+            text=WELCOME_MESSAGE,
+            parse_mode=ParseMode.HTML,
+            reply_markup=reply_markup
         )
 
     async def button_callback(self, update: Update, context=None) -> int:
