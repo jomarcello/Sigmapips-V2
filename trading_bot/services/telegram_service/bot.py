@@ -1973,7 +1973,6 @@ SIGNAL_ANALYSIS_KEYBOARD = [
     [InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal")]
 ]
 
-    async def back_to_signal_analysis_callback(self, update: Update, context=None) -> int:
         """Handle back_to_signal_analysis to return to the signal analysis menu"""
         query = update.callback_query
         await query.answer()
@@ -1992,7 +1991,6 @@ SIGNAL_ANALYSIS_KEYBOARD = [
             # Show analysis options
             await query.edit_message_text(
                 text=text,
-                reply_markup=InlineKeyboardMarkup(SIGNAL_ANALYSIS_KEYBOARD)
             )
             
             return CHOOSE_ANALYSIS
@@ -2028,7 +2026,7 @@ SIGNAL_ANALYSIS_KEYBOARD = [
                 )
             except Exception as gif_error:
                 logger.warning(f"Could not show loading GIF: {str(gif_error)}")
-            
+        
             # Check if we're coming from a signal
             is_from_signal = False
             if context and hasattr(context, 'user_data'):
