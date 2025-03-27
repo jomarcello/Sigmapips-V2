@@ -3615,6 +3615,17 @@ Click the button below to start your FREE 14-day trial.
         query = update.callback_query
         
         try:
+            # First, show a loading message with GIF
+            loading_text = f"""
+<a href="https://media0.giphy.com/media/v1.Y2lkPTc5MGI3NjExNWV5bXp5ZjBsYWJuZXMzbndodGlwYWlyMnN6cGVqeGZnbDg5NzB0OSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/dpjUltnOPye7azvAhH/giphy.gif">&#8205;</a>
+Generating technical analysis for {instrument}. Please wait...
+            """
+            
+            await query.edit_message_text(
+                text=loading_text,
+                parse_mode=ParseMode.HTML
+            )
+            
             # Check if we're coming from a signal
             is_from_signal = False
             if context and hasattr(context, 'user_data'):
@@ -3709,6 +3720,17 @@ Click the button below to start your FREE 14-day trial.
         query = update.callback_query
         
         try:
+            # First, show a loading message with GIF
+            loading_text = f"""
+<a href="https://media0.giphy.com/media/v1.Y2lkPTc5MGI3NjExNWV5bXp5ZjBsYWJuZXMzbndodGlwYWlyMnN6cGVqeGZnbDg5NzB0OSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/dpjUltnOPye7azvAhH/giphy.gif">&#8205;</a>
+Analyzing market sentiment for {instrument}. Please wait...
+            """
+            
+            await query.edit_message_text(
+                text=loading_text,
+                parse_mode=ParseMode.HTML
+            )
+            
             # Check if we're coming from a signal
             is_from_signal = False
             if context and hasattr(context, 'user_data'):
@@ -3853,6 +3875,17 @@ Click the button below to start your FREE 14-day trial.
         query = update.callback_query
         
         try:
+            # First, show a loading message with GIF
+            loading_text = f"""
+<a href="https://media0.giphy.com/media/v1.Y2lkPTc5MGI3NjExNWV5bXp5ZjBsYWJuZXMzbndodGlwYWlyMnN6cGVqeGZnbDg5NzB0OSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/dpjUltnOPye7azvAhH/giphy.gif">&#8205;</a>
+Loading economic calendar for {instrument}. Please wait...
+            """
+            
+            await query.edit_message_text(
+                text=loading_text,
+                parse_mode=ParseMode.HTML
+            )
+            
             # Check if we're coming from a signal
             is_from_signal = False
             if context and hasattr(context, 'user_data'):
@@ -4371,21 +4404,6 @@ Click the button below to start your FREE 14-day trial.
                 
                 # Get the instrument from context
                 instrument = context.user_data.get('instrument')
-                
-                # If instrument not found in context, try to retrieve from user's last signal
-                if not instrument:
-                    user_id = update.effective_user.id
-                    logger.info(f"Trying to retrieve instrument from user signals for user {user_id}")
-                    
-                    # Try to get from user_signals if available
-                    if hasattr(self, 'user_signals') and user_id in self.user_signals:
-                        signal_data = self.user_signals[user_id]
-                        if 'instrument' in signal_data:
-                            instrument = signal_data['instrument']
-                            logger.info(f"Retrieved instrument {instrument} from user signals")
-                            # Save to context for future use
-                            context.user_data['instrument'] = instrument
-                
                 if not instrument:
                     logger.warning("Instrument not found in context for signal technical analysis")
                     await query.edit_message_text(
@@ -4395,6 +4413,17 @@ Click the button below to start your FREE 14-day trial.
                     return CHOOSE_ANALYSIS
                 
                 logger.info(f"Signal technical analysis for instrument: {instrument}")
+                
+                # Show loading message with GIF
+                loading_text = f"""
+<a href="https://media0.giphy.com/media/v1.Y2lkPTc5MGI3NjExNWV5bXp5ZjBsYWJuZXMzbndodGlwYWlyMnN6cGVqeGZnbDg5NzB0OSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/dpjUltnOPye7azvAhH/giphy.gif">&#8205;</a>
+Generating technical analysis for {instrument}. Please wait...
+                """
+                
+                await query.edit_message_text(
+                    text=loading_text,
+                    parse_mode=ParseMode.HTML
+                )
                 
                 # Show loading message
                 await query.edit_message_text(
@@ -4510,6 +4539,17 @@ Click the button below to start your FREE 14-day trial.
                 
                 logger.info(f"Signal sentiment analysis for instrument: {instrument}")
                 
+                # Show loading message with GIF
+                loading_text = f"""
+<a href="https://media0.giphy.com/media/v1.Y2lkPTc5MGI3NjExNWV5bXp5ZjBsYWJuZXMzbndodGlwYWlyMnN6cGVqeGZnbDg5NzB0OSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/dpjUltnOPye7azvAhH/giphy.gif">&#8205;</a>
+Analyzing market sentiment for {instrument}. Please wait...
+                """
+                
+                await query.edit_message_text(
+                    text=loading_text,
+                    parse_mode=ParseMode.HTML
+                )
+                
                 # Show loading message
                 await query.edit_message_text(
                     text=f"Analyzing market sentiment for {instrument}. Please wait..."
@@ -4616,6 +4656,17 @@ Click the button below to start your FREE 14-day trial.
                     return CHOOSE_ANALYSIS
                 
                 logger.info(f"Signal calendar analysis for instrument: {instrument}")
+                
+                # Show loading message with GIF
+                loading_text = f"""
+<a href="https://media0.giphy.com/media/v1.Y2lkPTc5MGI3NjExNWV5bXp5ZjBsYWJuZXMzbndodGlwYWlyMnN6cGVqeGZnbDg5NzB0OSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/dpjUltnOPye7azvAhH/giphy.gif">&#8205;</a>
+Loading economic calendar for {instrument}. Please wait...
+                """
+                
+                await query.edit_message_text(
+                    text=loading_text,
+                    parse_mode=ParseMode.HTML
+                )
                 
                 # Show loading message
                 await query.edit_message_text(
