@@ -1756,12 +1756,15 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         
         try:
             # Show loading message with GIF
-            from trading_bot.services.telegram_service.gif_utils import send_loading_gif
-            await send_loading_gif(
-                self.bot,
-                update.effective_chat.id,
-                caption=f"⏳ <b>Analyzing technical data for {instrument}...</b>"
-            )
+            try:
+                from trading_bot.services.telegram_service.gif_utils import send_loading_gif
+                await send_loading_gif(
+                    self.bot,
+                    update.effective_chat.id,
+                    caption=f"⏳ <b>Analyzing technical data for {instrument}...</b>"
+                )
+            except Exception as gif_error:
+                logger.warning(f"Could not show loading GIF: {str(gif_error)}")
             
             # Check if we're coming from a signal
             is_from_signal = False
@@ -1858,12 +1861,15 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         
         try:
             # Show loading message with GIF
-            from trading_bot.services.telegram_service.gif_utils import send_loading_gif
-            await send_loading_gif(
-                self.bot,
-                update.effective_chat.id,
-                caption=f"⏳ <b>Analyzing market sentiment for {instrument}...</b>"
-            )
+            try:
+                from trading_bot.services.telegram_service.gif_utils import send_loading_gif
+                await send_loading_gif(
+                    self.bot,
+                    update.effective_chat.id,
+                    caption=f"⏳ <b>Analyzing market sentiment for {instrument}...</b>"
+                )
+            except Exception as gif_error:
+                logger.warning(f"Could not show loading GIF: {str(gif_error)}")
             
             # Check if we're coming from a signal
             is_from_signal = False
@@ -2005,12 +2011,15 @@ async def show_economic_calendar(self, update: Update, context=None, instrument:
     
     try:
         # Show loading message with GIF
-        from trading_bot.services.telegram_service.gif_utils import send_loading_gif
-        await send_loading_gif(
-            self.bot,
-            update.effective_chat.id,
-            caption=f"⏳ <b>Loading economic calendar for {instrument}...</b>"
-        )
+        try:
+            from trading_bot.services.telegram_service.gif_utils import send_loading_gif
+            await send_loading_gif(
+                self.bot,
+                update.effective_chat.id,
+                caption=f"⏳ <b>Loading economic calendar for {instrument}...</b>"
+            )
+        except Exception as gif_error:
+            logger.warning(f"Could not show loading GIF: {str(gif_error)}")
         
         # Check if we're coming from a signal
         is_from_signal = False
@@ -2040,3 +2049,60 @@ async def show_economic_calendar(self, update: Update, context=None, instrument:
                 # Extract currency code from the instrument
                 currencies = self._extract_currency_codes(instrument)
                 
+                if currencies:
+                    # Get calendar data with currency filter
+                    logger.info(f"Getting calendar for currencies: {currencies}")
+                    calendar_data = await self.calendar.get_economic_calendar(currencies=currencies)
+            
+            # If no data found or no instrument specified, get the general calendar
+            if not calendar_data:
+                logger.info("Getting general economic calendar")
+                calendar_data = await self.calendar.get_economic_calendar()
+                
+            # Make sure we have calendar data
+            if not calendar_data or calendar_data.strip() == "":
+                calendar_data = "No economic events found for the selected period."
+                
+            # Show calendar with back button - dynamic based on where we came from
+            back_button = "back_to_signal" if is_from_signal else "back_to_signal_analysis"
+            
+            await query.edit_message_text(
+                text=calendar_data,
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("⬅️ Back", callback_data=back_button)
+                ]]),
+                parse_mode=ParseMode.HTML
+            )
+            
+            return SHOW_RESULT
+                
+        except Exception as calendar_error:
+            logger.error(f"Error getting calendar: {str(calendar_error)}")
+            logger.exception(calendar_error)
+            
+            # Show error message with back button
+            await query.edit_message_text(
+                text="Sorry, there was a problem retrieving the economic calendar. Please try again later.",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal" if is_from_signal else "back_to_signal_analysis")
+                ]])
+            )
+            
+            return MENU
+                
+    except Exception as e:
+        logger.error(f"Error in show_economic_calendar: {str(e)}")
+        logger.exception(e)
+        
+        # Attempt to recover
+        try:
+            await query.edit_message_text(
+                text="An error occurred. Please try again.",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal_analysis")
+                ]])
+            )
+        except Exception:
+            pass
+            
+        return MENU
