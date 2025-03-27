@@ -1,100 +1,56 @@
-from telegram import Bot, Update
+"""
+Test module om te demonstreren hoe je GIFs kunt sturen in Telegram.
+Dit is een standalone module die je kunt gebruiken om te testen.
+"""
+
+from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.constants import ParseMode
-from telegram.ext import ContextTypes
-import logging
+from telegram.ext import Application, CommandHandler, ContextTypes
 
-logger = logging.getLogger(__name__)
+# URL van de GIF die we willen gebruiken
+GIF_URL = "https://media4.giphy.com/media/v1.Y2lkPTc5MGI3NjExaDlteTY3dHl2bjdlN3RlMDRwMTV4bjV6c3dlczQzMmQ1NHlncHUzNiZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/zqKzzCRDhMsvGuxhfS/giphy.gif"
 
-# Nieuwe functies voor het ophalen van GIF URLs
-async def get_welcome_gif():
-    """Get the welcome GIF URL."""
-    # Gebruik een constante URL voor de welkomst GIF
-    return "https://i.ibb.co/bzhvz2v/welcome.gif"
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    Handler voor het /start commando.
+    Dit stuurt een GIF met een bijschrift naar de gebruiker.
+    """
+    # Tekst voor het bijschrift
+    caption = """
+🚀 <b>Welcome to Sigmapips AI!</b> 🚀
 
-async def get_menu_gif():
-    """Get the menu GIF URL."""
-    # Gebruik een constante URL voor de menu GIF
-    return "https://i.ibb.co/bzhvz2v/welcome.gif"
+<b>Discover powerful trading signals for various markets:</b>
+• <b>Forex</b> - Major and minor currency pairs
+• <b>Crypto</b> - Bitcoin, Ethereum and other top cryptocurrencies
 
-async def get_analyse_gif():
-    """Get the analysis GIF URL."""
-    # Gebruik een constante URL voor de analyse GIF
-    return "https://i.ibb.co/bzhvz2v/welcome.gif"
+<b>Features:</b>
+✅ Real-time trading signals
+✅ Advanced chart analysis
+    """
+    
+    # Knoppen toevoegen
+    keyboard = [
+        [InlineKeyboardButton("🔥 Start Trial", callback_data="trial")]
+    ]
+    
+    # GIF verzenden met bijschrift en knoppen
+    await update.message.reply_animation(
+        animation=GIF_URL,
+        caption=caption,
+        parse_mode=ParseMode.HTML,
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
 
-async def get_signals_gif():
-    """Get the signals GIF URL."""
-    # Gebruik een constante URL voor de signalen GIF
-    return "https://i.ibb.co/bzhvz2v/welcome.gif"
+def main() -> None:
+    """Start de bot."""
+    # Vul hier je bot token in
+    application = Application.builder().token("YOUR_BOT_TOKEN").build()
 
-# Oude functies voor backward compatibility
-async def send_welcome_gif(bot, chat_id, caption=None):
-    """Send a welcome GIF to the user."""
-    try:
-        # GIF URL voor bovenaan het welkomstbericht
-        gif_url = "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExdW40bzUzanIzeXJka3Fxc2U0eGtrenhwOGY3ajA4Z2pxZXRndjZleiZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/JtBZm3Getg3dqxK0zP/giphy.gif"
-        
-        # Stuur de GIF animatie
-        await bot.send_animation(
-            chat_id=chat_id,
-            animation=gif_url,
-            caption=caption or "🤖 <b>SigmaPips AI is Ready!</b>",
-            parse_mode=ParseMode.HTML
-        )
-        return True
-    except Exception as e:
-        logger.error(f"Error sending welcome GIF: {str(e)}")
-        return False
+    # Commando handlers toevoegen
+    application.add_handler(CommandHandler("start", start))
 
-async def send_menu_gif(bot, chat_id, caption=None):
-    """Send a menu GIF to the user."""
-    try:
-        # GIF URL voor bovenaan het menubericht
-        gif_url = "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExcXZuZWx0ZXc5Zjlvb2t3cXJjbWR2bHR6OHdsMHBzaHozaGY5emU3cyZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/qgQUggAC3Pfv687qPC/giphy.gif"
-        
-        # Stuur de GIF animatie
-        await bot.send_animation(
-            chat_id=chat_id,
-            animation=gif_url,
-            caption=caption or "📊 <b>SigmaPips AI Menu</b>",
-            parse_mode=ParseMode.HTML
-        )
-        return True
-    except Exception as e:
-        logger.error(f"Error sending menu GIF: {str(e)}")
-        return False
+    # Start de bot
+    application.run_polling()
 
-async def send_analyse_gif(bot, chat_id, caption=None):
-    """Send an analysis GIF to the user."""
-    try:
-        # GIF URL voor bovenaan het analysebericht
-        gif_url = "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExeTRnM3QzNHJxbzk0dHVudzh5MjZlenh6MHYwZ2Z5aGRibGhvNmo0biZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/JWuBH9rCO2uZuHBFpm/giphy.gif"
-        
-        # Stuur de GIF animatie
-        await bot.send_animation(
-            chat_id=chat_id,
-            animation=gif_url,
-            caption=caption or "📈 <b>SigmaPips AI Analysis</b>",
-            parse_mode=ParseMode.HTML
-        )
-        return True
-    except Exception as e:
-        logger.error(f"Error sending analyse GIF: {str(e)}")
-        return False
-
-async def send_signals_gif(bot, chat_id, caption=None):
-    """Send a signals GIF to the user."""
-    try:
-        # GIF URL voor bovenaan het signalenbericht
-        gif_url = "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExb2gyN2huY2txNnh5OXBuYzlhcHVjdHFiOWU0MWx0MmlxbWthZnBibiZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/l4FGr7tRgmSJFiQFO/giphy.gif"
-        
-        # Stuur de GIF animatie
-        await bot.send_animation(
-            chat_id=chat_id,
-            animation=gif_url,
-            caption=caption or "🎯 <b>SigmaPips AI Signals</b>",
-            parse_mode=ParseMode.HTML
-        )
-        return True
-    except Exception as e:
-        logger.error(f"Error sending signals GIF: {str(e)}")
-        return False
+if __name__ == "__main__":
+    main() 
