@@ -1080,3 +1080,10 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         else:
             # Handle non-subscribed users similar to start command
             await self.start_command(update, context)
+            
+    async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> None:
+        """Show help information when /help command is used"""
+        await update.message.reply_text(
+            text=HELP_MESSAGE,
+            parse_mode=ParseMode.HTML
+        )
