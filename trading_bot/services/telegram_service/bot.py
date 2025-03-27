@@ -1963,28 +1963,99 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             )
             return MENU
 
-    async def show_main_menu(self, update: Update, context=None) -> int:
-        """Show the main menu with all available options."""
-        try:
-            # Create the keyboard with all options
-            keyboard = [
-                [InlineKeyboardButton("📊 Analyze Market", callback_data="analyze")],
-                [InlineKeyboardButton("🎯 Trading Signals", callback_data="signals")],
-                [InlineKeyboardButton("💰 Subscription", callback_data="subscription")],
-                [InlineKeyboardButton("ℹ️ Help", callback_data="help")]
-            ]
-
-            # Send menu text without GIF
-            await update.message.reply_text(
-                text="Welcome to SigmaPips AI! 🤖\nWhat would you like to do?",
-                reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode=ParseMode.HTML
-            )
+    async def show_main_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None, skip_gif: bool = False) -> None:
+        """Show the main menu with all bot features"""
+        user_id = update.effective_user.id
+        
+        # Check if the user has a subscription
+        is_subscribed = await self.db.is_user_subscribed(user_id)
+        
+        # Check if payment has failed
+        payment_failed = await self.db.has_payment_failed(user_id)
+        
+        if not is_subscribed or payment_failed:
+            # Bot to use for sending messages
+            bot = context.bot if context is not None else self.bot
             
-            return MENU
-        except Exception as e:
-            logger.error(f"Error showing main menu: {str(e)}")
-            return ConversationHandler.END
+            if payment_failed:
+                # Show payment failure message
+                failed_payment_text = f"""
+❗ <b>Subscription Payment Failed</b> ❗
+
+Your subscription payment could not be processed and your service has been deactivated.
+
+To continue using Sigmapips AI and receive trading signals, please reactivate your subscription by clicking the button below.
+                """
+                
+                # Use direct URL link for reactivation
+                reactivation_url = "https://buy.stripe.com/9AQcPf3j63HL5JS145"
+                
+                # Create button for reactivation
+                keyboard = [
+                    [InlineKeyboardButton("🔄 Reactivate Subscription", url=reactivation_url)]
+                ]
+                
+                await bot.send_message(
+                    chat_id=update.effective_chat.id,
+                    text=failed_payment_text,
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            else:
+                # Get the welcome GIF URL
+                gif_url = await self.gif_utils.get_welcome_gif()
+                
+                # Show the welcome message with trial option for non-subscribed users
+                welcome_text = f"""
+🚀 <b>Welcome to Sigmapips AI!</b> 🚀
+
+<b>Discover powerful trading signals for various markets:</b>
+• <b>Forex</b> - Major and minor currency pairs
+• <b>Crypto</b> - Bitcoin, Ethereum and other top cryptocurrencies
+• <b>Indices</b> - Global market indices
+• <b>Commodities</b> - Gold, silver and oil
+
+<b>Features:</b>
+✅ Real-time trading signals
+✅ Multi-timeframe analysis (1m, 15m, 1h, 4h)
+✅ Advanced chart analysis
+✅ Sentiment indicators
+✅ Economic calendar integration
+
+<b>Start today with a FREE 14-day trial!</b>
+                """
+                
+                # Use direct URL link instead of callback for the trial button
+                checkout_url = "https://buy.stripe.com/3cs3eF9Hu9256NW9AA"
+                
+                # Create buttons - Trial button goes straight to Stripe checkout
+                keyboard = [
+                    [InlineKeyboardButton("🔥 Start 14-day FREE Trial", url=checkout_url)]
+                ]
+                
+                # Since this is called with the bot instance instead of from an update handler,
+                # we need to use bot.send_animation directly
+                await bot.send_animation(
+                    chat_id=update.effective_chat.id,
+                    animation=gif_url,
+                    caption=welcome_text,
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            return
+        
+        # Show the normal menu with all options for subscribed users
+        reply_markup = InlineKeyboardMarkup(START_KEYBOARD)
+        
+        # Use context.bot if available, otherwise use self.bot
+        bot = context.bot if context is not None else self.bot
+        
+        # Use the menu_gif utility but with text only (no GIF)
+        await self.gif_utils.send_menu_gif(
+            bot=bot,
+            chat_id=update.effective_chat.id,
+            caption=WELCOME_MESSAGE
+        )
 
     async def button_callback(self, update: Update, context=None) -> int:
         """Handle button presses from inline keyboards"""
