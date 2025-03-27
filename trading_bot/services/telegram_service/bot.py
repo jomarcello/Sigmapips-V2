@@ -1970,6 +1970,13 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         # Simply show the main menu
         await self.show_main_menu(update, context)
 
+    async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> None:
+        """Show help message when the command /help is issued."""
+        await update.message.reply_text(
+            text=HELP_MESSAGE,
+            parse_mode=ParseMode.HTML
+        )
+
 # Indices keyboard voor sentiment analyse
 INDICES_SENTIMENT_KEYBOARD = [
     [
