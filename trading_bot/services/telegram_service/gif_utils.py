@@ -40,3 +40,39 @@ async def send_menu_gif(bot, chat_id, caption=None):
     except Exception as e:
         logger.error(f"Error sending menu GIF: {str(e)}")
         return False
+
+async def send_analyse_gif(bot, chat_id, caption=None):
+    """Send an analysis GIF to the user."""
+    try:
+        # GIF URL voor bovenaan het analysebericht
+        gif_url = "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExeTRnM3QzNHJxbzk0dHVudzh5MjZlenh6MHYwZ2Z5aGRibGhvNmo0biZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/JWuBH9rCO2uZuHBFpm/giphy.gif"
+        
+        # Stuur de GIF animatie
+        await bot.send_animation(
+            chat_id=chat_id,
+            animation=gif_url,
+            caption=caption or "📈 <b>SigmaPips AI Analysis</b>",
+            parse_mode=ParseMode.HTML
+        )
+        return True
+    except Exception as e:
+        logger.error(f"Error sending analyse GIF: {str(e)}")
+        return False
+
+async def send_signals_gif(bot, chat_id, caption=None):
+    """Send a signals GIF to the user."""
+    try:
+        # GIF URL voor bovenaan het signalenbericht
+        gif_url = "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExb2gyN2huY2txNnh5OXBuYzlhcHVjdHFiOWU0MWx0MmlxbWthZnBibiZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/l4FGr7tRgmSJFiQFO/giphy.gif"
+        
+        # Stuur de GIF animatie
+        await bot.send_animation(
+            chat_id=chat_id,
+            animation=gif_url,
+            caption=caption or "🎯 <b>SigmaPips AI Signals</b>",
+            parse_mode=ParseMode.HTML
+        )
+        return True
+    except Exception as e:
+        logger.error(f"Error sending signals GIF: {str(e)}")
+        return False
