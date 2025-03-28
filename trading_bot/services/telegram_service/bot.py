@@ -2884,8 +2884,11 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 else:
                     logger.error(f"Failed to update message: {str(text_error)}")
         
-        # Perform analysis (placeholder for actual analysis)
+        # Perform analysis using chart service
         try:
+            # Get the chart from the chart service
+            chart_url = await self.chart_service.get_chart(instrument)
+            
             # Create a menu to return to other analysis options
             analysis_keyboard = [
                 [
@@ -2898,46 +2901,38 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 ]
             ]
             
-            # For the actual analysis, here you would call your technical analysis service
-            # For now, let's create a placeholder response
+            # Create the analysis text
             analysis_text = f"<b>📈 Technical Analysis for {instrument}</b>\n\n"
-            analysis_text += "This is where the technical analysis would appear.\n"
-            analysis_text += "The system would analyze price action, trends, support/resistance, and indicators.\n\n"
+            analysis_text += "Technical analysis chart with indicators and patterns.\n"
             analysis_text += "<i>Select another analysis type or go back to the menu.</i>"
             
-            # Update the message with the analysis results
+            # Update the message with the chart and analysis
             if query:
                 try:
-                    await query.edit_message_text(
-                        text=analysis_text,
+                    # First try to edit the message with the new chart
+                    await query.edit_message_media(
+                        media=InputMediaPhoto(
+                            media=chart_url,
+                            caption=analysis_text,
+                            parse_mode=ParseMode.HTML
+                        ),
+                        reply_markup=InlineKeyboardMarkup(analysis_keyboard)
+                    )
+                except Exception as media_error:
+                    logger.error(f"Failed to update media: {str(media_error)}")
+                    # If media update fails, try to send a new message
+                    await query.message.reply_photo(
+                        photo=chart_url,
+                        caption=analysis_text,
                         reply_markup=InlineKeyboardMarkup(analysis_keyboard),
                         parse_mode=ParseMode.HTML
                     )
-                except Exception as text_error:
-                    # If that fails due to caption, try editing caption
-                    if "There is no text in the message to edit" in str(text_error):
-                        try:
-                            await query.edit_message_caption(
-                                caption=analysis_text,
-                                reply_markup=InlineKeyboardMarkup(analysis_keyboard),
-                                parse_mode=ParseMode.HTML
-                            )
-                        except Exception as e:
-                            logger.error(f"Failed to update caption: {str(e)}")
-                            # Try to send a new message as last resort
-                            await query.message.reply_text(
-                                text=analysis_text,
-                                reply_markup=InlineKeyboardMarkup(analysis_keyboard),
-                                parse_mode=ParseMode.HTML
-                            )
-                    else:
-                        # Re-raise for other errors
-                        raise
             else:
                 # If no query (direct command), send a new message
                 if update.message:
-                    await update.message.reply_text(
-                        text=analysis_text,
+                    await update.message.reply_photo(
+                        photo=chart_url,
+                        caption=analysis_text,
                         reply_markup=InlineKeyboardMarkup(analysis_keyboard),
                         parse_mode=ParseMode.HTML
                     )
