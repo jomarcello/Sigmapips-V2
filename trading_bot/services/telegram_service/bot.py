@@ -1539,10 +1539,32 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             return await self.show_technical_analysis(update, context, instrument=instrument)
         
         # Show the market selection menu
-        await query.edit_message_text(
-            text="Select market for technical analysis:",
-            reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
-        )
+        try:
+            # First try to edit message text
+            await query.edit_message_text(
+                text="Select market for technical analysis:",
+                reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
+            )
+        except Exception as text_error:
+            # If that fails due to caption, try editing caption
+            if "There is no text in the message to edit" in str(text_error):
+                try:
+                    await query.edit_message_caption(
+                        caption="Select market for technical analysis:",
+                        reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD),
+                        parse_mode=ParseMode.HTML
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to update caption for technical analysis: {str(e)}")
+                    # Try to send a new message as last resort
+                    await query.message.reply_text(
+                        text="Select market for technical analysis:",
+                        reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD),
+                        parse_mode=ParseMode.HTML
+                    )
+            else:
+                # Re-raise for other errors
+                raise
         
         return CHOOSE_MARKET
 
@@ -1571,10 +1593,32 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             return await self.show_sentiment_analysis(update, context, instrument=instrument)
         
         # Show the market selection menu
-        await query.edit_message_text(
-            text="Select market for sentiment analysis:",
-            reply_markup=InlineKeyboardMarkup(MARKET_SENTIMENT_KEYBOARD)
-        )
+        try:
+            # First try to edit message text
+            await query.edit_message_text(
+                text="Select market for sentiment analysis:",
+                reply_markup=InlineKeyboardMarkup(MARKET_SENTIMENT_KEYBOARD)
+            )
+        except Exception as text_error:
+            # If that fails due to caption, try editing caption
+            if "There is no text in the message to edit" in str(text_error):
+                try:
+                    await query.edit_message_caption(
+                        caption="Select market for sentiment analysis:",
+                        reply_markup=InlineKeyboardMarkup(MARKET_SENTIMENT_KEYBOARD),
+                        parse_mode=ParseMode.HTML
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to update caption for sentiment analysis: {str(e)}")
+                    # Try to send a new message as last resort
+                    await query.message.reply_text(
+                        text="Select market for sentiment analysis:",
+                        reply_markup=InlineKeyboardMarkup(MARKET_SENTIMENT_KEYBOARD),
+                        parse_mode=ParseMode.HTML
+                    )
+            else:
+                # Re-raise for other errors
+                raise
         
         return CHOOSE_MARKET
 
@@ -1603,10 +1647,32 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             return await self.show_calendar_analysis(update, context, instrument=instrument)
         
         # Show the market selection menu
-        await query.edit_message_text(
-            text="Select market for economic calendar analysis:",
-            reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
-        )
+        try:
+            # First try to edit message text
+            await query.edit_message_text(
+                text="Select market for economic calendar analysis:",
+                reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
+            )
+        except Exception as text_error:
+            # If that fails due to caption, try editing caption
+            if "There is no text in the message to edit" in str(text_error):
+                try:
+                    await query.edit_message_caption(
+                        caption="Select market for economic calendar analysis:",
+                        reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD),
+                        parse_mode=ParseMode.HTML
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to update caption for calendar analysis: {str(e)}")
+                    # Try to send a new message as last resort
+                    await query.message.reply_text(
+                        text="Select market for economic calendar analysis:",
+                        reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD),
+                        parse_mode=ParseMode.HTML
+                    )
+            else:
+                # Re-raise for other errors
+                raise
         
         return CHOOSE_MARKET
 
@@ -1629,10 +1695,32 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             return await self.show_technical_analysis(update, context, instrument=instrument)
         else:
             # Error handling - go back to signal analysis menu
-            await query.edit_message_text(
-                text="Could not find the instrument. Please try again.",
-                reply_markup=InlineKeyboardMarkup(SIGNAL_ANALYSIS_KEYBOARD)
-            )
+            try:
+                # First try to edit message text
+                await query.edit_message_text(
+                    text="Could not find the instrument. Please try again.",
+                    reply_markup=InlineKeyboardMarkup(SIGNAL_ANALYSIS_KEYBOARD)
+                )
+            except Exception as text_error:
+                # If that fails due to caption, try editing caption
+                if "There is no text in the message to edit" in str(text_error):
+                    try:
+                        await query.edit_message_caption(
+                            caption="Could not find the instrument. Please try again.",
+                            reply_markup=InlineKeyboardMarkup(SIGNAL_ANALYSIS_KEYBOARD),
+                            parse_mode=ParseMode.HTML
+                        )
+                    except Exception as e:
+                        logger.error(f"Failed to update caption in signal_technical_callback: {str(e)}")
+                        # Try to send a new message as last resort
+                        await query.message.reply_text(
+                            text="Could not find the instrument. Please try again.",
+                            reply_markup=InlineKeyboardMarkup(SIGNAL_ANALYSIS_KEYBOARD),
+                            parse_mode=ParseMode.HTML
+                        )
+                else:
+                    # Re-raise for other errors
+                    raise
             return CHOOSE_ANALYSIS
 
     async def signal_sentiment_callback(self, update: Update, context=None) -> int:
@@ -1654,10 +1742,32 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             return await self.show_sentiment_analysis(update, context, instrument=instrument)
         else:
             # Error handling - go back to signal analysis menu
-            await query.edit_message_text(
-                text="Could not find the instrument. Please try again.",
-                reply_markup=InlineKeyboardMarkup(SIGNAL_ANALYSIS_KEYBOARD)
-            )
+            try:
+                # First try to edit message text
+                await query.edit_message_text(
+                    text="Could not find the instrument. Please try again.",
+                    reply_markup=InlineKeyboardMarkup(SIGNAL_ANALYSIS_KEYBOARD)
+                )
+            except Exception as text_error:
+                # If that fails due to caption, try editing caption
+                if "There is no text in the message to edit" in str(text_error):
+                    try:
+                        await query.edit_message_caption(
+                            caption="Could not find the instrument. Please try again.",
+                            reply_markup=InlineKeyboardMarkup(SIGNAL_ANALYSIS_KEYBOARD),
+                            parse_mode=ParseMode.HTML
+                        )
+                    except Exception as e:
+                        logger.error(f"Failed to update caption in signal_sentiment_callback: {str(e)}")
+                        # Try to send a new message as last resort
+                        await query.message.reply_text(
+                            text="Could not find the instrument. Please try again.",
+                            reply_markup=InlineKeyboardMarkup(SIGNAL_ANALYSIS_KEYBOARD),
+                            parse_mode=ParseMode.HTML
+                        )
+                else:
+                    # Re-raise for other errors
+                    raise
             return CHOOSE_ANALYSIS
 
     async def signal_calendar_callback(self, update: Update, context=None) -> int:
@@ -1679,10 +1789,32 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             return await self.show_calendar_analysis(update, context, instrument=instrument)
         else:
             # Error handling - go back to signal analysis menu
-            await query.edit_message_text(
-                text="Could not find the instrument. Please try again.",
-                reply_markup=InlineKeyboardMarkup(SIGNAL_ANALYSIS_KEYBOARD)
-            )
+            try:
+                # First try to edit message text
+                await query.edit_message_text(
+                    text="Could not find the instrument. Please try again.",
+                    reply_markup=InlineKeyboardMarkup(SIGNAL_ANALYSIS_KEYBOARD)
+                )
+            except Exception as text_error:
+                # If that fails due to caption, try editing caption
+                if "There is no text in the message to edit" in str(text_error):
+                    try:
+                        await query.edit_message_caption(
+                            caption="Could not find the instrument. Please try again.",
+                            reply_markup=InlineKeyboardMarkup(SIGNAL_ANALYSIS_KEYBOARD),
+                            parse_mode=ParseMode.HTML
+                        )
+                    except Exception as e:
+                        logger.error(f"Failed to update caption in signal_calendar_callback: {str(e)}")
+                        # Try to send a new message as last resort
+                        await query.message.reply_text(
+                            text="Could not find the instrument. Please try again.",
+                            reply_markup=InlineKeyboardMarkup(SIGNAL_ANALYSIS_KEYBOARD),
+                            parse_mode=ParseMode.HTML
+                        )
+                else:
+                    # Re-raise for other errors
+                    raise
             return CHOOSE_ANALYSIS
 
     async def back_to_signal_callback(self, update: Update, context=None) -> int:
@@ -2097,24 +2229,55 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             
             if not success:
                 # If the helper function failed, try a direct approach as fallback
-                await query.edit_message_text(
-                    text=WELCOME_MESSAGE,
-                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
-                    parse_mode=ParseMode.HTML
-                )
+                try:
+                    # First try to edit message text
+                    await query.edit_message_text(
+                        text=WELCOME_MESSAGE,
+                        reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
+                        parse_mode=ParseMode.HTML
+                    )
+                except Exception as text_error:
+                    # If that fails due to caption, try editing caption
+                    if "There is no text in the message to edit" in str(text_error):
+                        await query.edit_message_caption(
+                            caption=WELCOME_MESSAGE,
+                            reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
+                            parse_mode=ParseMode.HTML
+                        )
             
             return MENU
         except Exception as e:
             logger.error(f"Error in back_menu_callback: {str(e)}")
             
-            # If we can't edit the message, try to send a new one as fallback
+            # If we can't edit the message, try again with a simpler approach as fallback
             try:
-                await query.message.reply_text(
-                    text=WELCOME_MESSAGE,
-                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
-                    parse_mode=ParseMode.HTML
-                )
+                # First try editing the caption
+                try:
+                    await query.edit_message_caption(
+                        caption=WELCOME_MESSAGE,
+                        reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
+                        parse_mode=ParseMode.HTML
+                    )
+                except Exception as caption_error:
+                    # If that fails, try editing text
+                    await query.edit_message_text(
+                        text=WELCOME_MESSAGE,
+                        reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
+                        parse_mode=ParseMode.HTML
+                    )
                 return MENU
             except Exception as inner_e:
                 logger.error(f"Failed to recover from error: {str(inner_e)}")
+                
+                # Last resort: send a new message
+                try:
+                    await query.message.reply_text(
+                        text=WELCOME_MESSAGE,
+                        reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
+                        parse_mode=ParseMode.HTML
+                    )
+                    logger.warning("Fallback to sending new message - ideally this should be avoided")
+                except Exception:
+                    pass
+                    
                 return MENU
