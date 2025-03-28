@@ -2023,3 +2023,59 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             except Exception as inner_e:
                 logger.error(f"Failed to recover from error: {str(inner_e)}")
                 return MENU
+
+    async def embed_gif_in_text(self, gif_url: str, text: str) -> str:
+        """
+        Embed a GIF URL in text using the HTML invisible character trick.
+        This allows GIFs to be displayed in edit_message_text calls.
+        
+        Args:
+            gif_url: URL of the GIF to embed
+            text: Text to display below the GIF
+            
+        Returns:
+            Formatted text with embedded GIF URL
+        """
+        return f'<a href="{gif_url}">&#8205;</a>\n{text}'
+
+    async def update_message_with_gif(self, query: 'CallbackQuery', gif_url: str, text: str, 
+                                  reply_markup=None, parse_mode=ParseMode.HTML) -> bool:
+        """
+        Update an existing message with a GIF and new text.
+        Uses the invisible character HTML trick to embed the GIF.
+        
+        Args:
+            query: The callback query containing the message to update
+            gif_url: URL of the GIF to embed
+            text: Text to display below the GIF
+            reply_markup: Optional keyboard markup
+            parse_mode: Parse mode for the text
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            # Create the message with the GIF using inline HTML
+            formatted_text = await self.embed_gif_in_text(gif_url, text)
+            
+            # Update the message
+            await query.edit_message_text(
+                text=formatted_text,
+                parse_mode=parse_mode,
+                reply_markup=reply_markup
+            )
+            return True
+        except Exception as e:
+            logger.error(f"Failed to update message with GIF: {str(e)}")
+            
+            # Fallback to text-only approach
+            try:
+                await query.edit_message_text(
+                    text=text,
+                    parse_mode=parse_mode,
+                    reply_markup=reply_markup
+                )
+                return True
+            except Exception as e2:
+                logger.error(f"Fallback update failed too: {str(e2)}")
+                return False
