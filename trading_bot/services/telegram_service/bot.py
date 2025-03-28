@@ -38,6 +38,10 @@ from trading_bot.services.payment_service.stripe_service import StripeService
 from trading_bot.services.payment_service.stripe_config import get_subscription_features
 from fastapi import Request, HTTPException, status
 
+# GIF utilities for richer UI experience
+from trading_bot.services.telegram_service.gif_utils import get_welcome_gif, get_menu_gif, get_analyse_gif, get_signals_gif, send_welcome_gif, send_menu_gif, send_analyse_gif, send_signals_gif, send_gif_with_caption
+import trading_bot.services.telegram_service.gif_utils as gif_utils
+
 logger = logging.getLogger(__name__)
 
 # Callback data constants
@@ -527,6 +531,9 @@ class TelegramService:
         self.polling_started = False
         self.admin_users = [1093307376]  # Add your Telegram ID here for testing
         self._signals_enabled = True  # Enable signals by default
+        
+        # GIF utilities for UI
+        self.gif_utils = gif_utils  # Initialize gif_utils as an attribute
         
         # Setup the bot and application
         self.bot = None
@@ -1366,12 +1373,27 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         await query.answer()  # Respond to prevent loading icon
         
         try:
-            # Show the analysis menu by editing the current message
-            await query.edit_message_text(
-                text="Select your analysis type:",
-                reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
-                parse_mode=ParseMode.HTML
-            )
+            # Get an analysis GIF URL
+            gif_url = await get_analyse_gif()
+            
+            try:
+                # Create a message with the GIF using inline HTML
+                text = f'<a href="{gif_url}">&#8205;</a>\nSelect your analysis type:'
+                
+                # Show the analysis menu by editing the current message
+                await query.edit_message_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
+                    parse_mode=ParseMode.HTML
+                )
+            except Exception as e:
+                logger.error(f"Failed to show analysis GIF: {str(e)}")
+                # Fallback to text-only approach if GIF fails
+                await query.edit_message_text(
+                    text="Select your analysis type:",
+                    reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
+                    parse_mode=ParseMode.HTML
+                )
             
             return CHOOSE_ANALYSIS
         except Exception as e:
@@ -1389,7 +1411,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 logger.error(f"Failed to recover from error: {str(inner_e)}")
                 return MENU
 
-    async def show_main_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> None:
+    async def show_main_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None, skip_gif=False) -> None:
         """Show the main menu when /menu command is used"""
         # Use context.bot if available, otherwise use self.bot
         bot = context.bot if context is not None else self.bot
@@ -1402,11 +1424,36 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         if is_subscribed and not payment_failed:
             # Show the main menu for subscribed users
             reply_markup = InlineKeyboardMarkup(START_KEYBOARD)
-            await update.message.reply_text(
-                text=WELCOME_MESSAGE,
-                parse_mode='HTML',
-                reply_markup=reply_markup
-            )
+            
+            # If we should show the GIF
+            if not skip_gif:
+                try:
+                    # Get the menu GIF URL
+                    gif_url = await get_menu_gif()
+                    
+                    # Use the new send_gif_with_caption helper
+                    await send_gif_with_caption(
+                        update=update,
+                        gif_url=gif_url,
+                        caption=WELCOME_MESSAGE,
+                        reply_markup=reply_markup,
+                        parse_mode=ParseMode.HTML
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to send menu GIF: {str(e)}")
+                    # Fallback to text-only approach
+                    await update.message.reply_text(
+                        text=WELCOME_MESSAGE,
+                        parse_mode='HTML',
+                        reply_markup=reply_markup
+                    )
+            else:
+                # Skip GIF mode - just send text
+                await update.message.reply_text(
+                    text=WELCOME_MESSAGE,
+                    parse_mode='HTML',
+                    reply_markup=reply_markup
+                )
         else:
             # Handle non-subscribed users similar to start command
             await self.start_command(update, context)
@@ -1838,3 +1885,85 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 pass
             
             return CHOOSE_ANALYSIS
+
+    async def menu_signals_callback(self, update: Update, context=None) -> int:
+        """Handle menu_signals callback"""
+        query = update.callback_query
+        await query.answer()  # Respond to prevent loading icon
+        
+        try:
+            # Get the signals GIF URL
+            gif_url = await get_signals_gif()
+            
+            try:
+                # Create the message with the GIF using inline HTML
+                text = f'<a href="{gif_url}">&#8205;</a>\nWhat would you like to do with trading signals?'
+                
+                # Show the signals menu with GIF
+                await query.edit_message_text(
+                    text=text,
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD)
+                )
+            except Exception as e:
+                logger.error(f"Failed to show signals GIF: {str(e)}")
+                # Fallback to text-only approach if GIF fails
+                await query.edit_message_text(
+                    text="What would you like to do with trading signals?",
+                    reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD)
+                )
+            
+            return CHOOSE_SIGNALS
+        except Exception as e:
+            logger.error(f"Error in menu_signals_callback: {str(e)}")
+            
+            # If we can't edit the message, try to send a new one as fallback
+            try:
+                await query.message.reply_text(
+                    text="What would you like to do with trading signals?",
+                    reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD)
+                )
+                return CHOOSE_SIGNALS
+            except Exception as inner_e:
+                logger.error(f"Failed to recover from error: {str(inner_e)}")
+                return MENU
+
+    async def signals_add_callback(self, update: Update, context=None) -> int:
+        """Handle signals_add callback to add new signal preferences"""
+        query = update.callback_query
+        await query.answer()  # Respond to prevent loading icon
+        
+        try:
+            # Get a signals GIF URL
+            gif_url = await get_signals_gif()
+            
+            try:
+                # Create a message with the GIF using inline HTML
+                text = f'<a href="{gif_url}">&#8205;</a>\nSelect a market for trading signals:'
+                
+                # Show market selection for signals with GIF
+                await query.edit_message_text(
+                    text=text,
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD_SIGNALS)
+                )
+            except Exception as e:
+                logger.error(f"Failed to show signals GIF: {str(e)}")
+                # Fallback to text-only approach if GIF fails
+                await query.edit_message_text(
+                    text="Select a market for trading signals:",
+                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD_SIGNALS)
+                )
+            
+            return CHOOSE_MARKET
+        except Exception as e:
+            logger.error(f"Error in signals_add_callback: {str(e)}")
+            try:
+                await query.message.reply_text(
+                    text="Select a market for trading signals:",
+                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD_SIGNALS)
+                )
+                return CHOOSE_MARKET
+            except Exception as inner_e:
+                logger.error(f"Failed to recover from error: {str(inner_e)}")
+                return MENU
