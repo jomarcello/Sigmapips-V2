@@ -2317,3 +2317,48 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             except Exception:
                 pass
             return MENU
+
+    async def instrument_callback(self, update: Update, context=None) -> int:
+        """Handle instrument selection"""
+        query = update.callback_query
+        await query.answer()
+        
+        try:
+            # Extract instrument from callback data
+            # Handle different formats: instrument_EURUSD_chart, instrument_EURUSD_sentiment, etc.
+            parts = query.data.split('_')
+            if len(parts) >= 3:
+                instrument = parts[1]  # e.g., EURUSD
+                action_type = parts[2]  # e.g., chart, sentiment, calendar
+                
+                # Save instrument in context
+                if context and hasattr(context, 'user_data'):
+                    context.user_data['instrument'] = instrument
+                
+                logger.info(f"Processing {action_type} for instrument: {instrument}")
+                
+                # Handle different action types
+                if action_type == 'chart':
+                    return await self.show_technical_analysis(update, context, instrument=instrument)
+                elif action_type == 'sentiment':
+                    return await self.show_sentiment_analysis(update, context, instrument=instrument)
+                elif action_type == 'calendar':
+                    return await self.show_calendar_analysis(update, context, instrument=instrument)
+                else:
+                    raise ValueError(f"Unknown action type: {action_type}")
+            else:
+                raise ValueError(f"Invalid callback data format: {query.data}")
+                
+        except Exception as e:
+            logger.error(f"Error in instrument_callback: {str(e)}")
+            logger.exception(e)
+            
+            # Try to recover by going back to market selection
+            try:
+                await query.edit_message_text(
+                    text="An error occurred. Please try selecting a market again.",
+                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
+                )
+            except Exception:
+                pass
+            return CHOOSE_MARKET
