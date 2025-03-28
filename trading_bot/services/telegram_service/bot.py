@@ -1396,9 +1396,9 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         except Exception as e:
             logger.error(f"Error in menu_analyse_callback: {str(e)}")
             
-            # If we can't edit the message, try to send a new one as fallback
+            # If we can't edit the message, try again with a simpler approach as fallback
             try:
-                await query.message.reply_text(
+                await query.edit_message_text(
                     text="Select your analysis type:",
                     reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
                     parse_mode=ParseMode.HTML
@@ -1932,9 +1932,9 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         except Exception as e:
             logger.error(f"Error in menu_signals_callback: {str(e)}")
             
-            # If we can't edit the message, try to send a new one as fallback
+            # If we can't edit the message, try again with a simpler approach as fallback
             try:
-                await query.message.reply_text(
+                await query.edit_message_text(
                     text="What would you like to do with trading signals?",
                     parse_mode=ParseMode.HTML,
                     reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD)
@@ -1973,7 +1973,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         except Exception as e:
             logger.error(f"Error in signals_add_callback: {str(e)}")
             try:
-                await query.message.reply_text(
+                await query.edit_message_text(
                     text="Select a market for trading signals:",
                     parse_mode=ParseMode.HTML,
                     reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD_SIGNALS)
