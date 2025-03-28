@@ -39,7 +39,7 @@ from trading_bot.services.payment_service.stripe_config import get_subscription_
 from fastapi import Request, HTTPException, status
 
 # GIF utilities for richer UI experience
-from trading_bot.services.telegram_service.gif_utils import get_welcome_gif, get_menu_gif, get_analyse_gif, get_signals_gif, send_welcome_gif, send_menu_gif, send_analyse_gif, send_signals_gif, send_gif_with_caption, update_message_with_gif, embed_gif_in_text
+from trading_bot.services.telegram_service.gif_utils import get_welcome_gif, get_menu_gif, get_analyse_gif, get_signals_gif, send_welcome_gif, send_menu_gif, send_analyse_gif, send_signals_gif, send_gif_with_caption, update_message_with_gif, embed_gif_in_text, get_loading_gif
 import trading_bot.services.telegram_service.gif_utils as gif_utils
 
 logger = logging.getLogger(__name__)
@@ -2102,16 +2102,24 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         logger.info(f"Showing technical analysis for instrument: {instrument}")
         
         try:
-            # Show loading message
+            # Show loading message with loading GIF
             loading_text = f"Generating technical analysis for {instrument}..."
+            loading_gif = await get_loading_gif()
+            
             try:
-                await query.edit_message_text(text=loading_text)
+                await query.edit_message_media(
+                    media=InputMediaPhoto(
+                        media=loading_gif,
+                        caption=loading_text,
+                        parse_mode=ParseMode.HTML
+                    )
+                )
             except Exception as e:
-                logger.warning(f"Could not edit message text: {str(e)}")
+                logger.warning(f"Could not edit message with loading GIF: {str(e)}")
                 try:
-                    await query.edit_message_caption(caption=loading_text)
+                    await query.edit_message_text(text=loading_text)
                 except Exception as e:
-                    logger.error(f"Could not edit message caption: {str(e)}")
+                    logger.error(f"Could not edit message text: {str(e)}")
             
             # Get chart from chart service
             chart_url = await self.chart_service.get_chart(instrument)
