@@ -155,3 +155,59 @@ async def send_loading_gif(bot, chat_id, caption=None):
 async def get_loading_gif():
     """Get the loading GIF URL."""
     return "https://media1.giphy.com/media/v1.Y2lkPTc5MGI3NjExaWVkdzcxZHMydm8ybnBjYW9rNjd3b2gzeng2b3BhMjA0d3p5dDV1ZSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/gSzIKNrqtotEYrZv7i/giphy.gif"
+
+async def embed_gif_in_text(gif_url: str, text: str) -> str:
+    """
+    Embed a GIF URL in text using the HTML invisible character trick.
+    This allows GIFs to be displayed in edit_message_text calls.
+    
+    Args:
+        gif_url: URL of the GIF to embed
+        text: Text to display below the GIF
+        
+    Returns:
+        Formatted text with embedded GIF URL
+    """
+    return f'<a href="{gif_url}">&#8205;</a>\n{text}'
+
+async def update_message_with_gif(query: 'CallbackQuery', gif_url: str, text: str, 
+                              reply_markup=None, parse_mode=ParseMode.HTML) -> bool:
+    """
+    Update an existing message with a GIF and new text.
+    Uses the invisible character HTML trick to embed the GIF.
+    
+    Args:
+        query: The callback query containing the message to update
+        gif_url: URL of the GIF to embed
+        text: Text to display below the GIF
+        reply_markup: Optional keyboard markup
+        parse_mode: Parse mode for the text
+        
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        # Create the message with the GIF using inline HTML
+        formatted_text = await embed_gif_in_text(gif_url, text)
+        
+        # Update the message
+        await query.edit_message_text(
+            text=formatted_text,
+            parse_mode=parse_mode,
+            reply_markup=reply_markup
+        )
+        return True
+    except Exception as e:
+        logger.error(f"Failed to update message with GIF: {str(e)}")
+        
+        # Fallback to text-only approach
+        try:
+            await query.edit_message_text(
+                text=text,
+                parse_mode=parse_mode,
+                reply_markup=reply_markup
+            )
+            return True
+        except Exception as e2:
+            logger.error(f"Fallback update failed too: {str(e2)}")
+            return False
