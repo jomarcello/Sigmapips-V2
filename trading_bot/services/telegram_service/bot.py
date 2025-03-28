@@ -788,6 +788,336 @@ class TelegramService:
         application.add_handler(CallbackQueryHandler(
             self.back_to_signal_analysis_callback, pattern="^back_to_signal_analysis$"))
 
+    async def initialize(self, use_webhook=False):
+        """Initialize the bot and either start polling or return the app for webhook usage"""
+        try:
+            # Set bot commands
+            commands = [
+                BotCommand("start", "Start the bot"),
+                BotCommand("menu", "Show main menu"),
+                BotCommand("help", "Get help"),
+            ]
+            await self.bot.set_my_commands(commands)
+            logger.info("Bot commands set successfully")
+            
+            # Create application if not already done
+            if not self.application:
+                self.setup()
+            else:
+                # Make sure the application is initialized
+                try:
+                    await self.application.initialize()
+                    logger.info("Application initialized from initialize method")
+                except Exception as e:
+                    logger.error(f"Error initializing application: {str(e)}")
+                
+            # Register all handlers
+            self._register_handlers(self.application)
+                
+            # Enable or configure webhook based on use_webhook flag
+            if use_webhook:
+                logger.info(f"Setting up webhook configuration with URL {self.webhook_url}, port {os.getenv('PORT', 8080)}, path {self.webhook_path}")
+                # Return the bot for webhook usage
+                return self.bot
+            else:
+                # Start polling mode
+                await self._setup_polling_mode()
+                
+            logger.info("Bot initialized with webhook configuration")
+            
+        except Exception as e:
+            logger.error(f"Failed to initialize bot: {str(e)}")
+            logger.error(traceback.format_exc())
+            raise
+
+    async def _setup_polling_mode(self):
+        """Set up the bot for polling mode"""
+        try:
+            # Set commands
+            await self.bot.set_my_commands([
+                BotCommand("start", "Start the bot and show main menu"),
+                BotCommand("menu", "Show the main menu"),
+                BotCommand("help", "Get help"),
+            ])
+            
+            # Ensure signals are enabled in polling mode
+            logger.info("Initializing signal processing in polling mode")
+            # Make sure signals system is ready
+            self._load_signals()
+            
+            # Webhook checks - disable any existing webhooks
+            webhook_info = await self.bot.get_webhook_info()
+            if webhook_info.url:
+                await self.bot.delete_webhook()
+                logger.info(f"Deleted existing webhook at {webhook_info.url}")
+            
+            # Start polling
+            self._start_polling_thread()
+            
+        except Exception as e:
+            logger.error(f"Failed to set up polling mode: {str(e)}")
+            logger.error(traceback.format_exc())
+            
+    def _start_polling_thread(self):
+        """Run polling in a separate thread to avoid event loop issues"""
+        try:
+            logger.info("Starting polling in separate thread")
+            
+            # Create a new event loop for this thread
+            import asyncio
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            
+            # Set up a new Application instance for polling
+            from telegram.ext import ApplicationBuilder
+            polling_app = ApplicationBuilder().token(os.getenv("TELEGRAM_BOT_TOKEN")).build()
+            
+            # Copy the handlers from the main application
+            for handler in self.application.handlers.get(0, []):
+                polling_app.add_handler(handler)
+            
+            # Start polling (this will block the thread)
+            polling_app.run_polling(drop_pending_updates=True)
+            
+            logger.info("Polling thread finished")
+        except Exception as e:
+            logger.error(f"Error in polling thread: {str(e)}")
+            logger.exception(e)
+
+    async def setup_webhook(self, app):
+        """Set up the FastAPI webhook for Telegram."""
+        
+        try:
+            # Delete any existing webhook
+            await self.bot.delete_webhook(drop_pending_updates=True)
+            logger.info("Existing webhook deleted")
+            
+            # Set a consistent webhook path
+            webhook_path = "/webhook"
+            
+            # Get base URL from environment or default
+            base_url = os.getenv("WEBHOOK_URL", "").rstrip('/')
+            if not base_url:
+                base_url = "https://api.sigmapips.com"
+                logger.warning(f"WEBHOOK_URL not set. Using default: {base_url}")
+            
+            # Prevent duplicate webhook path by checking if base_url already ends with webhook_path
+            if base_url.endswith(webhook_path):
+                # Remove the duplicate webhook path from base URL
+                base_url = base_url[:-len(webhook_path)]
+                logger.info(f"Removed duplicate webhook path from base URL: {base_url}")
+            
+            # Build the complete webhook URL
+            webhook_url = f"{base_url}{webhook_path}"
+            logger.info(f"Setting webhook URL to: {webhook_url}")
+            
+            # Set the webhook
+            await self.bot.set_webhook(
+                url=webhook_url,
+                allowed_updates=["message", "callback_query", "my_chat_member"],
+                drop_pending_updates=True
+            )
+            
+            # Log the actual webhook info from Telegram
+            webhook_info = await self.bot.get_webhook_info()
+            logger.info(f"Webhook info: URL={webhook_info.url}, pending_updates={webhook_info.pending_update_count}")
+            
+            # Define the webhook route - keep it simple!
+            @app.post(webhook_path)
+            async def process_telegram_update(request: Request):
+                data = await request.json()
+                logger.info(f"Received update: {data.get('update_id', 'unknown')}")
+                await self.process_update(data)
+                return {"status": "ok"}
+                
+            logger.info(f"Webhook handler registered at path: {webhook_path}")
+                    
+            # Register the signal processing API endpoint
+            @app.post("/api/signals")
+            async def process_signal_api(request: Request):
+                try:
+                    signal_data = await request.json()
+                    
+                    # Validate API key if one is set
+                    api_key = request.headers.get("X-API-Key")
+                    expected_key = os.getenv("SIGNAL_API_KEY")
+                    
+                    if expected_key and api_key != expected_key:
+                        logger.warning(f"Invalid API key used in signal API request")
+                        return {"status": "error", "message": "Invalid API key"}
+                    
+                    # Process the signal
+                    success = await self.process_signal(signal_data)
+                    
+                    if success:
+                        return {"status": "success", "message": "Signal processed successfully"}
+                    else:
+                        return {"status": "error", "message": "Failed to process signal"}
+                    
+                except Exception as e:
+                    logger.error(f"Error processing signal API request: {str(e)}")
+                    logger.exception(e)
+                    return {"status": "error", "message": str(e)}
+            
+            # Register TradingView webhook endpoint at /signal
+            @app.post("/signal")
+            async def process_tradingview_signal(request: Request):
+                """Process TradingView webhook signal"""
+                try:
+                    # Get the signal data from the request
+                    signal_data = await request.json()
+                    logger.info(f"Received TradingView webhook signal: {signal_data}")
+                    
+                    # Process the signal
+                    success = await self.process_signal(signal_data)
+                    
+                    if success:
+                        return {"status": "success", "message": "Signal processed successfully"}
+                    else:
+                        return {"status": "error", "message": "Failed to process signal"}
+                        
+                except Exception as e:
+                    logger.error(f"Error processing TradingView webhook signal: {str(e)}")
+                    logger.exception(e)
+                    return {"status": "error", "message": str(e)}
+            
+            logger.info(f"Signal API endpoint registered at /api/signals")
+            logger.info(f"TradingView signal endpoint registered at /signal")
+            
+            # Enable signals functionality in webhook mode
+            logger.info("Initializing signal processing in webhook mode")
+            self._load_signals()
+            
+            return app
+            
+        except Exception as e:
+            logger.error(f"Error setting up webhook: {str(e)}")
+            logger.exception(e)
+            return app
+
+    async def process_update(self, update_data: dict):
+        """Process an update from the Telegram webhook."""
+        try:
+            # Parse the update
+            update = Update.de_json(data=update_data, bot=self.bot)
+            logger.info(f"Received Telegram update: {update.update_id}")
+            
+            # Check if this is a command message
+            if update.message and update.message.text and update.message.text.startswith('/'):
+                command = update.message.text.split(' ')[0].lower()
+                logger.info(f"Received command: {command}")
+                
+                # Direct command handling with None context (will use self.bot internally)
+                try:
+                    if command == '/start':
+                        await self.start_command(update, None)
+                        return
+                    elif command == '/menu':
+                        await self.show_main_menu(update, None)
+                        return
+                    elif command == '/help':
+                        await self.help_command(update, None)
+                        return
+                except asyncio.CancelledError:
+                    logger.warning(f"Command processing was cancelled for update {update.update_id}")
+                    return
+                except Exception as cmd_e:
+                    logger.error(f"Error handling command {command}: {str(cmd_e)}")
+                    logger.exception(cmd_e)
+                    # Try to send an error message to the user
+                    try:
+                        await self.bot.send_message(
+                            chat_id=update.effective_chat.id,
+                            text="Sorry, there was an error processing your command. Please try again later."
+                        )
+                    except Exception:
+                        pass  # Ignore if we can't send the error message
+                    return
+            
+            # Check if this is a callback query (button press)
+            if update.callback_query:
+                try:
+                    logger.info(f"Received callback query: {update.callback_query.data}")
+                    await self.button_callback(update, None)
+                    return
+                except asyncio.CancelledError:
+                    logger.warning(f"Button callback processing was cancelled for update {update.update_id}")
+                    return
+                except Exception as cb_e:
+                    logger.error(f"Error handling callback query {update.callback_query.data}: {str(cb_e)}")
+                    logger.exception(cb_e)
+                    # Try to notify the user
+                    try:
+                        await update.callback_query.answer(text="Error processing. Please try again.")
+                    except Exception:
+                        pass  # Ignore if we can't send the error message
+                    return
+            
+            # Try to process the update with the application if it's initialized
+            try:
+                # First check if the application is initialized
+                if self.application:
+                    try:
+                        # Process the update with a timeout
+                        await asyncio.wait_for(
+                            self.application.process_update(update),
+                            timeout=45.0  # Increased from 30 to 45 seconds timeout
+                        )
+                    except asyncio.CancelledError:
+                        logger.warning(f"Application processing was cancelled for update {update.update_id}")
+                    except RuntimeError as re:
+                        if "not initialized" in str(re).lower():
+                            logger.warning("Application not initialized, trying to initialize it")
+                            try:
+                                await self.application.initialize()
+                                await self.application.process_update(update)
+                            except Exception as init_e:
+                                logger.error(f"Failed to initialize application on-the-fly: {str(init_e)}")
+                    except asyncio.TimeoutError:
+                        logger.warning(f"Update {update.update_id} processing timed out, continuing with next update")
+                    except Exception as e:
+                        logger.error(f"Error processing update with application: {str(e)}")
+                        logger.error(traceback.format_exc())
+                else:
+                    logger.warning("Application not available to process update")
+            except Exception as e:
+                logger.error(f"Error in update processing: {str(e)}")
+                logger.error(traceback.format_exc())
+        except Exception as e:
+            logger.error(f"Failed to process update data: {str(e)}")
+            logger.error(traceback.format_exc())
+
+    def setup(self):
+        """Set up the bot with all handlers"""
+        # Build application with the existing bot instance
+        application = Application.builder().bot(self.bot).build()
+        
+        # Command handlers
+        application.add_handler(CommandHandler("start", self.start_command))
+        application.add_handler(CommandHandler("menu", self.show_main_menu))
+        application.add_handler(CommandHandler("help", self.help_command))
+        application.add_handler(CommandHandler("set_subscription", self.set_subscription_command))
+        application.add_handler(CommandHandler("set_payment_failed", self.set_payment_failed_command))
+        
+        # Callback query handler for all button presses
+        application.add_handler(CallbackQueryHandler(self.button_callback))
+        
+        self.application = application
+        
+        # Initialize the application synchronously using a loop
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_closed():
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+            loop.run_until_complete(self.application.initialize())
+            logger.info("Application initialized successfully")
+        except Exception as e:
+            logger.error(f"Error initializing application: {str(e)}")
+            logger.exception(e)
+            
+        return application
+
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> None:
         """Send a welcome message when the bot is started."""
         user = update.effective_user
