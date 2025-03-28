@@ -2237,3 +2237,83 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             except Exception:
                 pass
             return MENU
+
+    async def market_callback(self, update: Update, context=None) -> int:
+        """Handle market selection"""
+        query = update.callback_query
+        await query.answer()
+        
+        try:
+            # Extract market type from callback data
+            market_type = query.data.split('_')[1]  # e.g., 'forex' from 'market_forex'
+            
+            # Get analysis type from context
+            analysis_type = None
+            if context and hasattr(context, 'user_data'):
+                analysis_type = context.user_data.get('analysis_type')
+            
+            # Determine which keyboard to show based on market and analysis type
+            if market_type == 'forex':
+                if analysis_type == 'sentiment':
+                    keyboard = FOREX_SENTIMENT_KEYBOARD
+                elif analysis_type == 'calendar':
+                    keyboard = FOREX_CALENDAR_KEYBOARD
+                else:
+                    keyboard = FOREX_KEYBOARD
+            elif market_type == 'crypto':
+                if analysis_type == 'sentiment':
+                    keyboard = CRYPTO_SENTIMENT_KEYBOARD
+                else:
+                    keyboard = CRYPTO_KEYBOARD
+            elif market_type == 'indices':
+                keyboard = INDICES_KEYBOARD
+            elif market_type == 'commodities':
+                keyboard = COMMODITIES_KEYBOARD
+            else:
+                raise ValueError(f"Unknown market type: {market_type}")
+            
+            # Save market type in context
+            if context and hasattr(context, 'user_data'):
+                context.user_data['market'] = market_type
+            
+            # Update message with appropriate keyboard
+            try:
+                await query.edit_message_text(
+                    text=f"Select an instrument for {market_type.upper()}:",
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.HTML
+                )
+            except Exception as text_error:
+                # If that fails due to caption, try editing caption
+                if "There is no text in the message to edit" in str(text_error):
+                    try:
+                        await query.edit_message_caption(
+                            caption=f"Select an instrument for {market_type.upper()}:",
+                            reply_markup=InlineKeyboardMarkup(keyboard),
+                            parse_mode=ParseMode.HTML
+                        )
+                    except Exception as e:
+                        logger.error(f"Failed to update caption: {str(e)}")
+                        # Try to send a new message as last resort
+                        await query.message.reply_text(
+                            text=f"Select an instrument for {market_type.upper()}:",
+                            reply_markup=InlineKeyboardMarkup(keyboard),
+                            parse_mode=ParseMode.HTML
+                        )
+                else:
+                    # Re-raise for other errors
+                    raise
+            
+            return CHOOSE_INSTRUMENT
+            
+        except Exception as e:
+            logger.error(f"Error in market_callback: {str(e)}")
+            # Try to recover by going back to main menu
+            try:
+                await query.edit_message_text(
+                    text="An error occurred. Returning to main menu...",
+                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
+                )
+            except Exception:
+                pass
+            return MENU
