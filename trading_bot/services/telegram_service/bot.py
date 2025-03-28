@@ -1386,11 +1386,21 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             
             if not success:
                 # If the helper function failed, try a direct approach as fallback
-                await query.edit_message_text(
-                    text="Select your analysis type:",
-                    reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
-                    parse_mode=ParseMode.HTML
-                )
+                try:
+                    # First try to edit message text
+                    await query.edit_message_text(
+                        text="Select your analysis type:",
+                        reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
+                        parse_mode=ParseMode.HTML
+                    )
+                except Exception as text_error:
+                    # If that fails due to caption, try editing caption
+                    if "There is no text in the message to edit" in str(text_error):
+                        await query.edit_message_caption(
+                            caption="Select your analysis type:",
+                            reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
+                            parse_mode=ParseMode.HTML
+                        )
             
             return CHOOSE_ANALYSIS
         except Exception as e:
@@ -1398,14 +1408,35 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             
             # If we can't edit the message, try again with a simpler approach as fallback
             try:
-                await query.edit_message_text(
-                    text="Select your analysis type:",
-                    reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
-                    parse_mode=ParseMode.HTML
-                )
+                # First try editing the caption
+                try:
+                    await query.edit_message_caption(
+                        caption="Select your analysis type:",
+                        reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
+                        parse_mode=ParseMode.HTML
+                    )
+                except Exception as caption_error:
+                    # If that fails, try editing text
+                    await query.edit_message_text(
+                        text="Select your analysis type:",
+                        reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
+                        parse_mode=ParseMode.HTML
+                    )
                 return CHOOSE_ANALYSIS
             except Exception as inner_e:
                 logger.error(f"Failed to recover from error: {str(inner_e)}")
+                
+                # Last resort: send a new message
+                try:
+                    await query.message.reply_text(
+                        text="Select your analysis type:",
+                        reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
+                        parse_mode=ParseMode.HTML
+                    )
+                    logger.warning("Fallback to sending new message - ideally this should be avoided")
+                except Exception:
+                    pass
+                    
                 return MENU
 
     async def show_main_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None, skip_gif=False) -> None:
@@ -1922,11 +1953,21 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             
             if not success:
                 # If the helper function failed, try a direct approach as fallback
-                await query.edit_message_text(
-                    text="What would you like to do with trading signals?",
-                    parse_mode=ParseMode.HTML,
-                    reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD)
-                )
+                try:
+                    # First try to edit message text
+                    await query.edit_message_text(
+                        text="What would you like to do with trading signals?",
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD)
+                    )
+                except Exception as text_error:
+                    # If that fails due to caption, try editing caption
+                    if "There is no text in the message to edit" in str(text_error):
+                        await query.edit_message_caption(
+                            caption="What would you like to do with trading signals?",
+                            parse_mode=ParseMode.HTML,
+                            reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD)
+                        )
             
             return CHOOSE_SIGNALS
         except Exception as e:
@@ -1934,14 +1975,35 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             
             # If we can't edit the message, try again with a simpler approach as fallback
             try:
-                await query.edit_message_text(
-                    text="What would you like to do with trading signals?",
-                    parse_mode=ParseMode.HTML,
-                    reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD)
-                )
+                # First try editing the caption
+                try:
+                    await query.edit_message_caption(
+                        caption="What would you like to do with trading signals?",
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD)
+                    )
+                except Exception as caption_error:
+                    # If that fails, try editing text
+                    await query.edit_message_text(
+                        text="What would you like to do with trading signals?",
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD)
+                    )
                 return CHOOSE_SIGNALS
             except Exception as inner_e:
                 logger.error(f"Failed to recover from error: {str(inner_e)}")
+                
+                # Last resort: send a new message
+                try:
+                    await query.message.reply_text(
+                        text="What would you like to do with trading signals?",
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD)
+                    )
+                    logger.warning("Fallback to sending new message - ideally this should be avoided")
+                except Exception:
+                    pass
+                    
                 return MENU
 
     async def signals_add_callback(self, update: Update, context=None) -> int:
@@ -1963,24 +2025,57 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             
             if not success:
                 # If the helper function failed, try a direct approach as fallback
-                await query.edit_message_text(
-                    text="Select a market for trading signals:",
-                    parse_mode=ParseMode.HTML,
-                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD_SIGNALS)
-                )
+                try:
+                    # First try to edit message text
+                    await query.edit_message_text(
+                        text="Select a market for trading signals:",
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD_SIGNALS)
+                    )
+                except Exception as text_error:
+                    # If that fails due to caption, try editing caption
+                    if "There is no text in the message to edit" in str(text_error):
+                        await query.edit_message_caption(
+                            caption="Select a market for trading signals:",
+                            parse_mode=ParseMode.HTML,
+                            reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD_SIGNALS)
+                        )
             
             return CHOOSE_MARKET
         except Exception as e:
             logger.error(f"Error in signals_add_callback: {str(e)}")
+            
+            # If we can't edit the message, try again with a simpler approach as fallback
             try:
-                await query.edit_message_text(
-                    text="Select a market for trading signals:",
-                    parse_mode=ParseMode.HTML,
-                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD_SIGNALS)
-                )
+                # First try editing the caption
+                try:
+                    await query.edit_message_caption(
+                        caption="Select a market for trading signals:",
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD_SIGNALS)
+                    )
+                except Exception as caption_error:
+                    # If that fails, try editing text
+                    await query.edit_message_text(
+                        text="Select a market for trading signals:",
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD_SIGNALS)
+                    )
                 return CHOOSE_MARKET
             except Exception as inner_e:
                 logger.error(f"Failed to recover from error: {str(inner_e)}")
+                
+                # Last resort: send a new message
+                try:
+                    await query.message.reply_text(
+                        text="Select a market for trading signals:",
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD_SIGNALS)
+                    )
+                    logger.warning("Fallback to sending new message - ideally this should be avoided")
+                except Exception:
+                    pass
+                    
                 return MENU
 
     async def back_menu_callback(self, update: Update, context=None) -> int:
