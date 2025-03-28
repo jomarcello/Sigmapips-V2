@@ -39,7 +39,7 @@ from trading_bot.services.payment_service.stripe_config import get_subscription_
 from fastapi import Request, HTTPException, status
 
 # GIF utilities for richer UI experience
-from trading_bot.services.telegram_service.gif_utils import get_welcome_gif, get_menu_gif, get_analyse_gif, get_signals_gif, send_welcome_gif, send_menu_gif, send_analyse_gif, send_signals_gif, send_gif_with_caption
+from trading_bot.services.telegram_service.gif_utils import get_welcome_gif, get_menu_gif, get_analyse_gif, get_signals_gif, send_welcome_gif, send_menu_gif, send_analyse_gif, send_signals_gif, send_gif_with_caption, update_message_with_gif, embed_gif_in_text
 import trading_bot.services.telegram_service.gif_utils as gif_utils
 
 logger = logging.getLogger(__name__)
@@ -1376,19 +1376,16 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Get an analysis GIF URL
             gif_url = await get_analyse_gif()
             
-            try:
-                # Create a message with the GIF using inline HTML
-                text = f'<a href="{gif_url}">&#8205;</a>\nSelect your analysis type:'
-                
-                # Show the analysis menu by editing the current message
-                await query.edit_message_text(
-                    text=text,
-                    reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
-                    parse_mode=ParseMode.HTML
-                )
-            except Exception as e:
-                logger.error(f"Failed to show analysis GIF: {str(e)}")
-                # Fallback to text-only approach if GIF fails
+            # Update the message with the GIF using the helper function
+            success = await update_message_with_gif(
+                query=query,
+                gif_url=gif_url,
+                text="Select your analysis type:",
+                reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
+            )
+            
+            if not success:
+                # If the helper function failed, try a direct approach as fallback
                 await query.edit_message_text(
                     text="Select your analysis type:",
                     reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
@@ -1431,27 +1428,47 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     # Get the menu GIF URL
                     gif_url = await get_menu_gif()
                     
-                    # Use the new send_gif_with_caption helper
-                    await send_gif_with_caption(
-                        update=update,
-                        gif_url=gif_url,
-                        caption=WELCOME_MESSAGE,
-                        reply_markup=reply_markup,
-                        parse_mode=ParseMode.HTML
-                    )
+                    # For message commands we can use reply_animation
+                    if hasattr(update, 'message') and update.message:
+                        # Send the GIF using regular animation method
+                        await update.message.reply_animation(
+                            animation=gif_url,
+                            caption=WELCOME_MESSAGE,
+                            parse_mode=ParseMode.HTML,
+                            reply_markup=reply_markup
+                        )
+                    else:
+                        # For callback queries or other updates where we don't have a direct message
+                        # Use the invisible character trick with HTML
+                        text = f'<a href="{gif_url}">&#8205;</a>\n{WELCOME_MESSAGE}'
+                        
+                        if hasattr(update, 'callback_query') and update.callback_query:
+                            # Edit the existing message
+                            await update.callback_query.edit_message_text(
+                                text=text,
+                                parse_mode=ParseMode.HTML,
+                                reply_markup=reply_markup
+                            )
+                        else:
+                            # Final fallback - try to send a new message
+                            await update.message.reply_text(
+                                text=text,
+                                parse_mode=ParseMode.HTML,
+                                reply_markup=reply_markup
+                            )
                 except Exception as e:
                     logger.error(f"Failed to send menu GIF: {str(e)}")
                     # Fallback to text-only approach
                     await update.message.reply_text(
                         text=WELCOME_MESSAGE,
-                        parse_mode='HTML',
+                        parse_mode=ParseMode.HTML,
                         reply_markup=reply_markup
                     )
             else:
                 # Skip GIF mode - just send text
                 await update.message.reply_text(
                     text=WELCOME_MESSAGE,
-                    parse_mode='HTML',
+                    parse_mode=ParseMode.HTML,
                     reply_markup=reply_markup
                 )
         else:
@@ -1895,21 +1912,19 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Get the signals GIF URL
             gif_url = await get_signals_gif()
             
-            try:
-                # Create the message with the GIF using inline HTML
-                text = f'<a href="{gif_url}">&#8205;</a>\nWhat would you like to do with trading signals?'
-                
-                # Show the signals menu with GIF
-                await query.edit_message_text(
-                    text=text,
-                    parse_mode=ParseMode.HTML,
-                    reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD)
-                )
-            except Exception as e:
-                logger.error(f"Failed to show signals GIF: {str(e)}")
-                # Fallback to text-only approach if GIF fails
+            # Update the message with the GIF using the helper function
+            success = await update_message_with_gif(
+                query=query,
+                gif_url=gif_url,
+                text="What would you like to do with trading signals?",
+                reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD)
+            )
+            
+            if not success:
+                # If the helper function failed, try a direct approach as fallback
                 await query.edit_message_text(
                     text="What would you like to do with trading signals?",
+                    parse_mode=ParseMode.HTML,
                     reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD)
                 )
             
@@ -1921,6 +1936,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             try:
                 await query.message.reply_text(
                     text="What would you like to do with trading signals?",
+                    parse_mode=ParseMode.HTML,
                     reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD)
                 )
                 return CHOOSE_SIGNALS
@@ -1937,21 +1953,19 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Get a signals GIF URL
             gif_url = await get_signals_gif()
             
-            try:
-                # Create a message with the GIF using inline HTML
-                text = f'<a href="{gif_url}">&#8205;</a>\nSelect a market for trading signals:'
-                
-                # Show market selection for signals with GIF
-                await query.edit_message_text(
-                    text=text,
-                    parse_mode=ParseMode.HTML,
-                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD_SIGNALS)
-                )
-            except Exception as e:
-                logger.error(f"Failed to show signals GIF: {str(e)}")
-                # Fallback to text-only approach if GIF fails
+            # Update the message with the GIF using the helper function
+            success = await update_message_with_gif(
+                query=query,
+                gif_url=gif_url,
+                text="Select a market for trading signals:",
+                reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD_SIGNALS)
+            )
+            
+            if not success:
+                # If the helper function failed, try a direct approach as fallback
                 await query.edit_message_text(
                     text="Select a market for trading signals:",
+                    parse_mode=ParseMode.HTML,
                     reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD_SIGNALS)
                 )
             
@@ -1961,9 +1975,51 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             try:
                 await query.message.reply_text(
                     text="Select a market for trading signals:",
+                    parse_mode=ParseMode.HTML,
                     reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD_SIGNALS)
                 )
                 return CHOOSE_MARKET
+            except Exception as inner_e:
+                logger.error(f"Failed to recover from error: {str(inner_e)}")
+                return MENU
+
+    async def back_menu_callback(self, update: Update, context=None) -> int:
+        """Handle back_menu callback to return to the main menu"""
+        query = update.callback_query
+        await query.answer()  # Respond to prevent loading icon
+        
+        try:
+            # Get the menu GIF URL
+            gif_url = await get_menu_gif()
+            
+            # Update the message with the GIF using the helper function
+            success = await update_message_with_gif(
+                query=query,
+                gif_url=gif_url,
+                text=WELCOME_MESSAGE,
+                reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
+            )
+            
+            if not success:
+                # If the helper function failed, try a direct approach as fallback
+                await query.edit_message_text(
+                    text=WELCOME_MESSAGE,
+                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
+                    parse_mode=ParseMode.HTML
+                )
+            
+            return MENU
+        except Exception as e:
+            logger.error(f"Error in back_menu_callback: {str(e)}")
+            
+            # If we can't edit the message, try to send a new one as fallback
+            try:
+                await query.message.reply_text(
+                    text=WELCOME_MESSAGE,
+                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
+                    parse_mode=ParseMode.HTML
+                )
+                return MENU
             except Exception as inner_e:
                 logger.error(f"Failed to recover from error: {str(inner_e)}")
                 return MENU
