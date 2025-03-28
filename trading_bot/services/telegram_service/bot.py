@@ -2281,3 +2281,550 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     pass
                     
                 return MENU
+
+    async def market_callback(self, update: Update, context=None) -> int:
+        """Handle market_ callback for selecting markets"""
+        query = update.callback_query
+        await query.answer()
+        
+        # Extract the market type and check if it's a signal context
+        callback_data = query.data
+        is_signal_context = callback_data.endswith("_signals")
+        is_sentiment_context = callback_data.endswith("_sentiment")
+        
+        # Set message text based on context
+        if is_signal_context:
+            message_text = "Select an instrument for signals:"
+        elif is_sentiment_context:
+            message_text = "Select an instrument for sentiment analysis:"
+        else:
+            message_text = "Select an instrument for analysis:"
+        
+        # Determine which market was selected
+        if "forex" in callback_data:
+            if is_signal_context:
+                keyboard = FOREX_KEYBOARD_SIGNALS
+            elif is_sentiment_context:
+                keyboard = FOREX_SENTIMENT_KEYBOARD
+            else:
+                keyboard = FOREX_KEYBOARD
+        elif "crypto" in callback_data:
+            if is_signal_context:
+                keyboard = CRYPTO_KEYBOARD_SIGNALS
+            elif is_sentiment_context:
+                keyboard = CRYPTO_SENTIMENT_KEYBOARD
+            else:
+                keyboard = CRYPTO_KEYBOARD
+        elif "indices" in callback_data:
+            if is_signal_context:
+                keyboard = INDICES_KEYBOARD_SIGNALS
+            else:
+                keyboard = INDICES_KEYBOARD
+        elif "commodities" in callback_data:
+            if is_signal_context:
+                keyboard = COMMODITIES_KEYBOARD_SIGNALS
+            else:
+                keyboard = COMMODITIES_KEYBOARD
+        else:
+            # Default to forex if market type not recognized
+            if is_signal_context:
+                keyboard = FOREX_KEYBOARD_SIGNALS
+            else:
+                keyboard = FOREX_KEYBOARD
+        
+        # Try to update the message with the appropriate keyboard
+        try:
+            # First try to edit message text
+            await query.edit_message_text(
+                text=message_text,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode=ParseMode.HTML
+            )
+        except Exception as text_error:
+            # If that fails due to caption, try editing caption
+            if "There is no text in the message to edit" in str(text_error):
+                try:
+                    await query.edit_message_caption(
+                        caption=message_text,
+                        reply_markup=InlineKeyboardMarkup(keyboard),
+                        parse_mode=ParseMode.HTML
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to update caption in market_callback: {str(e)}")
+                    # Try to send a new message as last resort
+                    await query.message.reply_text(
+                        text=message_text,
+                        reply_markup=InlineKeyboardMarkup(keyboard),
+                        parse_mode=ParseMode.HTML
+                    )
+                    logger.warning("Fallback to sending new message in market_callback - ideally this should be avoided")
+            else:
+                # Re-raise for other errors
+                raise
+        
+        # Save the selected market in the context if available
+        if context and hasattr(context, 'user_data'):
+            market_type = callback_data.replace("market_", "").replace("_signals", "").replace("_sentiment", "")
+            context.user_data['market'] = market_type
+            
+        return CHOOSE_INSTRUMENT
+
+    async def analysis_callback(self, update: Update, context=None) -> int:
+        """Handle back to analysis menu callbacks"""
+        query = update.callback_query
+        await query.answer()
+        
+        try:
+            # Get an analysis GIF URL
+            gif_url = await get_analyse_gif()
+            
+            # Update the message with the GIF using the helper function
+            success = await update_message_with_gif(
+                query=query,
+                gif_url=gif_url,
+                text="Select your analysis type:",
+                reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
+            )
+            
+            if not success:
+                # If the helper function failed, try a direct approach as fallback
+                try:
+                    # First try to edit message text
+                    await query.edit_message_text(
+                        text="Select your analysis type:",
+                        reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
+                        parse_mode=ParseMode.HTML
+                    )
+                except Exception as text_error:
+                    # If that fails due to caption, try editing caption
+                    if "There is no text in the message to edit" in str(text_error):
+                        try:
+                            await query.edit_message_caption(
+                                caption="Select your analysis type:",
+                                reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
+                                parse_mode=ParseMode.HTML
+                            )
+                        except Exception as e:
+                            logger.error(f"Failed to update caption in analysis_callback: {str(e)}")
+                            # Try to send a new message as last resort
+                            await query.message.reply_text(
+                                text="Select your analysis type:",
+                                reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
+                                parse_mode=ParseMode.HTML
+                            )
+                            logger.warning("Fallback to sending new message in analysis_callback")
+                    else:
+                        # Re-raise for other errors
+                        raise
+            
+            return CHOOSE_ANALYSIS
+        except Exception as e:
+            logger.error(f"Error in analysis_callback: {str(e)}")
+            
+            # If we can't edit the message, try again with a simpler approach as fallback
+            try:
+                # First try editing the caption
+                try:
+                    await query.edit_message_caption(
+                        caption="Select your analysis type:",
+                        reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
+                        parse_mode=ParseMode.HTML
+                    )
+                except Exception as caption_error:
+                    # If that fails, try editing text
+                    await query.edit_message_text(
+                        text="Select your analysis type:",
+                        reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
+                        parse_mode=ParseMode.HTML
+                    )
+                return CHOOSE_ANALYSIS
+            except Exception as inner_e:
+                logger.error(f"Failed to recover from error: {str(inner_e)}")
+                
+                # Last resort: send a new message
+                try:
+                    await query.message.reply_text(
+                        text="Select your analysis type:",
+                        reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
+                        parse_mode=ParseMode.HTML
+                    )
+                    logger.warning("Fallback to sending new message - ideally this should be avoided")
+                except Exception:
+                    pass
+                    
+                return MENU
+
+    async def back_market_callback(self, update: Update, context=None) -> int:
+        """Handle back_market button to return to market selection"""
+        query = update.callback_query
+        await query.answer()
+        
+        # Check if we're in a signal context by looking in the context
+        is_signals_context = False
+        analysis_type = None
+        
+        if context and hasattr(context, 'user_data'):
+            analysis_type = context.user_data.get('analysis_type')
+            is_signals_context = context.user_data.get('is_signals_context', False)
+        
+        # Determine which keyboard to show based on context
+        if is_signals_context:
+            keyboard = MARKET_KEYBOARD_SIGNALS
+            message_text = "Select a market for trading signals:"
+        elif analysis_type == 'sentiment':
+            keyboard = MARKET_SENTIMENT_KEYBOARD
+            message_text = "Select market for sentiment analysis:"
+        elif analysis_type == 'calendar':
+            keyboard = MARKET_KEYBOARD  # Use general market keyboard
+            message_text = "Select market for economic calendar analysis:"
+        else:
+            # Default to technical analysis
+            keyboard = MARKET_KEYBOARD
+            message_text = "Select market for technical analysis:"
+        
+        try:
+            # First try to edit message text
+            await query.edit_message_text(
+                text=message_text,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode=ParseMode.HTML
+            )
+        except Exception as text_error:
+            # If that fails due to caption, try editing caption
+            if "There is no text in the message to edit" in str(text_error):
+                try:
+                    await query.edit_message_caption(
+                        caption=message_text,
+                        reply_markup=InlineKeyboardMarkup(keyboard),
+                        parse_mode=ParseMode.HTML
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to update caption in back_market_callback: {str(e)}")
+                    # Try to send a new message as last resort
+                    await query.message.reply_text(
+                        text=message_text,
+                        reply_markup=InlineKeyboardMarkup(keyboard),
+                        parse_mode=ParseMode.HTML
+                    )
+                    logger.warning("Fallback to sending new message in back_market_callback")
+            else:
+                # Re-raise for other errors
+                raise
+                
+        return CHOOSE_MARKET
+
+    async def back_instrument_callback(self, update: Update, context=None) -> int:
+        """Handle back_instrument button to return to instrument selection"""
+        query = update.callback_query
+        await query.answer()
+        
+        # Check context for market and analysis type
+        market = None
+        analysis_type = None
+        is_signals_context = False
+        
+        if context and hasattr(context, 'user_data'):
+            market = context.user_data.get('market')
+            analysis_type = context.user_data.get('analysis_type')
+            is_signals_context = context.user_data.get('is_signals_context', False)
+        
+        # Default to forex if no market is found
+        if not market:
+            market = "forex"
+        
+        # Set the message text
+        if is_signals_context:
+            message_text = f"Select an instrument from {market} for signals:"
+        else:
+            message_text = f"Select an instrument from {market} for analysis:"
+        
+        # Determine which keyboard to use based on market and context
+        keyboard = None
+        
+        if market == "forex":
+            if is_signals_context:
+                keyboard = FOREX_KEYBOARD_SIGNALS
+            elif analysis_type == 'sentiment':
+                keyboard = FOREX_SENTIMENT_KEYBOARD
+            else:
+                keyboard = FOREX_KEYBOARD
+        elif market == "crypto":
+            if is_signals_context:
+                keyboard = CRYPTO_KEYBOARD_SIGNALS
+            elif analysis_type == 'sentiment':
+                keyboard = CRYPTO_SENTIMENT_KEYBOARD
+            else:
+                keyboard = CRYPTO_KEYBOARD
+        elif market == "indices":
+            if is_signals_context:
+                keyboard = INDICES_KEYBOARD_SIGNALS
+            else:
+                keyboard = INDICES_KEYBOARD
+        elif market == "commodities":
+            if is_signals_context:
+                keyboard = COMMODITIES_KEYBOARD_SIGNALS
+            else:
+                keyboard = COMMODITIES_KEYBOARD
+        else:
+            # Default to forex
+            if is_signals_context:
+                keyboard = FOREX_KEYBOARD_SIGNALS
+            else:
+                keyboard = FOREX_KEYBOARD
+        
+        try:
+            # First try to edit message text
+            await query.edit_message_text(
+                text=message_text,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode=ParseMode.HTML
+            )
+        except Exception as text_error:
+            # If that fails due to caption, try editing caption
+            if "There is no text in the message to edit" in str(text_error):
+                try:
+                    await query.edit_message_caption(
+                        caption=message_text,
+                        reply_markup=InlineKeyboardMarkup(keyboard),
+                        parse_mode=ParseMode.HTML
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to update caption in back_instrument_callback: {str(e)}")
+                    # Try to send a new message as last resort
+                    await query.message.reply_text(
+                        text=message_text,
+                        reply_markup=InlineKeyboardMarkup(keyboard),
+                        parse_mode=ParseMode.HTML
+                    )
+                    logger.warning("Fallback to sending new message in back_instrument_callback")
+            else:
+                # Re-raise for other errors
+                raise
+                
+        return CHOOSE_INSTRUMENT
+
+    async def instrument_callback(self, update: Update, context=None) -> int:
+        """Handle instrument selection for analyses"""
+        query = update.callback_query
+        await query.answer()
+        
+        # Extract instrument and type from callback data
+        callback_data = query.data
+        parts = callback_data.split("_")
+        
+        # Determine the type of analysis
+        analysis_type = None
+        if "_chart" in callback_data:
+            analysis_type = "technical"
+        elif "_sentiment" in callback_data:
+            analysis_type = "sentiment"
+        elif "_calendar" in callback_data:
+            analysis_type = "calendar"
+        else:
+            # Default to technical analysis
+            analysis_type = "technical"
+            
+        # Extract instrument name (could be between instrument_ and _type)
+        instrument = None
+        if len(parts) >= 3:
+            # For format like "instrument_BTCUSD_chart"
+            instrument = parts[1]
+        elif len(parts) == 2:
+            # For simple format like "instrument_BTCUSD"
+            instrument = parts[1]
+            
+        # Save instrument and analysis type to context
+        if context and hasattr(context, 'user_data'):
+            context.user_data['instrument'] = instrument
+            context.user_data['analysis_type'] = analysis_type
+            
+        # Log the detected instrument and analysis type
+        logger.info(f"Selected instrument: {instrument}, analysis type: {analysis_type}")
+        
+        # Redirect to the appropriate analysis function
+        if analysis_type == "technical":
+            return await self.show_technical_analysis(update, context, instrument=instrument)
+        elif analysis_type == "sentiment":
+            return await self.show_sentiment_analysis(update, context, instrument=instrument)
+        elif analysis_type == "calendar":
+            return await self.show_calendar_analysis(update, context, instrument=instrument)
+        else:
+            # Default to technical analysis
+            return await self.show_technical_analysis(update, context, instrument=instrument)
+
+    async def market_signals_callback(self, update: Update, context=None) -> int:
+        """Handle signals market selection"""
+        query = update.callback_query
+        await query.answer()
+        
+        # Set the signal context flag
+        if context and hasattr(context, 'user_data'):
+            context.user_data['is_signals_context'] = True
+        
+        # Get the signals GIF URL
+        gif_url = await get_signals_gif()
+        
+        # Update the message with the GIF and keyboard
+        success = await update_message_with_gif(
+            query=query,
+            gif_url=gif_url,
+            text="Select a market for trading signals:",
+            reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD_SIGNALS)
+        )
+        
+        if not success:
+            # If the helper function failed, try a direct approach as fallback
+            try:
+                # First try to edit message text
+                await query.edit_message_text(
+                    text="Select a market for trading signals:",
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD_SIGNALS)
+                )
+            except Exception as text_error:
+                # If that fails due to caption, try editing caption
+                if "There is no text in the message to edit" in str(text_error):
+                    try:
+                        await query.edit_message_caption(
+                            caption="Select a market for trading signals:",
+                            parse_mode=ParseMode.HTML,
+                            reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD_SIGNALS)
+                        )
+                    except Exception as e:
+                        logger.error(f"Failed to update caption in market_signals_callback: {str(e)}")
+                        # Try to send a new message as last resort
+                        await query.message.reply_text(
+                            text="Select a market for trading signals:",
+                            parse_mode=ParseMode.HTML,
+                            reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD_SIGNALS)
+                        )
+                else:
+                    # Re-raise for other errors
+                    raise
+                    
+        return CHOOSE_MARKET
+
+    async def instrument_signals_callback(self, update: Update, context=None) -> int:
+        """Handle instrument selection for signals"""
+        query = update.callback_query
+        await query.answer()
+        
+        # Extract instrument from callback data
+        callback_data = query.data
+        parts = callback_data.split("_")
+        
+        # Get instrument name from the parts
+        instrument = None
+        if len(parts) >= 3:
+            # Format like "instrument_EURUSD_signals"
+            instrument = parts[1]
+        
+        # Save in context
+        if context and hasattr(context, 'user_data'):
+            context.user_data['instrument'] = instrument
+            context.user_data['is_signals_context'] = True
+        
+        # Log the selection
+        logger.info(f"Selected instrument for signals: {instrument}")
+        
+        # Get the allowed timeframes for this instrument
+        allowed_timeframe = INSTRUMENT_TIMEFRAME_MAP.get(instrument, "H1")
+        
+        # Show the styles menu with appropriate timeframes
+        styles_text = f"Select trading style for {instrument}:"
+        
+        try:
+            # First try to edit message text
+            await query.edit_message_text(
+                text=styles_text,
+                reply_markup=InlineKeyboardMarkup(STYLE_KEYBOARD),
+                parse_mode=ParseMode.HTML
+            )
+        except Exception as text_error:
+            # If that fails due to caption, try editing caption
+            if "There is no text in the message to edit" in str(text_error):
+                try:
+                    await query.edit_message_caption(
+                        caption=styles_text,
+                        reply_markup=InlineKeyboardMarkup(STYLE_KEYBOARD),
+                        parse_mode=ParseMode.HTML
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to update caption in instrument_signals_callback: {str(e)}")
+                    # Try to send a new message as last resort
+                    await query.message.reply_text(
+                        text=styles_text,
+                        reply_markup=InlineKeyboardMarkup(STYLE_KEYBOARD),
+                        parse_mode=ParseMode.HTML
+                    )
+            else:
+                # Re-raise for other errors
+                raise
+                
+        return CHOOSE_STYLE
+
+    async def analyze_from_signal_callback(self, update: Update, context=None) -> int:
+        """Handle analyze_from_signal_[instrument] callback to show analysis menu for a signal"""
+        query = update.callback_query
+        await query.answer()
+        
+        # Extract instrument from callback data
+        callback_data = query.data
+        parts = callback_data.split("_")
+        
+        # Expected format is "analyze_from_signal_[instrument]"
+        instrument = None
+        if len(parts) >= 4:
+            instrument = parts[3]  # Get the instrument from the callback data
+        
+        # Save instrument in context
+        if context and hasattr(context, 'user_data'):
+            context.user_data['instrument'] = instrument
+            
+        logger.info(f"Analyze from signal for instrument: {instrument}")
+        
+        # Define the signal analysis keyboard
+        # This is typically a keyboard with options for Technical, Sentiment, and Calendar analysis
+        keyboard = [
+            [
+                InlineKeyboardButton("📈 Technical Analysis", callback_data="signal_technical"),
+                InlineKeyboardButton("🧠 Sentiment Analysis", callback_data="signal_sentiment")
+            ],
+            [
+                InlineKeyboardButton("📅 Economic Calendar", callback_data="signal_calendar"),
+                InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal")
+            ]
+        ]
+        
+        # Set the message text
+        text = f"Choose analysis type for {instrument}:" if instrument else "Choose analysis type:"
+        
+        try:
+            # First try to edit message text
+            await query.edit_message_text(
+                text=text,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode=ParseMode.HTML
+            )
+        except Exception as text_error:
+            # If that fails due to caption, try editing caption
+            if "There is no text in the message to edit" in str(text_error):
+                try:
+                    await query.edit_message_caption(
+                        caption=text,
+                        reply_markup=InlineKeyboardMarkup(keyboard),
+                        parse_mode=ParseMode.HTML
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to update caption in analyze_from_signal_callback: {str(e)}")
+                    # Try to send a new message as last resort
+                    await query.message.reply_text(
+                        text=text,
+                        reply_markup=InlineKeyboardMarkup(keyboard),
+                        parse_mode=ParseMode.HTML
+                    )
+            else:
+                # Re-raise for other errors
+                raise
+                
+        return CHOOSE_ANALYSIS
