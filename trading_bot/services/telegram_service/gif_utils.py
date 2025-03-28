@@ -190,24 +190,49 @@ async def update_message_with_gif(query: 'CallbackQuery', gif_url: str, text: st
         # Create the message with the GIF using inline HTML
         formatted_text = await embed_gif_in_text(gif_url, text)
         
-        # Update the message
-        await query.edit_message_text(
-            text=formatted_text,
-            parse_mode=parse_mode,
-            reply_markup=reply_markup
-        )
-        return True
-    except Exception as e:
-        logger.error(f"Failed to update message with GIF: {str(e)}")
-        
-        # Fallback to text-only approach
+        # First try to update the message text
         try:
             await query.edit_message_text(
-                text=text,
+                text=formatted_text,
                 parse_mode=parse_mode,
                 reply_markup=reply_markup
             )
             return True
+        except Exception as text_error:
+            # Check if the error is about no text to edit
+            if "There is no text in the message to edit" in str(text_error):
+                # Message likely has a caption instead - try to edit the caption
+                logger.info("Message has no text, trying to edit caption instead")
+                await query.edit_message_caption(
+                    caption=text,  # Use plain text for caption, not the formatted text with GIF
+                    parse_mode=parse_mode,
+                    reply_markup=reply_markup
+                )
+                return True
+            else:
+                # Re-raise if it's some other error
+                raise
+    except Exception as e:
+        logger.error(f"Failed to update message with GIF: {str(e)}")
+        
+        # Fallback: try both caption and text approaches
+        try:
+            # First try caption
+            try:
+                await query.edit_message_caption(
+                    caption=text,
+                    parse_mode=parse_mode,
+                    reply_markup=reply_markup
+                )
+                return True
+            except Exception as caption_error:
+                # If caption fails, try text
+                await query.edit_message_text(
+                    text=text,
+                    parse_mode=parse_mode,
+                    reply_markup=reply_markup
+                )
+                return True
         except Exception as e2:
             logger.error(f"Fallback update failed too: {str(e2)}")
             return False
