@@ -2828,3 +2828,471 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 raise
                 
         return CHOOSE_ANALYSIS
+
+    async def show_technical_analysis(self, update: Update, context=None, instrument=None) -> int:
+        """Show technical analysis for the selected instrument"""
+        query = None
+        if update.callback_query:
+            query = update.callback_query
+            await query.answer()
+        
+        # Get instrument from parameter or context
+        if not instrument and context and hasattr(context, 'user_data'):
+            instrument = context.user_data.get('instrument')
+            
+        logger.info(f"Showing technical analysis for instrument: {instrument}")
+        
+        if not instrument:
+            # No instrument found, prompt to select one
+            if query:
+                try:
+                    await query.edit_message_text(
+                        text="Please select a market and instrument first.",
+                        reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD),
+                        parse_mode=ParseMode.HTML
+                    )
+                except Exception as e:
+                    logger.error(f"Error updating message: {str(e)}")
+                    await query.message.reply_text(
+                        text="Please select a market and instrument first.",
+                        reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD),
+                        parse_mode=ParseMode.HTML
+                    )
+            return CHOOSE_MARKET
+            
+        # Get technical analysis results
+        loading_message = f"⏳ Generating technical analysis for {instrument}..."
+        
+        # If this is a callback query, update the message
+        if query:
+            try:
+                await query.edit_message_text(
+                    text=loading_message,
+                    parse_mode=ParseMode.HTML
+                )
+            except Exception as text_error:
+                # If that fails due to caption, try editing caption
+                if "There is no text in the message to edit" in str(text_error):
+                    try:
+                        await query.edit_message_caption(
+                            caption=loading_message,
+                            parse_mode=ParseMode.HTML
+                        )
+                    except Exception as e:
+                        logger.error(f"Failed to update caption: {str(e)}")
+                        # Error handling is done further down
+                else:
+                    logger.error(f"Failed to update message: {str(text_error)}")
+        
+        # Perform analysis (placeholder for actual analysis)
+        try:
+            # Create a menu to return to other analysis options
+            analysis_keyboard = [
+                [
+                    InlineKeyboardButton("🧠 Sentiment Analysis", callback_data="analysis_sentiment"),
+                    InlineKeyboardButton("📅 Economic Calendar", callback_data="analysis_calendar")
+                ],
+                [
+                    InlineKeyboardButton("⬅️ Back to Instruments", callback_data="back_instrument"),
+                    InlineKeyboardButton("🏠 Main Menu", callback_data="back_menu")
+                ]
+            ]
+            
+            # For the actual analysis, here you would call your technical analysis service
+            # For now, let's create a placeholder response
+            analysis_text = f"<b>📈 Technical Analysis for {instrument}</b>\n\n"
+            analysis_text += "This is where the technical analysis would appear.\n"
+            analysis_text += "The system would analyze price action, trends, support/resistance, and indicators.\n\n"
+            analysis_text += "<i>Select another analysis type or go back to the menu.</i>"
+            
+            # Update the message with the analysis results
+            if query:
+                try:
+                    await query.edit_message_text(
+                        text=analysis_text,
+                        reply_markup=InlineKeyboardMarkup(analysis_keyboard),
+                        parse_mode=ParseMode.HTML
+                    )
+                except Exception as text_error:
+                    # If that fails due to caption, try editing caption
+                    if "There is no text in the message to edit" in str(text_error):
+                        try:
+                            await query.edit_message_caption(
+                                caption=analysis_text,
+                                reply_markup=InlineKeyboardMarkup(analysis_keyboard),
+                                parse_mode=ParseMode.HTML
+                            )
+                        except Exception as e:
+                            logger.error(f"Failed to update caption: {str(e)}")
+                            # Try to send a new message as last resort
+                            await query.message.reply_text(
+                                text=analysis_text,
+                                reply_markup=InlineKeyboardMarkup(analysis_keyboard),
+                                parse_mode=ParseMode.HTML
+                            )
+                    else:
+                        # Re-raise for other errors
+                        raise
+            else:
+                # If no query (direct command), send a new message
+                if update.message:
+                    await update.message.reply_text(
+                        text=analysis_text,
+                        reply_markup=InlineKeyboardMarkup(analysis_keyboard),
+                        parse_mode=ParseMode.HTML
+                    )
+                
+            return CHOOSE_ANALYSIS
+            
+        except Exception as e:
+            logger.error(f"Error generating technical analysis: {str(e)}")
+            error_text = f"Sorry, there was an error generating the technical analysis for {instrument}. Please try again later."
+            
+            if query:
+                try:
+                    await query.edit_message_text(
+                        text=error_text,
+                        reply_markup=InlineKeyboardMarkup([
+                            [InlineKeyboardButton("🏠 Back to Menu", callback_data="back_menu")]
+                        ]),
+                        parse_mode=ParseMode.HTML
+                    )
+                except Exception:
+                    try:
+                        await query.edit_message_caption(
+                            caption=error_text,
+                            reply_markup=InlineKeyboardMarkup([
+                                [InlineKeyboardButton("🏠 Back to Menu", callback_data="back_menu")]
+                            ]),
+                            parse_mode=ParseMode.HTML
+                        )
+                    except Exception:
+                        await query.message.reply_text(
+                            text=error_text,
+                            reply_markup=InlineKeyboardMarkup([
+                                [InlineKeyboardButton("🏠 Back to Menu", callback_data="back_menu")]
+                            ]),
+                            parse_mode=ParseMode.HTML
+                        )
+            elif update.message:
+                await update.message.reply_text(
+                    text=error_text,
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("🏠 Back to Menu", callback_data="back_menu")]
+                    ]),
+                    parse_mode=ParseMode.HTML
+                )
+                
+            return BACK_TO_MENU
+
+    async def show_sentiment_analysis(self, update: Update, context=None, instrument=None) -> int:
+        """Show sentiment analysis for the selected instrument"""
+        query = None
+        if update.callback_query:
+            query = update.callback_query
+            await query.answer()
+        
+        # Get instrument from parameter or context
+        if not instrument and context and hasattr(context, 'user_data'):
+            instrument = context.user_data.get('instrument')
+            
+        logger.info(f"Showing sentiment analysis for instrument: {instrument}")
+        
+        if not instrument:
+            # No instrument found, prompt to select one
+            if query:
+                try:
+                    await query.edit_message_text(
+                        text="Please select a market and instrument first.",
+                        reply_markup=InlineKeyboardMarkup(MARKET_SENTIMENT_KEYBOARD),
+                        parse_mode=ParseMode.HTML
+                    )
+                except Exception as e:
+                    logger.error(f"Error updating message: {str(e)}")
+                    await query.message.reply_text(
+                        text="Please select a market and instrument first.",
+                        reply_markup=InlineKeyboardMarkup(MARKET_SENTIMENT_KEYBOARD),
+                        parse_mode=ParseMode.HTML
+                    )
+            return CHOOSE_MARKET
+            
+        # Get sentiment analysis results
+        loading_message = f"⏳ Generating sentiment analysis for {instrument}..."
+        
+        # If this is a callback query, update the message
+        if query:
+            try:
+                await query.edit_message_text(
+                    text=loading_message,
+                    parse_mode=ParseMode.HTML
+                )
+            except Exception as text_error:
+                # If that fails due to caption, try editing caption
+                if "There is no text in the message to edit" in str(text_error):
+                    try:
+                        await query.edit_message_caption(
+                            caption=loading_message,
+                            parse_mode=ParseMode.HTML
+                        )
+                    except Exception as e:
+                        logger.error(f"Failed to update caption: {str(e)}")
+                        # Error handling is done further down
+                else:
+                    logger.error(f"Failed to update message: {str(text_error)}")
+        
+        # Perform analysis (placeholder for actual analysis)
+        try:
+            # Create a menu to return to other analysis options
+            analysis_keyboard = [
+                [
+                    InlineKeyboardButton("📈 Technical Analysis", callback_data="analysis_technical"),
+                    InlineKeyboardButton("📅 Economic Calendar", callback_data="analysis_calendar")
+                ],
+                [
+                    InlineKeyboardButton("⬅️ Back to Instruments", callback_data="back_instrument"),
+                    InlineKeyboardButton("🏠 Main Menu", callback_data="back_menu")
+                ]
+            ]
+            
+            # For the actual analysis, here you would call your sentiment analysis service
+            # For now, let's create a placeholder response
+            analysis_text = f"<b>🧠 Market Sentiment for {instrument}</b>\n\n"
+            analysis_text += "This is where the sentiment analysis would appear.\n"
+            analysis_text += "The system would analyze social media, news, and market sentiment indicators.\n\n"
+            analysis_text += "<i>Select another analysis type or go back to the menu.</i>"
+            
+            # Update the message with the analysis results
+            if query:
+                try:
+                    await query.edit_message_text(
+                        text=analysis_text,
+                        reply_markup=InlineKeyboardMarkup(analysis_keyboard),
+                        parse_mode=ParseMode.HTML
+                    )
+                except Exception as text_error:
+                    # If that fails due to caption, try editing caption
+                    if "There is no text in the message to edit" in str(text_error):
+                        try:
+                            await query.edit_message_caption(
+                                caption=analysis_text,
+                                reply_markup=InlineKeyboardMarkup(analysis_keyboard),
+                                parse_mode=ParseMode.HTML
+                            )
+                        except Exception as e:
+                            logger.error(f"Failed to update caption: {str(e)}")
+                            # Try to send a new message as last resort
+                            await query.message.reply_text(
+                                text=analysis_text,
+                                reply_markup=InlineKeyboardMarkup(analysis_keyboard),
+                                parse_mode=ParseMode.HTML
+                            )
+                    else:
+                        # Re-raise for other errors
+                        raise
+            else:
+                # If no query (direct command), send a new message
+                if update.message:
+                    await update.message.reply_text(
+                        text=analysis_text,
+                        reply_markup=InlineKeyboardMarkup(analysis_keyboard),
+                        parse_mode=ParseMode.HTML
+                    )
+                
+            return CHOOSE_ANALYSIS
+            
+        except Exception as e:
+            logger.error(f"Error generating sentiment analysis: {str(e)}")
+            error_text = f"Sorry, there was an error generating the sentiment analysis for {instrument}. Please try again later."
+            
+            if query:
+                try:
+                    await query.edit_message_text(
+                        text=error_text,
+                        reply_markup=InlineKeyboardMarkup([
+                            [InlineKeyboardButton("🏠 Back to Menu", callback_data="back_menu")]
+                        ]),
+                        parse_mode=ParseMode.HTML
+                    )
+                except Exception:
+                    try:
+                        await query.edit_message_caption(
+                            caption=error_text,
+                            reply_markup=InlineKeyboardMarkup([
+                                [InlineKeyboardButton("🏠 Back to Menu", callback_data="back_menu")]
+                            ]),
+                            parse_mode=ParseMode.HTML
+                        )
+                    except Exception:
+                        await query.message.reply_text(
+                            text=error_text,
+                            reply_markup=InlineKeyboardMarkup([
+                                [InlineKeyboardButton("🏠 Back to Menu", callback_data="back_menu")]
+                            ]),
+                            parse_mode=ParseMode.HTML
+                        )
+            elif update.message:
+                await update.message.reply_text(
+                    text=error_text,
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("🏠 Back to Menu", callback_data="back_menu")]
+                    ]),
+                    parse_mode=ParseMode.HTML
+                )
+                
+            return BACK_TO_MENU
+
+    async def show_calendar_analysis(self, update: Update, context=None, instrument=None) -> int:
+        """Show calendar analysis for the selected instrument"""
+        query = None
+        if update.callback_query:
+            query = update.callback_query
+            await query.answer()
+        
+        # Get instrument from parameter or context
+        if not instrument and context and hasattr(context, 'user_data'):
+            instrument = context.user_data.get('instrument')
+            
+        logger.info(f"Showing calendar analysis for instrument: {instrument}")
+        
+        if not instrument:
+            # No instrument found, prompt to select one
+            if query:
+                try:
+                    await query.edit_message_text(
+                        text="Please select a market and instrument first.",
+                        reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD),
+                        parse_mode=ParseMode.HTML
+                    )
+                except Exception as e:
+                    logger.error(f"Error updating message: {str(e)}")
+                    await query.message.reply_text(
+                        text="Please select a market and instrument first.",
+                        reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD),
+                        parse_mode=ParseMode.HTML
+                    )
+            return CHOOSE_MARKET
+            
+        # Get calendar analysis results
+        loading_message = f"⏳ Generating calendar analysis for {instrument}..."
+        
+        # If this is a callback query, update the message
+        if query:
+            try:
+                await query.edit_message_text(
+                    text=loading_message,
+                    parse_mode=ParseMode.HTML
+                )
+            except Exception as text_error:
+                # If that fails due to caption, try editing caption
+                if "There is no text in the message to edit" in str(text_error):
+                    try:
+                        await query.edit_message_caption(
+                            caption=loading_message,
+                            parse_mode=ParseMode.HTML
+                        )
+                    except Exception as e:
+                        logger.error(f"Failed to update caption: {str(e)}")
+                        # Error handling is done further down
+                else:
+                    logger.error(f"Failed to update message: {str(text_error)}")
+        
+        # Perform analysis (placeholder for actual analysis)
+        try:
+            # Create a menu to return to other analysis options
+            analysis_keyboard = [
+                [
+                    InlineKeyboardButton("📈 Technical Analysis", callback_data="analysis_technical"),
+                    InlineKeyboardButton("🧠 Sentiment Analysis", callback_data="analysis_sentiment")
+                ],
+                [
+                    InlineKeyboardButton("⬅️ Back to Instruments", callback_data="back_instrument"),
+                    InlineKeyboardButton("🏠 Main Menu", callback_data="back_menu")
+                ]
+            ]
+            
+            # For the actual analysis, here you would call your calendar analysis service
+            # For now, let's create a placeholder response
+            analysis_text = f"<b>📅 Economic Calendar for {instrument}</b>\n\n"
+            analysis_text += "This is where the economic calendar analysis would appear.\n"
+            analysis_text += "The system would analyze market-moving events and economic indicators.\n\n"
+            analysis_text += "<i>Select another analysis type or go back to the menu.</i>"
+            
+            # Update the message with the analysis results
+            if query:
+                try:
+                    await query.edit_message_text(
+                        text=analysis_text,
+                        reply_markup=InlineKeyboardMarkup(analysis_keyboard),
+                        parse_mode=ParseMode.HTML
+                    )
+                except Exception as text_error:
+                    # If that fails due to caption, try editing caption
+                    if "There is no text in the message to edit" in str(text_error):
+                        try:
+                            await query.edit_message_caption(
+                                caption=analysis_text,
+                                reply_markup=InlineKeyboardMarkup(analysis_keyboard),
+                                parse_mode=ParseMode.HTML
+                            )
+                        except Exception as e:
+                            logger.error(f"Failed to update caption: {str(e)}")
+                            # Try to send a new message as last resort
+                            await query.message.reply_text(
+                                text=analysis_text,
+                                reply_markup=InlineKeyboardMarkup(analysis_keyboard),
+                                parse_mode=ParseMode.HTML
+                            )
+                    else:
+                        # Re-raise for other errors
+                        raise
+            else:
+                # If no query (direct command), send a new message
+                if update.message:
+                    await update.message.reply_text(
+                        text=analysis_text,
+                        reply_markup=InlineKeyboardMarkup(analysis_keyboard),
+                        parse_mode=ParseMode.HTML
+                    )
+                
+            return CHOOSE_ANALYSIS
+            
+        except Exception as e:
+            logger.error(f"Error generating calendar analysis: {str(e)}")
+            error_text = f"Sorry, there was an error generating the calendar analysis for {instrument}. Please try again later."
+            
+            if query:
+                try:
+                    await query.edit_message_text(
+                        text=error_text,
+                        reply_markup=InlineKeyboardMarkup([
+                            [InlineKeyboardButton("🏠 Back to Menu", callback_data="back_menu")]
+                        ]),
+                        parse_mode=ParseMode.HTML
+                    )
+                except Exception:
+                    try:
+                        await query.edit_message_caption(
+                            caption=error_text,
+                            reply_markup=InlineKeyboardMarkup([
+                                [InlineKeyboardButton("🏠 Back to Menu", callback_data="back_menu")]
+                            ]),
+                            parse_mode=ParseMode.HTML
+                        )
+                    except Exception:
+                        await query.message.reply_text(
+                            text=error_text,
+                            reply_markup=InlineKeyboardMarkup([
+                                [InlineKeyboardButton("🏠 Back to Menu", callback_data="back_menu")]
+                            ]),
+                            parse_mode=ParseMode.HTML
+                        )
+            elif update.message:
+                await update.message.reply_text(
+                    text=error_text,
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("🏠 Back to Menu", callback_data="back_menu")]
+                    ]),
+                    parse_mode=ParseMode.HTML
+                )
+                
+            return BACK_TO_MENU
