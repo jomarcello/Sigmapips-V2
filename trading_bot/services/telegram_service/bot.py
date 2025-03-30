@@ -775,6 +775,9 @@ class TelegramService:
         
         application.add_handler(CallbackQueryHandler(self.back_to_signal_callback, pattern="^back_to_signal$"))
         
+        # Navigation callbacks
+        application.add_handler(CallbackQueryHandler(self.back_to_market_callback, pattern="^back_market$"))
+        
         # Callback query handler for all button presses
         application.add_handler(CallbackQueryHandler(self.button_callback))
         
@@ -2075,7 +2078,6 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
     async def show_technical_analysis(self, update: Update, context=None, instrument=None, timeframe=None) -> int:
         """Show technical analysis for a selected instrument"""
         query = update.callback_query
-        await query.answer()
         
         # Get instrument from parameter or context
         if not instrument and context and hasattr(context, 'user_data'):
@@ -2121,52 +2123,39 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             if not chart_url:
                 raise Exception("Failed to generate chart")
             
-            # Create keyboard for navigation
+            # Create keyboard for navigation - back to instrument selection
             keyboard = [
-                [InlineKeyboardButton("⬅️ Back", callback_data="back_to_analysis")]
+                [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
             ]
             
-            # Check if the message currently has media, and if it's the loading GIF
+            # Update the same message with chart
             try:
-                # Update message with chart using reply_photo to ensure it's treated as a photo
-                # First, delete the current message or edit to a temporary message
-                try:
-                    await query.edit_message_text(
-                        text=f"Preparing chart for {instrument}..."
-                    )
-                except Exception as delete_error:
-                    logger.warning(f"Could not edit message text: {str(delete_error)}")
-                
-                # Now send a new photo
+                await query.edit_message_media(
+                    media=InputMediaPhoto(
+                        media=chart_url,
+                        caption=f"📊 Technical Analysis for {instrument}",
+                        parse_mode=ParseMode.HTML
+                    ),
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            except Exception as e:
+                logger.error(f"Error updating message with chart: {str(e)}")
+                # Try to send a new message as fallback
                 await query.message.reply_photo(
                     photo=chart_url,
                     caption=f"📊 Technical Analysis for {instrument}",
                     parse_mode=ParseMode.HTML,
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
-            except Exception as e:
-                logger.error(f"Error sending new chart photo: {str(e)}")
-                # Try alternative approach as fallback
+                
+                # Try to delete or hide the loading message
                 try:
-                    await query.edit_message_media(
-                        media=InputMediaPhoto(
-                            media=chart_url,
-                            caption=f"📊 Technical Analysis for {instrument}",
-                            parse_mode=ParseMode.HTML
-                        ),
-                        reply_markup=InlineKeyboardMarkup(keyboard)
-                    )
-                except Exception as edit_error:
-                    logger.error(f"Error updating message with chart: {str(edit_error)}")
-                    # Last resort fallback
-                    await query.message.reply_photo(
-                        photo=chart_url,
-                        caption=f"📊 Technical Analysis for {instrument}",
-                        parse_mode=ParseMode.HTML,
-                        reply_markup=InlineKeyboardMarkup(keyboard)
-                    )
+                    await query.edit_message_text(text="See chart analysis below ⬇️")
+                except Exception as e2:
+                    logger.error(f"Could not update loading message: {str(e2)}")
             
-            return CHOOSE_ANALYSIS
+            # Return to instrument selection state
+            return CHOOSE_INSTRUMENT
             
         except Exception as e:
             logger.error(f"Error generating technical analysis: {str(e)}")
@@ -2383,3 +2372,95 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             except Exception:
                 pass
             return CHOOSE_MARKET
+
+    async def back_to_market_callback(self, update: Update, context=None) -> int:
+        """Handle back_market callback"""
+        query = update.callback_query
+        await query.answer()
+        
+        try:
+            # Determine if we're in signals flow or analysis flow based on callback data
+            callback_data = query.data
+            is_signals_flow = "signals" in callback_data.lower() if callback_data else False
+            
+            # Get market from user_data or fallback to 'forex'
+            if context and hasattr(context, 'user_data'):
+                market = context.user_data.get('market', 'forex')
+                in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
+            else:
+                market = 'forex'
+                in_signals_flow = is_signals_flow
+            
+            logger.info(f"Back to market: market={market}, in_signals_flow={in_signals_flow}")
+            
+            # Choose the appropriate keyboard based on the flow
+            if in_signals_flow:
+                keyboard = MARKET_KEYBOARD_SIGNALS
+                text = "Select a market for trading signals:"
+            else:
+                keyboard = MARKET_KEYBOARD
+                text = "Select a market for technical analysis:"
+            
+            # Update the same message with market selection
+            try:
+                # First try to simply edit the message text (if it's a text message)
+                await query.edit_message_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            except Exception as text_error:
+                if "Message is not modified" in str(text_error):
+                    # This is fine, no need to do anything
+                    pass
+                elif "There is no text in the message to edit" in str(text_error):
+                    # This is likely a media message, try to edit the media
+                    try:
+                        # Message has a media (photo/GIF), edit the caption instead
+                        await query.edit_message_caption(
+                            caption=text,
+                            reply_markup=InlineKeyboardMarkup(keyboard)
+                        )
+                    except Exception as caption_error:
+                        if "Message is not modified" in str(caption_error):
+                            # This is fine
+                            pass
+                        else:
+                            # Something else went wrong with caption edit, try to replace the media
+                            logger.warning(f"Could not edit caption: {str(caption_error)}")
+                            try:
+                                # We'll delete the media and send a text message to avoid issues
+                                await query.edit_message_media(
+                                    media=InputMediaPhoto(
+                                        media="https://via.placeholder.com/5x5.png",
+                                        caption=text
+                                    ),
+                                    reply_markup=InlineKeyboardMarkup(keyboard)
+                                )
+                            except Exception as media_error:
+                                logger.error(f"Could not edit media: {str(media_error)}")
+                                # Last resort: reply with a new message
+                                await query.message.reply_text(
+                                    text=text,
+                                    reply_markup=InlineKeyboardMarkup(keyboard)
+                                )
+                else:
+                    # Something else went wrong, try to send a new message
+                    logger.warning(f"Error editing message text: {str(text_error)}")
+                    await query.message.reply_text(
+                        text=text,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+            
+            return CHOOSE_MARKET
+        
+        except Exception as e:
+            logger.error(f"Error in back_to_market_callback: {str(e)}")
+            # Try to recover by going back to main menu
+            try:
+                await query.edit_message_text(
+                    text="An error occurred. Returning to main menu...",
+                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
+                )
+            except Exception:
+                pass
+            return MENU
