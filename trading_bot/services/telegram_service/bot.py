@@ -817,6 +817,12 @@ class TelegramService:
         
         logger.info("Signal flow handlers registered")
         
+        # Instrument callback handlers - these need to be before the generic handler
+        application.add_handler(CallbackQueryHandler(
+            self.instrument_callback, pattern="^instrument_.*$"))
+        
+        logger.info("Instrument callback handlers registered")
+        
         # Callback query handler for all button presses - GENERIC HANDLER MOET LAST ZIJN
         application.add_handler(CallbackQueryHandler(self.button_callback))
         
@@ -2350,6 +2356,8 @@ Get started today with a FREE 14-day trial!
                 await self.signal_sentiment_callback(update, context)
             elif callback_data.startswith("signal_calendar"):
                 await self.signal_calendar_callback(update, context)
+            elif callback_data.startswith("instrument_"):
+                await self.instrument_callback(update, context)
             else:
                 # Default to the generic button callback
                 await self.button_callback(update, context)
@@ -2983,3 +2991,138 @@ Get started today with a FREE 14-day trial!
             logger.error(f"Error in back_market_callback: {str(e)}")
             # Try to recover by returning to main menu
             return await self.back_menu_callback(update, context)
+            
+    async def instrument_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
+        """Handle instrument selection for all analysis types."""
+        query = update.callback_query
+        await query.answer()
+        
+        try:
+            # Extract instrument and analysis type from callback data
+            callback_data = query.data
+            parts = callback_data.split('_')
+            
+            if len(parts) < 3:
+                logger.warning(f"Invalid instrument callback data: {callback_data}")
+                return await self.back_menu_callback(update, context)
+            
+            instrument = parts[1]
+            analysis_type = parts[2]  # 'sentiment', 'chart', 'calendar', etc.
+            
+            logger.info(f"Instrument callback: instrument={instrument}, analysis_type={analysis_type}")
+            
+            # Store the instrument in user data
+            if context and hasattr(context, 'user_data'):
+                context.user_data['instrument'] = instrument
+                
+                # Make sure the analysis type is also set
+                if 'analysis_type' not in context.user_data:
+                    context.user_data['analysis_type'] = analysis_type
+            
+            # Handle different analysis types
+            if analysis_type == 'sentiment':
+                # Show loading message
+                await self.update_message(
+                    query=query,
+                    text=f"⏳ <b>Analyzing sentiment for {instrument}...</b>",
+                    keyboard=None,
+                    parse_mode=ParseMode.HTML
+                )
+                
+                # Get sentiment data from the service
+                try:
+                    sentiment_data = await self.sentiment_service.get_sentiment(instrument)
+                    
+                    # Calculate sentiment percentages
+                    bullish_score = sentiment_data.get('bullish_percentage', 50)
+                    bearish_score = 100 - bullish_score
+                    overall = sentiment_data.get('overall_sentiment', 'neutral').capitalize()
+                    
+                    # Determine emoji based on sentiment
+                    if overall.lower() == 'bullish':
+                        emoji = "📈"
+                    elif overall.lower() == 'bearish':
+                        emoji = "📉"
+                    else:
+                        emoji = "⚖️"
+                    
+                    # Format sentiment message
+                    sentiment_text = f"""<b>🧠 Market Sentiment Analysis: {instrument}</b>
+
+<b>Overall Sentiment:</b> {overall} {emoji}
+
+<b>Sentiment Breakdown:</b>
+- Bullish: {bullish_score}%
+- Bearish: {bearish_score}%
+- Trend Strength: {sentiment_data.get('trend_strength', 'Moderate')}
+- Volatility: {sentiment_data.get('volatility', 'Moderate')}
+
+<b>Key Levels:</b>
+- Support: {sentiment_data.get('support_level', 'Not available')}
+- Resistance: {sentiment_data.get('resistance_level', 'Not available')}
+
+<b>Trading Recommendation:</b>
+{sentiment_data.get('recommendation', 'Wait for clearer market signals')}
+
+<b>Analysis:</b>
+{sentiment_data.get('analysis', 'Detailed analysis not available').strip()}"""
+                    
+                    # Back buttons based on flow
+                    back_keyboard = [
+                        [InlineKeyboardButton("⬅️ Back to Markets", callback_data="back_market")],
+                        [InlineKeyboardButton("⬅️ Back to Analysis", callback_data="back_analysis")],
+                        [InlineKeyboardButton("🏠 Main Menu", callback_data="back_menu")]
+                    ]
+                    
+                    # Show sentiment analysis
+                    await self.update_message(
+                        query=query,
+                        text=sentiment_text,
+                        keyboard=back_keyboard,
+                        parse_mode=ParseMode.HTML
+                    )
+                    
+                except Exception as e:
+                    logger.error(f"Error getting sentiment data: {str(e)}")
+                    
+                    # Fallback sentiment message
+                    fallback_text = f"""<b>🧠 Market Sentiment Analysis: {instrument}</b>
+
+<b>Unable to retrieve full sentiment data at this time.</b>
+
+We're experiencing difficulties accessing the latest sentiment data. Please try again later or choose another analysis option."""
+                    
+                    back_keyboard = [
+                        [InlineKeyboardButton("⬅️ Back to Markets", callback_data="back_market")],
+                        [InlineKeyboardButton("⬅️ Back to Analysis", callback_data="back_analysis")],
+                        [InlineKeyboardButton("🏠 Main Menu", callback_data="back_menu")]
+                    ]
+                    
+                    await self.update_message(
+                        query=query,
+                        text=fallback_text,
+                        keyboard=back_keyboard,
+                        parse_mode=ParseMode.HTML
+                    )
+                
+                return SHOW_RESULT
+                
+            elif analysis_type == 'calendar':
+                # Implement calendar analysis handling
+                # This would be similar to the sentiment analysis but with calendar data
+                # For now, redirect to the existing handler if there is one
+                return CHOOSE_INSTRUMENT
+                
+            elif analysis_type == 'chart':
+                # Implement technical chart analysis handling
+                # Redirecting to style selection or directly to chart generation
+                return CHOOSE_INSTRUMENT
+                
+            else:
+                logger.warning(f"Unknown analysis type: {analysis_type}")
+                return await self.back_market_callback(update, context)
+                
+        except Exception as e:
+            logger.error(f"Error in instrument_callback: {str(e)}")
+            # Try to recover by returning to market selection
+            return await self.back_market_callback(update, context)
