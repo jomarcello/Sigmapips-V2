@@ -753,15 +753,24 @@ class TelegramService:
             logger.error("Cannot register handlers: application not initialized")
             return
         
+        logger.info("==== REGISTERING ALL HANDLERS ====")
+        
         # Command handlers
         application.add_handler(CommandHandler("start", self.start_command))
         application.add_handler(CommandHandler("menu", self.show_main_menu))
         application.add_handler(CommandHandler("help", self.help_command))
         application.add_handler(CommandHandler("set_subscription", self.set_subscription_command))
         
+        logger.info("Command handlers registered")
+        
         # Register the payment failed command with both underscore and no-underscore versions
         application.add_handler(CommandHandler("set_payment_failed", self.set_payment_failed_command))
         application.add_handler(CommandHandler("setpaymentfailed", self.set_payment_failed_command))
+        
+        # FOCUS OP DE BACK_MENU HANDLER - DIRECT TOEVOEGEN ALS EERSTE SPECIFIEKE HANDLER
+        logger.info("Registering back_menu_callback specifically...")
+        application.add_handler(CallbackQueryHandler(self.back_menu_callback, pattern="^back_menu$"))
+        logger.info("back_menu_callback handler registered with pattern ^back_menu$")
         
         # Add specific handlers for signal analysis flows
         application.add_handler(CallbackQueryHandler(self.analysis_technical_callback, pattern="^analysis_technical$"))
@@ -778,7 +787,10 @@ class TelegramService:
         # Navigation callbacks - DEZE MOETEN VOOR DE GENERIEKE HANDLER STAAN
         application.add_handler(CallbackQueryHandler(self.back_market_callback, pattern="^back_market$"))
         application.add_handler(CallbackQueryHandler(self.back_analysis_callback, pattern="^back_analysis$"))
-        application.add_handler(CallbackQueryHandler(self.back_menu_callback, pattern="^back_menu$"))
+        # NIET NODIG, AL GEREGISTREERD ALS EERSTE HANDLER
+        # application.add_handler(CallbackQueryHandler(self.back_menu_callback, pattern="^back_menu$"))
+        
+        logger.info("Navigation callbacks registered")
         
         # Signal flow analysis handlers - DEZE MOETEN OOK VOOR DE GENERIEKE HANDLER STAAN
         application.add_handler(CallbackQueryHandler(
@@ -790,8 +802,12 @@ class TelegramService:
         application.add_handler(CallbackQueryHandler(
             self.back_to_signal_analysis_callback, pattern="^back_to_signal_analysis$"))
         
+        logger.info("Signal flow handlers registered")
+        
         # Callback query handler for all button presses - GENERIC HANDLER MOET LAST ZIJN
         application.add_handler(CallbackQueryHandler(self.button_callback))
+        
+        logger.info("Generic button_callback handler registered (last handler)")
         
         # Ensure signal handlers are registered
         logger.info("Enabling and initializing signals functionality")
@@ -944,7 +960,7 @@ class TelegramService:
                 return {"status": "ok"}
                 
             logger.info(f"Webhook handler registered at path: {webhook_path}")
-                    
+            
             # Register the signal processing API endpoint
             @app.post("/api/signals")
             async def process_signal_api(request: Request):
@@ -996,109 +1012,75 @@ class TelegramService:
             
             logger.info(f"Signal API endpoint registered at /api/signals")
             logger.info(f"TradingView signal endpoint registered at /signal")
+                
+            # Add debug endpoint to force-send main menu
+            @app.get("/force_menu/{chat_id}")
+            async def force_menu(chat_id: int):
+                return await self.force_send_main_menu(chat_id)
             
             # Enable signals functionality in webhook mode
             logger.info("Initializing signal processing in webhook mode")
             self._load_signals()
             
+            logger.info(f"Webhook set up successfully on {webhook_url}")
+            
             return app
             
         except Exception as e:
             logger.error(f"Error setting up webhook: {str(e)}")
-            logger.exception(e)
+            logger.error(traceback.format_exc())
             return app
 
-    async def process_update(self, update_data: dict):
-        """Process an update from the Telegram webhook."""
+    async def process_update(self, update_data):
+        """Process an update from Telegram."""
         try:
-            # Parse the update
-            update = Update.de_json(data=update_data, bot=self.bot)
-            logger.info(f"Received Telegram update: {update.update_id}")
+            # Check if update_data is a Request object or a dict
+            if hasattr(update_data, 'json'):
+                # It's a Request object, extract the JSON data
+                update_data = await update_data.json()
             
-            # Check if this is a command message
-            if update.message and update.message.text and update.message.text.startswith('/'):
-                command = update.message.text.split(' ')[0].lower()
-                logger.info(f"Received command: {command}")
+            # Log the update
+            update_id = update_data.get('update_id')
+            logger.info(f"Received Telegram update: {update_id}")
+            
+            # Check if we have already processed this update
+            if update_id in self.processed_updates:
+                logger.info(f"Update {update_id} already processed, skipping")
+                return {"status": "skipped", "reason": "already_processed"}
+            
+            # Add to processed updates set
+            self.processed_updates.add(update_id)
+            
+            # Keep the processed updates set at a reasonable size
+            if len(self.processed_updates) > 1000:
+                # Remove the oldest updates
+                self.processed_updates = set(sorted(self.processed_updates)[-500:])
                 
-                # Direct command handling with None context (will use self.bot internally)
-                try:
-                    if command == '/start':
-                        await self.start_command(update, None)
-                        return
-                    elif command == '/menu':
-                        await self.show_main_menu(update, None)
-                        return
-                    elif command == '/help':
-                        await self.help_command(update, None)
-                        return
-                except asyncio.CancelledError:
-                    logger.warning(f"Command processing was cancelled for update {update.update_id}")
-                    return
-                except Exception as cmd_e:
-                    logger.error(f"Error handling command {command}: {str(cmd_e)}")
-                    logger.exception(cmd_e)
-                    # Try to send an error message to the user
-                    try:
-                        await self.bot.send_message(
-                            chat_id=update.effective_chat.id,
-                            text="Sorry, there was an error processing your command. Please try again later."
-                        )
-                    except Exception:
-                        pass  # Ignore if we can't send the error message
-                    return
+            # Process callback queries
+            if 'callback_query' in update_data:
+                logger.info(f"Received callback query: {update_data['callback_query'].get('data', 'unknown')}")
+                await self._process_callback_query(update_data)
+                return {"status": "ok", "type": "callback_query"}
             
-            # Check if this is a callback query (button press)
-            if update.callback_query:
-                try:
-                    logger.info(f"Received callback query: {update.callback_query.data}")
-                    await self.button_callback(update, None)
-                    return
-                except asyncio.CancelledError:
-                    logger.warning(f"Button callback processing was cancelled for update {update.update_id}")
-                    return
-                except Exception as cb_e:
-                    logger.error(f"Error handling callback query {update.callback_query.data}: {str(cb_e)}")
-                    logger.exception(cb_e)
-                    # Try to notify the user
-                    try:
-                        await update.callback_query.answer(text="Error processing. Please try again.")
-                    except Exception:
-                        pass  # Ignore if we can't send the error message
-                    return
-            
-            # Try to process the update with the application if it's initialized
-            try:
-                # First check if the application is initialized
-                if self.application:
-                    try:
-                        # Process the update with a timeout
-                        await asyncio.wait_for(
-                            self.application.process_update(update),
-                            timeout=45.0  # Increased from 30 to 45 seconds timeout
-                        )
-                    except asyncio.CancelledError:
-                        logger.warning(f"Application processing was cancelled for update {update.update_id}")
-                    except RuntimeError as re:
-                        if "not initialized" in str(re).lower():
-                            logger.warning("Application not initialized, trying to initialize it")
-                            try:
-                                await self.application.initialize()
-                                await self.application.process_update(update)
-                            except Exception as init_e:
-                                logger.error(f"Failed to initialize application on-the-fly: {str(init_e)}")
-                    except asyncio.TimeoutError:
-                        logger.warning(f"Update {update.update_id} processing timed out, continuing with next update")
-                    except Exception as e:
-                        logger.error(f"Error processing update with application: {str(e)}")
-                        logger.error(traceback.format_exc())
+            # Process messages
+            elif 'message' in update_data:
+                if 'text' in update_data['message']:
+                    text = update_data['message']['text']
+                    logger.info(f"Received message: {text}")
                 else:
-                    logger.warning("Application not available to process update")
-            except Exception as e:
-                logger.error(f"Error in update processing: {str(e)}")
-                logger.error(traceback.format_exc())
+                    logger.info(f"Received message without text")
+                
+                await self._process_message(update_data)
+                return {"status": "ok", "type": "message"}
+            
+            # Process other update types as needed
+            
+            return {"status": "ok"}
+            
         except Exception as e:
             logger.error(f"Failed to process update data: {str(e)}")
             logger.error(traceback.format_exc())
+            return {"status": "error", "message": str(e)}
 
     def setup(self):
         """Set up the bot with all handlers"""
@@ -1965,6 +1947,12 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         query = update.callback_query
         logger.info(f"Button callback opgeroepen met data: {query.data}")
         
+        # EXPLICIETE LOG VOOR BACK_MENU OM TE ZIEN OF DIT WORDT OPGEVANGEN DOOR DEZE FUNCTIE
+        if query.data == "back_menu":
+            logger.warning("back_menu call received in GENERIC button_callback (should be handled by specific handler)")
+            # Redirect to the dedicated handler
+            return await self.back_menu_callback(update, context)
+        
         try:
             # Specific handlers for different callback patterns
             if query.data == "menu_analyse":
@@ -1984,11 +1972,6 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 )
                 return CHOOSE_SIGNALS
             
-            # Verwijder deze case omdat we dit al via de specifieke handler afhandelen    
-            # elif query.data == "back_menu":
-            #    # Return to main menu via dedicated callback handler
-            #    return await self.back_menu_callback(update, context)
-                
             elif query.data == "back_to_analysis" or query.data == "back_analysis":
                 return await self.back_analysis_callback(update, context)
                 
@@ -2624,46 +2607,164 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Get user_id from update
             user_id = update.effective_user.id
             
-            # Delete the existing message
+            # Een variabele om bij te houden of we al een nieuw bericht hebben gestuurd
+            new_message_sent = False
+            
+            # Probeer eerst het bestaande bericht te verwijderen
             try:
                 await query.message.delete()
+                logger.info("Existing message deleted successfully")
             except Exception as delete_error:
                 logger.warning(f"Could not delete message: {str(delete_error)}")
-                # If we can't delete, try to update the caption to indicate we're going back
-                try:
-                    await query.edit_message_caption(
-                        caption="Returning to main menu...",
-                        reply_markup=None
-                    )
-                except Exception:
-                    pass
+                # Als we het bericht niet kunnen verwijderen, maken we een nieuw bericht ernaast
+                
+                # Log dat we terugvallen op het sturen van een nieuw bericht
+                logger.info("Falling back to sending new message without deleting old one")
             
-            # Send the welcome message with GIF as a new message
-            # This ensures proper display of the GIF
+            # Stuur een welcome GIF met het hoofdmenu
             await send_welcome_gif(
                 self.bot,
                 chat_id=user_id,
                 caption=WELCOME_MESSAGE
             )
+            new_message_sent = True
+            logger.info("New welcome GIF message sent")
             
-            # Send the keyboard separately for better UX
+            # Stuur de knoppen in een apart bericht voor betere UX
             await self.bot.send_message(
                 chat_id=user_id,
                 text="🚀 <b>Sigmapips AI - Main Menu</b> 🚀\n\nChoose an option to access advanced trading support:",
                 parse_mode=ParseMode.HTML,
                 reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
             )
+            logger.info("Menu buttons sent in separate message")
             
             return MENU
         
         except Exception as e:
             logger.error(f"Error in back_menu_callback: {str(e)}")
-            # Try to recover by showing a simple text menu
+            logger.exception(e)
+            # Probeer toch nog een bericht te sturen als ultieme fallback
             try:
-                await query.edit_message_text(
+                # Get user_id from update
+                user_id = update.effective_user.id
+                
+                # Stuur tenminste een tekstbericht
+                await self.bot.send_message(
+                    chat_id=user_id,
                     text="Welcome to SigmaPips AI! What would you like to do?",
                     reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
                 )
+                logger.info("Emergency fallback message sent as text-only")
+                return MENU
+            except Exception as fallback_error:
+                logger.error(f"Even fallback failed: {str(fallback_error)}")
+                return MENU
+
+    async def force_send_main_menu(self, chat_id: int):
+        """Force send the main menu to a user - for debugging back_menu issues"""
+        try:
+            logger.info(f"Force sending main menu to user {chat_id}")
+            
+            # Get the welcome GIF URL
+            gif_url = await get_welcome_gif()
+            
+            # Send the welcome GIF
+            await send_welcome_gif(
+                self.bot,
+                chat_id=chat_id,
+                caption=WELCOME_MESSAGE
+            )
+            logger.info("Welcome GIF sent successfully in force_send_main_menu")
+            
+            # Send the keyboard separately for better UX
+            await self.bot.send_message(
+                chat_id=chat_id,
+                text="🚀 <b>Sigmapips AI - Main Menu</b> 🚀\n\nChoose an option to access advanced trading support:",
+                parse_mode=ParseMode.HTML,
+                reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
+            )
+            logger.info("Menu buttons sent successfully in force_send_main_menu")
+            
+            return {"status": "success", "message": f"Main menu sent to user {chat_id}"}
+        except Exception as e:
+            logger.error(f"Error in force_send_main_menu: {str(e)}")
+            logger.exception(e)
+            return {"status": "error", "message": str(e)}
+
+    async def _process_callback_query(self, update_data):
+        """Process a callback query update from Telegram."""
+        try:
+            # Parse the update
+            update = Update.de_json(data=update_data, bot=self.bot)
+            
+            logger.info(f"Processing callback query: {update.callback_query.data}")
+            
+            # Process via the button_callback method
+            await self.button_callback(update, None)
+            
+        except Exception as e:
+            logger.error(f"Error processing callback query: {str(e)}")
+            logger.exception(e)
+            # Try to notify the user
+            try:
+                query = update.callback_query
+                await query.answer(text="Error processing. Please try again.")
             except Exception:
-                pass
-            return MENU
+                pass  # Ignore if we can't send the error message
+
+    async def _process_message(self, update_data):
+        """Process a message update from Telegram."""
+        try:
+            # Parse the update
+            update = Update.de_json(data=update_data, bot=self.bot)
+            
+            # Check if this is a command message
+            if update.message and update.message.text and update.message.text.startswith('/'):
+                command = update.message.text.split(' ')[0].lower()
+                logger.info(f"Processing command: {command}")
+                
+                # Direct command handling with None context (will use self.bot internally)
+                try:
+                    if command == '/start':
+                        await self.start_command(update, None)
+                    elif command == '/menu':
+                        await self.show_main_menu(update, None)
+                    elif command == '/help':
+                        await self.help_command(update, None)
+                    elif command.startswith('/set_subscription'):
+                        await self.set_subscription_command(update, None)
+                    elif command.startswith('/set_payment_failed') or command.startswith('/setpaymentfailed'):
+                        await self.set_payment_failed_command(update, None)
+                    else:
+                        # Unknown command
+                        await update.message.reply_text(
+                            "Unknown command. Use /help to see available commands.",
+                            parse_mode=ParseMode.HTML
+                        )
+                except Exception as cmd_e:
+                    logger.error(f"Error handling command {command}: {str(cmd_e)}")
+                    logger.exception(cmd_e)
+                    # Try to send an error message to the user
+                    try:
+                        await self.bot.send_message(
+                            chat_id=update.effective_chat.id,
+                            text="Sorry, there was an error processing your command. Please try again later."
+                        )
+                    except Exception:
+                        pass  # Ignore if we can't send the error message
+            else:
+                # Regular message (not a command)
+                logger.info(f"Received regular message, suggesting help")
+                try:
+                    # Suggest using /help
+                    await update.message.reply_text(
+                        "Send /help to see available commands or /menu to access the main menu.",
+                        parse_mode=ParseMode.HTML
+                    )
+                except Exception as msg_e:
+                    logger.error(f"Error responding to message: {str(msg_e)}")
+                    
+        except Exception as e:
+            logger.error(f"Error processing message: {str(e)}")
+            logger.exception(e)
