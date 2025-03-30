@@ -2899,26 +2899,25 @@ Get started today with a FREE 14-day trial!
             return MENU
             
     async def back_to_signal_analysis_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
-        """Handle back to signal analysis callback - return to the signal analysis options."""
-        query = update.callback_query
-        await query.answer()
-        
+        """Handle the back to signal analysis button."""
         try:
-            # Get instrument from context
-            instrument = None
-            if context and hasattr(context, 'user_data'):
-                instrument = context.user_data.get('signal_instrument')
-                
-            if not instrument:
-                # If no instrument, go back to main menu
+            query = update.callback_query
+            await query.answer()
+            
+            # Get signal ID from user data
+            user_data = context.user_data
+            signal_id = user_data.get('signal_id')
+            
+            if not signal_id or signal_id not in self.signals:
+                logger.warning(f"Signal ID {signal_id} not found in back_to_signal_analysis_callback")
                 return await self.back_menu_callback(update, context)
             
-            # Show the analysis options for this instrument
-            signal_text = f"""
-📊 <b>Analysis Options for {instrument}</b>
-
-Select an analysis type:
-            """
+            # Get the signal
+            signal = self.signals[signal_id]
+            
+            # Format the message
+            signal_text = f"📊 <b>Analysis Options for {signal['instrument']}</b>\n\n"
+            signal_text += f"Choose the type of analysis you want to see for this {signal['market']} instrument."
             
             # Create keyboard with analysis options
             keyboard = [
@@ -2938,4 +2937,49 @@ Select an analysis type:
         except Exception as e:
             logger.error(f"Error in back_to_signal_analysis_callback: {str(e)}")
             # Try to recover
+            return await self.back_menu_callback(update, context)
+
+    async def back_market_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
+        """Handle the back to market selection button."""
+        try:
+            query = update.callback_query
+            await query.answer()
+            
+            # Clear instrument selection
+            if context and context.user_data:
+                if 'instrument' in context.user_data:
+                    del context.user_data['instrument']
+            
+            # Determine the appropriate keyboard based on analysis type
+            analysis_type = context.user_data.get('analysis_type', 'technical')
+            
+            # Prepare text message
+            message_text = f"📊 <b>Select Market for {analysis_type.title()} Analysis</b>\n\n"
+            message_text += "Choose the market you want to analyze:"
+            
+            # Create keyboard with market options
+            keyboard = [
+                [
+                    InlineKeyboardButton("💵 Forex", callback_data="market_forex"),
+                    InlineKeyboardButton("💰 Crypto", callback_data="market_crypto")
+                ],
+                [
+                    InlineKeyboardButton("📈 Stocks", callback_data="market_stocks"),
+                    InlineKeyboardButton("🛢️ Commodities", callback_data="market_commodities")
+                ],
+                [InlineKeyboardButton("⬅️ Back to Menu", callback_data="back_menu")]
+            ]
+            
+            # Use update_message for robust error handling
+            await self.update_message(
+                query=query,
+                text=message_text,
+                keyboard=keyboard,
+                parse_mode=ParseMode.HTML
+            )
+            
+            return MARKET_SELECTION
+        except Exception as e:
+            logger.error(f"Error in back_market_callback: {str(e)}")
+            # Try to recover by returning to main menu
             return await self.back_menu_callback(update, context)
