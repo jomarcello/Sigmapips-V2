@@ -3022,18 +3022,18 @@ Get started today with a FREE 14-day trial!
             
             # Handle different analysis types
             if analysis_type == 'sentiment':
-                # STAP 1: Toon eerst een loading indicator in het bestaande bericht
+                # STAP 1: Direct loading GIF tonen met update_message_with_gif
                 try:
                     # Duidelijk signaleren dat we bezig zijn met laden
                     await query.answer("Loading sentiment analysis...")
                     
-                    # Gebruik DIRECT update_message_with_gif om de loading GIF in het bestaande bericht te tonen
-                    # Gebruik expliciet de loading GIF, niet de generieke analyse GIF
+                    # Toon EXPLICIET de loading GIF, geen andere GIF
                     loading_gif = await get_loading_gif()
                     
+                    # Gebruik update_message_with_gif DIRECT in plaats van geneste methodes
                     await update_message_with_gif(
                         query=query,
-                        gif_url=loading_gif,  # Specifiek de loading GIF gebruiken
+                        gif_url=loading_gif,  # Specifiek loading_gif gebruiken, niet get_analyse_gif()
                         text=f"⏳ <b>Analyzing sentiment for {instrument}...</b>",
                         reply_markup=None,
                         parse_mode=ParseMode.HTML
@@ -3113,14 +3113,16 @@ Get started today with a FREE 14-day trial!
                     # STAP 3: Gebruik één simpele back knop
                     back_keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]]
                     
-                    # Toon sentiment analyse in HETZELFDE bericht
-                    # Gebruik direct de _safe_edit_message om te voorkomen dat een andere GIF wordt gebruikt
+                    # Toon sentiment analyse in HETZELFDE bericht met _safe_edit_message
+                    # Gebruik NIET self.update_message om te voorkomen dat er een verkeerde GIF wordt gebruikt
                     await self._safe_edit_message(
                         query=query,
                         text=sentiment_text,
                         reply_markup=InlineKeyboardMarkup(back_keyboard),
                         parse_mode=ParseMode.HTML
                     )
+                    
+                    return SHOW_RESULT
                     
                 except Exception as e:
                     logger.error(f"Error getting sentiment data: {str(e)}")
@@ -3156,26 +3158,199 @@ This is a simplified analysis based on available data. For more detailed insight
                     # Eén simpele back knop
                     back_keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]]
                     
-                    # Gebruik direct de _safe_edit_message om te voorkomen dat een andere GIF wordt gebruikt
+                    # Gebruik direct _safe_edit_message in plaats van self.update_message
                     await self._safe_edit_message(
                         query=query,
                         text=fallback_text,
                         reply_markup=InlineKeyboardMarkup(back_keyboard),
                         parse_mode=ParseMode.HTML
                     )
-                
-                return SHOW_RESULT
+                    
+                    return SHOW_RESULT
                 
             elif analysis_type == 'calendar':
-                # Implement calendar analysis handling
-                # This would be similar to the sentiment analysis but with calendar data
-                # For now, redirect to the existing handler if there is one
-                return CHOOSE_INSTRUMENT
+                # Toon loading animation en haal kalendergegevens op
+                try:
+                    # Duidelijk signaleren dat we bezig zijn met laden
+                    await query.answer("Loading economic calendar data...")
+                    
+                    # Toon specifiek de loading GIF
+                    loading_gif = await get_loading_gif()
+                    await update_message_with_gif(
+                        query=query,
+                        gif_url=loading_gif,
+                        text=f"⏳ <b>Loading economic calendar for {instrument}...</b>",
+                        reply_markup=None,
+                        parse_mode=ParseMode.HTML
+                    )
+                    
+                    # Gebruik de kalender service om de events op te halen
+                    calendar_data = await self.calendar_service.get_events(instrument)
+                    
+                    if not calendar_data or not calendar_data.get('events'):
+                        raise ValueError(f"No economic events found for {instrument}")
+                    
+                    # Format de kalendergegevens
+                    events = calendar_data.get('events', [])
+                    
+                    # Sorteer events op datum/tijd
+                    events = sorted(events, key=lambda e: e.get('date', ''))
+                    
+                    # Format the calendar text with emoji indicators for importance
+                    calendar_text = f"<b>📅 Economic Calendar: {instrument}</b>\n\n"
+                    
+                    if not events:
+                        calendar_text += "No upcoming economic events found for this instrument.\n"
+                    else:
+                        # Beperken tot maximaal 10 events om Telegram-limieten te respecteren
+                        for event in events[:10]:
+                            # Voeg een emoji toe op basis van het belang
+                            importance = event.get('importance', '').lower()
+                            if importance == 'high':
+                                imp_emoji = "🔴"  # Hoog belang: rood
+                            elif importance == 'medium':
+                                imp_emoji = "🟠"  # Gemiddeld belang: oranje
+                            else:
+                                imp_emoji = "🟢"  # Laag belang: groen
+                                
+                            # Format de datumtijd
+                            date_str = event.get('date', 'TBA')
+                            time_str = event.get('time', '')
+                            if time_str:
+                                datetime_str = f"{date_str} {time_str}"
+                            else:
+                                datetime_str = date_str
+                                
+                            # Haal de titel en land op
+                            title = event.get('title', 'Unknown Event')
+                            country = event.get('country', '')
+                            country_emoji = ""
+                            
+                            # Voeg optioneel land-emoji toe
+                            if country:
+                                # Eenvoudige landcodes naar emoji-mapping
+                                country_map = {
+                                    'us': '🇺🇸', 'usa': '🇺🇸', 'united states': '🇺🇸',
+                                    'eu': '🇪🇺', 'euro': '🇪🇺', 'eurozone': '🇪🇺',
+                                    'uk': '🇬🇧', 'united kingdom': '🇬🇧', 'gb': '🇬🇧',
+                                    'jp': '🇯🇵', 'japan': '🇯🇵',
+                                    'ca': '🇨🇦', 'canada': '🇨🇦',
+                                    'au': '🇦🇺', 'australia': '🇦🇺',
+                                    'ch': '🇨🇭', 'switzerland': '🇨🇭',
+                                    'nz': '🇳🇿', 'new zealand': '🇳🇿'
+                                }
+                                country_lower = country.lower()
+                                country_emoji = country_map.get(country_lower, f"({country}) ")
+                                
+                            # Voeg forecast en previous values toe indien beschikbaar
+                            forecast = event.get('forecast', '')
+                            previous = event.get('previous', '')
+                            impact = event.get('impact', '')
+                            
+                            # Bouw event string op
+                            event_str = f"{imp_emoji} <b>{datetime_str}</b> {country_emoji}\n"
+                            event_str += f"<b>{title}</b>\n"
+                            
+                            if forecast:
+                                event_str += f"Forecast: {forecast}\n"
+                            if previous:
+                                event_str += f"Previous: {previous}\n"
+                            if impact:
+                                event_str += f"Potential Impact: {impact}\n"
+                                
+                            event_str += "\n"  # Lege regel tussen events
+                            
+                            calendar_text += event_str
+                            
+                        if len(events) > 10:
+                            calendar_text += f"\n<i>+ {len(events) - 10} more events not shown</i>\n"
+                            
+                    # Één simpele back knop
+                    back_keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]]
+                    
+                    # Toon de kalender in hetzelfde bericht
+                    await self._safe_edit_message(
+                        query=query,
+                        text=calendar_text,
+                        reply_markup=InlineKeyboardMarkup(back_keyboard),
+                        parse_mode=ParseMode.HTML
+                    )
+                    
+                    return SHOW_RESULT
+                    
+                except Exception as calendar_error:
+                    logger.error(f"Error getting calendar data for {instrument}: {str(calendar_error)}")
+                    
+                    # Toon foutmelding met één simpele back knop
+                    await self._safe_edit_message(
+                        query=query,
+                        text=f"❌ <b>Could not load economic calendar for {instrument}</b>\n\nPlease try again later.",
+                        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]]),
+                        parse_mode=ParseMode.HTML
+                    )
+                    
+                    return SHOW_RESULT
                 
             elif analysis_type == 'chart':
-                # Implement technical chart analysis handling
-                # Redirecting to style selection or directly to chart generation
-                return CHOOSE_INSTRUMENT
+                # Direct de chart genereren en tonen
+                try:
+                    # Toon loading bericht met specifiek de LOADING GIF
+                    loading_gif = await get_loading_gif()
+                    await update_message_with_gif(
+                        query=query,
+                        gif_url=loading_gif,
+                        text=f"⏳ <b>Generating chart for {instrument}...</b>",
+                        reply_markup=None,
+                        parse_mode=ParseMode.HTML
+                    )
+                    
+                    # Gebruik de chart service om de chart te genereren
+                    img_path, levels = await self.chart_service.get_chart(instrument)
+                    
+                    if not img_path or not os.path.exists(img_path):
+                        raise FileNotFoundError(f"Chart not found for {instrument}")
+                    
+                    # Format levels info
+                    levels_text = ""
+                    if levels and isinstance(levels, dict):
+                        # Sort levels by price
+                        sorted_levels = sorted(levels.items(), key=lambda x: float(x[1]) if x[1] else 0)
+                        
+                        for level_type, price in sorted_levels:
+                            emoji = "🟢" if level_type.lower() == "support" else "🔴"
+                            levels_text += f"{emoji} {level_type}: {price}\n"
+                    
+                    caption = f"📈 <b>Technical Analysis: {instrument}</b>\n\n"
+                    if levels_text:
+                        caption += f"<b>Key Levels:</b>\n{levels_text}\n"
+                    
+                    # Eén simpele back knop
+                    keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]]
+                    
+                    # Stuur de chart afbeelding
+                    with open(img_path, 'rb') as image:
+                        await query.edit_message_media(
+                            media=InputMediaPhoto(
+                                media=image,
+                                caption=caption,
+                                parse_mode=ParseMode.HTML
+                            ),
+                            reply_markup=InlineKeyboardMarkup(keyboard)
+                        )
+                    
+                    return SHOW_RESULT
+                except Exception as chart_error:
+                    logger.error(f"Error generating chart for {instrument}: {str(chart_error)}")
+                    
+                    # Toon foutmelding met één simpele back knop
+                    await self._safe_edit_message(
+                        query=query,
+                        text=f"❌ <b>Could not generate chart for {instrument}</b>\n\nPlease try again later.",
+                        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]]),
+                        parse_mode=ParseMode.HTML
+                    )
+                    
+                    return SHOW_RESULT
                 
             else:
                 logger.warning(f"Unknown analysis type: {analysis_type}")
