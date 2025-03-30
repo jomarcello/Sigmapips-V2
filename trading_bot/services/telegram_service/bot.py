@@ -464,45 +464,42 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     [InlineKeyboardButton("🔄 Reactivate Subscription", url=reactivation_url)]
                 ]
             else:
-                # Show subscription screen with the welcome message from the screenshot
-                failed_payment_text = f"""
-🚀 <b>Welcome to Sigmapips AI!</b> 🚀
+                # Show the welcome message with trial option from the screenshot
+                welcome_text = """
+🚀 Welcome to Sigmapips AI! 🚀
 
-<b>Discover powerful trading signals for various markets:</b>
-• <b>Forex</b> - Major and minor currency pairs
-• <b>Crypto</b> - Bitcoin, Ethereum and other top cryptocurrencies
-• <b>Indices</b> - Global market indices
-• <b>Commodities</b> - Gold, silver and oil
+Discover powerful trading signals for various markets:
+• Forex - Major and minor currency pairs
 
-<b>Features:</b>
-✅ Real-time trading signals
-✅ Multi-timeframe analysis (1m, 15m, 1h, 4h)
-✅ Advanced chart analysis
-✅ Sentiment indicators
-✅ Economic calendar integration
+• Crypto - Bitcoin, Ethereum and other top
+ cryptocurrencies
+
+• Indices - US30, US500, US100 and more
+
+• Commodities - Gold, silver and oil
 
 <b>Start today with a FREE 14-day trial!</b>
-                """
+"""
                 
-                # Use direct URL link instead of callback for the trial button
-                reactivation_url = "https://buy.stripe.com/3cs3eF9Hu9256NW9AA"
+                # Use direct URL link for the trial button
+                trial_url = "https://buy.stripe.com/3cs3eF9Hu9256NW9AA"
                 
                 # Create button for trial
                 keyboard = [
-                    [InlineKeyboardButton("🔥 Start 14-day FREE Trial", url=reactivation_url)]
+                    [InlineKeyboardButton("🔥 Start 14-day FREE Trial", url=trial_url)]
                 ]
             
             # Handle both message and callback query updates
             if update.callback_query:
                 await update.callback_query.answer()
                 await update.callback_query.edit_message_text(
-                    text=failed_payment_text,
+                    text=welcome_text,
                     reply_markup=InlineKeyboardMarkup(keyboard),
                     parse_mode=ParseMode.HTML
                 )
             else:
                 await update.message.reply_text(
-                    text=failed_payment_text,
+                    text=welcome_text,
                     reply_markup=InlineKeyboardMarkup(keyboard),
                     parse_mode=ParseMode.HTML
                 )
@@ -1196,3 +1193,24 @@ Discover powerful trading signals for various markets:
 
 • Crypto - Bitcoin, Ethereum and other top
  cryptocurrencies
+
+• Indices - US30, US500, US100 and more
+
+• Commodities - Gold, silver and oil
+
+<b>Start today with a FREE 14-day trial!</b>
+"""
+            
+            # Use direct URL link for the trial button
+            trial_url = "https://buy.stripe.com/3cs3eF9Hu9256NW9AA"
+            
+            # Create button for trial
+            keyboard = [
+                [InlineKeyboardButton("🔥 Start 14-day FREE Trial", url=trial_url)]
+            ]
+            
+            await update.message.reply_text(
+                text=welcome_text,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode=ParseMode.HTML
+            )
