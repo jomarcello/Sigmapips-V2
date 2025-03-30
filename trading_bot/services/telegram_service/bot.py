@@ -3032,15 +3032,33 @@ Get started today with a FREE 14-day trial!
                 
                 # Get sentiment data from the service
                 try:
+                    # Toon een loading GIF tijdens het ophalen van sentiment data
+                    loading_gif = await get_loading_gif()
+                    await update_message_with_gif(
+                        query=query, 
+                        gif_url=loading_gif,
+                        text=f"⏳ <b>Analyzing sentiment for {instrument}...</b>",
+                        reply_markup=None,
+                        parse_mode=ParseMode.HTML
+                    )
+                    
                     sentiment_data = await self.sentiment_service.get_market_sentiment(instrument)
                     logger.info(f"Got market sentiment data type: {type(sentiment_data)}")
                     
                     # Handle different response formats
                     if isinstance(sentiment_data, str):
-                        # If we got a raw string, use it directly as analysis
+                        # Als we een string krijgen, gebruik deze direct maar verwijder de eerste kop als deze er is
+                        clean_data = sentiment_data
+                        if clean_data.startswith(f"🎯 {instrument} Market Analysis") or clean_data.startswith(f"<b>🎯 {instrument} Market Analysis</b>"):
+                            # Verwijder de eerste regel en eventuele volgende lege regels
+                            lines = clean_data.split('\n')
+                            clean_data = '\n'.join(lines[1:]).strip()
+                            while clean_data.startswith('\n'):
+                                clean_data = clean_data[1:]
+                        
                         sentiment_text = f"""<b>🧠 Market Sentiment Analysis: {instrument}</b>
 
-{sentiment_data}"""
+{clean_data}"""
                     elif isinstance(sentiment_data, dict):
                         # Calculate sentiment percentages from dictionary
                         bullish_score = sentiment_data.get('bullish_percentage', sentiment_data.get('bullish', 50))
@@ -3054,6 +3072,14 @@ Get started today with a FREE 14-day trial!
                             emoji = "📉"
                         else:
                             emoji = "⚖️"
+                        
+                        # Get analysis text and remove duplicate heading if present
+                        analysis_text = sentiment_data.get('analysis', 'Detailed analysis not available').strip()
+                        if analysis_text.startswith(f"🎯 {instrument} Market Analysis") or analysis_text.startswith(f"<b>🎯 {instrument} Market Analysis</b>"):
+                            lines = analysis_text.split('\n')
+                            analysis_text = '\n'.join(lines[1:]).strip()
+                            while analysis_text.startswith('\n'):
+                                analysis_text = analysis_text[1:]
                         
                         # Format sentiment message
                         sentiment_text = f"""<b>🧠 Market Sentiment Analysis: {instrument}</b>
@@ -3074,7 +3100,7 @@ Get started today with a FREE 14-day trial!
 {sentiment_data.get('recommendation', 'Wait for clearer market signals')}
 
 <b>Analysis:</b>
-{sentiment_data.get('analysis', 'Detailed analysis not available').strip()}"""
+{analysis_text}"""
                     else:
                         # Handle unexpected response type
                         logger.warning(f"Unexpected sentiment data type: {type(sentiment_data)}")
@@ -3126,11 +3152,8 @@ Current market sentiment for {instrument} appears to be {sentiment.lower()} {emo
 <b>Note:</b>
 This is a simplified analysis based on available data. For more detailed insights, please check back later or try a different analysis type."""
                     
-                    back_keyboard = [
-                        [InlineKeyboardButton("⬅️ Back to Markets", callback_data="back_market")],
-                        [InlineKeyboardButton("⬅️ Back to Analysis", callback_data="back_analysis")],
-                        [InlineKeyboardButton("🏠 Main Menu", callback_data="back_menu")]
-                    ]
+                    # Eén simpele back knop
+                    back_keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]]
                     
                     await self.update_message(
                         query=query,
