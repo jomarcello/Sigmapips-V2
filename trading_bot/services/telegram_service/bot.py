@@ -1238,9 +1238,8 @@ Discover powerful trading signals for various markets:
                 gif_url = await get_welcome_gif()
                 
                 # Send GIF with main menu keyboard
-                await send_gif_with_caption(
-                    update=update,
-                    gif_url=gif_url,
+                await update.message.reply_animation(
+                    animation=gif_url,
                     caption=WELCOME_MESSAGE,
                     reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
                     parse_mode=ParseMode.HTML
@@ -1315,917 +1314,30 @@ Discover powerful trading signals for various markets:
             
             if is_subscribed and not payment_failed:
                 # Regular subscribed user - send main menu
-                await self.bot.send_message(
-                    chat_id=chat_id,
-                    text=WELCOME_MESSAGE,
-                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
-                    parse_mode=ParseMode.HTML
-                )
-                return {"status": "success", "message": "Main menu sent"}
-            else:
-                # Trial user or payment failed - send appropriate message
-                if payment_failed:
-                    text = """
-❗ <b>Subscription Payment Failed</b> ❗
-
-Your subscription payment could not be processed and your service has been deactivated.
-
-To continue using Sigmapips AI and receive trading signals, please reactivate your subscription.
-                    """
-                    keyboard = [
-                        [InlineKeyboardButton("🔄 Reactivate Subscription", url="https://buy.stripe.com/9AQcPf3j63HL5JS145")]
-                    ]
-                else:
-                    text = """
-🚀 Welcome to Sigmapips AI! 🚀
-
-Discover powerful trading signals for various markets.
-
-<b>Start today with a FREE 14-day trial!</b>
-                    """
-                    keyboard = [
-                        [InlineKeyboardButton("🔥 Start 14-day FREE Trial", url="https://buy.stripe.com/3cs3eF9Hu9256NW9AA")]
-                    ]
-                
-                await self.bot.send_message(
-                    chat_id=chat_id,
-                    text=text,
-                    reply_markup=InlineKeyboardMarkup(keyboard),
-                    parse_mode=ParseMode.HTML
-                )
-                return {"status": "success", "message": "Trial message sent"}
-                
-        except Exception as e:
-            logger.error(f"Error force-sending main menu: {str(e)}")
-            return {"status": "error", "message": str(e)}
-
-    async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
-        """Show help information when the /help command is used."""
-        try:
-            # Send the help message
-            await update.message.reply_text(
-                text=HELP_MESSAGE,
-                parse_mode=ParseMode.HTML
-            )
-            logger.info(f"Sent help message to user {update.effective_user.id}")
-            return MENU
-        except Exception as e:
-            logger.error(f"Error showing help: {str(e)}")
-            # Try a simpler message if HTML parsing fails
-            await update.message.reply_text(
-                text="Available commands:\n/menu - Show main menu\n/start - Set up new trading pairs\n/help - Show this help message"
-            )
-            return MENU
-            
-    async def set_subscription_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
-        """Admin command to set a user's subscription status."""
-        # Check if the user is an admin
-        user_id = update.effective_user.id
-        if user_id not in self.admin_users:
-            await update.message.reply_text("This command is only available to administrators.")
-            return MENU
-            
-        try:
-            # Expected format: /set_subscription {user_id} {1/0}
-            args = context.args if context and hasattr(context, 'args') else []
-            
-            if len(args) < 2:
-                await update.message.reply_text("Usage: /set_subscription {user_id} {1/0}")
-                return MENU
-                
-            target_user_id = int(args[0])
-            status = int(args[1]) == 1
-            
-            # Set the subscription status
-            if status:
-                # Add subscription
-                await self.db.save_subscription(
-                    user_id=target_user_id,
-                    customer_id=f"admin_set_{int(time.time())}",
-                    subscription_id=f"admin_set_{int(time.time())}",
-                    status="active",
-                    plan_id="admin_set",
-                    payment_failed=False
-                )
-                await update.message.reply_text(f"User {target_user_id} subscription set to active.")
-            else:
-                # Remove subscription
-                await self.db.cancel_subscription(target_user_id)
-                await update.message.reply_text(f"User {target_user_id} subscription removed.")
-                
-            return MENU
-        except Exception as e:
-            logger.error(f"Error setting subscription: {str(e)}")
-            await update.message.reply_text(f"Error: {str(e)}")
-            return MENU
-            
-    async def set_payment_failed_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
-        """Admin command to set a user's payment failed status."""
-        # Check if the user is an admin
-        user_id = update.effective_user.id
-        if user_id not in self.admin_users:
-            await update.message.reply_text("This command is only available to administrators.")
-            return MENU
-            
-        try:
-            # Expected format: /set_payment_failed {user_id} {1/0}
-            args = context.args if context and hasattr(context, 'args') else []
-            
-            if len(args) < 2:
-                await update.message.reply_text("Usage: /set_payment_failed {user_id} {1/0}")
-                return MENU
-                
-            target_user_id = int(args[0])
-            status = int(args[1]) == 1
-            
-            # Set the payment failed status
-            await self.db.set_payment_failed_status(target_user_id, status)
-            await update.message.reply_text(
-                f"User {target_user_id} payment failed status set to {status}."
-            )
-                
-            return MENU
-        except Exception as e:
-            logger.error(f"Error setting payment failed status: {str(e)}")
-            await update.message.reply_text(f"Error: {str(e)}")
-            return MENU
-
-    async def button_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
-        """Handle button callback queries."""
-        query = update.callback_query
-        await query.answer()  # Answer the callback query to stop the loading animation
-        
-        # Get the callback data
-        callback_data = query.data
-        logger.info(f"Received callback: {callback_data}")
-        
-        # Get user_id from update
-        user_id = update.effective_user.id
-        
-        try:
-            # Menu navigation callbacks
-            if callback_data == CALLBACK_MENU_ANALYSE:
-                # Show analysis options
                 try:
-                    # First try to edit message text
-                    await query.edit_message_text(
-                        text="Choose an analysis type:",
-                        reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
+                    # Haal de welkomst-GIF op
+                    gif_url = await get_welcome_gif()
+                    
+                    # Stuur een animatie die automatisch afspeelt
+                    await self.bot.send_animation(
+                        chat_id=chat_id,
+                        animation=gif_url,
+                        caption=WELCOME_MESSAGE,
+                        reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
+                        parse_mode=ParseMode.HTML
                     )
-                except Exception as text_error:
-                    logger.warning(f"Could not edit message text: {str(text_error)}")
-                    
-                    # If there's no text to edit (message is a GIF/photo), try editing caption
-                    if "There is no text in the message to edit" in str(text_error):
-                        try:
-                            await query.edit_message_caption(
-                                caption="Choose an analysis type:",
-                                reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
-                            )
-                        except Exception as caption_error:
-                            logger.error(f"Could not edit message caption: {str(caption_error)}")
-                            
-                            # Last resort: send a new message
-                            await query.message.reply_text(
-                                text="Choose an analysis type:",
-                                reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
-                            )
-                
-                return CHOOSE_ANALYSIS
-                
-            elif callback_data == CALLBACK_MENU_SIGNALS:
-                # Check subscription before showing signals options
-                is_subscribed = await self.db.is_user_subscribed(user_id)
-                payment_failed = await self.db.has_payment_failed(user_id)
-                
-                if is_subscribed and not payment_failed:
-                    # Show signals options
-                    try:
-                        await query.edit_message_text(
-                            text="Trading Signals Menu:",
-                            reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD)
-                        )
-                    except Exception as text_error:
-                        logger.warning(f"Could not edit message text: {str(text_error)}")
-                        
-                        # If there's no text to edit, try editing caption
-                        if "There is no text in the message to edit" in str(text_error):
-                            try:
-                                await query.edit_message_caption(
-                                    caption="Trading Signals Menu:",
-                                    reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD)
-                                )
-                            except Exception as caption_error:
-                                logger.error(f"Could not edit message caption: {str(caption_error)}")
-                                
-                                # Last resort: send a new message
-                                await query.message.reply_text(
-                                    text="Trading Signals Menu:",
-                                    reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD)
-                                )
-                    
-                    return CHOOSE_SIGNALS
-                else:
-                    # Show subscription message
-                    if payment_failed:
-                        text = """
-❗ <b>Subscription Payment Failed</b> ❗
-
-Your subscription payment could not be processed and your service has been deactivated.
-
-To continue using Sigmapips AI and receive trading signals, please reactivate your subscription.
-                        """
-                        keyboard = [
-                            [InlineKeyboardButton("🔄 Reactivate Subscription", url="https://buy.stripe.com/9AQcPf3j63HL5JS145")],
-                            [InlineKeyboardButton("⬅️ Back to Menu", callback_data=CALLBACK_BACK_MENU)]
-                        ]
-                    else:
-                        text = """
-🚀 <b>Trading Signals Subscription Required</b> 🚀
-
-To access trading signals, you need an active subscription.
-
-Get started today with a FREE 14-day trial!
-                        """
-                        keyboard = [
-                            [InlineKeyboardButton("🔥 Start 14-day FREE Trial", url="https://buy.stripe.com/3cs3eF9Hu9256NW9AA")],
-                            [InlineKeyboardButton("⬅️ Back to Menu", callback_data=CALLBACK_BACK_MENU)]
-                        ]
-                    
-                    try:
-                        await query.edit_message_text(
-                            text=text,
-                            reply_markup=InlineKeyboardMarkup(keyboard),
-                            parse_mode=ParseMode.HTML
-                        )
-                    except Exception as text_error:
-                        logger.warning(f"Could not edit message text: {str(text_error)}")
-                        
-                        # If there's no text to edit, try editing caption
-                        if "There is no text in the message to edit" in str(text_error):
-                            try:
-                                await query.edit_message_caption(
-                                    caption=text,
-                                    reply_markup=InlineKeyboardMarkup(keyboard),
-                                    parse_mode=ParseMode.HTML
-                                )
-                            except Exception as caption_error:
-                                logger.error(f"Could not edit message caption: {str(caption_error)}")
-                                
-                                # Last resort: send a new message
-                                await query.message.reply_text(
-                                    text=text,
-                                    reply_markup=InlineKeyboardMarkup(keyboard),
-                                    parse_mode=ParseMode.HTML
-                                )
-                    
-                    return MENU
-            
-            # Analysis type callbacks
-            elif callback_data == CALLBACK_ANALYSIS_TECHNICAL:
-                # Show markets for technical analysis
-                try:
-                    await query.edit_message_text(
-                        text="Select a market for technical analysis:",
-                        reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
-                    )
-                except Exception as text_error:
-                    logger.warning(f"Could not edit message text: {str(text_error)}")
-                    
-                    # If there's no text to edit, try editing caption
-                    if "There is no text in the message to edit" in str(text_error):
-                        try:
-                            await query.edit_message_caption(
-                                caption="Select a market for technical analysis:",
-                                reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
-                            )
-                        except Exception as caption_error:
-                            logger.error(f"Could not edit message caption: {str(caption_error)}")
-                            
-                            # Last resort: send a new message
-                            await query.message.reply_text(
-                                text="Select a market for technical analysis:",
-                                reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
-                            )
-                
-                # Save the analysis type in context
-                if context and hasattr(context, 'user_data'):
-                    context.user_data['analysis_type'] = 'technical'
-                return CHOOSE_MARKET
-                
-            elif callback_data == CALLBACK_ANALYSIS_SENTIMENT:
-                # Show markets for sentiment analysis
-                try:
-                    await query.edit_message_text(
-                        text="Select a market for sentiment analysis:",
-                        reply_markup=InlineKeyboardMarkup(MARKET_SENTIMENT_KEYBOARD)
-                    )
-                except Exception as text_error:
-                    logger.warning(f"Could not edit message text: {str(text_error)}")
-                    
-                    # If there's no text to edit, try editing caption
-                    if "There is no text in the message to edit" in str(text_error):
-                        try:
-                            await query.edit_message_caption(
-                                caption="Select a market for sentiment analysis:",
-                                reply_markup=InlineKeyboardMarkup(MARKET_SENTIMENT_KEYBOARD)
-                            )
-                        except Exception as caption_error:
-                            logger.error(f"Could not edit message caption: {str(caption_error)}")
-                            
-                            # Last resort: send a new message
-                            await query.message.reply_text(
-                                text="Select a market for sentiment analysis:",
-                                reply_markup=InlineKeyboardMarkup(MARKET_SENTIMENT_KEYBOARD)
-                            )
-                
-                # Save the analysis type in context
-                if context and hasattr(context, 'user_data'):
-                    context.user_data['analysis_type'] = 'sentiment'
-                return CHOOSE_MARKET
-                
-            elif callback_data == CALLBACK_ANALYSIS_CALENDAR:
-                # Show markets for calendar analysis
-                try:
-                    await query.edit_message_text(
-                        text="Select a market for economic calendar analysis:",
-                        reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
-                    )
-                except Exception as text_error:
-                    logger.warning(f"Could not edit message text: {str(text_error)}")
-                    
-                    # If there's no text to edit, try editing caption
-                    if "There is no text in the message to edit" in str(text_error):
-                        try:
-                            await query.edit_message_caption(
-                                caption="Select a market for economic calendar analysis:",
-                                reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
-                            )
-                        except Exception as caption_error:
-                            logger.error(f"Could not edit message caption: {str(caption_error)}")
-                            
-                            # Last resort: send a new message
-                            await query.message.reply_text(
-                                text="Select a market for economic calendar analysis:",
-                                reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
-                            )
-                
-                # Save the analysis type in context
-                if context and hasattr(context, 'user_data'):
-                    context.user_data['analysis_type'] = 'calendar'
-                return CHOOSE_MARKET
-                
-            # Market selection callbacks
-            elif callback_data.startswith("market_"):
-                # Handle market selection
-                parts = callback_data.split("_")
-                market_type = parts[1]  # e.g., "forex", "crypto", etc.
-                
-                # Check if this is a signal-specific market selection
-                is_signals = len(parts) > 2 and parts[2] == "signals"
-                
-                # Save market in context
-                if context and hasattr(context, 'user_data'):
-                    context.user_data['market'] = market_type
-                    if is_signals:
-                        context.user_data['in_signals_flow'] = True
-                
-                # Process market callback
-                return await self.market_callback(update, context)
-                
-            # Back button callbacks
-            elif callback_data == "back_analysis":
-                # Back to analysis menu
-                try:
-                    await query.edit_message_text(
-                        text="Choose an analysis type:",
-                        reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
-                    )
-                except Exception as text_error:
-                    logger.warning(f"Could not edit message text: {str(text_error)}")
-                    
-                    # If there's no text to edit, try editing caption
-                    if "There is no text in the message to edit" in str(text_error):
-                        try:
-                            await query.edit_message_caption(
-                                caption="Choose an analysis type:",
-                                reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
-                            )
-                        except Exception as caption_error:
-                            logger.error(f"Could not edit message caption: {str(caption_error)}")
-                            
-                            # Last resort: send a new message
-                            await query.message.reply_text(
-                                text="Choose an analysis type:",
-                                reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
-                            )
-                
-                return CHOOSE_ANALYSIS
-                
-            # Generic callback - log the data for debugging
-            logger.warning(f"Unhandled callback data: {callback_data}")
-            return MENU
-            
-        except Exception as e:
-            logger.error(f"Error in button_callback: {str(e)}")
-            logger.exception(e)
-            # Try to recover by going back to main menu
-            try:
-                # Try to send a new message instead of editing
-                await query.message.reply_text(
-                    text="An error occurred. Returning to main menu...",
-                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
-                )
-            except Exception:
-                pass
-            return MENU
-            
-    # Helper method to safely edit message with fallbacks
-    async def _safe_edit_message(self, query, text, reply_markup=None, parse_mode=None):
-        """
-        Safely edit a message with text or caption, handling errors and providing fallbacks.
-        This helper method makes all callbacks more robust.
-        """
-        try:
-            # First try to edit the message text
-            await query.edit_message_text(
-                text=text,
-                reply_markup=reply_markup,
-                parse_mode=parse_mode
-            )
-            return True
-        except Exception as text_error:
-            logger.warning(f"Could not edit message text: {str(text_error)}")
-            
-            # Check if the error is because there's no text (likely a message with photo/GIF)
-            if "There is no text in the message to edit" in str(text_error):
-                try:
-                    # Try to edit the caption instead
-                    await query.edit_message_caption(
-                        caption=text,
-                        reply_markup=reply_markup,
-                        parse_mode=parse_mode
-                    )
-                    return True
-                except Exception as caption_error:
-                    logger.error(f"Could not edit message caption: {str(caption_error)}")
-                    
-                    if "Bad Request: Message caption is empty" in str(caption_error):
-                        # If caption is empty, try using media
-                        try:
-                            from telegram import InputMediaPhoto
-                            await query.edit_message_media(
-                                media=InputMediaPhoto(
-                                    media=query.message.photo[-1].file_id if query.message.photo else "https://via.placeholder.com/500",
-                                    caption=text,
-                                    parse_mode=parse_mode
-                                ),
-                                reply_markup=reply_markup
-                            )
-                            return True
-                        except Exception as media_error:
-                            logger.error(f"Could not edit message media: {str(media_error)}")
-            
-            # Last resort: send a new message
-            try:
-                await query.message.reply_text(
-                    text=text,
-                    reply_markup=reply_markup,
-                    parse_mode=parse_mode
-                )
-                return True
-            except Exception as final_error:
-                logger.error(f"Failed to send new message: {str(final_error)}")
-                return False
-                
-    async def update_message(self, query, text, keyboard=None, parse_mode=ParseMode.HTML, media_fallback=True):
-        """
-        Update a message with robust error handling for media messages.
-        
-        Args:
-            query: The callback query object containing the message to update
-            text: The text to show in the message
-            keyboard: The keyboard markup to use (list of lists of InlineKeyboardButton)
-            parse_mode: Parse mode for text formatting
-            media_fallback: Whether to attempt media fallbacks for GIFs/photos
-            
-        Returns:
-            True if the update was successful, False otherwise
-        """
-        try:
-            # Create InlineKeyboardMarkup if keyboard is provided
-            reply_markup = InlineKeyboardMarkup(keyboard) if keyboard else None
-            
-            # Try the safe edit method first
-            success = await self._safe_edit_message(
-                query=query,
-                text=text,
-                reply_markup=reply_markup,
-                parse_mode=parse_mode
-            )
-            
-            if success:
-                return True
-                
-            # If safe edit failed and media_fallback is enabled
-            if media_fallback:
-                try:
-                    # Get a generic GIF to use
-                    gif_url = await get_analyse_gif()
-                    
-                    # Try using update_message_with_gif
-                    success = await update_message_with_gif(
-                        query=query,
-                        gif_url=gif_url,
-                        text=text,
-                        reply_markup=reply_markup,
-                        parse_mode=parse_mode
-                    )
-                    
-                    if success:
-                        return True
-                        
-                    # Try InputMediaAnimation as last resort
-                    try:
-                        from telegram import InputMediaAnimation
-                        await query.edit_message_media(
-                            media=InputMediaAnimation(
-                                media=gif_url,
-                                caption=text,
-                                parse_mode=parse_mode
-                            ),
-                            reply_markup=reply_markup
-                        )
-                        return True
-                    except Exception:
-                        pass
-                except Exception:
-                    pass
-            
-            # Final fallback: send new message
-            await query.message.reply_text(
-                text=text,
-                reply_markup=reply_markup,
-                parse_mode=parse_mode
-            )
-            return True
-            
-        except Exception as e:
-            logger.error(f"Failed to update message: {str(e)}")
-            # Ultimate fallback - try basic text message with no formatting
-            try:
-                await query.message.reply_text(
-                    text="An error occurred. Please try again.",
-                    reply_markup=reply_markup
-                )
-            except Exception:
-                pass
-            return False
-
-    async def back_menu_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
-        """Handle back_menu callback to return to the main menu."""
-        query = update.callback_query
-        await query.answer()
-        
-        try:
-            # Clear any context data for a fresh start
-            if context and hasattr(context, 'user_data'):
-                # Only clear navigation-related data
-                keys_to_clear = ['market', 'instrument', 'analysis_type', 'in_signals_flow']
-                for key in keys_to_clear:
-                    if key in context.user_data:
-                        del context.user_data[key]
-            
-            # Show the main menu with GIF if possible
-            try:
-                # Get the menu GIF
-                gif_url = await get_menu_gif()
-                
-                # Create formatted text with GIF
-                formatted_text = await embed_gif_in_text(gif_url, WELCOME_MESSAGE)
-                
-                # Use the safe edit method to ensure we can handle different message types
-                success = await self._safe_edit_message(
-                    query=query, 
-                    text=formatted_text,
-                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
-                    parse_mode=ParseMode.HTML
-                )
-                
-                if success:
-                    logger.info("Back to main menu with GIF")
-                else:
-                    # If _safe_edit_message failed, try update_message_with_gif
-                    success = await update_message_with_gif(
-                        query=query,
-                        gif_url=gif_url,
+                except Exception as gif_error:
+                    logger.error(f"Error sending welcome GIF: {str(gif_error)}")
+                    # Fallback naar tekst-only als GIF faalt
+                    await self.bot.send_message(
+                        chat_id=chat_id,
                         text=WELCOME_MESSAGE,
                         reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
                         parse_mode=ParseMode.HTML
                     )
-                    
-                    if success:
-                        logger.info("Back to main menu with GIF using update_message_with_gif")
-                    else:
-                        # Last resort: send a new message
-                        await query.message.reply_text(
-                            text=WELCOME_MESSAGE,
-                            reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
-                            parse_mode=ParseMode.HTML
-                        )
-                        logger.info("Back to main menu with new message")
-            except Exception as e:
-                logger.error(f"Error showing main menu with GIF: {str(e)}")
-                # Fallback to text-only menu
-                await self._safe_edit_message(
-                    query=query,
-                    text=WELCOME_MESSAGE,
-                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
-                    parse_mode=ParseMode.HTML
-                )
-                logger.info("Back to main menu with text only")
-            
-            return MENU
-        except Exception as e:
-            logger.error(f"Error in back_menu_callback: {str(e)}")
-            # Try to recover with simple text
-            try:
-                # Don't edit, send a new message to be safe
-                await query.message.reply_text(
-                    text="Main Menu",
-                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
-                )
-            except Exception:
-                pass
-            return MENU
-
-    async def market_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
-        """Handle market selection."""
-        query = update.callback_query
-        await query.answer()
-        
-        try:
-            # Extract market from callback data
-            callback_data = query.data
-            parts = callback_data.split('_')
-            
-            # Get market type from parts
-            market_type = parts[1] if len(parts) > 1 else 'forex'  # Default to forex
-            
-            # Get analysis type from context or from callback data
-            analysis_type = None
-            if context and hasattr(context, 'user_data'):
-                analysis_type = context.user_data.get('analysis_type')
-            
-            # If analysis_type is not in context, check if it's in the callback data
-            if not analysis_type and len(parts) > 2:
-                analysis_type = parts[2]  # e.g., "sentiment", "calendar", "signals"
-            
-            # Determine if we're in signals flow
-            is_signals_flow = 'signals' in callback_data or (context and hasattr(context, 'user_data') and context.user_data.get('in_signals_flow', False))
-            
-            # Save to context
-            if context and hasattr(context, 'user_data'):
-                context.user_data['market'] = market_type
-                context.user_data['in_signals_flow'] = is_signals_flow
-                if analysis_type:
-                    context.user_data['analysis_type'] = analysis_type
-            
-            # Prepare the keyboard based on market type and analysis type
-            logger.info(f"Processing market: {market_type}, analysis: {analysis_type}")
-            
-            # Choose caption prefix based on analysis type
-            analysis_type_name = "Technical Analysis"
-            if analysis_type == 'sentiment':
-                analysis_type_name = "Market Sentiment"
-            elif analysis_type == 'calendar':
-                analysis_type_name = "Economic Calendar"
-            elif analysis_type == 'signals':
-                analysis_type_name = "Trading Signals"
-            
-            # Get market name for display
-            market_name = market_type.capitalize()
-            
-            # Build caption with analysis and market types
-            caption_prefix = f"{market_name} "
-            caption = f"{caption_prefix}{analysis_type_name}:"
-            logger.info(f"Using caption: {caption}")
-            
-            # Determine which keyboard to show based on market and analysis type
-            if market_type == 'forex':
-                if analysis_type == 'sentiment':
-                    keyboard = FOREX_SENTIMENT_KEYBOARD
-                elif analysis_type == 'calendar':
-                    keyboard = FOREX_CALENDAR_KEYBOARD
-                elif analysis_type == 'signals':
-                    keyboard = FOREX_KEYBOARD_SIGNALS
-                else:  # Default to technical analysis
-                    keyboard = FOREX_KEYBOARD
-            elif market_type == 'crypto':
-                if analysis_type == 'sentiment':
-                    keyboard = CRYPTO_SENTIMENT_KEYBOARD
-                elif analysis_type == 'signals':
-                    keyboard = CRYPTO_KEYBOARD_SIGNALS
-                else:  # Default to technical analysis
-                    keyboard = CRYPTO_KEYBOARD
-            elif market_type == 'indices':
-                if analysis_type == 'signals':
-                    keyboard = INDICES_KEYBOARD_SIGNALS
-                else:  # Default to technical analysis
-                    keyboard = INDICES_KEYBOARD
-            elif market_type == 'commodities':
-                if analysis_type == 'signals':
-                    keyboard = COMMODITIES_KEYBOARD_SIGNALS
-                else:  # Default to technical analysis
-                    keyboard = COMMODITIES_KEYBOARD
+                return {"status": "success", "message": "Main menu sent"}
             else:
-                logger.error(f"Unknown market type: {market_type}, falling back to forex")
-                keyboard = FOREX_KEYBOARD
-                market_type = 'forex'
-            
-            # Add back button to keyboard if not already present
-            if isinstance(keyboard, list) and len(keyboard) > 0:
-                has_back_button = False
-                for row in keyboard:
-                    for btn in row:
-                        if hasattr(btn, 'callback_data') and (
-                            btn.callback_data == "back_analysis" or 
-                            btn.callback_data == "back_signals" or
-                            btn.callback_data == "back_market"
-                        ):
-                            has_back_button = True
-                            break
-                if not has_back_button:
-                    # Add appropriate back button based on flow
-                    if is_signals_flow:
-                        keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="back_signals")])
-                    else:
-                        keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="back_analysis")])
-            
-            # Get the analyse GIF URL
-            gif_url = await get_analyse_gif()
-            
-            # Update the message with the GIF and new keyboard
-            try:
-                # First try using formatted text with embedded GIF
-                formatted_text = await embed_gif_in_text(gif_url, caption)
-                
-                # Use the safe edit method
-                success = await self._safe_edit_message(
-                    query=query,
-                    text=formatted_text,
-                    reply_markup=InlineKeyboardMarkup(keyboard),
-                    parse_mode=ParseMode.HTML
-                )
-                
-                if success:
-                    logger.info(f"Message updated with {analysis_type_name} for {market_name}")
-                else:
-                    # Try using update_message_with_gif helper
-                    success = await update_message_with_gif(
-                        query=query,
-                        gif_url=gif_url,
-                        text=caption,
-                        reply_markup=InlineKeyboardMarkup(keyboard),
-                        parse_mode=ParseMode.HTML
-                    )
-                    
-                    if success:
-                        logger.info(f"Message updated with GIF using update_message_with_gif")
-                    else:
-                        # Try using InputMediaAnimation if available
-                        try:
-                            from telegram import InputMediaAnimation
-                            
-                            await query.edit_message_media(
-                                media=InputMediaAnimation(
-                                    media=gif_url,
-                                    caption=caption,
-                                    parse_mode=ParseMode.HTML
-                                ),
-                                reply_markup=InlineKeyboardMarkup(keyboard)
-                            )
-                            logger.info(f"Message updated with InputMediaAnimation")
-                        except Exception as media_error:
-                            logger.error(f"Failed to update with InputMediaAnimation: {str(media_error)}")
-                            
-                            # Last resort: send a new message
-                            await query.message.reply_text(
-                                text=caption,
-                                reply_markup=InlineKeyboardMarkup(keyboard),
-                                parse_mode=ParseMode.HTML
-                            )
-                            logger.info(f"Sent new message for {analysis_type_name}")
-            except Exception as e:
-                logger.error(f"Error updating message: {str(e)}")
-                
-                # Fallback to simple text message
-                await query.message.reply_text(
-                    text=caption,
-                    reply_markup=InlineKeyboardMarkup(keyboard),
-                    parse_mode=ParseMode.HTML
-                )
-            
-            return CHOOSE_INSTRUMENT
-        
-        except Exception as e:
-            logger.error(f"Error in market_callback: {str(e)}")
-            logger.exception(e)
-            # Try to recover by going back to main menu
-            try:
-                # Don't edit, send a new message to be safe
-                await query.message.reply_text(
-                    text="An error occurred. Returning to main menu...",
-                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
-                )
-            except Exception:
-                pass
-            return MENU
-            
-    async def back_analysis_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
-        """Handle back_analysis callback to return to the analysis menu."""
-        query = update.callback_query
-        await query.answer()
-        
-        try:
-            # Clear market data
-            if context and hasattr(context, 'user_data'):
-                if 'market' in context.user_data:
-                    del context.user_data['market']
-                if 'instrument' in context.user_data:
-                    del context.user_data['instrument']
-            
-            # Show analysis menu
-            success = await self._safe_edit_message(
-                query=query,
-                text="Choose an analysis type:",
-                reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
-                parse_mode=ParseMode.HTML
-            )
-            
-            if not success:
-                # If all edit attempts failed, send a new message
-                await query.message.reply_text(
-                    text="Choose an analysis type:",
-                    reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
-                    parse_mode=ParseMode.HTML
-                )
-            
-            return CHOOSE_ANALYSIS
-        except Exception as e:
-            logger.error(f"Error in back_analysis_callback: {str(e)}")
-            # Try simplified recovery
-            try:
-                # Don't try to edit, send a new message
-                await query.message.reply_text(
-                    text="Analysis Options",
-                    reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
-                )
-            except Exception:
-                pass
-            return CHOOSE_ANALYSIS
-            
-    async def back_signals_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
-        """Handle back_signals callback to return to the signals menu."""
-        query = update.callback_query
-        await query.answer()
-        
-        try:
-            # Clear market and instrument data
-            if context and hasattr(context, 'user_data'):
-                keys_to_clear = ['market', 'instrument']
-                for key in keys_to_clear:
-                    if key in context.user_data:
-                        del context.user_data[key]
-                
-                # Make sure we maintain the signals flow flag
-                context.user_data['in_signals_flow'] = True
-            
-            # Check if user has subscription
-            user_id = update.effective_user.id
-            is_subscribed = await self.db.is_user_subscribed(user_id)
-            payment_failed = await self.db.has_payment_failed(user_id)
-            
-            if is_subscribed and not payment_failed:
-                # Show signals menu for subscribed users
-                success = await self._safe_edit_message(
-                    query=query,
-                    text="Trading Signals Menu:",
-                    reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD),
-                    parse_mode=ParseMode.HTML
-                )
-                
-                if not success:
-                    # If all edit attempts failed, send a new message
-                    await query.message.reply_text(
-                        text="Trading Signals Menu:",
-                        reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD),
-                        parse_mode=ParseMode.HTML
-                    )
-                
-                return CHOOSE_SIGNALS
-            else:
-                # Show subscription message for non-subscribers
+                # Trial user or payment failed - send appropriate message
                 if payment_failed:
                     text = """
 ❗ <b>Subscription Payment Failed</b> ❗
@@ -2979,7 +2091,31 @@ Get started today with a FREE 14-day trial!
                 [InlineKeyboardButton("⬅️ Back to Menu", callback_data="back_menu")]
             ]
             
-            # Use update_message for robust error handling
+            # Controleer of het huidige bericht media bevat (foto of animatie)
+            has_media = bool(query.message.photo) or query.message.animation is not None
+            
+            if has_media:
+                try:
+                    # Verwijder het huidige bericht met media
+                    await query.message.delete()
+                    
+                    # Get a market analysis GIF voor auto-play
+                    market_gif_url = await get_analyse_gif()
+                    
+                    # Stuur een nieuw animatiebericht dat automatisch afspeelt
+                    await update.effective_chat.send_animation(
+                        animation=market_gif_url,
+                        caption=message_text,
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+                    
+                    return MARKET_SELECTION
+                except Exception as media_error:
+                    logger.warning(f"Could not handle media in back_market_callback: {str(media_error)}")
+                    # Ga verder met standaard update_message als fallback
+            
+            # Use update_message for robust error handling (fallback)
             await self.update_message(
                 query=query,
                 text=message_text,
@@ -3029,25 +2165,44 @@ Get started today with a FREE 14-day trial!
                     
                     # Werk het bestaande bericht bij met loading GIF
                     try:
-                        # Gebruik een loading GIF in plaats van alleen tekst
+                        # Gebruik een loading GIF met send_animation om auto-play te garanderen
                         loading_gif_url = "https://media4.giphy.com/media/v1.Y2lkPTc5MGI3NjExdGh5cm1sNTVvemVqNXphOGw2Y3IwM2R0aHJ1d2h3ZHZ2MTM4b3l4OSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/dpjUltnOPye7azvAhH/giphy.gif"
-                        await query.edit_message_media(
-                            media=InputMediaAnimation(
-                                media=loading_gif_url,
-                                caption=f"⏳ <b>Analyzing sentiment for {instrument}...</b>",
-                                parse_mode=ParseMode.HTML
-                            ),
-                            reply_markup=None
-                        )
-                    except Exception as loading_error:
-                        logger.warning(f"Could not show loading GIF: {str(loading_error)}")
-                        # Fallback naar tekst-only loading als GIF niet werkt
-                        await self._safe_edit_message(
-                            query=query,
-                            text=f"⏳ <b>Analyzing sentiment for {instrument}...</b>",
-                            reply_markup=None,
+                        
+                        # Verwijder het huidige bericht en stuur een nieuw animatiebericht
+                        await query.message.delete()
+                        
+                        # Stuur een nieuw animatiebericht dat automatisch afspeelt
+                        sent_message = await update.effective_chat.send_animation(
+                            animation=loading_gif_url,
+                            caption=f"⏳ <b>Analyzing sentiment for {instrument}...</b>",
                             parse_mode=ParseMode.HTML
                         )
+                        
+                        # Sla het message ID op om het later te kunnen updaten
+                        if context and hasattr(context, 'user_data'):
+                            context.user_data['loading_message_id'] = sent_message.message_id
+                            
+                    except Exception as loading_error:
+                        logger.warning(f"Could not show loading GIF with send_animation: {str(loading_error)}")
+                        # Fallback naar edit_message_media
+                        try:
+                            await query.edit_message_media(
+                                media=InputMediaAnimation(
+                                    media=loading_gif_url,
+                                    caption=f"⏳ <b>Analyzing sentiment for {instrument}...</b>",
+                                    parse_mode=ParseMode.HTML
+                                ),
+                                reply_markup=None
+                            )
+                        except Exception as media_error:
+                            logger.warning(f"Could not edit message media: {str(media_error)}")
+                            # Fallback naar tekst-only loading als GIF niet werkt
+                            await self._safe_edit_message(
+                                query=query,
+                                text=f"⏳ <b>Analyzing sentiment for {instrument}...</b>",
+                                reply_markup=None,
+                                parse_mode=ParseMode.HTML
+                            )
                 except Exception as loading_error:
                     logger.warning(f"Could not show loading indicator: {str(loading_error)}")
                 
@@ -3125,7 +2280,26 @@ Get started today with a FREE 14-day trial!
                     
                     # Werk hetzelfde bericht bij (100% garantie, geen fallbacks die nieuwe berichten maken)
                     try:
-                        # Eerste poging: edit_message_text
+                        # Controleer of we een loading_message_id hebben (van een auto-play GIF)
+                        if context and hasattr(context, 'user_data') and 'loading_message_id' in context.user_data:
+                            # Update het loading-GIF bericht met de resultaten
+                            loading_message_id = context.user_data.pop('loading_message_id')
+                            
+                            try:
+                                # Update het bericht met de resultaten
+                                await context.bot.edit_message_caption(
+                                    chat_id=update.effective_chat.id,
+                                    message_id=loading_message_id,
+                                    caption=sentiment_text,
+                                    reply_markup=InlineKeyboardMarkup(back_keyboard),
+                                    parse_mode=ParseMode.HTML
+                                )
+                                return SHOW_RESULT
+                            except Exception as edit_error:
+                                logger.warning(f"Could not edit loading message caption: {str(edit_error)}")
+                                # Ga verder met standaard fallbacks als dit mislukt
+                        
+                        # Standaard poging: edit_message_text
                         await query.edit_message_text(
                             text=sentiment_text,
                             reply_markup=InlineKeyboardMarkup(back_keyboard),
@@ -3235,25 +2409,43 @@ This is a simplified analysis based on available data. For more detailed insight
                     
                     # Werk het bestaande bericht bij met loading GIF
                     try:
-                        # Gebruik een loading GIF in plaats van alleen tekst
+                        # Gebruik een loading GIF met send_animation om auto-play te garanderen
                         loading_gif_url = "https://media4.giphy.com/media/v1.Y2lkPTc5MGI3NjExdGh5cm1sNTVvemVqNXphOGw2Y3IwM2R0aHJ1d2h3ZHZ2MTM4b3l4OSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/dpjUltnOPye7azvAhH/giphy.gif"
-                        await query.edit_message_media(
-                            media=InputMediaAnimation(
-                                media=loading_gif_url,
-                                caption=f"⏳ <b>Loading economic calendar for {instrument}...</b>",
-                                parse_mode=ParseMode.HTML
-                            ),
-                            reply_markup=None
-                        )
-                    except Exception as loading_error:
-                        logger.warning(f"Could not show loading GIF: {str(loading_error)}")
-                        # Fallback naar tekst-only loading als GIF niet werkt
-                        await self._safe_edit_message(
-                            query=query,
-                            text=f"⏳ <b>Loading economic calendar for {instrument}...</b>",
-                            reply_markup=None,
+                        
+                        # Verwijder het huidige bericht en stuur een nieuw animatiebericht
+                        await query.message.delete()
+                        
+                        # Stuur een nieuw animatiebericht dat automatisch afspeelt
+                        sent_message = await update.effective_chat.send_animation(
+                            animation=loading_gif_url,
+                            caption=f"⏳ <b>Loading economic calendar for {instrument}...</b>",
                             parse_mode=ParseMode.HTML
                         )
+                        
+                        # Sla het message ID op om het later te kunnen updaten
+                        if context and hasattr(context, 'user_data'):
+                            context.user_data['loading_message_id'] = sent_message.message_id
+                    except Exception as loading_error:
+                        logger.warning(f"Could not show loading GIF with send_animation: {str(loading_error)}")
+                        # Fallback naar edit_message_media
+                        try:
+                            await query.edit_message_media(
+                                media=InputMediaAnimation(
+                                    media=loading_gif_url,
+                                    caption=f"⏳ <b>Loading economic calendar for {instrument}...</b>",
+                                    parse_mode=ParseMode.HTML
+                                ),
+                                reply_markup=None
+                            )
+                        except Exception as media_error:
+                            logger.warning(f"Could not edit message media: {str(media_error)}")
+                            # Fallback naar tekst-only loading als GIF niet werkt
+                            await self._safe_edit_message(
+                                query=query,
+                                text=f"⏳ <b>Loading economic calendar for {instrument}...</b>",
+                                reply_markup=None,
+                                parse_mode=ParseMode.HTML
+                            )
                     
                     # Gebruik de kalender service om de events op te halen
                     calendar_data = await self.calendar_service.get_events(instrument)
@@ -3341,6 +2533,25 @@ This is a simplified analysis based on available data. For more detailed insight
                     
                     # Toon de kalender in hetzelfde bericht met directe methodes
                     try:
+                        # Controleer of we een loading_message_id hebben (van een auto-play GIF)
+                        if context and hasattr(context, 'user_data') and 'loading_message_id' in context.user_data:
+                            # Update het loading-GIF bericht met de resultaten
+                            loading_message_id = context.user_data.pop('loading_message_id')
+                            
+                            try:
+                                # Update het bericht met de resultaten
+                                await context.bot.edit_message_caption(
+                                    chat_id=update.effective_chat.id,
+                                    message_id=loading_message_id,
+                                    caption=calendar_text,
+                                    reply_markup=InlineKeyboardMarkup(back_keyboard),
+                                    parse_mode=ParseMode.HTML
+                                )
+                                return SHOW_RESULT
+                            except Exception as edit_error:
+                                logger.warning(f"Could not edit loading message caption: {str(edit_error)}")
+                                # Ga verder met standaard fallbacks als dit mislukt
+                        
                         # Eerste poging: edit_message_text
                         await query.edit_message_text(
                             text=calendar_text,
@@ -3435,25 +2646,43 @@ This is a simplified analysis based on available data. For more detailed insight
                     
                     # Werk het bestaande bericht bij met loading GIF
                     try:
-                        # Gebruik een loading GIF in plaats van alleen tekst
+                        # Gebruik een loading GIF met send_animation om auto-play te garanderen
                         loading_gif_url = "https://media4.giphy.com/media/v1.Y2lkPTc5MGI3NjExdGh5cm1sNTVvemVqNXphOGw2Y3IwM2R0aHJ1d2h3ZHZ2MTM4b3l4OSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/dpjUltnOPye7azvAhH/giphy.gif"
-                        await query.edit_message_media(
-                            media=InputMediaAnimation(
-                                media=loading_gif_url,
-                                caption=f"⏳ <b>Generating chart for {instrument}...</b>",
-                                parse_mode=ParseMode.HTML
-                            ),
-                            reply_markup=None
-                        )
-                    except Exception as loading_error:
-                        logger.warning(f"Could not show loading GIF: {str(loading_error)}")
-                        # Fallback naar tekst-only loading als GIF niet werkt
-                        await self._safe_edit_message(
-                            query=query,
-                            text=f"⏳ <b>Generating chart for {instrument}...</b>",
-                            reply_markup=None,
+                        
+                        # Verwijder het huidige bericht en stuur een nieuw animatiebericht
+                        await query.message.delete()
+                        
+                        # Stuur een nieuw animatiebericht dat automatisch afspeelt
+                        sent_message = await update.effective_chat.send_animation(
+                            animation=loading_gif_url,
+                            caption=f"⏳ <b>Generating chart for {instrument}...</b>",
                             parse_mode=ParseMode.HTML
                         )
+                        
+                        # Sla het message ID op om het later te kunnen updaten
+                        if context and hasattr(context, 'user_data'):
+                            context.user_data['loading_message_id'] = sent_message.message_id
+                    except Exception as loading_error:
+                        logger.warning(f"Could not show loading GIF with send_animation: {str(loading_error)}")
+                        # Fallback naar edit_message_media
+                        try:
+                            await query.edit_message_media(
+                                media=InputMediaAnimation(
+                                    media=loading_gif_url,
+                                    caption=f"⏳ <b>Generating chart for {instrument}...</b>",
+                                    parse_mode=ParseMode.HTML
+                                ),
+                                reply_markup=None
+                            )
+                        except Exception as media_error:
+                            logger.warning(f"Could not edit message media: {str(media_error)}")
+                            # Fallback naar tekst-only loading als GIF niet werkt
+                            await self._safe_edit_message(
+                                query=query,
+                                text=f"⏳ <b>Generating chart for {instrument}...</b>",
+                                reply_markup=None,
+                                parse_mode=ParseMode.HTML
+                            )
                     
                     # Gebruik de chart service om de chart te genereren
                     img_path, levels = await self.chart_service.get_chart(instrument)
@@ -3480,6 +2709,30 @@ This is a simplified analysis based on available data. For more detailed insight
                     
                     # Stuur de chart afbeelding met 100% garantie dat het in hetzelfde bericht blijft
                     try:
+                        # Controleer of we een loading_message_id hebben (van een auto-play GIF)
+                        if context and hasattr(context, 'user_data') and 'loading_message_id' in context.user_data:
+                            # Update het loading-GIF bericht met de chart afbeelding
+                            loading_message_id = context.user_data.pop('loading_message_id')
+                            
+                            try:
+                                # Open de afbeelding
+                                with open(img_path, 'rb') as image:
+                                    # Update het bericht met de chart afbeelding
+                                    await context.bot.edit_message_media(
+                                        chat_id=update.effective_chat.id,
+                                        message_id=loading_message_id,
+                                        media=InputMediaPhoto(
+                                            media=image,
+                                            caption=caption,
+                                            parse_mode=ParseMode.HTML
+                                        ),
+                                        reply_markup=InlineKeyboardMarkup(keyboard)
+                                    )
+                                return SHOW_RESULT
+                            except Exception as edit_error:
+                                logger.warning(f"Could not edit loading message media: {str(edit_error)}")
+                                # Ga verder met standaard fallbacks als dit mislukt
+                        
                         # Open de afbeelding
                         with open(img_path, 'rb') as image:
                             # Probeer de media direct bij te werken
