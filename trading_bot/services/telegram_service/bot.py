@@ -1957,8 +1957,16 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     return await self.analysis_sentiment_callback(update, context)
                 elif query.data.startswith("analysis_calendar_signal_"):
                     return await self.analysis_calendar_callback(update, context)
+                elif query.data == "analysis_technical":
+                    return await self.analysis_technical_callback(update, context)
+                elif query.data == "analysis_sentiment":
+                    return await self.analysis_sentiment_callback(update, context)
+                elif query.data == "analysis_calendar":
+                    return await self.analysis_calendar_callback(update, context)
                 else:
-                    return await self.analysis_choice(update, context)
+                    # For unknown analysis types, default to technical analysis
+                    logger.warning(f"Unknown analysis type: {query.data}, defaulting to technical")
+                    return await self.analysis_technical_callback(update, context)
                 
             elif query.data == "show_ta_":
                 # Extract instrument and timeframe from callback data
