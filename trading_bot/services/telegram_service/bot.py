@@ -1358,13 +1358,24 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
     async def menu_analyse_callback(self, update: Update, context=None) -> int:
         """Handle menu_analyse callback"""
         query = update.callback_query
-        await query.answer()  # Respond to prevent loading icon
+        
+        try:
+            # Respond to the callback query immediately to prevent timeout
+            await query.answer()
+        except Exception as e:
+            # If the query is already answered or too old, continue anyway
+            if "Query is too old" in str(e) or "query id is invalid" in str(e):
+                logger.warning(f"Could not answer callback query: {str(e)}")
+            else:
+                # For other errors, log but continue
+                logger.error(f"Error answering callback query: {str(e)}")
         
         try:
             # Get an analysis GIF URL
             gif_url = await get_analyse_gif()
             
-            # Update the message with the GIF using the helper function
+            # Update the message with the GIF using the improved helper function
+            # This will now correctly handle "Message is not modified" errors
             success = await update_message_with_gif(
                 query=query,
                 gif_url=gif_url,
@@ -1373,58 +1384,38 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             )
             
             if not success:
-                # If the helper function failed, try a direct approach as fallback
+                # Send a new message as a last resort
                 try:
-                    # First try to edit message text
-                    await query.edit_message_text(
-                        text="Select your analysis type:",
-                        reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
-                        parse_mode=ParseMode.HTML
-                    )
-                except Exception as text_error:
-                    # If that fails due to caption, try editing caption
-                    if "There is no text in the message to edit" in str(text_error):
-                        await query.edit_message_caption(
-                            caption="Select your analysis type:",
-                            reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
-                            parse_mode=ParseMode.HTML
-                        )
-            
-            return CHOOSE_ANALYSIS
-        except Exception as e:
-            logger.error(f"Error in menu_analyse_callback: {str(e)}")
-            
-            # If we can't edit the message, try again with a simpler approach as fallback
-            try:
-                # First try editing the caption
-                try:
-                    await query.edit_message_caption(
+                    await query.message.reply_animation(
+                        animation=gif_url,
                         caption="Select your analysis type:",
-                        reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
-                        parse_mode=ParseMode.HTML
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
                     )
-                except Exception as caption_error:
-                    # If that fails, try editing text
-                    await query.edit_message_text(
-                        text="Select your analysis type:",
-                        reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
-                        parse_mode=ParseMode.HTML
-                    )
-                return CHOOSE_ANALYSIS
-            except Exception as inner_e:
-                logger.error(f"Failed to recover from error: {str(inner_e)}")
-                
-                # Last resort: send a new message
-                try:
+                    logger.warning("Sent a new message with animation as ultimate fallback")
+                except Exception as animation_error:
+                    logger.error(f"Could not send animation: {str(animation_error)}")
+                    # If all else fails, send plain text
                     await query.message.reply_text(
                         text="Select your analysis type:",
                         reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
                         parse_mode=ParseMode.HTML
                     )
-                    logger.warning("Fallback to sending new message - ideally this should be avoided")
-                except Exception:
-                    pass
-                    
+            
+            return CHOOSE_ANALYSIS
+        except Exception as e:
+            logger.error(f"Error in menu_analyse_callback: {str(e)}")
+            # Try to send a new message as a final recovery option
+            try:
+                await query.message.reply_text(
+                    text="Select your analysis type:",
+                    reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
+                    parse_mode=ParseMode.HTML
+                )
+                logger.warning("Fallback to sending new message - ideally this should be avoided")
+                return CHOOSE_ANALYSIS
+            except Exception as final_error:
+                logger.error(f"Critical failure in menu_analyse_callback: {str(final_error)}")
                 return MENU
 
     async def show_main_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None, skip_gif=False) -> None:
@@ -1603,7 +1594,8 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 context.user_data['instrument'] = instrument
             
             logger.info(f"Sentiment analysis for specific instrument: {instrument}")
-            return await self.instrument_callback(update, context)  # Redirect to instrument handler
+            # Directly go to show_sentiment_analysis instead of instrument handler
+            return await self.show_sentiment_analysis(update, context, instrument=instrument)
         
         # Get the analyse GIF URL
         gif_url = await get_analyse_gif()
@@ -1682,7 +1674,8 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 context.user_data['instrument'] = instrument
             
             logger.info(f"Calendar analysis for specific instrument: {instrument}")
-            return await self.instrument_callback(update, context)  # Redirect to instrument handler
+            # Directly go to show_calendar_analysis instead of instrument handler
+            return await self.show_calendar_analysis(update, context, instrument=instrument)
         
         # Get the analyse GIF URL
         gif_url = await get_analyse_gif()
@@ -2317,98 +2310,122 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             analysis_type = None
             if context and hasattr(context, 'user_data'):
                 analysis_type = context.user_data.get('analysis_type')
+                # Store the selected market in user_data
+                context.user_data['market'] = market_type
+            
+            logger.info(f"Market selected: {market_type}, analysis type: {analysis_type}")
+            
+            # Set the correct keyboard and caption based on market type and analysis type
+            caption_prefix = "Select instrument for "
             
             # Determine which keyboard to show based on market and analysis type
             if market_type == 'forex':
                 if analysis_type == 'sentiment':
                     keyboard = FOREX_SENTIMENT_KEYBOARD
+                    caption = f"{caption_prefix}sentiment analysis:"
                 elif analysis_type == 'calendar':
                     keyboard = FOREX_CALENDAR_KEYBOARD
-                else:
+                    caption = f"{caption_prefix}economic calendar:"
+                else:  # Default to technical analysis
                     keyboard = FOREX_KEYBOARD
+                    caption = f"{caption_prefix}technical analysis:"
+                market_name = "Forex"
             elif market_type == 'crypto':
                 if analysis_type == 'sentiment':
                     keyboard = CRYPTO_SENTIMENT_KEYBOARD
-                else:
+                    caption = f"{caption_prefix}sentiment analysis:"
+                elif analysis_type == 'calendar':
+                    keyboard = CRYPTO_CALENDAR_KEYBOARD
+                    caption = f"{caption_prefix}economic calendar:"
+                else:  # Default to technical analysis
                     keyboard = CRYPTO_KEYBOARD
+                    caption = f"{caption_prefix}technical analysis:"
+                market_name = "Crypto"
             elif market_type == 'indices':
-                keyboard = INDICES_KEYBOARD
+                if analysis_type == 'sentiment':
+                    keyboard = INDICES_SENTIMENT_KEYBOARD
+                    caption = f"{caption_prefix}sentiment analysis:"
+                elif analysis_type == 'calendar':
+                    keyboard = INDICES_CALENDAR_KEYBOARD
+                    caption = f"{caption_prefix}economic calendar:"
+                else:  # Default to technical analysis
+                    keyboard = INDICES_KEYBOARD
+                    caption = f"{caption_prefix}technical analysis:"
+                market_name = "Indices"
+            elif market_type == 'stocks':
+                if analysis_type == 'sentiment':
+                    keyboard = STOCKS_SENTIMENT_KEYBOARD
+                    caption = f"{caption_prefix}sentiment analysis:"
+                elif analysis_type == 'calendar':
+                    keyboard = STOCKS_CALENDAR_KEYBOARD
+                    caption = f"{caption_prefix}economic calendar:"
+                else:  # Default to technical analysis
+                    keyboard = STOCKS_KEYBOARD
+                    caption = f"{caption_prefix}technical analysis:"
+                market_name = "Stocks"
             elif market_type == 'commodities':
-                keyboard = COMMODITIES_KEYBOARD
+                if analysis_type == 'sentiment':
+                    keyboard = COMMODITIES_SENTIMENT_KEYBOARD
+                    caption = f"{caption_prefix}sentiment analysis:"
+                elif analysis_type == 'calendar':
+                    keyboard = COMMODITIES_CALENDAR_KEYBOARD
+                    caption = f"{caption_prefix}economic calendar:"
+                else:  # Default to technical analysis
+                    keyboard = COMMODITIES_KEYBOARD
+                    caption = f"{caption_prefix}technical analysis:"
+                market_name = "Commodities"
             else:
                 raise ValueError(f"Unknown market type: {market_type}")
             
-            # Save market type in context
-            if context and hasattr(context, 'user_data'):
-                context.user_data['market'] = market_type
+            # Add back button to keyboard
+            if isinstance(keyboard, list) and len(keyboard) > 0:
+                if not any(btn.callback_data == "back_analysis" for row in keyboard for btn in row):
+                    keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="back_analysis")])
             
-            # Get the analyse GIF URL - reuse it for market selection
+            # Get the analyse GIF URL
             gif_url = await get_analyse_gif()
             
-            # Format the market name properly
-            market_name = market_type.upper()
-            
-            # Check if the message already contains a photo/media
-            has_photo = bool(query.message.photo) or query.message.animation is not None
-            
-            if has_photo:
-                try:
-                    # For media messages, use a special approach: 
-                    # First delete the media message if possible
-                    try:
-                        await query.message.delete()
-                        # Then send a new message with analysis GIF
-                        await query.message.reply_animation(
-                            animation=gif_url,
-                            caption=f"Select instrument for {market_name}:",
-                            parse_mode=ParseMode.HTML,
-                            reply_markup=InlineKeyboardMarkup(keyboard)
-                        )
-                    except Exception as delete_error:
-                        logger.warning(f"Could not delete media message: {str(delete_error)}")
-                        
-                        # If delete fails, try to edit the media with the analysis GIF
-                        from telegram import InputMediaAnimation
-                        
-                        try:
-                            await query.edit_message_media(
-                                media=InputMediaAnimation(
-                                    media=gif_url,
-                                    caption=f"Select instrument for {market_name}:",
-                                    parse_mode=ParseMode.HTML
-                                ),
-                                reply_markup=InlineKeyboardMarkup(keyboard)
-                            )
-                        except Exception as e:
-                            logger.warning(f"Could not update media with analysis GIF: {str(e)}")
-                            
-                            # Last resort: just edit the caption
-                            await query.edit_message_caption(
-                                caption=f"Select instrument for {market_name}:",
-                                reply_markup=InlineKeyboardMarkup(keyboard)
-                            )
-                except Exception as e:
-                    logger.error(f"Error handling media in market_callback: {str(e)}")
-                    # Fall back to sending a new message
-                    await query.message.reply_text(
-                        text=f"Select instrument for {market_name}:",
-                        reply_markup=InlineKeyboardMarkup(keyboard)
-                    )
-            else:
-                # For text messages, use the GIF util function to update with GIF
+            # Update the message with the GIF and new keyboard
+            try:
+                from telegram import InputMediaAnimation
+                
+                # Try using edit_message_media
+                await query.edit_message_media(
+                    media=InputMediaAnimation(
+                        media=gif_url,
+                        caption=caption,
+                        parse_mode=ParseMode.HTML
+                    ),
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            except Exception as media_error:
+                logger.warning(f"Could not edit message media: {str(media_error)}")
+                
+                # Try updating with GIF utility
                 success = await update_message_with_gif(
                     query=query,
                     gif_url=gif_url,
-                    text=f"Select instrument for {market_name}:",
+                    text=caption,
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
                 
                 if not success:
-                    # Fallback to simple text
-                    await query.edit_message_text(
-                        text=f"Select instrument for {market_name}:",
-                        reply_markup=InlineKeyboardMarkup(keyboard)
-                    )
+                    # Last resort: try to update text or caption
+                    try:
+                        await query.edit_message_text(
+                            text=caption,
+                            reply_markup=InlineKeyboardMarkup(keyboard),
+                            parse_mode=ParseMode.HTML
+                        )
+                    except Exception as text_error:
+                        if "There is no text in the message to edit" in str(text_error):
+                            await query.edit_message_caption(
+                                caption=caption,
+                                reply_markup=InlineKeyboardMarkup(keyboard),
+                                parse_mode=ParseMode.HTML
+                            )
+                        else:
+                            raise
             
             return CHOOSE_INSTRUMENT
         
