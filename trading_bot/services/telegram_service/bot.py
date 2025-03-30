@@ -2765,7 +2765,7 @@ Get started today with a FREE 14-day trial!
             # Get the sentiment analysis
             try:
                 # Use the sentiment service to get the analysis
-                sentiment_data = await self.sentiment_service.get_sentiment(instrument)
+                sentiment_data = await self.sentiment_service.get_market_sentiment(instrument)
                 
                 if not sentiment_data:
                     raise ValueError(f"No sentiment data available for {instrument}")
@@ -3032,7 +3032,8 @@ Get started today with a FREE 14-day trial!
                 
                 # Get sentiment data from the service
                 try:
-                    sentiment_data = await self.sentiment_service.get_sentiment(instrument)
+                    sentiment_data = await self.sentiment_service.get_market_sentiment(instrument)
+                    logger.info(f"Got market sentiment data type: {type(sentiment_data)}")
                     
                     # Handle different response formats
                     if isinstance(sentiment_data, str):
@@ -3040,7 +3041,7 @@ Get started today with a FREE 14-day trial!
                         sentiment_text = f"""<b>🧠 Market Sentiment Analysis: {instrument}</b>
 
 {sentiment_data}"""
-                    else:
+                    elif isinstance(sentiment_data, dict):
                         # Calculate sentiment percentages from dictionary
                         bullish_score = sentiment_data.get('bullish_percentage', sentiment_data.get('bullish', 50))
                         bearish_score = sentiment_data.get('bearish_percentage', sentiment_data.get('bearish', 30))
@@ -3074,6 +3075,10 @@ Get started today with a FREE 14-day trial!
 
 <b>Analysis:</b>
 {sentiment_data.get('analysis', 'Detailed analysis not available').strip()}"""
+                    else:
+                        # Handle unexpected response type
+                        logger.warning(f"Unexpected sentiment data type: {type(sentiment_data)}")
+                        raise ValueError(f"Unexpected sentiment data type: {type(sentiment_data)}")
                     
                     # Back buttons based on flow
                     back_keyboard = [
