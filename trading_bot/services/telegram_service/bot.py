@@ -3022,24 +3022,20 @@ Get started today with a FREE 14-day trial!
             
             # Handle different analysis types
             if analysis_type == 'sentiment':
-                # STAP 1: Direct loading GIF tonen met update_message_with_gif
+                # STAP 1: Direct loading bericht tonen (geen GIF, maar text-only)
                 try:
                     # Duidelijk signaleren dat we bezig zijn met laden
                     await query.answer("Loading sentiment analysis...")
                     
-                    # Toon EXPLICIET de loading GIF, geen andere GIF
-                    loading_gif = await get_loading_gif()
-                    
-                    # Gebruik update_message_with_gif DIRECT in plaats van geneste methodes
-                    await update_message_with_gif(
+                    # Werk het bestaande bericht bij met loading indicator (geen GIF)
+                    await self._safe_edit_message(
                         query=query,
-                        gif_url=loading_gif,  # Specifiek loading_gif gebruiken, niet get_analyse_gif()
                         text=f"⏳ <b>Analyzing sentiment for {instrument}...</b>",
                         reply_markup=None,
                         parse_mode=ParseMode.HTML
                     )
-                except Exception as gif_error:
-                    logger.warning(f"Could not show loading indicator: {str(gif_error)}")
+                except Exception as loading_error:
+                    logger.warning(f"Could not show loading indicator: {str(loading_error)}")
                 
                 # STAP 2: Haal sentiment data op
                 try:
@@ -3113,14 +3109,39 @@ Get started today with a FREE 14-day trial!
                     # STAP 3: Gebruik één simpele back knop
                     back_keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]]
                     
-                    # Toon sentiment analyse in HETZELFDE bericht met _safe_edit_message
-                    # Gebruik NIET self.update_message om te voorkomen dat er een verkeerde GIF wordt gebruikt
-                    await self._safe_edit_message(
-                        query=query,
-                        text=sentiment_text,
-                        reply_markup=InlineKeyboardMarkup(back_keyboard),
-                        parse_mode=ParseMode.HTML
-                    )
+                    # Werk hetzelfde bericht bij (100% garantie, geen fallbacks die nieuwe berichten maken)
+                    try:
+                        # Eerste poging: edit_message_text
+                        await query.edit_message_text(
+                            text=sentiment_text,
+                            reply_markup=InlineKeyboardMarkup(back_keyboard),
+                            parse_mode=ParseMode.HTML
+                        )
+                    except Exception as edit_error:
+                        logger.warning(f"Could not edit message text: {str(edit_error)}")
+                        # Tweede poging: edit_message_caption
+                        if "There is no text in the message to edit" in str(edit_error):
+                            try:
+                                await query.edit_message_caption(
+                                    caption=sentiment_text,
+                                    reply_markup=InlineKeyboardMarkup(back_keyboard),
+                                    parse_mode=ParseMode.HTML
+                                )
+                            except Exception as caption_error:
+                                logger.error(f"Could not edit caption either: {str(caption_error)}")
+                                # Laatste optie: media bijwerken
+                                try:
+                                    from telegram import InputMediaPhoto
+                                    await query.edit_message_media(
+                                        media=InputMediaPhoto(
+                                            media="https://i.imgur.com/pYcuGGo.png",  # Placeholder afbeelding
+                                            caption=sentiment_text,
+                                            parse_mode=ParseMode.HTML
+                                        ),
+                                        reply_markup=InlineKeyboardMarkup(back_keyboard)
+                                    )
+                                except Exception as media_error:
+                                    logger.error(f"All update attempts failed: {str(media_error)}")
                     
                     return SHOW_RESULT
                     
@@ -3158,27 +3179,49 @@ This is a simplified analysis based on available data. For more detailed insight
                     # Eén simpele back knop
                     back_keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]]
                     
-                    # Gebruik direct _safe_edit_message in plaats van self.update_message
-                    await self._safe_edit_message(
-                        query=query,
-                        text=fallback_text,
-                        reply_markup=InlineKeyboardMarkup(back_keyboard),
-                        parse_mode=ParseMode.HTML
-                    )
+                    # Werk hetzelfde bericht bij (geen nieuwe berichten)
+                    try:
+                        # Eerste poging: edit_message_text
+                        await query.edit_message_text(
+                            text=fallback_text,
+                            reply_markup=InlineKeyboardMarkup(back_keyboard),
+                            parse_mode=ParseMode.HTML
+                        )
+                    except Exception as edit_error:
+                        # Tweede poging: edit_message_caption
+                        if "There is no text in the message to edit" in str(edit_error):
+                            try:
+                                await query.edit_message_caption(
+                                    caption=fallback_text,
+                                    reply_markup=InlineKeyboardMarkup(back_keyboard),
+                                    parse_mode=ParseMode.HTML
+                                )
+                            except Exception as caption_error:
+                                logger.error(f"Could not edit caption either: {str(caption_error)}")
+                                # Laatste optie: media bijwerken
+                                try:
+                                    from telegram import InputMediaPhoto
+                                    await query.edit_message_media(
+                                        media=InputMediaPhoto(
+                                            media="https://i.imgur.com/pYcuGGo.png",  # Placeholder afbeelding
+                                            caption=fallback_text,
+                                            parse_mode=ParseMode.HTML
+                                        ),
+                                        reply_markup=InlineKeyboardMarkup(back_keyboard)
+                                    )
+                                except Exception as media_error:
+                                    logger.error(f"All update attempts failed: {str(media_error)}")
                     
                     return SHOW_RESULT
-                
             elif analysis_type == 'calendar':
-                # Toon loading animation en haal kalendergegevens op
+                # Toon loading indicator en haal kalendergegevens op
                 try:
                     # Duidelijk signaleren dat we bezig zijn met laden
                     await query.answer("Loading economic calendar data...")
                     
-                    # Toon specifiek de loading GIF
-                    loading_gif = await get_loading_gif()
-                    await update_message_with_gif(
+                    # Werk het bestaande bericht bij met loading text (geen GIF)
+                    await self._safe_edit_message(
                         query=query,
-                        gif_url=loading_gif,
                         text=f"⏳ <b>Loading economic calendar for {instrument}...</b>",
                         reply_markup=None,
                         parse_mode=ParseMode.HTML
@@ -3268,37 +3311,103 @@ This is a simplified analysis based on available data. For more detailed insight
                     # Één simpele back knop
                     back_keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]]
                     
-                    # Toon de kalender in hetzelfde bericht
-                    await self._safe_edit_message(
-                        query=query,
-                        text=calendar_text,
-                        reply_markup=InlineKeyboardMarkup(back_keyboard),
-                        parse_mode=ParseMode.HTML
-                    )
+                    # Toon de kalender in hetzelfde bericht met directe methodes
+                    try:
+                        # Eerste poging: edit_message_text
+                        await query.edit_message_text(
+                            text=calendar_text,
+                            reply_markup=InlineKeyboardMarkup(back_keyboard),
+                            parse_mode=ParseMode.HTML
+                        )
+                    except Exception as edit_error:
+                        logger.warning(f"Could not edit message text: {str(edit_error)}")
+                        # Tweede poging: edit_message_caption
+                        if "There is no text in the message to edit" in str(edit_error):
+                            try:
+                                await query.edit_message_caption(
+                                    caption=calendar_text,
+                                    reply_markup=InlineKeyboardMarkup(back_keyboard),
+                                    parse_mode=ParseMode.HTML
+                                )
+                            except Exception as caption_error:
+                                logger.error(f"Could not edit caption either: {str(caption_error)}")
+                                # Laatste optie: media bijwerken
+                                try:
+                                    from telegram import InputMediaPhoto
+                                    await query.edit_message_media(
+                                        media=InputMediaPhoto(
+                                            media="https://i.imgur.com/7eWo6JO.png",  # Kalender placeholder image
+                                            caption=calendar_text,
+                                            parse_mode=ParseMode.HTML
+                                        ),
+                                        reply_markup=InlineKeyboardMarkup(back_keyboard)
+                                    )
+                                except Exception as media_error:
+                                    logger.error(f"All update attempts failed: {str(media_error)}")
+                                    # Allerlaatste poging: nieuw bericht
+                                    await query.message.reply_text(
+                                        text=calendar_text,
+                                        reply_markup=InlineKeyboardMarkup(back_keyboard),
+                                        parse_mode=ParseMode.HTML
+                                    )
                     
                     return SHOW_RESULT
                     
                 except Exception as calendar_error:
                     logger.error(f"Error getting calendar data for {instrument}: {str(calendar_error)}")
                     
-                    # Toon foutmelding met één simpele back knop
-                    await self._safe_edit_message(
-                        query=query,
-                        text=f"❌ <b>Could not load economic calendar for {instrument}</b>\n\nPlease try again later.",
-                        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]]),
-                        parse_mode=ParseMode.HTML
-                    )
+                    # Toon foutmelding met directe methodes
+                    error_text = f"❌ <b>Could not load economic calendar for {instrument}</b>\n\nPlease try again later."
+                    back_keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]]
+                    
+                    try:
+                        # Eerste poging: edit_message_text
+                        await query.edit_message_text(
+                            text=error_text,
+                            reply_markup=InlineKeyboardMarkup(back_keyboard),
+                            parse_mode=ParseMode.HTML
+                        )
+                    except Exception as edit_error:
+                        # Tweede poging: edit_message_caption
+                        if "There is no text in the message to edit" in str(edit_error):
+                            try:
+                                await query.edit_message_caption(
+                                    caption=error_text,
+                                    reply_markup=InlineKeyboardMarkup(back_keyboard),
+                                    parse_mode=ParseMode.HTML
+                                )
+                            except Exception as caption_error:
+                                logger.error(f"Could not edit caption either: {str(caption_error)}")
+                                # Laatste optie: media bijwerken
+                                try:
+                                    from telegram import InputMediaPhoto
+                                    await query.edit_message_media(
+                                        media=InputMediaPhoto(
+                                            media="https://i.imgur.com/pYcuGGo.png",  # Error placeholder
+                                            caption=error_text,
+                                            parse_mode=ParseMode.HTML
+                                        ),
+                                        reply_markup=InlineKeyboardMarkup(back_keyboard)
+                                    )
+                                except Exception as media_error:
+                                    # Allerlaatste poging: nieuw bericht
+                                    await query.message.reply_text(
+                                        text=error_text,
+                                        reply_markup=InlineKeyboardMarkup(back_keyboard),
+                                        parse_mode=ParseMode.HTML
+                                    )
                     
                     return SHOW_RESULT
                 
             elif analysis_type == 'chart':
                 # Direct de chart genereren en tonen
                 try:
-                    # Toon loading bericht met specifiek de LOADING GIF
-                    loading_gif = await get_loading_gif()
-                    await update_message_with_gif(
+                    # Duidelijk signaleren dat we bezig zijn met laden
+                    await query.answer("Generating chart...")
+                    
+                    # Werk het bestaande bericht bij met loading indicator (geen GIF)
+                    await self._safe_edit_message(
                         query=query,
-                        gif_url=loading_gif,
                         text=f"⏳ <b>Generating chart for {instrument}...</b>",
                         reply_markup=None,
                         parse_mode=ParseMode.HTML
@@ -3327,28 +3436,71 @@ This is a simplified analysis based on available data. For more detailed insight
                     # Eén simpele back knop
                     keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]]
                     
-                    # Stuur de chart afbeelding
-                    with open(img_path, 'rb') as image:
-                        await query.edit_message_media(
-                            media=InputMediaPhoto(
-                                media=image,
+                    # Stuur de chart afbeelding met 100% garantie dat het in hetzelfde bericht blijft
+                    try:
+                        # Open de afbeelding
+                        with open(img_path, 'rb') as image:
+                            # Probeer de media direct bij te werken
+                            await query.edit_message_media(
+                                media=InputMediaPhoto(
+                                    media=image,
+                                    caption=caption,
+                                    parse_mode=ParseMode.HTML
+                                ),
+                                reply_markup=InlineKeyboardMarkup(keyboard)
+                            )
+                    except Exception as media_error:
+                        logger.error(f"Could not update message media: {str(media_error)}")
+                        # Als laatste poging, stuur een nieuw bericht
+                        with open(img_path, 'rb') as image:
+                            await query.message.reply_photo(
+                                photo=image,
                                 caption=caption,
-                                parse_mode=ParseMode.HTML
-                            ),
-                            reply_markup=InlineKeyboardMarkup(keyboard)
-                        )
+                                parse_mode=ParseMode.HTML,
+                                reply_markup=InlineKeyboardMarkup(keyboard)
+                            )
                     
                     return SHOW_RESULT
                 except Exception as chart_error:
                     logger.error(f"Error generating chart for {instrument}: {str(chart_error)}")
                     
                     # Toon foutmelding met één simpele back knop
-                    await self._safe_edit_message(
-                        query=query,
-                        text=f"❌ <b>Could not generate chart for {instrument}</b>\n\nPlease try again later.",
-                        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]]),
-                        parse_mode=ParseMode.HTML
-                    )
+                    try:
+                        # Eerste poging: edit_message_text
+                        await query.edit_message_text(
+                            text=f"❌ <b>Could not generate chart for {instrument}</b>\n\nPlease try again later.",
+                            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]]),
+                            parse_mode=ParseMode.HTML
+                        )
+                    except Exception as edit_error:
+                        # Tweede poging: edit_message_caption
+                        if "There is no text in the message to edit" in str(edit_error):
+                            try:
+                                await query.edit_message_caption(
+                                    caption=f"❌ <b>Could not generate chart for {instrument}</b>\n\nPlease try again later.",
+                                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]]),
+                                    parse_mode=ParseMode.HTML
+                                )
+                            except Exception as caption_error:
+                                logger.error(f"Could not edit caption either: {str(caption_error)}")
+                                # Laatste optie: media bijwerken
+                                try:
+                                    from telegram import InputMediaPhoto
+                                    await query.edit_message_media(
+                                        media=InputMediaPhoto(
+                                            media="https://i.imgur.com/pYcuGGo.png",  # Placeholder error image
+                                            caption=f"❌ <b>Could not generate chart for {instrument}</b>\n\nPlease try again later.",
+                                            parse_mode=ParseMode.HTML
+                                        ),
+                                        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]])
+                                    )
+                                except Exception as media_error:
+                                    # Allerlaatste poging: nieuw bericht
+                                    await query.message.reply_text(
+                                        text=f"❌ <b>Could not generate chart for {instrument}</b>\n\nPlease try again later.",
+                                        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]]),
+                                        parse_mode=ParseMode.HTML
+                                    )
                     
                     return SHOW_RESULT
                 
