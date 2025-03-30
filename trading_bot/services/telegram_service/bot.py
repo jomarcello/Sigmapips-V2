@@ -3022,18 +3022,32 @@ Get started today with a FREE 14-day trial!
             
             # Handle different analysis types
             if analysis_type == 'sentiment':
-                # STAP 1: Direct loading bericht tonen (geen GIF, maar text-only)
+                # STAP 1: Toon loading GIF
                 try:
                     # Duidelijk signaleren dat we bezig zijn met laden
                     await query.answer("Loading sentiment analysis...")
                     
-                    # Werk het bestaande bericht bij met loading indicator (geen GIF)
-                    await self._safe_edit_message(
-                        query=query,
-                        text=f"⏳ <b>Analyzing sentiment for {instrument}...</b>",
-                        reply_markup=None,
-                        parse_mode=ParseMode.HTML
-                    )
+                    # Werk het bestaande bericht bij met loading GIF
+                    try:
+                        # Gebruik een loading GIF in plaats van alleen tekst
+                        loading_gif_url = "https://media4.giphy.com/media/v1.Y2lkPTc5MGI3NjExdGh5cm1sNTVvemVqNXphOGw2Y3IwM2R0aHJ1d2h3ZHZ2MTM4b3l4OSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/dpjUltnOPye7azvAhH/giphy.gif"
+                        await query.edit_message_media(
+                            media=InputMediaPhoto(
+                                media=loading_gif_url,
+                                caption=f"⏳ <b>Analyzing sentiment for {instrument}...</b>",
+                                parse_mode=ParseMode.HTML
+                            ),
+                            reply_markup=None
+                        )
+                    except Exception as loading_error:
+                        logger.warning(f"Could not show loading GIF: {str(loading_error)}")
+                        # Fallback naar tekst-only loading als GIF niet werkt
+                        await self._safe_edit_message(
+                            query=query,
+                            text=f"⏳ <b>Analyzing sentiment for {instrument}...</b>",
+                            reply_markup=None,
+                            parse_mode=ParseMode.HTML
+                        )
                 except Exception as loading_error:
                     logger.warning(f"Could not show loading indicator: {str(loading_error)}")
                 
@@ -3219,13 +3233,27 @@ This is a simplified analysis based on available data. For more detailed insight
                     # Duidelijk signaleren dat we bezig zijn met laden
                     await query.answer("Loading economic calendar data...")
                     
-                    # Werk het bestaande bericht bij met loading text (geen GIF)
-                    await self._safe_edit_message(
-                        query=query,
-                        text=f"⏳ <b>Loading economic calendar for {instrument}...</b>",
-                        reply_markup=None,
-                        parse_mode=ParseMode.HTML
-                    )
+                    # Werk het bestaande bericht bij met loading GIF
+                    try:
+                        # Gebruik een loading GIF in plaats van alleen tekst
+                        loading_gif_url = "https://media4.giphy.com/media/v1.Y2lkPTc5MGI3NjExdGh5cm1sNTVvemVqNXphOGw2Y3IwM2R0aHJ1d2h3ZHZ2MTM4b3l4OSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/dpjUltnOPye7azvAhH/giphy.gif"
+                        await query.edit_message_media(
+                            media=InputMediaPhoto(
+                                media=loading_gif_url,
+                                caption=f"⏳ <b>Loading economic calendar for {instrument}...</b>",
+                                parse_mode=ParseMode.HTML
+                            ),
+                            reply_markup=None
+                        )
+                    except Exception as loading_error:
+                        logger.warning(f"Could not show loading GIF: {str(loading_error)}")
+                        # Fallback naar tekst-only loading als GIF niet werkt
+                        await self._safe_edit_message(
+                            query=query,
+                            text=f"⏳ <b>Loading economic calendar for {instrument}...</b>",
+                            reply_markup=None,
+                            parse_mode=ParseMode.HTML
+                        )
                     
                     # Gebruik de kalender service om de events op te halen
                     calendar_data = await self.calendar_service.get_events(instrument)
@@ -3405,13 +3433,27 @@ This is a simplified analysis based on available data. For more detailed insight
                     # Duidelijk signaleren dat we bezig zijn met laden
                     await query.answer("Generating chart...")
                     
-                    # Werk het bestaande bericht bij met loading indicator (geen GIF)
-                    await self._safe_edit_message(
-                        query=query,
-                        text=f"⏳ <b>Generating chart for {instrument}...</b>",
-                        reply_markup=None,
-                        parse_mode=ParseMode.HTML
-                    )
+                    # Werk het bestaande bericht bij met loading GIF
+                    try:
+                        # Gebruik een loading GIF in plaats van alleen tekst
+                        loading_gif_url = "https://media4.giphy.com/media/v1.Y2lkPTc5MGI3NjExdGh5cm1sNTVvemVqNXphOGw2Y3IwM2R0aHJ1d2h3ZHZ2MTM4b3l4OSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/dpjUltnOPye7azvAhH/giphy.gif"
+                        await query.edit_message_media(
+                            media=InputMediaPhoto(
+                                media=loading_gif_url,
+                                caption=f"⏳ <b>Generating chart for {instrument}...</b>",
+                                parse_mode=ParseMode.HTML
+                            ),
+                            reply_markup=None
+                        )
+                    except Exception as loading_error:
+                        logger.warning(f"Could not show loading GIF: {str(loading_error)}")
+                        # Fallback naar tekst-only loading als GIF niet werkt
+                        await self._safe_edit_message(
+                            query=query,
+                            text=f"⏳ <b>Generating chart for {instrument}...</b>",
+                            reply_markup=None,
+                            parse_mode=ParseMode.HTML
+                        )
                     
                     # Gebruik de chart service om de chart te genereren
                     img_path, levels = await self.chart_service.get_chart(instrument)
