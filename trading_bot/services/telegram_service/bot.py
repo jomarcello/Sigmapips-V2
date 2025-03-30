@@ -2557,3 +2557,385 @@ Get started today with a FREE 14-day trial!
             except Exception:
                 pass
             return CHOOSE_ANALYSIS
+    
+    async def back_to_signal_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
+        """Handle back to signal callback - return to the signal details."""
+        query = update.callback_query
+        await query.answer()
+        
+        try:
+            # Get the signal ID from context
+            signal_id = None
+            if context and hasattr(context, 'user_data'):
+                signal_id = context.user_data.get('signal_id')
+                
+            if not signal_id:
+                # If no signal ID, go back to main menu
+                return await self.back_menu_callback(update, context)
+            
+            # Show the signal details again
+            user_id = update.effective_user.id
+            
+            # Get the signal from storage
+            if user_id in self.user_signals:
+                signal = self.user_signals[user_id]
+                
+                # Create a formatted message for the signal
+                instrument = signal.get('instrument', 'Unknown')
+                direction = signal.get('direction', 'Unknown').upper()
+                message = signal.get('message', f"Trading signal for {instrument}")
+                
+                # Add direction emoji
+                direction_emoji = "🔴" if direction == "SELL" else "🟢"
+                
+                # Build message with action buttons
+                signal_text = f"""
+{direction_emoji} <b>{direction} {instrument}</b>
+
+{message}
+
+<b>Analysis Options:</b>
+                """
+                
+                # Create keyboard with analysis options
+                keyboard = [
+                    [InlineKeyboardButton("📈 Technical Analysis", callback_data=f"analysis_technical_signal_{signal_id}")],
+                    [InlineKeyboardButton("🧠 Market Sentiment", callback_data=f"analysis_sentiment_signal_{signal_id}")],
+                    [InlineKeyboardButton("📅 Economic Calendar", callback_data=f"analysis_calendar_signal_{signal_id}")],
+                    [InlineKeyboardButton("⬅️ Back to Menu", callback_data=CALLBACK_BACK_MENU)]
+                ]
+                
+                # Use the update_message utility to handle any message type
+                await self.update_message(
+                    query=query,
+                    text=signal_text,
+                    keyboard=keyboard,
+                    parse_mode=ParseMode.HTML
+                )
+                
+                return SIGNAL_DETAILS
+            else:
+                # No signal found, go back to main menu
+                return await self.back_menu_callback(update, context)
+        except Exception as e:
+            logger.error(f"Error in back_to_signal_callback: {str(e)}")
+            # Try to recover
+            return await self.back_menu_callback(update, context)
+            
+    async def signal_technical_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
+        """Handle technical analysis for a signal."""
+        query = update.callback_query
+        await query.answer()
+        
+        try:
+            # Get user ID and signal
+            user_id = update.effective_user.id
+            
+            if user_id not in self.user_signals:
+                await self.update_message(
+                    query=query,
+                    text="No active signal found. Please return to the main menu.",
+                    keyboard=[[InlineKeyboardButton("⬅️ Back to Menu", callback_data=CALLBACK_BACK_MENU)]],
+                    parse_mode=ParseMode.HTML
+                )
+                return MENU
+            
+            signal = self.user_signals[user_id]
+            instrument = signal.get('instrument', 'Unknown')
+            
+            # Save signal analysis state in context
+            if context and hasattr(context, 'user_data'):
+                context.user_data['in_signal_analysis'] = True
+                context.user_data['signal_instrument'] = instrument
+                context.user_data['analysis_type'] = 'technical'
+            
+            # Show loading message
+            await self.update_message(
+                query=query,
+                text=f"Generating technical analysis for {instrument}...",
+                keyboard=None,
+                parse_mode=ParseMode.HTML
+            )
+            
+            # Get the technical analysis chart
+            try:
+                # Use the chart service to get the analysis
+                img_path, levels = await self.chart_service.get_chart(instrument)
+                
+                if not img_path or not os.path.exists(img_path):
+                    raise FileNotFoundError(f"Chart not found for {instrument}")
+                
+                # Format the levels text
+                levels_text = ""
+                if levels and isinstance(levels, dict):
+                    # Sort levels by price
+                    sorted_levels = sorted(levels.items(), key=lambda x: float(x[1]))
+                    
+                    for level_type, price in sorted_levels:
+                        emoji = "🟢" if level_type.lower() == "support" else "🔴"
+                        levels_text += f"{emoji} {level_type}: {price}\n"
+                
+                caption = f"📈 <b>Technical Analysis: {instrument}</b>\n\n"
+                if levels_text:
+                    caption += f"<b>Key Levels:</b>\n{levels_text}\n"
+                
+                # Create back button
+                keyboard = [
+                    [InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal")]
+                ]
+                
+                # Send the chart image
+                with open(img_path, 'rb') as image:
+                    await query.edit_message_media(
+                        media=InputMediaPhoto(
+                            media=image,
+                            caption=caption,
+                            parse_mode=ParseMode.HTML
+                        ),
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+                
+                return SIGNAL_DETAILS
+            except Exception as chart_error:
+                logger.error(f"Error getting chart for {instrument}: {str(chart_error)}")
+                
+                # Show error message
+                await self.update_message(
+                    query=query,
+                    text=f"❌ Could not generate technical analysis for {instrument}.\n\nPlease try again later.",
+                    keyboard=[[InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal")]],
+                    parse_mode=ParseMode.HTML
+                )
+                return SIGNAL_DETAILS
+        except Exception as e:
+            logger.error(f"Error in signal_technical_callback: {str(e)}")
+            # Recovery
+            await query.message.reply_text(
+                text="An error occurred. Please try again.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("⬅️ Back to Menu", callback_data=CALLBACK_BACK_MENU)]
+                ])
+            )
+            return MENU
+            
+    async def signal_sentiment_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
+        """Handle sentiment analysis for a signal."""
+        query = update.callback_query
+        await query.answer()
+        
+        try:
+            # Get user ID and signal
+            user_id = update.effective_user.id
+            
+            if user_id not in self.user_signals:
+                await self.update_message(
+                    query=query,
+                    text="No active signal found. Please return to the main menu.",
+                    keyboard=[[InlineKeyboardButton("⬅️ Back to Menu", callback_data=CALLBACK_BACK_MENU)]],
+                    parse_mode=ParseMode.HTML
+                )
+                return MENU
+            
+            signal = self.user_signals[user_id]
+            instrument = signal.get('instrument', 'Unknown')
+            
+            # Save signal analysis state in context
+            if context and hasattr(context, 'user_data'):
+                context.user_data['in_signal_analysis'] = True
+                context.user_data['signal_instrument'] = instrument
+                context.user_data['analysis_type'] = 'sentiment'
+            
+            # Show loading message
+            await self.update_message(
+                query=query,
+                text=f"Generating sentiment analysis for {instrument}...",
+                keyboard=None,
+                parse_mode=ParseMode.HTML
+            )
+            
+            # Get the sentiment analysis
+            try:
+                # Use the sentiment service to get the analysis
+                sentiment_data = await self.sentiment_service.get_sentiment(instrument)
+                
+                if not sentiment_data:
+                    raise ValueError(f"No sentiment data available for {instrument}")
+                
+                # Format the sentiment data
+                bullish = sentiment_data.get('bullish', 0)
+                bearish = sentiment_data.get('bearish', 0)
+                neutral = sentiment_data.get('neutral', 0)
+                
+                # Calculate total and percentages
+                total = bullish + bearish + neutral
+                bullish_pct = (bullish / total * 100) if total > 0 else 0
+                bearish_pct = (bearish / total * 100) if total > 0 else 0
+                neutral_pct = (neutral / total * 100) if total > 0 else 0
+                
+                # Create sentiment bars
+                bull_bar = "🟢" * int(bullish_pct / 10) if bullish_pct >= 10 else "⚪" if bullish_pct > 0 else ""
+                bear_bar = "🔴" * int(bearish_pct / 10) if bearish_pct >= 10 else "⚪" if bearish_pct > 0 else ""
+                neutral_bar = "⚪" * int(neutral_pct / 10) if neutral_pct >= 10 else ""
+                
+                # Create sentiment text
+                sentiment_text = f"""
+🧠 <b>Market Sentiment: {instrument}</b>
+
+<b>Bullish:</b> {bullish_pct:.1f}% {bull_bar}
+<b>Bearish:</b> {bearish_pct:.1f}% {bear_bar}
+<b>Neutral:</b> {neutral_pct:.1f}% {neutral_bar}
+
+<b>Total Traders:</b> {total}
+                """
+                
+                # Create back button
+                keyboard = [
+                    [InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal")]
+                ]
+                
+                # Show the sentiment analysis
+                await self.update_message(
+                    query=query,
+                    text=sentiment_text,
+                    keyboard=keyboard,
+                    parse_mode=ParseMode.HTML
+                )
+                
+                return SIGNAL_DETAILS
+            except Exception as sentiment_error:
+                logger.error(f"Error getting sentiment for {instrument}: {str(sentiment_error)}")
+                
+                # Show error message
+                await self.update_message(
+                    query=query,
+                    text=f"❌ Could not generate sentiment analysis for {instrument}.\n\nPlease try again later.",
+                    keyboard=[[InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal")]],
+                    parse_mode=ParseMode.HTML
+                )
+                return SIGNAL_DETAILS
+        except Exception as e:
+            logger.error(f"Error in signal_sentiment_callback: {str(e)}")
+            # Recovery
+            await query.message.reply_text(
+                text="An error occurred. Please try again.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("⬅️ Back to Menu", callback_data=CALLBACK_BACK_MENU)]
+                ])
+            )
+            return MENU
+            
+    async def signal_calendar_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
+        """Handle calendar analysis for a signal."""
+        query = update.callback_query
+        await query.answer()
+        
+        try:
+            # Get user ID and signal
+            user_id = update.effective_user.id
+            
+            if user_id not in self.user_signals:
+                await self.update_message(
+                    query=query,
+                    text="No active signal found. Please return to the main menu.",
+                    keyboard=[[InlineKeyboardButton("⬅️ Back to Menu", callback_data=CALLBACK_BACK_MENU)]],
+                    parse_mode=ParseMode.HTML
+                )
+                return MENU
+            
+            signal = self.user_signals[user_id]
+            instrument = signal.get('instrument', 'Unknown')
+            
+            # Save signal analysis state in context
+            if context and hasattr(context, 'user_data'):
+                context.user_data['in_signal_analysis'] = True
+                context.user_data['signal_instrument'] = instrument
+                context.user_data['analysis_type'] = 'calendar'
+            
+            # Show loading message
+            await self.update_message(
+                query=query,
+                text=f"Generating economic calendar for {instrument}...",
+                keyboard=None,
+                parse_mode=ParseMode.HTML
+            )
+            
+            # Get the calendar analysis
+            try:
+                # Use the calendar service to get the analysis
+                calendar_data = await self.calendar_service.get_instrument_calendar(instrument)
+                
+                if not calendar_data:
+                    raise ValueError(f"No calendar data available for {instrument}")
+                
+                # Show the calendar analysis
+                await self.update_message(
+                    query=query,
+                    text=calendar_data,
+                    keyboard=[[InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal")]],
+                    parse_mode=ParseMode.HTML
+                )
+                
+                return SIGNAL_DETAILS
+            except Exception as calendar_error:
+                logger.error(f"Error getting calendar for {instrument}: {str(calendar_error)}")
+                
+                # Show error message
+                await self.update_message(
+                    query=query,
+                    text=f"❌ Could not generate economic calendar for {instrument}.\n\nPlease try again later.",
+                    keyboard=[[InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal")]],
+                    parse_mode=ParseMode.HTML
+                )
+                return SIGNAL_DETAILS
+        except Exception as e:
+            logger.error(f"Error in signal_calendar_callback: {str(e)}")
+            # Recovery
+            await query.message.reply_text(
+                text="An error occurred. Please try again.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("⬅️ Back to Menu", callback_data=CALLBACK_BACK_MENU)]
+                ])
+            )
+            return MENU
+            
+    async def back_to_signal_analysis_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
+        """Handle back to signal analysis callback - return to the signal analysis options."""
+        query = update.callback_query
+        await query.answer()
+        
+        try:
+            # Get instrument from context
+            instrument = None
+            if context and hasattr(context, 'user_data'):
+                instrument = context.user_data.get('signal_instrument')
+                
+            if not instrument:
+                # If no instrument, go back to main menu
+                return await self.back_menu_callback(update, context)
+            
+            # Show the analysis options for this instrument
+            signal_text = f"""
+📊 <b>Analysis Options for {instrument}</b>
+
+Select an analysis type:
+            """
+            
+            # Create keyboard with analysis options
+            keyboard = [
+                [InlineKeyboardButton("📈 Technical Analysis", callback_data=f"signal_technical")],
+                [InlineKeyboardButton("🧠 Market Sentiment", callback_data=f"signal_sentiment")],
+                [InlineKeyboardButton("📅 Economic Calendar", callback_data=f"signal_calendar")],
+                [InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal")]
+            ]
+            
+            await self.update_message(
+                query=query,
+                text=signal_text,
+                keyboard=keyboard,
+                parse_mode=ParseMode.HTML
+            )
+            return SIGNAL_DETAILS
+        except Exception as e:
+            logger.error(f"Error in back_to_signal_analysis_callback: {str(e)}")
+            # Try to recover
+            return await self.back_menu_callback(update, context)
