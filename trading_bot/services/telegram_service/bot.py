@@ -1214,3 +1214,602 @@ Discover powerful trading signals for various markets:
                 reply_markup=InlineKeyboardMarkup(keyboard),
                 parse_mode=ParseMode.HTML
             )
+
+    async def show_main_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
+        """Show the main menu with options for analysis or signals."""
+        # Get user ID
+        user_id = update.effective_user.id
+        
+        # Check if the user has a subscription
+        is_subscribed = await self.db.is_user_subscribed(user_id)
+        payment_failed = await self.db.has_payment_failed(user_id)
+        
+        if is_subscribed and not payment_failed:
+            # Show the main menu for subscribers
+            try:
+                # Get welcome GIF
+                gif_url = await get_welcome_gif()
+                
+                # Send GIF with main menu keyboard
+                await send_gif_with_caption(
+                    update=update,
+                    gif_url=gif_url,
+                    caption=WELCOME_MESSAGE,
+                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
+                    parse_mode=ParseMode.HTML
+                )
+                logger.info(f"Sent main menu to user {user_id}")
+                return MENU
+                
+            except Exception as e:
+                # Fallback to text-only menu on error
+                logger.error(f"Error showing main menu: {str(e)}")
+                await update.message.reply_text(
+                    text=WELCOME_MESSAGE,
+                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
+                    parse_mode=ParseMode.HTML
+                )
+                return MENU
+        else:
+            # Handle non-subscribers
+            if payment_failed:
+                # Show payment failure message for users with failed payments
+                failed_payment_text = f"""
+❗ <b>Subscription Payment Failed</b> ❗
+
+Your subscription payment could not be processed and your service has been deactivated.
+
+To continue using Sigmapips AI and receive trading signals, please reactivate your subscription by clicking the button below.
+                """
+                
+                # Use direct URL link for reactivation
+                reactivation_url = "https://buy.stripe.com/9AQcPf3j63HL5JS145"
+                keyboard = [
+                    [InlineKeyboardButton("🔄 Reactivate Subscription", url=reactivation_url)]
+                ]
+            else:
+                # Show subscription message for new users
+                welcome_text = """
+🚀 Welcome to Sigmapips AI! 🚀
+
+Discover powerful trading signals for various markets:
+• Forex - Major and minor currency pairs
+
+• Crypto - Bitcoin, Ethereum and other top
+ cryptocurrencies
+
+• Indices - US30, US500, US100 and more
+
+• Commodities - Gold, silver and oil
+
+<b>Start today with a FREE 14-day trial!</b>
+"""
+                
+                # Use direct URL link for the trial button
+                trial_url = "https://buy.stripe.com/3cs3eF9Hu9256NW9AA"
+                keyboard = [
+                    [InlineKeyboardButton("🔥 Start 14-day FREE Trial", url=trial_url)]
+                ]
+            
+            # Send the message
+            await update.message.reply_text(
+                text=welcome_text if not payment_failed else failed_payment_text,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode=ParseMode.HTML
+            )
+            return MENU
+
+    async def force_send_main_menu(self, chat_id: int) -> dict:
+        """Force sending the main menu to a specific chat."""
+        try:
+            # Get user subscription information
+            is_subscribed = await self.db.is_user_subscribed(chat_id)
+            payment_failed = await self.db.has_payment_failed(chat_id)
+            
+            if is_subscribed and not payment_failed:
+                # Regular subscribed user - send main menu
+                await self.bot.send_message(
+                    chat_id=chat_id,
+                    text=WELCOME_MESSAGE,
+                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
+                    parse_mode=ParseMode.HTML
+                )
+                return {"status": "success", "message": "Main menu sent"}
+            else:
+                # Trial user or payment failed - send appropriate message
+                if payment_failed:
+                    text = """
+❗ <b>Subscription Payment Failed</b> ❗
+
+Your subscription payment could not be processed and your service has been deactivated.
+
+To continue using Sigmapips AI and receive trading signals, please reactivate your subscription.
+                    """
+                    keyboard = [
+                        [InlineKeyboardButton("🔄 Reactivate Subscription", url="https://buy.stripe.com/9AQcPf3j63HL5JS145")]
+                    ]
+                else:
+                    text = """
+🚀 Welcome to Sigmapips AI! 🚀
+
+Discover powerful trading signals for various markets.
+
+<b>Start today with a FREE 14-day trial!</b>
+                    """
+                    keyboard = [
+                        [InlineKeyboardButton("🔥 Start 14-day FREE Trial", url="https://buy.stripe.com/3cs3eF9Hu9256NW9AA")]
+                    ]
+                
+                await self.bot.send_message(
+                    chat_id=chat_id,
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.HTML
+                )
+                return {"status": "success", "message": "Trial message sent"}
+                
+        except Exception as e:
+            logger.error(f"Error force-sending main menu: {str(e)}")
+            return {"status": "error", "message": str(e)}
+
+    async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
+        """Show help information when the /help command is used."""
+        try:
+            # Send the help message
+            await update.message.reply_text(
+                text=HELP_MESSAGE,
+                parse_mode=ParseMode.HTML
+            )
+            logger.info(f"Sent help message to user {update.effective_user.id}")
+            return MENU
+        except Exception as e:
+            logger.error(f"Error showing help: {str(e)}")
+            # Try a simpler message if HTML parsing fails
+            await update.message.reply_text(
+                text="Available commands:\n/menu - Show main menu\n/start - Set up new trading pairs\n/help - Show this help message"
+            )
+            return MENU
+            
+    async def set_subscription_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
+        """Admin command to set a user's subscription status."""
+        # Check if the user is an admin
+        user_id = update.effective_user.id
+        if user_id not in self.admin_users:
+            await update.message.reply_text("This command is only available to administrators.")
+            return MENU
+            
+        try:
+            # Expected format: /set_subscription {user_id} {1/0}
+            args = context.args if context and hasattr(context, 'args') else []
+            
+            if len(args) < 2:
+                await update.message.reply_text("Usage: /set_subscription {user_id} {1/0}")
+                return MENU
+                
+            target_user_id = int(args[0])
+            status = int(args[1]) == 1
+            
+            # Set the subscription status
+            if status:
+                # Add subscription
+                await self.db.save_subscription(
+                    user_id=target_user_id,
+                    customer_id=f"admin_set_{int(time.time())}",
+                    subscription_id=f"admin_set_{int(time.time())}",
+                    status="active",
+                    plan_id="admin_set",
+                    payment_failed=False
+                )
+                await update.message.reply_text(f"User {target_user_id} subscription set to active.")
+            else:
+                # Remove subscription
+                await self.db.cancel_subscription(target_user_id)
+                await update.message.reply_text(f"User {target_user_id} subscription removed.")
+                
+            return MENU
+        except Exception as e:
+            logger.error(f"Error setting subscription: {str(e)}")
+            await update.message.reply_text(f"Error: {str(e)}")
+            return MENU
+            
+    async def set_payment_failed_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
+        """Admin command to set a user's payment failed status."""
+        # Check if the user is an admin
+        user_id = update.effective_user.id
+        if user_id not in self.admin_users:
+            await update.message.reply_text("This command is only available to administrators.")
+            return MENU
+            
+        try:
+            # Expected format: /set_payment_failed {user_id} {1/0}
+            args = context.args if context and hasattr(context, 'args') else []
+            
+            if len(args) < 2:
+                await update.message.reply_text("Usage: /set_payment_failed {user_id} {1/0}")
+                return MENU
+                
+            target_user_id = int(args[0])
+            status = int(args[1]) == 1
+            
+            # Set the payment failed status
+            await self.db.set_payment_failed_status(target_user_id, status)
+            await update.message.reply_text(
+                f"User {target_user_id} payment failed status set to {status}."
+            )
+                
+            return MENU
+        except Exception as e:
+            logger.error(f"Error setting payment failed status: {str(e)}")
+            await update.message.reply_text(f"Error: {str(e)}")
+            return MENU
+
+    async def button_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
+        """Handle button callback queries."""
+        query = update.callback_query
+        await query.answer()  # Answer the callback query to stop the loading animation
+        
+        # Get the callback data
+        callback_data = query.data
+        logger.info(f"Received callback: {callback_data}")
+        
+        # Get user_id from update
+        user_id = update.effective_user.id
+        
+        try:
+            # Menu navigation callbacks
+            if callback_data == CALLBACK_MENU_ANALYSE:
+                # Show analysis options
+                await query.edit_message_text(
+                    text="Choose an analysis type:",
+                    reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
+                )
+                return CHOOSE_ANALYSIS
+                
+            elif callback_data == CALLBACK_MENU_SIGNALS:
+                # Check subscription before showing signals options
+                is_subscribed = await self.db.is_user_subscribed(user_id)
+                payment_failed = await self.db.has_payment_failed(user_id)
+                
+                if is_subscribed and not payment_failed:
+                    # Show signals options
+                    await query.edit_message_text(
+                        text="Trading Signals Menu:",
+                        reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD)
+                    )
+                    return CHOOSE_SIGNALS
+                else:
+                    # Show subscription message
+                    if payment_failed:
+                        text = """
+❗ <b>Subscription Payment Failed</b> ❗
+
+Your subscription payment could not be processed and your service has been deactivated.
+
+To continue using Sigmapips AI and receive trading signals, please reactivate your subscription.
+                        """
+                        keyboard = [
+                            [InlineKeyboardButton("🔄 Reactivate Subscription", url="https://buy.stripe.com/9AQcPf3j63HL5JS145")],
+                            [InlineKeyboardButton("⬅️ Back to Menu", callback_data=CALLBACK_BACK_MENU)]
+                        ]
+                    else:
+                        text = """
+🚀 <b>Trading Signals Subscription Required</b> 🚀
+
+To access trading signals, you need an active subscription.
+
+Get started today with a FREE 14-day trial!
+                        """
+                        keyboard = [
+                            [InlineKeyboardButton("🔥 Start 14-day FREE Trial", url="https://buy.stripe.com/3cs3eF9Hu9256NW9AA")],
+                            [InlineKeyboardButton("⬅️ Back to Menu", callback_data=CALLBACK_BACK_MENU)]
+                        ]
+                    
+                    await query.edit_message_text(
+                        text=text,
+                        reply_markup=InlineKeyboardMarkup(keyboard),
+                        parse_mode=ParseMode.HTML
+                    )
+                    return MENU
+            
+            # Analysis type callbacks
+            elif callback_data == CALLBACK_ANALYSIS_TECHNICAL:
+                # Show markets for technical analysis
+                await query.edit_message_text(
+                    text="Select a market for technical analysis:",
+                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
+                )
+                # Save the analysis type in context
+                if context and hasattr(context, 'user_data'):
+                    context.user_data['analysis_type'] = 'technical'
+                return CHOOSE_MARKET
+                
+            elif callback_data == CALLBACK_ANALYSIS_SENTIMENT:
+                # Show markets for sentiment analysis
+                await query.edit_message_text(
+                    text="Select a market for sentiment analysis:",
+                    reply_markup=InlineKeyboardMarkup(MARKET_SENTIMENT_KEYBOARD)
+                )
+                # Save the analysis type in context
+                if context and hasattr(context, 'user_data'):
+                    context.user_data['analysis_type'] = 'sentiment'
+                return CHOOSE_MARKET
+                
+            elif callback_data == CALLBACK_ANALYSIS_CALENDAR:
+                # Show markets for calendar analysis
+                await query.edit_message_text(
+                    text="Select a market for economic calendar analysis:",
+                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)  # Use the same market keyboard
+                )
+                # Save the analysis type in context
+                if context and hasattr(context, 'user_data'):
+                    context.user_data['analysis_type'] = 'calendar'
+                return CHOOSE_MARKET
+                
+            # Market selection callbacks
+            elif callback_data.startswith("market_"):
+                # Handle market selection
+                parts = callback_data.split("_")
+                market_type = parts[1]  # e.g., "forex", "crypto", etc.
+                
+                # Check if this is a signal-specific market selection
+                is_signals = len(parts) > 2 and parts[2] == "signals"
+                
+                # Save market in context
+                if context and hasattr(context, 'user_data'):
+                    context.user_data['market'] = market_type
+                    if is_signals:
+                        context.user_data['in_signals_flow'] = True
+                
+                # Process market callback
+                return await self.market_callback(update, context)
+                
+            # Back button callbacks
+            elif callback_data == "back_analysis":
+                # Back to analysis menu
+                await query.edit_message_text(
+                    text="Choose an analysis type:",
+                    reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
+                )
+                return CHOOSE_ANALYSIS
+                
+            # Generic callback - log the data for debugging
+            logger.warning(f"Unhandled callback data: {callback_data}")
+            return MENU
+            
+        except Exception as e:
+            logger.error(f"Error in button_callback: {str(e)}")
+            logger.exception(e)
+            # Try to recover by going back to main menu
+            try:
+                await query.edit_message_text(
+                    text="An error occurred. Returning to main menu...",
+                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
+                )
+            except Exception:
+                pass
+            return MENU
+            
+    async def back_menu_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
+        """Handle back_menu callback to return to the main menu."""
+        query = update.callback_query
+        await query.answer()
+        
+        try:
+            # Clear any context data for a fresh start
+            if context and hasattr(context, 'user_data'):
+                # Only clear navigation-related data
+                keys_to_clear = ['market', 'instrument', 'analysis_type', 'in_signals_flow']
+                for key in keys_to_clear:
+                    if key in context.user_data:
+                        del context.user_data[key]
+            
+            # Show the main menu with GIF if possible
+            try:
+                # Get the menu GIF
+                gif_url = await get_menu_gif()
+                
+                # Create formatted text with GIF
+                formatted_text = await embed_gif_in_text(gif_url, WELCOME_MESSAGE)
+                
+                # Edit the message with GIF and menu
+                await query.edit_message_text(
+                    text=formatted_text,
+                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
+                    parse_mode=ParseMode.HTML
+                )
+                logger.info("Back to main menu with GIF")
+            except Exception as e:
+                logger.error(f"Error showing main menu with GIF: {str(e)}")
+                # Fallback to text-only menu
+                await query.edit_message_text(
+                    text=WELCOME_MESSAGE,
+                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
+                    parse_mode=ParseMode.HTML
+                )
+                logger.info("Back to main menu with text only")
+            
+            return MENU
+        except Exception as e:
+            logger.error(f"Error in back_menu_callback: {str(e)}")
+            # Try to recover with simple text
+            try:
+                await query.edit_message_text(
+                    text="Main Menu",
+                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
+                )
+            except Exception:
+                pass
+            return MENU
+
+    async def market_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
+        """Handle market selection."""
+        query = update.callback_query
+        await query.answer()
+        
+        try:
+            # Extract market from callback data
+            callback_data = query.data
+            parts = callback_data.split('_')
+            
+            # Get market type from parts
+            market_type = parts[1] if len(parts) > 1 else 'forex'  # Default to forex
+            
+            # Get analysis type from context or from callback data
+            analysis_type = None
+            if context and hasattr(context, 'user_data'):
+                analysis_type = context.user_data.get('analysis_type')
+            
+            # If analysis_type is not in context, check if it's in the callback data
+            if not analysis_type and len(parts) > 2:
+                analysis_type = parts[2]  # e.g., "sentiment", "calendar", "signals"
+            
+            # Determine if we're in signals flow
+            is_signals_flow = 'signals' in callback_data or (context and hasattr(context, 'user_data') and context.user_data.get('in_signals_flow', False))
+            
+            # Save to context
+            if context and hasattr(context, 'user_data'):
+                context.user_data['market'] = market_type
+                context.user_data['in_signals_flow'] = is_signals_flow
+                if analysis_type:
+                    context.user_data['analysis_type'] = analysis_type
+            
+            # Prepare the keyboard based on market type and analysis type
+            logger.info(f"Processing market: {market_type}, analysis: {analysis_type}")
+            
+            # Choose caption prefix based on analysis type
+            analysis_type_name = "Technical Analysis"
+            if analysis_type == 'sentiment':
+                analysis_type_name = "Market Sentiment"
+            elif analysis_type == 'calendar':
+                analysis_type_name = "Economic Calendar"
+            elif analysis_type == 'signals':
+                analysis_type_name = "Trading Signals"
+            
+            # Get market name for display
+            market_name = market_type.capitalize()
+            
+            # Build caption with analysis and market types
+            caption_prefix = f"{market_name} "
+            caption = f"{caption_prefix}{analysis_type_name}:"
+            logger.info(f"Using caption: {caption}")
+            
+            # Determine which keyboard to show based on market and analysis type
+            if market_type == 'forex':
+                if analysis_type == 'sentiment':
+                    keyboard = FOREX_SENTIMENT_KEYBOARD
+                elif analysis_type == 'calendar':
+                    keyboard = FOREX_CALENDAR_KEYBOARD
+                elif analysis_type == 'signals':
+                    keyboard = FOREX_KEYBOARD_SIGNALS
+                else:  # Default to technical analysis
+                    keyboard = FOREX_KEYBOARD
+            elif market_type == 'crypto':
+                if analysis_type == 'sentiment':
+                    keyboard = CRYPTO_SENTIMENT_KEYBOARD
+                elif analysis_type == 'signals':
+                    keyboard = CRYPTO_KEYBOARD_SIGNALS
+                else:  # Default to technical analysis
+                    keyboard = CRYPTO_KEYBOARD
+            elif market_type == 'indices':
+                if analysis_type == 'signals':
+                    keyboard = INDICES_KEYBOARD_SIGNALS
+                else:  # Default to technical analysis
+                    keyboard = INDICES_KEYBOARD
+            elif market_type == 'commodities':
+                if analysis_type == 'signals':
+                    keyboard = COMMODITIES_KEYBOARD_SIGNALS
+                else:  # Default to technical analysis
+                    keyboard = COMMODITIES_KEYBOARD
+            else:
+                logger.error(f"Unknown market type: {market_type}, falling back to forex")
+                keyboard = FOREX_KEYBOARD
+                market_type = 'forex'
+            
+            # Add back button to keyboard if not already present
+            if isinstance(keyboard, list) and len(keyboard) > 0:
+                has_back_button = False
+                for row in keyboard:
+                    for btn in row:
+                        if hasattr(btn, 'callback_data') and (
+                            btn.callback_data == "back_analysis" or 
+                            btn.callback_data == "back_signals" or
+                            btn.callback_data == "back_market"
+                        ):
+                            has_back_button = True
+                            break
+                if not has_back_button:
+                    # Add appropriate back button based on flow
+                    if is_signals_flow:
+                        keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="back_signals")])
+                    else:
+                        keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="back_analysis")])
+            
+            # Get the analyse GIF URL
+            gif_url = await get_analyse_gif()
+            
+            # Update the message with the GIF and new keyboard
+            try:
+                # First try updating with embed_gif_in_text
+                formatted_text = await embed_gif_in_text(gif_url, caption)
+                await query.edit_message_text(
+                    text=formatted_text,
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.HTML
+                )
+                logger.info(f"Message updated with {analysis_type_name} for {market_name}")
+            except Exception as e:
+                logger.warning(f"Could not edit message with GIF: {str(e)}")
+                # Fallback to regular text
+                await query.edit_message_text(
+                    text=caption,
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.HTML
+                )
+            
+            return CHOOSE_INSTRUMENT
+        
+        except Exception as e:
+            logger.error(f"Error in market_callback: {str(e)}")
+            logger.exception(e)
+            # Try to recover by going back to main menu
+            try:
+                await query.edit_message_text(
+                    text="An error occurred. Returning to main menu...",
+                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
+                )
+            except Exception:
+                pass
+            return MENU
+            
+    async def back_analysis_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
+        """Handle back_analysis callback to return to the analysis menu."""
+        query = update.callback_query
+        await query.answer()
+        
+        try:
+            # Clear market data
+            if context and hasattr(context, 'user_data'):
+                if 'market' in context.user_data:
+                    del context.user_data['market']
+                if 'instrument' in context.user_data:
+                    del context.user_data['instrument']
+            
+            # Show analysis menu
+            await query.edit_message_text(
+                text="Choose an analysis type:",
+                reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
+                parse_mode=ParseMode.HTML
+            )
+            
+            return CHOOSE_ANALYSIS
+        except Exception as e:
+            logger.error(f"Error in back_analysis_callback: {str(e)}")
+            # Try simplified recovery
+            try:
+                await query.edit_message_text(
+                    text="Analysis Options",
+                    reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
+                )
+            except Exception:
+                pass
+            return CHOOSE_ANALYSIS
