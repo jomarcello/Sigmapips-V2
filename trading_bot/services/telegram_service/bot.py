@@ -1821,68 +1821,61 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
     async def back_to_signal_callback(self, update: Update, context=None) -> int:
         """Handle back_to_signal button press"""
         query = update.callback_query
-        await query.answer()
         
         try:
-            # Get signal data from context
-            signal_id = None
+            # Answer the callback query to remove the "waiting" status
+            await query.answer()
+            
+            # Determine if we're in signals flow or analysis flow based on callback data
+            callback_data = query.data
+            is_signals_flow = "signals" in callback_data.lower() if callback_data else False
+            
+            # Get market from user_data or fallback to 'forex'
             if context and hasattr(context, 'user_data'):
-                signal_id = context.user_data.get('current_signal_id')
+                market = context.user_data.get('market', 'forex')
+                in_signals_flow = context.user_data.get('in_signals_flow', is_signals_flow)
+            else:
+                market = 'forex'
+                in_signals_flow = is_signals_flow
             
-            if not signal_id:
-                # No signal ID, return to main menu
-                await query.edit_message_text(
-                    text="Signal not found. Returning to main menu...",
-                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
+            logger.info(f"Back to market: market={market}, in_signals_flow={in_signals_flow}")
+            
+            # Choose the appropriate keyboard based on the flow
+            if in_signals_flow:
+                keyboard = MARKET_KEYBOARD_SIGNALS
+                text = "Choose a market for trading signals:"
+            else:
+                keyboard = MARKET_KEYBOARD
+                text = "Choose a market for technical analysis:"
+            
+            # Check if the message contains a photo
+            has_photo = bool(query.message.photo)
+            
+            if has_photo:
+                # For messages with photos, send a new message instead of editing
+                await query.message.reply_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
                 )
-                return MENU
+            else:
+                # For messages without photos, try to edit the existing message
+                try:
+                    await query.edit_message_text(
+                        text=text,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to edit message: {str(e)}")
+                    # If editing fails, try sending a new message
+                    await query.message.reply_text(
+                        text=text,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
             
-            # Get the original signal from context or database
-            signal = None
-            if context and hasattr(context, 'user_data'):
-                signal = context.user_data.get('current_signal')
-            
-            if not signal:
-                # Try to get signal from the database or cached signals
-                user_id = update.effective_user.id
-                if str(user_id) in self.user_signals:
-                    signal = self.user_signals[str(user_id)]
-            
-            if not signal:
-                # Still no signal, return to main menu
-                await query.edit_message_text(
-                    text="Signal details not found. Returning to main menu...",
-                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
-                )
-                return MENU
-            
-            # Show the signal again with the analysis options
-            signal_text = signal.get('message', 'Signal details not available')
-            
-            # Format the keyboard for signal analysis
-            keyboard = SIGNAL_ANALYSIS_KEYBOARD
-            
-            # Show the signal with analysis options
-            await query.edit_message_text(
-                text=signal_text,
-                parse_mode=ParseMode.HTML,
-                reply_markup=InlineKeyboardMarkup(keyboard)
-            )
-            
-            return SIGNAL_DETAILS
+            return CHOOSE_MARKET
             
         except Exception as e:
             logger.error(f"Error in back_to_signal_callback: {str(e)}")
-            
-            # Error recovery
-            try:
-                await query.edit_message_text(
-                    text="An error occurred. Please try again from the main menu.",
-                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
-                )
-            except Exception:
-                pass
-            
             return MENU
 
     async def button_callback(self, update: Update, context=None) -> int:
@@ -2137,7 +2130,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 await query.edit_message_media(
                     media=InputMediaPhoto(
                         media=chart_url,
-                        caption=f"📊 Technical Analysis for {instrument}\n\nSelect an option:",
+                        caption=f"📊 Technical Analysis for {instrument}",
                         parse_mode=ParseMode.HTML
                     ),
                     reply_markup=InlineKeyboardMarkup(keyboard)
@@ -2147,7 +2140,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 # Try to send a new message as fallback
                 await query.message.reply_photo(
                     photo=chart_url,
-                    caption=f"📊 Technical Analysis for {instrument}\n\nSelect an option:",
+                    caption=f"📊 Technical Analysis for {instrument}",
                     parse_mode=ParseMode.HTML,
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
