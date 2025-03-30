@@ -2372,52 +2372,62 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             has_photo = bool(query.message.photo) or query.message.animation is not None
             
             if has_photo:
-                # Use the same animation approach - first try editing the media
                 try:
-                    from telegram import InputMediaAnimation
-                    # Update with the appropriate GIF
-                    await query.edit_message_media(
-                        media=InputMediaAnimation(
-                            media=gif_url,
-                            caption=f"Select an instrument for {market_name}:",
-                            parse_mode=ParseMode.HTML
-                        ),
-                        reply_markup=InlineKeyboardMarkup(keyboard)
-                    )
-                except Exception as e:
-                    logger.warning(f"Could not edit media for market: {str(e)}")
-                    
-                    # Fallback: edit just the caption
+                    # For media messages, use a special approach: 
+                    # First delete the media message if possible
                     try:
-                        await query.edit_message_caption(
-                            caption=f"Select an instrument for {market_name}:",
-                            reply_markup=InlineKeyboardMarkup(keyboard),
-                            parse_mode=ParseMode.HTML
-                        )
-                    except Exception as caption_error:
-                        logger.error(f"Failed to update caption: {str(caption_error)}")
-                        # Send a new message as last resort
+                        await query.message.delete()
+                        # Then send a new message with analysis GIF
                         await query.message.reply_animation(
                             animation=gif_url,
-                            caption=f"Select an instrument for {market_name}:",
-                            reply_markup=InlineKeyboardMarkup(keyboard),
-                            parse_mode=ParseMode.HTML
+                            caption=f"Select instrument for {market_name}:",
+                            parse_mode=ParseMode.HTML,
+                            reply_markup=InlineKeyboardMarkup(keyboard)
                         )
+                    except Exception as delete_error:
+                        logger.warning(f"Could not delete media message: {str(delete_error)}")
+                        
+                        # If delete fails, try to edit the media with the analysis GIF
+                        from telegram import InputMediaAnimation
+                        
+                        try:
+                            await query.edit_message_media(
+                                media=InputMediaAnimation(
+                                    media=gif_url,
+                                    caption=f"Select instrument for {market_name}:",
+                                    parse_mode=ParseMode.HTML
+                                ),
+                                reply_markup=InlineKeyboardMarkup(keyboard)
+                            )
+                        except Exception as e:
+                            logger.warning(f"Could not update media with analysis GIF: {str(e)}")
+                            
+                            # Last resort: just edit the caption
+                            await query.edit_message_caption(
+                                caption=f"Select instrument for {market_name}:",
+                                reply_markup=InlineKeyboardMarkup(keyboard)
+                            )
+                except Exception as e:
+                    logger.error(f"Error handling media in market_callback: {str(e)}")
+                    # Fall back to sending a new message
+                    await query.message.reply_text(
+                        text=f"Select instrument for {market_name}:",
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
             else:
-                # For text messages, use the GIF utility
+                # For text messages, use the GIF util function to update with GIF
                 success = await update_message_with_gif(
                     query=query,
                     gif_url=gif_url,
-                    text=f"Select an instrument for {market_name}:",
+                    text=f"Select instrument for {market_name}:",
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
                 
                 if not success:
-                    # Fallback for text messages
+                    # Fallback to simple text
                     await query.edit_message_text(
-                        text=f"Select an instrument for {market_name}:",
-                        reply_markup=InlineKeyboardMarkup(keyboard),
-                        parse_mode=ParseMode.HTML
+                        text=f"Select instrument for {market_name}:",
+                        reply_markup=InlineKeyboardMarkup(keyboard)
                     )
             
             return CHOOSE_INSTRUMENT
