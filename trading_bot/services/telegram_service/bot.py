@@ -1449,7 +1449,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     
                     # For message commands we can use reply_animation
                     if hasattr(update, 'message') and update.message:
-                        # Send the GIF using regular animation method
+                        # Send the GIF with buttons directly
                         await update.message.reply_animation(
                             animation=gif_url,
                             caption=WELCOME_MESSAGE,
@@ -2621,23 +2621,16 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 # Log dat we terugvallen op het sturen van een nieuw bericht
                 logger.info("Falling back to sending new message without deleting old one")
             
-            # Stuur een welcome GIF met het hoofdmenu
-            await send_welcome_gif(
-                self.bot,
+            # Stuur een welcome GIF met het hoofdmenu en knoppen direct eronder (in één bericht)
+            await self.bot.send_animation(
                 chat_id=user_id,
-                caption=WELCOME_MESSAGE
-            )
-            new_message_sent = True
-            logger.info("New welcome GIF message sent")
-            
-            # Stuur de knoppen in een apart bericht voor betere UX
-            await self.bot.send_message(
-                chat_id=user_id,
-                text="🚀 <b>Sigmapips AI - Main Menu</b> 🚀\n\nChoose an option to access advanced trading support:",
+                animation=gif_url,
+                caption=WELCOME_MESSAGE,
                 parse_mode=ParseMode.HTML,
                 reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
             )
-            logger.info("Menu buttons sent in separate message")
+            new_message_sent = True
+            logger.info("New welcome GIF message with buttons sent")
             
             return MENU
         
@@ -2669,22 +2662,15 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Get the welcome GIF URL
             gif_url = await get_welcome_gif()
             
-            # Send the welcome GIF
-            await send_welcome_gif(
-                self.bot,
+            # Stuur een welcome GIF met het hoofdmenu en knoppen direct eronder (in één bericht)
+            await self.bot.send_animation(
                 chat_id=chat_id,
-                caption=WELCOME_MESSAGE
-            )
-            logger.info("Welcome GIF sent successfully in force_send_main_menu")
-            
-            # Send the keyboard separately for better UX
-            await self.bot.send_message(
-                chat_id=chat_id,
-                text="🚀 <b>Sigmapips AI - Main Menu</b> 🚀\n\nChoose an option to access advanced trading support:",
+                animation=gif_url,
+                caption=WELCOME_MESSAGE,
                 parse_mode=ParseMode.HTML,
                 reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
             )
-            logger.info("Menu buttons sent successfully in force_send_main_menu")
+            logger.info("Welcome GIF message with buttons sent successfully")
             
             return {"status": "success", "message": f"Main menu sent to user {chat_id}"}
         except Exception as e:
