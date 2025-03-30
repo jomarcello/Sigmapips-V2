@@ -2126,25 +2126,45 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 [InlineKeyboardButton("⬅️ Back", callback_data="back_to_analysis")]
             ]
             
-            # Update message with chart
+            # Check if the message currently has media, and if it's the loading GIF
             try:
-                await query.edit_message_media(
-                    media=InputMediaPhoto(
-                        media=chart_url,
-                        caption=f"📊 Technical Analysis for {instrument}",
-                        parse_mode=ParseMode.HTML
-                    ),
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
-            except Exception as e:
-                logger.error(f"Error updating message with chart: {str(e)}")
-                # Try to send a new message as fallback
+                # Update message with chart using reply_photo to ensure it's treated as a photo
+                # First, delete the current message or edit to a temporary message
+                try:
+                    await query.edit_message_text(
+                        text=f"Preparing chart for {instrument}..."
+                    )
+                except Exception as delete_error:
+                    logger.warning(f"Could not edit message text: {str(delete_error)}")
+                
+                # Now send a new photo
                 await query.message.reply_photo(
                     photo=chart_url,
                     caption=f"📊 Technical Analysis for {instrument}",
                     parse_mode=ParseMode.HTML,
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
+            except Exception as e:
+                logger.error(f"Error sending new chart photo: {str(e)}")
+                # Try alternative approach as fallback
+                try:
+                    await query.edit_message_media(
+                        media=InputMediaPhoto(
+                            media=chart_url,
+                            caption=f"📊 Technical Analysis for {instrument}",
+                            parse_mode=ParseMode.HTML
+                        ),
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+                except Exception as edit_error:
+                    logger.error(f"Error updating message with chart: {str(edit_error)}")
+                    # Last resort fallback
+                    await query.message.reply_photo(
+                        photo=chart_url,
+                        caption=f"📊 Technical Analysis for {instrument}",
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
             
             return CHOOSE_ANALYSIS
             
