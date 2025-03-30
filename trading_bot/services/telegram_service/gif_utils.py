@@ -138,7 +138,7 @@ async def send_loading_gif(bot, chat_id, caption=None):
     """Send a loading GIF to the user."""
     try:
         # Loading GIF URL
-        gif_url = "https://media.giphy.com/media/3oEjI6SIIHBdRxXI40/giphy.gif"
+        gif_url = "https://media4.giphy.com/media/v1.Y2lkPTc5MGI3NjExdGh5cm1sNTVvemVqNXphOGw2Y3IwM2R0aHJ1d2h3ZHZ2MTM4b3l4OSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/dpjUltnOPye7azvAhH/giphy.gif"
         
         # Send the loading GIF animation
         await bot.send_animation(
@@ -154,7 +154,7 @@ async def send_loading_gif(bot, chat_id, caption=None):
 
 async def get_loading_gif():
     """Get the loading GIF URL."""
-    return "https://media.giphy.com/media/3oEjI6SIIHBdRxXI40/giphy.gif"
+    return "https://media4.giphy.com/media/v1.Y2lkPTc5MGI3NjExdGh5cm1sNTVvemVqNXphOGw2Y3IwM2R0aHJ1d2h3ZHZ2MTM4b3l4OSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/dpjUltnOPye7azvAhH/giphy.gif"
 
 async def embed_gif_in_text(gif_url: str, text: str) -> str:
     """
