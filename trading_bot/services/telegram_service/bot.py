@@ -1968,13 +1968,42 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     logger.warning(f"Unknown analysis type: {query.data}, defaulting to technical")
                     return await self.analysis_technical_callback(update, context)
                 
-            elif query.data == "show_ta_":
+            elif query.data.startswith("show_ta_"):
                 # Extract instrument and timeframe from callback data
                 parts = query.data.split("_")
                 if len(parts) >= 3:
                     instrument = parts[2]
                     timeframe = parts[3] if len(parts) > 3 else "1h"  # Default to 1h
                     return await self.show_technical_analysis(update, context, instrument=instrument, timeframe=timeframe)
+                
+            elif query.data.startswith("market_"):
+                # Handles all market selection callbacks like market_forex, market_crypto, etc.
+                return await self.market_callback(update, context)
+                
+            elif query.data.startswith("instrument_"):
+                # All instrument callbacks, dynamically detect the format: instrument_EURUSD_chart, etc.
+                return await self.instrument_callback(update, context)
+                
+            elif query.data == "signal_technical":
+                return await self.signal_technical_callback(update, context)
+                
+            elif query.data == "signal_sentiment":
+                return await self.signal_sentiment_callback(update, context)
+                
+            elif query.data == "signal_calendar":
+                return await self.signal_calendar_callback(update, context)
+                
+            elif query.data == "back_to_signal_analysis":
+                return await self.back_to_signal_analysis_callback(update, context)
+                
+            elif query.data == "signals_add" or query.data == CALLBACK_SIGNALS_ADD:
+                return await self.signals_add_callback(update, context)
+                
+            elif query.data == "signals_manage" or query.data == CALLBACK_SIGNALS_MANAGE:
+                return await self.signals_manage_callback(update, context)
+                
+            elif query.data == "menu_signals":
+                return await self.menu_signals_callback(update, context)
                 
             else:
                 # Handle unknown button presses
