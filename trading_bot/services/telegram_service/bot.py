@@ -13,7 +13,7 @@ from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
 import copy
 
-from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery, InputMediaPhoto, BotCommand, InputMediaAnimation
+from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery, InputMediaPhoto, BotCommand, InputMediaAnimation, InputMediaDocument
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -2401,55 +2401,59 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 keyboard = MARKET_KEYBOARD
                 text = "Select a market for technical analysis:"
             
-            # Update the same message with market selection
-            try:
-                # First try to simply edit the message text (if it's a text message)
-                await query.edit_message_text(
-                    text=text,
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
-            except Exception as text_error:
-                if "Message is not modified" in str(text_error):
-                    # This is fine, no need to do anything
-                    pass
-                elif "There is no text in the message to edit" in str(text_error):
-                    # This is likely a media message, try to edit the media
+            # Check if the message contains a photo/media
+            has_photo = bool(query.message.photo) or query.message.animation is not None
+            
+            if has_photo:
+                try:
+                    # For media messages, use a special approach: 
+                    # First delete the media message if possible
                     try:
-                        # Message has a media (photo/GIF), edit the caption instead
-                        await query.edit_message_caption(
-                            caption=text,
+                        await query.message.delete()
+                        # Then send a new message
+                        await query.message.reply_text(
+                            text=text,
                             reply_markup=InlineKeyboardMarkup(keyboard)
                         )
-                    except Exception as caption_error:
-                        if "Message is not modified" in str(caption_error):
-                            # This is fine
-                            pass
-                        else:
-                            # Something else went wrong with caption edit, try to replace the media
-                            logger.warning(f"Could not edit caption: {str(caption_error)}")
-                            try:
-                                # We'll delete the media and send a text message to avoid issues
-                                await query.edit_message_media(
-                                    media=InputMediaPhoto(
-                                        media="https://via.placeholder.com/5x5.png",
-                                        caption=text
-                                    ),
-                                    reply_markup=InlineKeyboardMarkup(keyboard)
-                                )
-                            except Exception as media_error:
-                                logger.error(f"Could not edit media: {str(media_error)}")
-                                # Last resort: reply with a new message
-                                await query.message.reply_text(
-                                    text=text,
-                                    reply_markup=InlineKeyboardMarkup(keyboard)
-                                )
-                else:
-                    # Something else went wrong, try to send a new message
-                    logger.warning(f"Error editing message text: {str(text_error)}")
+                    except Exception as delete_error:
+                        logger.warning(f"Could not delete media message: {str(delete_error)}")
+                        
+                        # If delete fails, try to edit the media with a blank transparent image
+                        from telegram import InputMediaDocument
+                        
+                        # Use a tiny 1x1 transparent png
+                        transparent_png = "https://upload.wikimedia.org/wikipedia/commons/thumb/0/00/Transparent.gif/1px-Transparent.gif"
+                        
+                        try:
+                            await query.edit_message_media(
+                                media=InputMediaDocument(
+                                    media=transparent_png,
+                                    caption=text,
+                                    parse_mode=ParseMode.HTML
+                                ),
+                                reply_markup=InlineKeyboardMarkup(keyboard)
+                            )
+                        except Exception as e:
+                            logger.warning(f"Could not update media with transparent image: {str(e)}")
+                            
+                            # Last resort: just edit the caption
+                            await query.edit_message_caption(
+                                caption=text,
+                                reply_markup=InlineKeyboardMarkup(keyboard)
+                            )
+                except Exception as e:
+                    logger.error(f"Error handling media in back_market_callback: {str(e)}")
+                    # Fall back to sending a new message
                     await query.message.reply_text(
                         text=text,
                         reply_markup=InlineKeyboardMarkup(keyboard)
                     )
+            else:
+                # For text messages, simply edit the text
+                await query.edit_message_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
             
             return CHOOSE_INSTRUMENT
         
