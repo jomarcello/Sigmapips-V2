@@ -775,12 +775,22 @@ class TelegramService:
         
         application.add_handler(CallbackQueryHandler(self.back_to_signal_callback, pattern="^back_to_signal$"))
         
-        # Navigation callbacks
+        # Navigation callbacks - DEZE MOETEN VOOR DE GENERIEKE HANDLER STAAN
         application.add_handler(CallbackQueryHandler(self.back_market_callback, pattern="^back_market$"))
         application.add_handler(CallbackQueryHandler(self.back_analysis_callback, pattern="^back_analysis$"))
         application.add_handler(CallbackQueryHandler(self.back_menu_callback, pattern="^back_menu$"))
         
-        # Callback query handler for all button presses
+        # Signal flow analysis handlers - DEZE MOETEN OOK VOOR DE GENERIEKE HANDLER STAAN
+        application.add_handler(CallbackQueryHandler(
+            self.signal_technical_callback, pattern="^signal_technical$"))
+        application.add_handler(CallbackQueryHandler(
+            self.signal_sentiment_callback, pattern="^signal_sentiment$"))
+        application.add_handler(CallbackQueryHandler(
+            self.signal_calendar_callback, pattern="^signal_calendar$"))
+        application.add_handler(CallbackQueryHandler(
+            self.back_to_signal_analysis_callback, pattern="^back_to_signal_analysis$"))
+        
+        # Callback query handler for all button presses - GENERIC HANDLER MOET LAST ZIJN
         application.add_handler(CallbackQueryHandler(self.button_callback))
         
         # Ensure signal handlers are registered
@@ -790,16 +800,6 @@ class TelegramService:
         self._load_signals()
         
         logger.info("All handlers registered successfully")
-
-        # Signal flow analysis handlers
-        application.add_handler(CallbackQueryHandler(
-            self.signal_technical_callback, pattern="^signal_technical$"))
-        application.add_handler(CallbackQueryHandler(
-            self.signal_sentiment_callback, pattern="^signal_sentiment$"))
-        application.add_handler(CallbackQueryHandler(
-            self.signal_calendar_callback, pattern="^signal_calendar$"))
-        application.add_handler(CallbackQueryHandler(
-            self.back_to_signal_analysis_callback, pattern="^back_to_signal_analysis$"))
 
     async def initialize(self, use_webhook=False):
         """Initialize the bot and either start polling or return the app for webhook usage"""
@@ -1983,14 +1983,11 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD)
                 )
                 return CHOOSE_SIGNALS
-                
-            elif query.data == "back_menu":
-                # Return to main menu
-                await query.edit_message_text(
-                    text="Welcome to SigmaPips AI! What would you like to do?",
-                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
-                )
-                return MENU
+            
+            # Verwijder deze case omdat we dit al via de specifieke handler afhandelen    
+            # elif query.data == "back_menu":
+            #    # Return to main menu via dedicated callback handler
+            #    return await self.back_menu_callback(update, context)
                 
             elif query.data == "back_to_analysis" or query.data == "back_analysis":
                 return await self.back_analysis_callback(update, context)
@@ -2619,7 +2616,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         await query.answer()
         
         try:
-            logger.info("Handling back_menu callback - returning to main menu")
+            logger.info("Handling back_menu callback - SPECIFIEKE HANDLER WORDT GEBRUIKT")
             
             # Get the welcome GIF URL voor het startmenu
             gif_url = await get_welcome_gif()
