@@ -3022,20 +3022,20 @@ Get started today with a FREE 14-day trial!
             
             # Handle different analysis types
             if analysis_type == 'sentiment':
-                # STAP 1: Toon eerst een loading indicator
+                # STAP 1: Toon eerst een loading indicator in het bestaande bericht
                 try:
                     # Duidelijk signaleren dat we bezig zijn met laden
                     await query.answer("Loading sentiment analysis...")
                     
-                    # Gebruik update_message om loading in HETZELFDE bericht te tonen
+                    # Gebruik DIRECT update_message_with_gif om de loading GIF in het bestaande bericht te tonen
+                    # Gebruik expliciet de loading GIF, niet de generieke analyse GIF
                     loading_gif = await get_loading_gif()
-                    loading_text = f"⏳ <b>Analyzing sentiment for {instrument}...</b>"
-                    loading_text_with_gif = await embed_gif_in_text(loading_gif, loading_text)
                     
-                    await self.update_message(
+                    await update_message_with_gif(
                         query=query,
-                        text=loading_text_with_gif,
-                        keyboard=None,
+                        gif_url=loading_gif,  # Specifiek de loading GIF gebruiken
+                        text=f"⏳ <b>Analyzing sentiment for {instrument}...</b>",
+                        reply_markup=None,
                         parse_mode=ParseMode.HTML
                     )
                 except Exception as gif_error:
@@ -3113,11 +3113,12 @@ Get started today with a FREE 14-day trial!
                     # STAP 3: Gebruik één simpele back knop
                     back_keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]]
                     
-                    # Toon sentiment analyse in HETZELFDE bericht (bijwerken, niet nieuw bericht)
-                    await self.update_message(
+                    # Toon sentiment analyse in HETZELFDE bericht
+                    # Gebruik direct de _safe_edit_message om te voorkomen dat een andere GIF wordt gebruikt
+                    await self._safe_edit_message(
                         query=query,
                         text=sentiment_text,
-                        keyboard=back_keyboard,
+                        reply_markup=InlineKeyboardMarkup(back_keyboard),
                         parse_mode=ParseMode.HTML
                     )
                     
@@ -3155,11 +3156,11 @@ This is a simplified analysis based on available data. For more detailed insight
                     # Eén simpele back knop
                     back_keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]]
                     
-                    # Bijwerken van het huidige bericht
-                    await self.update_message(
+                    # Gebruik direct de _safe_edit_message om te voorkomen dat een andere GIF wordt gebruikt
+                    await self._safe_edit_message(
                         query=query,
                         text=fallback_text,
-                        keyboard=back_keyboard,
+                        reply_markup=InlineKeyboardMarkup(back_keyboard),
                         parse_mode=ParseMode.HTML
                     )
                 
