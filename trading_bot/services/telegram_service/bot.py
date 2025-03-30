@@ -778,6 +778,7 @@ class TelegramService:
         # Navigation callbacks
         application.add_handler(CallbackQueryHandler(self.back_market_callback, pattern="^back_market$"))
         application.add_handler(CallbackQueryHandler(self.back_analysis_callback, pattern="^back_analysis$"))
+        application.add_handler(CallbackQueryHandler(self.back_menu_callback, pattern="^back_menu$"))
         
         # Callback query handler for all button presses
         application.add_handler(CallbackQueryHandler(self.button_callback))
@@ -1543,33 +1544,60 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Show analysis directly for this instrument
             return await self.show_technical_analysis(update, context, instrument=instrument)
         
-        # Show the market selection menu
-        try:
-            # First try to edit message text
-            await query.edit_message_text(
-                text="Select market for technical analysis:",
-                reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
-            )
-        except Exception as text_error:
-            # If that fails due to caption, try editing caption
-            if "There is no text in the message to edit" in str(text_error):
+        # Get the analyse GIF URL
+        gif_url = await get_analyse_gif()
+        
+        # Check if the message already contains a photo/media
+        has_photo = bool(query.message.photo) or query.message.animation is not None
+        
+        if has_photo:
+            # If we already have media, use the animation approach
+            try:
+                from telegram import InputMediaAnimation
+                # Update with analysis GIF
+                await query.edit_message_media(
+                    media=InputMediaAnimation(
+                        media=gif_url,
+                        caption="Select market for technical analysis:",
+                        parse_mode=ParseMode.HTML
+                    ),
+                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
+                )
+            except Exception as e:
+                logger.warning(f"Could not edit media for technical analysis: {str(e)}")
+                
+                # Fallback: edit caption
                 try:
                     await query.edit_message_caption(
                         caption="Select market for technical analysis:",
                         reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD),
                         parse_mode=ParseMode.HTML
                     )
-                except Exception as e:
-                    logger.error(f"Failed to update caption for technical analysis: {str(e)}")
-                    # Try to send a new message as last resort
-                    await query.message.reply_text(
-                        text="Select market for technical analysis:",
+                except Exception as caption_error:
+                    logger.error(f"Failed to update caption for technical analysis: {str(caption_error)}")
+                    # Send new message as last resort
+                    await query.message.reply_animation(
+                        animation=gif_url,
+                        caption="Select market for technical analysis:",
                         reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD),
                         parse_mode=ParseMode.HTML
                     )
-            else:
-                # Re-raise for other errors
-                raise
+        else:
+            # For text messages, use the GIF utility
+            success = await update_message_with_gif(
+                query=query,
+                gif_url=gif_url,
+                text="Select market for technical analysis:",
+                reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
+            )
+            
+            if not success:
+                # Fallback for text messages
+                await query.edit_message_text(
+                    text="Select market for technical analysis:",
+                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD),
+                    parse_mode=ParseMode.HTML
+                )
         
         return CHOOSE_MARKET
 
@@ -1578,14 +1606,14 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         query = update.callback_query
         await query.answer()
         
-        # Set analysis type in context
+        # Store analysis type in context
         if context and hasattr(context, 'user_data'):
             context.user_data['analysis_type'] = 'sentiment'
         
-        # Check if signal-specific data is present in callback data
+        # Set the callback data
         callback_data = query.data
         
-        # Set the instrument if it was passed in the callback data
+        # Check for specific instrument in callback data
         if callback_data.startswith("analysis_sentiment_signal_"):
             # Extract instrument from the callback data
             instrument = callback_data.replace("analysis_sentiment_signal_", "")
@@ -1593,37 +1621,62 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 context.user_data['instrument'] = instrument
             
             logger.info(f"Sentiment analysis for specific instrument: {instrument}")
-            
-            # Show analysis directly for this instrument
-            return await self.show_sentiment_analysis(update, context, instrument=instrument)
+            return await self.instrument_callback(update, context)  # Redirect to instrument handler
         
-        # Show the market selection menu
-        try:
-            # First try to edit message text
-            await query.edit_message_text(
-                text="Select market for sentiment analysis:",
-                reply_markup=InlineKeyboardMarkup(MARKET_SENTIMENT_KEYBOARD)
-            )
-        except Exception as text_error:
-            # If that fails due to caption, try editing caption
-            if "There is no text in the message to edit" in str(text_error):
+        # Get the analyse GIF URL
+        gif_url = await get_analyse_gif()
+        
+        # Check if the message already contains a photo/media
+        has_photo = bool(query.message.photo) or query.message.animation is not None
+        
+        if has_photo:
+            # If we already have media, use the animation approach
+            try:
+                from telegram import InputMediaAnimation
+                # Update with analysis GIF
+                await query.edit_message_media(
+                    media=InputMediaAnimation(
+                        media=gif_url,
+                        caption="Select market for sentiment analysis:",
+                        parse_mode=ParseMode.HTML
+                    ),
+                    reply_markup=InlineKeyboardMarkup(MARKET_SENTIMENT_KEYBOARD)
+                )
+            except Exception as e:
+                logger.warning(f"Could not edit media for sentiment analysis: {str(e)}")
+                
+                # Fallback: edit caption
                 try:
                     await query.edit_message_caption(
                         caption="Select market for sentiment analysis:",
                         reply_markup=InlineKeyboardMarkup(MARKET_SENTIMENT_KEYBOARD),
                         parse_mode=ParseMode.HTML
                     )
-                except Exception as e:
-                    logger.error(f"Failed to update caption for sentiment analysis: {str(e)}")
-                    # Try to send a new message as last resort
-                    await query.message.reply_text(
-                        text="Select market for sentiment analysis:",
+                except Exception as caption_error:
+                    logger.error(f"Failed to update caption for sentiment analysis: {str(caption_error)}")
+                    # Send new message as last resort
+                    await query.message.reply_animation(
+                        animation=gif_url,
+                        caption="Select market for sentiment analysis:",
                         reply_markup=InlineKeyboardMarkup(MARKET_SENTIMENT_KEYBOARD),
                         parse_mode=ParseMode.HTML
                     )
-            else:
-                # Re-raise for other errors
-                raise
+        else:
+            # For text messages, use the GIF utility
+            success = await update_message_with_gif(
+                query=query,
+                gif_url=gif_url,
+                text="Select market for sentiment analysis:",
+                reply_markup=InlineKeyboardMarkup(MARKET_SENTIMENT_KEYBOARD)
+            )
+            
+            if not success:
+                # Fallback for text messages
+                await query.edit_message_text(
+                    text="Select market for sentiment analysis:",
+                    reply_markup=InlineKeyboardMarkup(MARKET_SENTIMENT_KEYBOARD),
+                    parse_mode=ParseMode.HTML
+                )
         
         return CHOOSE_MARKET
 
@@ -1632,14 +1685,14 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         query = update.callback_query
         await query.answer()
         
-        # Set analysis type in context
+        # Store analysis type in context
         if context and hasattr(context, 'user_data'):
             context.user_data['analysis_type'] = 'calendar'
         
-        # Check if signal-specific data is present in callback data
+        # Set the callback data
         callback_data = query.data
         
-        # Set the instrument if it was passed in the callback data
+        # Check for specific instrument in callback data
         if callback_data.startswith("analysis_calendar_signal_"):
             # Extract instrument from the callback data
             instrument = callback_data.replace("analysis_calendar_signal_", "")
@@ -1647,37 +1700,62 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 context.user_data['instrument'] = instrument
             
             logger.info(f"Calendar analysis for specific instrument: {instrument}")
-            
-            # Show analysis directly for this instrument
-            return await self.show_calendar_analysis(update, context, instrument=instrument)
+            return await self.instrument_callback(update, context)  # Redirect to instrument handler
         
-        # Show the market selection menu
-        try:
-            # First try to edit message text
-            await query.edit_message_text(
-                text="Select market for economic calendar analysis:",
-                reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
-            )
-        except Exception as text_error:
-            # If that fails due to caption, try editing caption
-            if "There is no text in the message to edit" in str(text_error):
+        # Get the analyse GIF URL
+        gif_url = await get_analyse_gif()
+        
+        # Check if the message already contains a photo/media
+        has_photo = bool(query.message.photo) or query.message.animation is not None
+        
+        if has_photo:
+            # If we already have media, use the animation approach
+            try:
+                from telegram import InputMediaAnimation
+                # Update with analysis GIF
+                await query.edit_message_media(
+                    media=InputMediaAnimation(
+                        media=gif_url,
+                        caption="Select market for economic calendar:",
+                        parse_mode=ParseMode.HTML
+                    ),
+                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
+                )
+            except Exception as e:
+                logger.warning(f"Could not edit media for calendar analysis: {str(e)}")
+                
+                # Fallback: edit caption
                 try:
                     await query.edit_message_caption(
-                        caption="Select market for economic calendar analysis:",
+                        caption="Select market for economic calendar:",
                         reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD),
                         parse_mode=ParseMode.HTML
                     )
-                except Exception as e:
-                    logger.error(f"Failed to update caption for calendar analysis: {str(e)}")
-                    # Try to send a new message as last resort
-                    await query.message.reply_text(
-                        text="Select market for economic calendar analysis:",
+                except Exception as caption_error:
+                    logger.error(f"Failed to update caption for calendar analysis: {str(caption_error)}")
+                    # Send new message as last resort
+                    await query.message.reply_animation(
+                        animation=gif_url,
+                        caption="Select market for economic calendar:",
                         reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD),
                         parse_mode=ParseMode.HTML
                     )
-            else:
-                # Re-raise for other errors
-                raise
+        else:
+            # For text messages, use the GIF utility
+            success = await update_message_with_gif(
+                query=query,
+                gif_url=gif_url,
+                text="Select market for economic calendar:",
+                reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
+            )
+            
+            if not success:
+                # Fallback for text messages
+                await query.edit_message_text(
+                    text="Select market for economic calendar:",
+                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD),
+                    parse_mode=ParseMode.HTML
+                )
         
         return CHOOSE_MARKET
 
@@ -2284,36 +2362,66 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             if context and hasattr(context, 'user_data'):
                 context.user_data['market'] = market_type
             
-            # Update message with appropriate keyboard
-            try:
-                await query.edit_message_text(
-                    text=f"Select an instrument for {market_type.upper()}:",
-                    reply_markup=InlineKeyboardMarkup(keyboard),
-                    parse_mode=ParseMode.HTML
-                )
-            except Exception as text_error:
-                # If that fails due to caption, try editing caption
-                if "There is no text in the message to edit" in str(text_error):
+            # Get the analyse GIF URL - reuse it for market selection
+            gif_url = await get_analyse_gif()
+            
+            # Format the market name properly
+            market_name = market_type.upper()
+            
+            # Check if the message already contains a photo/media
+            has_photo = bool(query.message.photo) or query.message.animation is not None
+            
+            if has_photo:
+                # Use the same animation approach - first try editing the media
+                try:
+                    from telegram import InputMediaAnimation
+                    # Update with the appropriate GIF
+                    await query.edit_message_media(
+                        media=InputMediaAnimation(
+                            media=gif_url,
+                            caption=f"Select an instrument for {market_name}:",
+                            parse_mode=ParseMode.HTML
+                        ),
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+                except Exception as e:
+                    logger.warning(f"Could not edit media for market: {str(e)}")
+                    
+                    # Fallback: edit just the caption
                     try:
                         await query.edit_message_caption(
-                            caption=f"Select an instrument for {market_type.upper()}:",
+                            caption=f"Select an instrument for {market_name}:",
                             reply_markup=InlineKeyboardMarkup(keyboard),
                             parse_mode=ParseMode.HTML
                         )
-                    except Exception as e:
-                        logger.error(f"Failed to update caption: {str(e)}")
-                        # Try to send a new message as last resort
-                        await query.message.reply_text(
-                            text=f"Select an instrument for {market_type.upper()}:",
+                    except Exception as caption_error:
+                        logger.error(f"Failed to update caption: {str(caption_error)}")
+                        # Send a new message as last resort
+                        await query.message.reply_animation(
+                            animation=gif_url,
+                            caption=f"Select an instrument for {market_name}:",
                             reply_markup=InlineKeyboardMarkup(keyboard),
                             parse_mode=ParseMode.HTML
                         )
-                else:
-                    # Re-raise for other errors
-                    raise
+            else:
+                # For text messages, use the GIF utility
+                success = await update_message_with_gif(
+                    query=query,
+                    gif_url=gif_url,
+                    text=f"Select an instrument for {market_name}:",
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+                
+                if not success:
+                    # Fallback for text messages
+                    await query.edit_message_text(
+                        text=f"Select an instrument for {market_name}:",
+                        reply_markup=InlineKeyboardMarkup(keyboard),
+                        parse_mode=ParseMode.HTML
+                    )
             
             return CHOOSE_INSTRUMENT
-            
+        
         except Exception as e:
             logger.error(f"Error in market_callback: {str(e)}")
             # Try to recover by going back to main menu
@@ -2475,6 +2583,9 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         try:
             logger.info("Handling back_analysis callback")
             
+            # Get the analyse GIF URL
+            gif_url = await get_analyse_gif()
+            
             # Check if the message contains a photo/media
             has_photo = bool(query.message.photo) or query.message.animation is not None
             
@@ -2484,31 +2595,30 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     # First delete the media message if possible
                     try:
                         await query.message.delete()
-                        # Then send a new message
-                        await query.message.reply_text(
-                            text="Select your analysis type:",
+                        # Then send a new message with analysis GIF
+                        await query.message.reply_animation(
+                            animation=gif_url,
+                            caption="Select your analysis type:",
+                            parse_mode=ParseMode.HTML,
                             reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
                         )
                     except Exception as delete_error:
                         logger.warning(f"Could not delete media message: {str(delete_error)}")
                         
-                        # If delete fails, try to edit the media with a blank transparent image
-                        from telegram import InputMediaDocument
-                        
-                        # Use a tiny 1x1 transparent png
-                        transparent_png = "https://upload.wikimedia.org/wikipedia/commons/thumb/0/00/Transparent.gif/1px-Transparent.gif"
+                        # If delete fails, try to edit the media with an analysis GIF
+                        from telegram import InputMediaAnimation
                         
                         try:
                             await query.edit_message_media(
-                                media=InputMediaDocument(
-                                    media=transparent_png,
+                                media=InputMediaAnimation(
+                                    media=gif_url,
                                     caption="Select your analysis type:",
                                     parse_mode=ParseMode.HTML
                                 ),
                                 reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
                             )
                         except Exception as e:
-                            logger.warning(f"Could not update media with transparent image: {str(e)}")
+                            logger.warning(f"Could not update media with analysis GIF: {str(e)}")
                             
                             # Last resort: just edit the caption
                             await query.edit_message_caption(
@@ -2523,11 +2633,20 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                         reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
                     )
             else:
-                # For text messages, simply edit the text
-                await query.edit_message_text(
+                # For text messages, use the GIF util function to update with GIF
+                success = await update_message_with_gif(
+                    query=query,
+                    gif_url=gif_url,
                     text="Select your analysis type:",
                     reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
                 )
+                
+                if not success:
+                    # Fallback to simple text
+                    await query.edit_message_text(
+                        text="Select your analysis type:",
+                        reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
+                    )
             
             return CHOOSE_ANALYSIS
         
@@ -2537,6 +2656,93 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             try:
                 await query.edit_message_text(
                     text="An error occurred. Returning to main menu...",
+                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
+                )
+            except Exception:
+                pass
+            return MENU
+
+    async def back_menu_callback(self, update: Update, context=None) -> int:
+        """Handle back_menu callback to return to the main menu"""
+        query = update.callback_query
+        await query.answer()
+        
+        try:
+            logger.info("Handling back_menu callback - returning to main menu")
+            
+            # Get the welcome GIF URL voor het startmenu
+            gif_url = await get_welcome_gif()
+            
+            # Check if the message contains a photo/media
+            has_photo = bool(query.message.photo) or query.message.animation is not None
+            
+            if has_photo:
+                try:
+                    # For media messages, use the same approach as in back_market_callback
+                    # First delete the media message if possible
+                    try:
+                        await query.message.delete()
+                        # Then send a new message with the welcome GIF
+                        await query.message.reply_animation(
+                            animation=gif_url,
+                            caption="Welcome to SigmaPips AI! What would you like to do?",
+                            parse_mode=ParseMode.HTML,
+                            reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
+                        )
+                    except Exception as delete_error:
+                        logger.warning(f"Could not delete media message: {str(delete_error)}")
+                        
+                        # If delete fails, try to edit the media with the welcome GIF
+                        from telegram import InputMediaAnimation
+                        
+                        try:
+                            await query.edit_message_media(
+                                media=InputMediaAnimation(
+                                    media=gif_url,
+                                    caption="Welcome to SigmaPips AI! What would you like to do?",
+                                    parse_mode=ParseMode.HTML
+                                ),
+                                reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
+                            )
+                        except Exception as e:
+                            logger.warning(f"Could not update media with welcome GIF: {str(e)}")
+                            
+                            # Last resort: just edit the caption
+                            await query.edit_message_caption(
+                                caption="Welcome to SigmaPips AI! What would you like to do?",
+                                reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
+                            )
+                except Exception as e:
+                    logger.error(f"Error handling media in back_menu_callback: {str(e)}")
+                    # Fall back to sending a new message
+                    await query.message.reply_text(
+                        text="Welcome to SigmaPips AI! What would you like to do?",
+                        reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
+                    )
+            else:
+                # For text messages, use the GIF util function to update with GIF
+                success = await update_message_with_gif(
+                    query=query,
+                    gif_url=gif_url,
+                    text="Welcome to SigmaPips AI! What would you like to do?",
+                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
+                )
+                
+                if not success:
+                    # Fallback to simple text
+                    await query.edit_message_text(
+                        text="Welcome to SigmaPips AI! What would you like to do?",
+                        reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
+                    )
+            
+            return MENU
+        
+        except Exception as e:
+            logger.error(f"Error in back_menu_callback: {str(e)}")
+            # Try to recover by showing a simple text menu
+            try:
+                await query.edit_message_text(
+                    text="Welcome to SigmaPips AI! What would you like to do?",
                     reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
                 )
             except Exception:
