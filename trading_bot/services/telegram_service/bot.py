@@ -3032,7 +3032,7 @@ Get started today with a FREE 14-day trial!
                         # Gebruik een loading GIF in plaats van alleen tekst
                         loading_gif_url = "https://media4.giphy.com/media/v1.Y2lkPTc5MGI3NjExdGh5cm1sNTVvemVqNXphOGw2Y3IwM2R0aHJ1d2h3ZHZ2MTM4b3l4OSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/dpjUltnOPye7azvAhH/giphy.gif"
                         await query.edit_message_media(
-                            media=InputMediaPhoto(
+                            media=InputMediaAnimation(
                                 media=loading_gif_url,
                                 caption=f"⏳ <b>Analyzing sentiment for {instrument}...</b>",
                                 parse_mode=ParseMode.HTML
@@ -3238,7 +3238,7 @@ This is a simplified analysis based on available data. For more detailed insight
                         # Gebruik een loading GIF in plaats van alleen tekst
                         loading_gif_url = "https://media4.giphy.com/media/v1.Y2lkPTc5MGI3NjExdGh5cm1sNTVvemVqNXphOGw2Y3IwM2R0aHJ1d2h3ZHZ2MTM4b3l4OSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/dpjUltnOPye7azvAhH/giphy.gif"
                         await query.edit_message_media(
-                            media=InputMediaPhoto(
+                            media=InputMediaAnimation(
                                 media=loading_gif_url,
                                 caption=f"⏳ <b>Loading economic calendar for {instrument}...</b>",
                                 parse_mode=ParseMode.HTML
@@ -3438,7 +3438,7 @@ This is a simplified analysis based on available data. For more detailed insight
                         # Gebruik een loading GIF in plaats van alleen tekst
                         loading_gif_url = "https://media4.giphy.com/media/v1.Y2lkPTc5MGI3NjExdGh5cm1sNTVvemVqNXphOGw2Y3IwM2R0aHJ1d2h3ZHZ2MTM4b3l4OSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/dpjUltnOPye7azvAhH/giphy.gif"
                         await query.edit_message_media(
-                            media=InputMediaPhoto(
+                            media=InputMediaAnimation(
                                 media=loading_gif_url,
                                 caption=f"⏳ <b>Generating chart for {instrument}...</b>",
                                 parse_mode=ParseMode.HTML
