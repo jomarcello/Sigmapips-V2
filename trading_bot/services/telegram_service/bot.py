@@ -2349,7 +2349,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 if analysis_type == 'sentiment':
                     keyboard = FOREX_SENTIMENT_KEYBOARD
                     # Add debug logging to see what's in the FOREX_SENTIMENT_KEYBOARD
-                    self.debug_keyboard(FOREX_SENTIMENT_KEYBOARD, "FOREX_SENTIMENT_KEYBOARD in market_callback")
+                    TelegramService.debug_keyboard(FOREX_SENTIMENT_KEYBOARD, "FOREX_SENTIMENT_KEYBOARD in market_callback")
                 elif analysis_type == 'calendar':
                     keyboard = FOREX_CALENDAR_KEYBOARD
                 else:  # Default to technical analysis
@@ -3166,6 +3166,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
     # Constants for keyboards
     
     # Add some debug to check keyboard structure
+    @staticmethod
     def debug_keyboard(keyboard, name):
         """Debug helper to log keyboard structure"""
         logger.info(f"Keyboard {name} structure:")
@@ -3174,6 +3175,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 logger.info(f"  Row {row_idx}, Button {btn_idx}: text='{btn.text}', callback_data='{btn.callback_data}'")
     
     # Format instrument callback data with explicit analysis type
+    @staticmethod
     def format_instrument_callback(instrument, analysis_type='chart'):
         """Format instrument callback data with explicit analysis type"""
         return f"instrument_{instrument}_{analysis_type}"
@@ -3181,19 +3183,19 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
     # Define forex instrument keyboards with explicit analysis types
     FOREX_KEYBOARD = [
         [
-            InlineKeyboardButton("EUR/USD", callback_data=format_instrument_callback("EURUSD", "chart")),
-            InlineKeyboardButton("GBP/USD", callback_data=format_instrument_callback("GBPUSD", "chart")),
-            InlineKeyboardButton("AUD/USD", callback_data=format_instrument_callback("AUDUSD", "chart"))
+            InlineKeyboardButton("EUR/USD", callback_data=TelegramService.format_instrument_callback("EURUSD", "chart")),
+            InlineKeyboardButton("GBP/USD", callback_data=TelegramService.format_instrument_callback("GBPUSD", "chart")),
+            InlineKeyboardButton("AUD/USD", callback_data=TelegramService.format_instrument_callback("AUDUSD", "chart"))
         ],
         [
-            InlineKeyboardButton("USD/JPY", callback_data=format_instrument_callback("USDJPY", "chart")),
-            InlineKeyboardButton("USD/CHF", callback_data=format_instrument_callback("USDCHF", "chart")),
-            InlineKeyboardButton("USD/CAD", callback_data=format_instrument_callback("USDCAD", "chart"))
+            InlineKeyboardButton("USD/JPY", callback_data=TelegramService.format_instrument_callback("USDJPY", "chart")),
+            InlineKeyboardButton("USD/CHF", callback_data=TelegramService.format_instrument_callback("USDCHF", "chart")),
+            InlineKeyboardButton("USD/CAD", callback_data=TelegramService.format_instrument_callback("USDCAD", "chart"))
         ],
         [
-            InlineKeyboardButton("EUR/GBP", callback_data=format_instrument_callback("EURGBP", "chart")),
-            InlineKeyboardButton("EUR/JPY", callback_data=format_instrument_callback("EURJPY", "chart")),
-            InlineKeyboardButton("GBP/JPY", callback_data=format_instrument_callback("GBPJPY", "chart"))
+            InlineKeyboardButton("EUR/GBP", callback_data=TelegramService.format_instrument_callback("EURGBP", "chart")),
+            InlineKeyboardButton("EUR/JPY", callback_data=TelegramService.format_instrument_callback("EURJPY", "chart")),
+            InlineKeyboardButton("GBP/JPY", callback_data=TelegramService.format_instrument_callback("GBPJPY", "chart"))
         ],
         [InlineKeyboardButton("⬅️ Back", callback_data="back_analysis")]
     ]
@@ -3201,22 +3203,22 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
     # Define forex sentiment keyboard with explicit analysis types
     FOREX_SENTIMENT_KEYBOARD = [
         [
-            InlineKeyboardButton("EUR/USD", callback_data=format_instrument_callback("EURUSD", "sentiment")),
-            InlineKeyboardButton("GBP/USD", callback_data=format_instrument_callback("GBPUSD", "sentiment")),
-            InlineKeyboardButton("AUD/USD", callback_data=format_instrument_callback("AUDUSD", "sentiment"))
+            InlineKeyboardButton("EUR/USD", callback_data=TelegramService.format_instrument_callback("EURUSD", "sentiment")),
+            InlineKeyboardButton("GBP/USD", callback_data=TelegramService.format_instrument_callback("GBPUSD", "sentiment")),
+            InlineKeyboardButton("AUD/USD", callback_data=TelegramService.format_instrument_callback("AUDUSD", "sentiment"))
         ],
         [
-            InlineKeyboardButton("USD/JPY", callback_data=format_instrument_callback("USDJPY", "sentiment")),
-            InlineKeyboardButton("USD/CHF", callback_data=format_instrument_callback("USDCHF", "sentiment")),
-            InlineKeyboardButton("USD/CAD", callback_data=format_instrument_callback("USDCAD", "sentiment"))
+            InlineKeyboardButton("USD/JPY", callback_data=TelegramService.format_instrument_callback("USDJPY", "sentiment")),
+            InlineKeyboardButton("USD/CHF", callback_data=TelegramService.format_instrument_callback("USDCHF", "sentiment")),
+            InlineKeyboardButton("USD/CAD", callback_data=TelegramService.format_instrument_callback("USDCAD", "sentiment"))
         ],
         [
-            InlineKeyboardButton("EUR/GBP", callback_data=format_instrument_callback("EURGBP", "sentiment")),
-            InlineKeyboardButton("EUR/JPY", callback_data=format_instrument_callback("EURJPY", "sentiment")),
-            InlineKeyboardButton("GBP/JPY", callback_data=format_instrument_callback("GBPJPY", "sentiment"))
+            InlineKeyboardButton("EUR/GBP", callback_data=TelegramService.format_instrument_callback("EURGBP", "sentiment")),
+            InlineKeyboardButton("EUR/JPY", callback_data=TelegramService.format_instrument_callback("EURJPY", "sentiment")),
+            InlineKeyboardButton("GBP/JPY", callback_data=TelegramService.format_instrument_callback("GBPJPY", "sentiment"))
         ],
         [InlineKeyboardButton("⬅️ Back", callback_data="back_analysis")]
     ]
     
     # Log the FOREX_SENTIMENT_KEYBOARD structure for debugging
-    debug_keyboard(FOREX_SENTIMENT_KEYBOARD, "FOREX_SENTIMENT_KEYBOARD")
+    TelegramService.debug_keyboard(FOREX_SENTIMENT_KEYBOARD, "FOREX_SENTIMENT_KEYBOARD")
