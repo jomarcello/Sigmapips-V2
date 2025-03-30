@@ -2802,7 +2802,7 @@ Get started today with a FREE 14-day trial!
                     [InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal")]
                 ]
                 
-                # Show the sentiment analysis
+                # Show sentiment analysis
                 await self.update_message(
                     query=query,
                     text=sentiment_text,
@@ -3022,50 +3022,57 @@ Get started today with a FREE 14-day trial!
             
             # Handle different analysis types
             if analysis_type == 'sentiment':
-                # Show loading message
-                await self.update_message(
-                    query=query,
-                    text=f"⏳ <b>Analyzing sentiment for {instrument}...</b>",
-                    keyboard=None,
-                    parse_mode=ParseMode.HTML
-                )
-                
-                # Get sentiment data from the service
+                # STAP 1: Toon eerst een loading GIF voor de gebruiker
                 try:
-                    # Toon een loading GIF tijdens het ophalen van sentiment data
-                    loading_gif = await get_loading_gif()
-                    await update_message_with_gif(
-                        query=query, 
-                        gif_url=loading_gif,
-                        text=f"⏳ <b>Analyzing sentiment for {instrument}...</b>",
-                        reply_markup=None,
+                    # Duidelijk signaleren dat we bezig zijn met laden
+                    await query.answer("Loading sentiment analysis...")
+                    
+                    # Eerst proberen de GIF te versturen
+                    gif_url = await get_loading_gif()
+                    sent_message = await query.message.reply_animation(
+                        animation=gif_url,
+                        caption=f"⏳ <b>Analyzing sentiment for {instrument}...</b>",
                         parse_mode=ParseMode.HTML
                     )
                     
+                    # Onthoud het bericht ID zodat we het later kunnen verwijderen
+                    loading_message_id = sent_message.message_id
+                except Exception as gif_error:
+                    logger.warning(f"Could not send loading GIF: {str(gif_error)}")
+                    loading_message_id = None
+                    # Fallback naar gewone tekst bij fout
+                    await query.message.reply_text(
+                        text=f"⏳ <b>Analyzing sentiment for {instrument}...</b>",
+                        parse_mode=ParseMode.HTML
+                    )
+                
+                # STAP 2: Haal sentiment data op
+                try:
                     sentiment_data = await self.sentiment_service.get_market_sentiment(instrument)
                     logger.info(f"Got market sentiment data type: {type(sentiment_data)}")
                     
-                    # Handle different response formats
+                    # Handle verschillende responsformaten
                     if isinstance(sentiment_data, str):
-                        # Als we een string krijgen, gebruik deze direct maar verwijder de eerste kop als deze er is
+                        # Als we een string krijgen, gebruik deze direct maar verwijder headers
                         clean_data = sentiment_data
-                        if clean_data.startswith(f"🎯 {instrument} Market Analysis") or clean_data.startswith(f"<b>🎯 {instrument} Market Analysis</b>"):
-                            # Verwijder de eerste regel en eventuele volgende lege regels
+                        
+                        # Controleer op en verwijder dubbele headers
+                        if "Market Analysis" in clean_data and instrument in clean_data:
                             lines = clean_data.split('\n')
-                            clean_data = '\n'.join(lines[1:]).strip()
-                            while clean_data.startswith('\n'):
-                                clean_data = clean_data[1:]
+                            # Sla de eerste regel over als die de header bevat
+                            if "Market Analysis" in lines[0] and instrument in lines[0]:
+                                clean_data = '\n'.join(lines[1:]).strip()
                         
                         sentiment_text = f"""<b>🧠 Market Sentiment Analysis: {instrument}</b>
 
 {clean_data}"""
                     elif isinstance(sentiment_data, dict):
-                        # Calculate sentiment percentages from dictionary
+                        # Bereken sentiment percentages
                         bullish_score = sentiment_data.get('bullish_percentage', sentiment_data.get('bullish', 50))
                         bearish_score = sentiment_data.get('bearish_percentage', sentiment_data.get('bearish', 30))
                         overall = sentiment_data.get('overall_sentiment', 'neutral').capitalize()
                         
-                        # Determine emoji based on sentiment
+                        # Bepaal emoji op basis van sentiment
                         if overall.lower() == 'bullish':
                             emoji = "📈"
                         elif overall.lower() == 'bearish':
@@ -3073,15 +3080,17 @@ Get started today with a FREE 14-day trial!
                         else:
                             emoji = "⚖️"
                         
-                        # Get analysis text and remove duplicate heading if present
+                        # Krijg analyse tekst en verwijder dubbele header
                         analysis_text = sentiment_data.get('analysis', 'Detailed analysis not available').strip()
-                        if analysis_text.startswith(f"🎯 {instrument} Market Analysis") or analysis_text.startswith(f"<b>🎯 {instrument} Market Analysis</b>"):
-                            lines = analysis_text.split('\n')
-                            analysis_text = '\n'.join(lines[1:]).strip()
-                            while analysis_text.startswith('\n'):
-                                analysis_text = analysis_text[1:]
                         
-                        # Format sentiment message
+                        # Controleer op en verwijder dubbele headers in de analyse tekst
+                        if "Market Analysis" in analysis_text and instrument in analysis_text:
+                            lines = analysis_text.split('\n')
+                            # Sla de eerste regel over als die de header bevat
+                            if "Market Analysis" in lines[0] and instrument in lines[0]:
+                                analysis_text = '\n'.join(lines[1:]).strip()
+                        
+                        # Formatteer sentiment bericht
                         sentiment_text = f"""<b>🧠 Market Sentiment Analysis: {instrument}</b>
 
 <b>Overall Sentiment:</b> {overall} {emoji}
@@ -3102,18 +3111,24 @@ Get started today with a FREE 14-day trial!
 <b>Analysis:</b>
 {analysis_text}"""
                     else:
-                        # Handle unexpected response type
+                        # Afhandelen van onverwachte responsetypes
                         logger.warning(f"Unexpected sentiment data type: {type(sentiment_data)}")
                         raise ValueError(f"Unexpected sentiment data type: {type(sentiment_data)}")
                     
-                    # Back buttons based on flow
-                    back_keyboard = [
-                        [InlineKeyboardButton("⬅️ Back to Markets", callback_data="back_market")],
-                        [InlineKeyboardButton("⬅️ Back to Analysis", callback_data="back_analysis")],
-                        [InlineKeyboardButton("🏠 Main Menu", callback_data="back_menu")]
-                    ]
+                    # STAP 3: Gebruik één simpele back knop
+                    back_keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]]
                     
-                    # Show sentiment analysis
+                    # Verwijder het loading bericht eerst als het bestaat
+                    if loading_message_id:
+                        try:
+                            await query.bot.delete_message(
+                                chat_id=query.message.chat_id,
+                                message_id=loading_message_id
+                            )
+                        except Exception as del_error:
+                            logger.warning(f"Could not delete loading message: {str(del_error)}")
+                    
+                    # Toon sentiment analyse
                     await self.update_message(
                         query=query,
                         text=sentiment_text,
@@ -3123,6 +3138,16 @@ Get started today with a FREE 14-day trial!
                     
                 except Exception as e:
                     logger.error(f"Error getting sentiment data: {str(e)}")
+                    
+                    # Verwijder het loading bericht eerst als het bestaat
+                    if loading_message_id:
+                        try:
+                            await query.bot.delete_message(
+                                chat_id=query.message.chat_id,
+                                message_id=loading_message_id
+                            )
+                        except Exception as del_error:
+                            logger.warning(f"Could not delete loading message: {str(del_error)}")
                     
                     # Genereren van een "realistische" maar willekeurige sentiment analyse als fallback
                     bullish_score = random.randint(40, 60)  # Redelijk neutrale waarden
