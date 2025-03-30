@@ -2517,59 +2517,35 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 keyboard = MARKET_KEYBOARD
                 text = "Select a market for technical analysis:"
             
-            # Check if the message contains a photo/media
-            has_photo = bool(query.message.photo) or query.message.animation is not None
+            # Get user_id from update
+            user_id = update.effective_user.id
             
-            if has_photo:
+            # Get the analyse GIF URL
+            gif_url = await get_analyse_gif()
+            
+            # Delete the existing message
+            try:
+                await query.message.delete()
+            except Exception as delete_error:
+                logger.warning(f"Could not delete message: {str(delete_error)}")
+                # If we can't delete, try to update the caption to indicate we're going back
                 try:
-                    # For media messages, use a special approach: 
-                    # First delete the media message if possible
-                    try:
-                        await query.message.delete()
-                        # Then send a new message
-                        await query.message.reply_text(
-                            text=text,
-                            reply_markup=InlineKeyboardMarkup(keyboard)
-                        )
-                    except Exception as delete_error:
-                        logger.warning(f"Could not delete media message: {str(delete_error)}")
-                        
-                        # If delete fails, try to edit the media with a blank transparent image
-                        from telegram import InputMediaDocument
-                        
-                        # Use a tiny 1x1 transparent png
-                        transparent_png = "https://upload.wikimedia.org/wikipedia/commons/thumb/0/00/Transparent.gif/1px-Transparent.gif"
-                        
-                        try:
-                            await query.edit_message_media(
-                                media=InputMediaDocument(
-                                    media=transparent_png,
-                                    caption=text,
-                                    parse_mode=ParseMode.HTML
-                                ),
-                                reply_markup=InlineKeyboardMarkup(keyboard)
-                            )
-                        except Exception as e:
-                            logger.warning(f"Could not update media with transparent image: {str(e)}")
-                            
-                            # Last resort: just edit the caption
-                            await query.edit_message_caption(
-                                caption=text,
-                                reply_markup=InlineKeyboardMarkup(keyboard)
-                            )
-                except Exception as e:
-                    logger.error(f"Error handling media in back_market_callback: {str(e)}")
-                    # Fall back to sending a new message
-                    await query.message.reply_text(
-                        text=text,
-                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    await query.edit_message_caption(
+                        caption="Returning to market selection...",
+                        reply_markup=None
                     )
-            else:
-                # For text messages, simply edit the text
-                await query.edit_message_text(
-                    text=text,
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
+                except Exception:
+                    pass
+            
+            # Send the market selection message with GIF as a new message
+            # This ensures proper display of the GIF
+            await self.bot.send_animation(
+                chat_id=user_id,
+                animation=gif_url,
+                caption=text,
+                parse_mode=ParseMode.HTML,
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
             
             return CHOOSE_INSTRUMENT
         
@@ -2596,67 +2572,32 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Get the analyse GIF URL
             gif_url = await get_analyse_gif()
             
-            # Check if the message contains a photo/media
-            has_photo = bool(query.message.photo) or query.message.animation is not None
+            # Get user_id from update
+            user_id = update.effective_user.id
             
-            if has_photo:
+            # Delete the existing message
+            try:
+                await query.message.delete()
+            except Exception as delete_error:
+                logger.warning(f"Could not delete message: {str(delete_error)}")
+                # If we can't delete, try to update the caption to indicate we're going back
                 try:
-                    # For media messages, use the same approach as in back_market_callback
-                    # First delete the media message if possible
-                    try:
-                        await query.message.delete()
-                        # Then send a new message with analysis GIF
-                        await query.message.reply_animation(
-                            animation=gif_url,
-                            caption="Select your analysis type:",
-                            parse_mode=ParseMode.HTML,
-                            reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
-                        )
-                    except Exception as delete_error:
-                        logger.warning(f"Could not delete media message: {str(delete_error)}")
-                        
-                        # If delete fails, try to edit the media with an analysis GIF
-                        from telegram import InputMediaAnimation
-                        
-                        try:
-                            await query.edit_message_media(
-                                media=InputMediaAnimation(
-                                    media=gif_url,
-                                    caption="Select your analysis type:",
-                                    parse_mode=ParseMode.HTML
-                                ),
-                                reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
-                            )
-                        except Exception as e:
-                            logger.warning(f"Could not update media with analysis GIF: {str(e)}")
-                            
-                            # Last resort: just edit the caption
-                            await query.edit_message_caption(
-                                caption="Select your analysis type:",
-                                reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
-                            )
-                except Exception as e:
-                    logger.error(f"Error handling media in back_analysis_callback: {str(e)}")
-                    # Fall back to sending a new message
-                    await query.message.reply_text(
-                        text="Select your analysis type:",
-                        reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
+                    await query.edit_message_caption(
+                        caption="Returning to analysis selection...",
+                        reply_markup=None
                     )
-            else:
-                # For text messages, use the GIF util function to update with GIF
-                success = await update_message_with_gif(
-                    query=query,
-                    gif_url=gif_url,
-                    text="Select your analysis type:",
-                    reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
-                )
-                
-                if not success:
-                    # Fallback to simple text
-                    await query.edit_message_text(
-                        text="Select your analysis type:",
-                        reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
-                    )
+                except Exception:
+                    pass
+            
+            # Send the analysis message with GIF as a new message
+            # This ensures proper display of the GIF
+            await self.bot.send_animation(
+                chat_id=user_id,
+                animation=gif_url,
+                caption="Select your analysis type:",
+                parse_mode=ParseMode.HTML,
+                reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
+            )
             
             return CHOOSE_ANALYSIS
         
@@ -2683,67 +2624,38 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Get the welcome GIF URL voor het startmenu
             gif_url = await get_welcome_gif()
             
-            # Check if the message contains a photo/media
-            has_photo = bool(query.message.photo) or query.message.animation is not None
+            # Get user_id from update
+            user_id = update.effective_user.id
             
-            if has_photo:
+            # Delete the existing message
+            try:
+                await query.message.delete()
+            except Exception as delete_error:
+                logger.warning(f"Could not delete message: {str(delete_error)}")
+                # If we can't delete, try to update the caption to indicate we're going back
                 try:
-                    # For media messages, use the same approach as in back_market_callback
-                    # First delete the media message if possible
-                    try:
-                        await query.message.delete()
-                        # Then send a new message with the welcome GIF
-                        await query.message.reply_animation(
-                            animation=gif_url,
-                            caption="Welcome to SigmaPips AI! What would you like to do?",
-                            parse_mode=ParseMode.HTML,
-                            reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
-                        )
-                    except Exception as delete_error:
-                        logger.warning(f"Could not delete media message: {str(delete_error)}")
-                        
-                        # If delete fails, try to edit the media with the welcome GIF
-                        from telegram import InputMediaAnimation
-                        
-                        try:
-                            await query.edit_message_media(
-                                media=InputMediaAnimation(
-                                    media=gif_url,
-                                    caption="Welcome to SigmaPips AI! What would you like to do?",
-                                    parse_mode=ParseMode.HTML
-                                ),
-                                reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
-                            )
-                        except Exception as e:
-                            logger.warning(f"Could not update media with welcome GIF: {str(e)}")
-                            
-                            # Last resort: just edit the caption
-                            await query.edit_message_caption(
-                                caption="Welcome to SigmaPips AI! What would you like to do?",
-                                reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
-                            )
-                except Exception as e:
-                    logger.error(f"Error handling media in back_menu_callback: {str(e)}")
-                    # Fall back to sending a new message
-                    await query.message.reply_text(
-                        text="Welcome to SigmaPips AI! What would you like to do?",
-                        reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
+                    await query.edit_message_caption(
+                        caption="Returning to main menu...",
+                        reply_markup=None
                     )
-            else:
-                # For text messages, use the GIF util function to update with GIF
-                success = await update_message_with_gif(
-                    query=query,
-                    gif_url=gif_url,
-                    text="Welcome to SigmaPips AI! What would you like to do?",
-                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
-                )
-                
-                if not success:
-                    # Fallback to simple text
-                    await query.edit_message_text(
-                        text="Welcome to SigmaPips AI! What would you like to do?",
-                        reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
-                    )
+                except Exception:
+                    pass
+            
+            # Send the welcome message with GIF as a new message
+            # This ensures proper display of the GIF
+            await send_welcome_gif(
+                self.bot,
+                chat_id=user_id,
+                caption=WELCOME_MESSAGE
+            )
+            
+            # Send the keyboard separately for better UX
+            await self.bot.send_message(
+                chat_id=user_id,
+                text="🚀 <b>Sigmapips AI - Main Menu</b> 🚀\n\nChoose an option to access advanced trading support:",
+                parse_mode=ParseMode.HTML,
+                reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
+            )
             
             return MENU
         
