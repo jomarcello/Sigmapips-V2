@@ -2303,81 +2303,91 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         await query.answer()
         
         try:
-            # Extract market type from callback data
-            market_type = query.data.split('_')[1]  # e.g., 'forex' from 'market_forex'
+            # Extract market type and possibly analysis type from callback data
+            callback_parts = query.data.split('_')
+            market_type = callback_parts[1]  # e.g., 'forex' from 'market_forex'
             
-            # Get analysis type from context
-            analysis_type = None
+            # Check if there's an analysis type in the callback data
+            callback_analysis_type = None
+            if len(callback_parts) > 2:
+                callback_analysis_type = callback_parts[2]  # e.g., 'sentiment' from 'market_forex_sentiment'
+                logger.info(f"Found analysis type in callback data: {callback_analysis_type}")
+            
+            # Get context analysis type, prefer callback_analysis_type if available
+            stored_analysis_type = None
             if context and hasattr(context, 'user_data'):
-                analysis_type = context.user_data.get('analysis_type')
-                # Store the selected market in user_data
-                context.user_data['market'] = market_type
+                stored_analysis_type = context.user_data.get('analysis_type')
             
-            logger.info(f"Market selected: {market_type}, analysis type: {analysis_type}")
+            # Determine the final analysis type (callback overrides stored)
+            analysis_type = callback_analysis_type or stored_analysis_type or 'technical'
+            
+            logger.info(f"Final analysis type: {analysis_type} (callback: {callback_analysis_type}, stored: {stored_analysis_type})")
+            
+            # Store the data in context
+            if context and hasattr(context, 'user_data'):
+                context.user_data['market'] = market_type
+                context.user_data['analysis_type'] = analysis_type
+                logger.info(f"Updated context with market={market_type}, analysis_type={analysis_type}")
             
             # Set the correct keyboard and caption based on market type and analysis type
             caption_prefix = "Select instrument for "
+            
+            # Format the market name and analysis type correctly
+            market_name = market_type.capitalize()
+            analysis_type_name = "technical analysis"  # Default
+            
+            if analysis_type == 'sentiment':
+                analysis_type_name = "sentiment analysis"
+            elif analysis_type == 'calendar':
+                analysis_type_name = "economic calendar"
+            
+            caption = f"{caption_prefix}{analysis_type_name}:"
+            logger.info(f"Using caption: {caption}")
             
             # Determine which keyboard to show based on market and analysis type
             if market_type == 'forex':
                 if analysis_type == 'sentiment':
                     keyboard = FOREX_SENTIMENT_KEYBOARD
-                    caption = f"{caption_prefix}sentiment analysis:"
+                    # Add debug logging to see what's in the FOREX_SENTIMENT_KEYBOARD
+                    self.debug_keyboard(FOREX_SENTIMENT_KEYBOARD, "FOREX_SENTIMENT_KEYBOARD in market_callback")
                 elif analysis_type == 'calendar':
                     keyboard = FOREX_CALENDAR_KEYBOARD
-                    caption = f"{caption_prefix}economic calendar:"
                 else:  # Default to technical analysis
                     keyboard = FOREX_KEYBOARD
-                    caption = f"{caption_prefix}technical analysis:"
-                market_name = "Forex"
             elif market_type == 'crypto':
                 if analysis_type == 'sentiment':
                     keyboard = CRYPTO_SENTIMENT_KEYBOARD
-                    caption = f"{caption_prefix}sentiment analysis:"
                 elif analysis_type == 'calendar':
                     keyboard = CRYPTO_CALENDAR_KEYBOARD
-                    caption = f"{caption_prefix}economic calendar:"
                 else:  # Default to technical analysis
                     keyboard = CRYPTO_KEYBOARD
-                    caption = f"{caption_prefix}technical analysis:"
-                market_name = "Crypto"
             elif market_type == 'indices':
                 if analysis_type == 'sentiment':
                     keyboard = INDICES_SENTIMENT_KEYBOARD
-                    caption = f"{caption_prefix}sentiment analysis:"
                 elif analysis_type == 'calendar':
                     keyboard = INDICES_CALENDAR_KEYBOARD
-                    caption = f"{caption_prefix}economic calendar:"
                 else:  # Default to technical analysis
                     keyboard = INDICES_KEYBOARD
-                    caption = f"{caption_prefix}technical analysis:"
-                market_name = "Indices"
             elif market_type == 'stocks':
                 if analysis_type == 'sentiment':
                     keyboard = STOCKS_SENTIMENT_KEYBOARD
-                    caption = f"{caption_prefix}sentiment analysis:"
                 elif analysis_type == 'calendar':
                     keyboard = STOCKS_CALENDAR_KEYBOARD
-                    caption = f"{caption_prefix}economic calendar:"
                 else:  # Default to technical analysis
                     keyboard = STOCKS_KEYBOARD
-                    caption = f"{caption_prefix}technical analysis:"
-                market_name = "Stocks"
             elif market_type == 'commodities':
                 if analysis_type == 'sentiment':
                     keyboard = COMMODITIES_SENTIMENT_KEYBOARD
-                    caption = f"{caption_prefix}sentiment analysis:"
                 elif analysis_type == 'calendar':
                     keyboard = COMMODITIES_CALENDAR_KEYBOARD
-                    caption = f"{caption_prefix}economic calendar:"
                 else:  # Default to technical analysis
                     keyboard = COMMODITIES_KEYBOARD
-                    caption = f"{caption_prefix}technical analysis:"
-                market_name = "Commodities"
             else:
-                raise ValueError(f"Unknown market type: {market_type}")
+                logger.error(f"Unknown market type: {market_type}, falling back to forex")
+                keyboard = FOREX_KEYBOARD
+                market_type = 'forex'
             
-            # Add back button to keyboard
+            # Add back button to keyboard if not already present
             if isinstance(keyboard, list) and len(keyboard) > 0:
                 if not any(btn.callback_data == "back_analysis" for row in keyboard for btn in row):
                     keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="back_analysis")])
@@ -2398,6 +2408,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     ),
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
+                logger.info(f"Message updated successfully with {analysis_type_name} for {market_name}")
             except Exception as media_error:
                 logger.warning(f"Could not edit message media: {str(media_error)}")
                 
@@ -2431,6 +2442,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         
         except Exception as e:
             logger.error(f"Error in market_callback: {str(e)}")
+            logger.exception(e)
             # Try to recover by going back to main menu
             try:
                 await query.edit_message_text(
@@ -2438,7 +2450,16 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
                 )
             except Exception:
-                pass
+                # Final fallback - try to send a new message
+                try:
+                    chat_id = update.effective_chat.id
+                    await self.bot.send_message(
+                        chat_id=chat_id,
+                        text="An error occurred. Returning to main menu...",
+                        reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
+                    )
+                except Exception as final_e:
+                    logger.error(f"Critical error in market_callback recovery: {str(final_e)}")
             return MENU
 
     async def instrument_callback(self, update: Update, context=None) -> int:
@@ -2802,16 +2823,19 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             loading_gif = await get_loading_gif()
             
             try:
-                from telegram import InputMediaAnimation
+                # BELANGRIJK: Gebruik altijd InputMediaPhoto voor sentiment analyse, nooit animation
+                # Dit voorkomt dat er per ongeluk een chart wordt getoond
+                from telegram import InputMediaPhoto
+                logger.info(f"Updating message with loading indicator for sentiment analysis of {instrument}")
                 await query.edit_message_media(
-                    media=InputMediaAnimation(
+                    media=InputMediaPhoto(
                         media=loading_gif,
                         caption=loading_text,
                         parse_mode=ParseMode.HTML
                     )
                 )
             except Exception as e:
-                logger.warning(f"Could not edit message with loading GIF: {str(e)}")
+                logger.warning(f"Could not edit message with loading indicator: {str(e)}")
                 try:
                     await query.edit_message_text(text=loading_text)
                 except Exception as e:
@@ -2819,10 +2843,15 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             
             # Get sentiment data
             try:
+                logger.info(f"Getting sentiment data for {instrument}")
                 sentiment_data = await self.sentiment_service.get_sentiment(instrument)
                 
                 if not sentiment_data:
+                    logger.error(f"No sentiment data returned for {instrument}")
                     raise Exception("No sentiment data available")
+                
+                # Log the sentiment data received
+                logger.info(f"Received sentiment data for {instrument}: bullish={sentiment_data.get('bullish', 0)}%, bearish={sentiment_data.get('bearish', 0)}%, neutral={sentiment_data.get('neutral', 0)}%")
                 
                 # Format sentiment data for display
                 bullish_percent = sentiment_data.get('bullish', 0)
@@ -2852,15 +2881,18 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 # Update the message with sentiment data
                 try:
                     # First try to use edit_message_text
+                    logger.info(f"Updating message with sentiment data for {instrument}")
                     await query.edit_message_text(
                         text=sentiment_text,
                         parse_mode=ParseMode.HTML,
                         reply_markup=InlineKeyboardMarkup(keyboard)
                     )
                 except Exception as text_error:
+                    logger.error(f"Error updating message text with sentiment: {str(text_error)}")
                     # If that fails due to media, try to edit media
                     if "There is no text in the message to edit" in str(text_error):
-                        # Try to edit with a neutral image appropriate for sentiment
+                        # ALTIJD InputMediaPhoto gebruiken, nooit Animation
+                        logger.info(f"Fallback to updating media with sentiment for {instrument}")
                         await query.edit_message_media(
                             media=InputMediaPhoto(
                                 media="https://media1.giphy.com/media/v1.Y2lkPTc5MGI3NjExaWVkdzcxZHMydm8ybnBjYW9rNjd3b2gzeng2b3BhMjA0d3p5dDV1ZSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/gSzIKNrqtotEYrZv7i/giphy.gif",
@@ -2894,6 +2926,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 
                 # Update with fallback sentiment data
                 try:
+                    logger.info(f"Updating message with fallback sentiment for {instrument}")
                     await query.edit_message_text(
                         text=sentiment_text,
                         parse_mode=ParseMode.HTML,
@@ -3129,3 +3162,61 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         
         # Default fallback
         return "USD"
+
+    # Constants for keyboards
+    
+    # Add some debug to check keyboard structure
+    def debug_keyboard(keyboard, name):
+        """Debug helper to log keyboard structure"""
+        logger.info(f"Keyboard {name} structure:")
+        for row_idx, row in enumerate(keyboard):
+            for btn_idx, btn in enumerate(row):
+                logger.info(f"  Row {row_idx}, Button {btn_idx}: text='{btn.text}', callback_data='{btn.callback_data}'")
+    
+    # Format instrument callback data with explicit analysis type
+    def format_instrument_callback(instrument, analysis_type='chart'):
+        """Format instrument callback data with explicit analysis type"""
+        return f"instrument_{instrument}_{analysis_type}"
+    
+    # Define forex instrument keyboards with explicit analysis types
+    FOREX_KEYBOARD = [
+        [
+            InlineKeyboardButton("EUR/USD", callback_data=format_instrument_callback("EURUSD", "chart")),
+            InlineKeyboardButton("GBP/USD", callback_data=format_instrument_callback("GBPUSD", "chart")),
+            InlineKeyboardButton("AUD/USD", callback_data=format_instrument_callback("AUDUSD", "chart"))
+        ],
+        [
+            InlineKeyboardButton("USD/JPY", callback_data=format_instrument_callback("USDJPY", "chart")),
+            InlineKeyboardButton("USD/CHF", callback_data=format_instrument_callback("USDCHF", "chart")),
+            InlineKeyboardButton("USD/CAD", callback_data=format_instrument_callback("USDCAD", "chart"))
+        ],
+        [
+            InlineKeyboardButton("EUR/GBP", callback_data=format_instrument_callback("EURGBP", "chart")),
+            InlineKeyboardButton("EUR/JPY", callback_data=format_instrument_callback("EURJPY", "chart")),
+            InlineKeyboardButton("GBP/JPY", callback_data=format_instrument_callback("GBPJPY", "chart"))
+        ],
+        [InlineKeyboardButton("⬅️ Back", callback_data="back_analysis")]
+    ]
+    
+    # Define forex sentiment keyboard with explicit analysis types
+    FOREX_SENTIMENT_KEYBOARD = [
+        [
+            InlineKeyboardButton("EUR/USD", callback_data=format_instrument_callback("EURUSD", "sentiment")),
+            InlineKeyboardButton("GBP/USD", callback_data=format_instrument_callback("GBPUSD", "sentiment")),
+            InlineKeyboardButton("AUD/USD", callback_data=format_instrument_callback("AUDUSD", "sentiment"))
+        ],
+        [
+            InlineKeyboardButton("USD/JPY", callback_data=format_instrument_callback("USDJPY", "sentiment")),
+            InlineKeyboardButton("USD/CHF", callback_data=format_instrument_callback("USDCHF", "sentiment")),
+            InlineKeyboardButton("USD/CAD", callback_data=format_instrument_callback("USDCAD", "sentiment"))
+        ],
+        [
+            InlineKeyboardButton("EUR/GBP", callback_data=format_instrument_callback("EURGBP", "sentiment")),
+            InlineKeyboardButton("EUR/JPY", callback_data=format_instrument_callback("EURJPY", "sentiment")),
+            InlineKeyboardButton("GBP/JPY", callback_data=format_instrument_callback("GBPJPY", "sentiment"))
+        ],
+        [InlineKeyboardButton("⬅️ Back", callback_data="back_analysis")]
+    ]
+    
+    # Log the FOREX_SENTIMENT_KEYBOARD structure for debugging
+    debug_keyboard(FOREX_SENTIMENT_KEYBOARD, "FOREX_SENTIMENT_KEYBOARD")
