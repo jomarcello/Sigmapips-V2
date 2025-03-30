@@ -2443,12 +2443,15 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 
                 logger.info(f"Processing {action_type} for instrument: {instrument}")
                 
-                # Handle different action types
+                # Handle different action types with dedicated methods for each type
                 if action_type == 'chart':
+                    # Technical analysis charts
                     return await self.show_technical_analysis(update, context, instrument=instrument)
                 elif action_type == 'sentiment':
+                    # Sentiment analysis
                     return await self.show_sentiment_analysis(update, context, instrument=instrument)
                 elif action_type == 'calendar':
+                    # Economic calendar
                     return await self.show_calendar_analysis(update, context, instrument=instrument)
                 else:
                     raise ValueError(f"Unknown action type: {action_type}")
@@ -2754,3 +2757,358 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         except Exception as e:
             logger.error(f"Error processing message: {str(e)}")
             logger.exception(e)
+
+    async def show_sentiment_analysis(self, update: Update, context=None, instrument=None) -> int:
+        """Show sentiment analysis for a selected instrument"""
+        query = update.callback_query
+        
+        # Get instrument from parameter or context
+        if not instrument and context and hasattr(context, 'user_data'):
+            instrument = context.user_data.get('instrument')
+        
+        if not instrument:
+            logger.error("No instrument provided for sentiment analysis")
+            try:
+                await query.edit_message_text(
+                    text="Please select an instrument first.",
+                    reply_markup=InlineKeyboardMarkup(MARKET_SENTIMENT_KEYBOARD)
+                )
+            except Exception as e:
+                logger.error(f"Error updating message: {str(e)}")
+            return CHOOSE_MARKET
+        
+        logger.info(f"Showing sentiment analysis for instrument: {instrument}")
+        
+        try:
+            # Show loading message with loading GIF
+            loading_text = f"Generating sentiment analysis for {instrument}..."
+            loading_gif = await get_loading_gif()
+            
+            try:
+                from telegram import InputMediaAnimation
+                await query.edit_message_media(
+                    media=InputMediaAnimation(
+                        media=loading_gif,
+                        caption=loading_text,
+                        parse_mode=ParseMode.HTML
+                    )
+                )
+            except Exception as e:
+                logger.warning(f"Could not edit message with loading GIF: {str(e)}")
+                try:
+                    await query.edit_message_text(text=loading_text)
+                except Exception as e:
+                    logger.error(f"Could not edit message text: {str(e)}")
+            
+            # Get sentiment data
+            try:
+                sentiment_data = await self.sentiment_service.get_sentiment(instrument)
+                
+                if not sentiment_data:
+                    raise Exception("No sentiment data available")
+                
+                # Format sentiment data for display
+                bullish_percent = sentiment_data.get('bullish', 0)
+                bearish_percent = sentiment_data.get('bearish', 0)
+                neutral_percent = sentiment_data.get('neutral', 0)
+                
+                # Create visual representation
+                bullish_bar = "🟢" * int(bullish_percent / 10)
+                bearish_bar = "🔴" * int(bearish_percent / 10)
+                neutral_bar = "⚪" * int(neutral_percent / 10)
+                
+                sentiment_text = f"""
+🧠 <b>Market Sentiment Analysis for {instrument}</b>
+
+<b>Bullish:</b> {bullish_percent}% {bullish_bar}
+<b>Bearish:</b> {bearish_percent}% {bearish_bar}
+<b>Neutral:</b> {neutral_percent}% {neutral_bar}
+
+<i>Data based on social media, news sentiment and trader positioning</i>
+"""
+                
+                # Create keyboard for navigation
+                keyboard = [
+                    [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
+                ]
+                
+                # Update the message with sentiment data
+                try:
+                    # First try to use edit_message_text
+                    await query.edit_message_text(
+                        text=sentiment_text,
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+                except Exception as text_error:
+                    # If that fails due to media, try to edit media
+                    if "There is no text in the message to edit" in str(text_error):
+                        # Try to edit with a neutral image appropriate for sentiment
+                        await query.edit_message_media(
+                            media=InputMediaPhoto(
+                                media="https://media1.giphy.com/media/v1.Y2lkPTc5MGI3NjExaWVkdzcxZHMydm8ybnBjYW9rNjd3b2gzeng2b3BhMjA0d3p5dDV1ZSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/gSzIKNrqtotEYrZv7i/giphy.gif",
+                                caption=sentiment_text,
+                                parse_mode=ParseMode.HTML
+                            ),
+                            reply_markup=InlineKeyboardMarkup(keyboard)
+                        )
+                    else:
+                        # If it's a different error, re-raise
+                        raise text_error
+                
+            except Exception as sentiment_error:
+                logger.error(f"Error fetching sentiment data: {str(sentiment_error)}")
+                
+                # Create dummy sentiment data for fallback
+                sentiment_text = f"""
+🧠 <b>Market Sentiment Analysis for {instrument}</b>
+
+<b>Bullish:</b> 45% 🟢🟢🟢🟢
+<b>Bearish:</b> 35% 🔴🔴🔴
+<b>Neutral:</b> 20% ⚪⚪
+
+<i>Note: Using sample data due to service unavailability</i>
+"""
+                
+                # Create keyboard for navigation
+                keyboard = [
+                    [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
+                ]
+                
+                # Update with fallback sentiment data
+                try:
+                    await query.edit_message_text(
+                        text=sentiment_text,
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+                except Exception as e:
+                    logger.error(f"Error updating with fallback sentiment: {str(e)}")
+                    # Try to send a new message
+                    await query.message.reply_text(
+                        text=sentiment_text,
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+            
+            # Return to instrument selection state
+            return CHOOSE_INSTRUMENT
+            
+        except Exception as e:
+            logger.error(f"Error in show_sentiment_analysis: {str(e)}")
+            error_text = f"Error generating sentiment analysis for {instrument}. Please try again."
+            try:
+                await query.edit_message_text(
+                    text=error_text,
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("⬅️ Back", callback_data="back_market")],
+                        [InlineKeyboardButton("🏠 Main Menu", callback_data="back_menu")]
+                    ])
+                )
+            except Exception as e:
+                logger.error(f"Error updating error message: {str(e)}")
+            
+            return BACK_TO_MENU
+
+    async def show_calendar_analysis(self, update: Update, context=None, instrument=None) -> int:
+        """Show economic calendar for a selected instrument or region"""
+        query = update.callback_query
+        
+        # Get instrument from parameter or context
+        if not instrument and context and hasattr(context, 'user_data'):
+            instrument = context.user_data.get('instrument')
+        
+        if not instrument:
+            logger.error("No instrument provided for calendar analysis")
+            try:
+                await query.edit_message_text(
+                    text="Please select an instrument first.",
+                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
+                )
+            except Exception as e:
+                logger.error(f"Error updating message: {str(e)}")
+            return CHOOSE_MARKET
+        
+        logger.info(f"Showing economic calendar for instrument: {instrument}")
+        
+        try:
+            # Show loading message with loading GIF
+            loading_text = f"Loading economic calendar for {instrument}..."
+            loading_gif = await get_loading_gif()
+            
+            try:
+                from telegram import InputMediaAnimation
+                await query.edit_message_media(
+                    media=InputMediaAnimation(
+                        media=loading_gif,
+                        caption=loading_text,
+                        parse_mode=ParseMode.HTML
+                    )
+                )
+            except Exception as e:
+                logger.warning(f"Could not edit message with loading GIF: {str(e)}")
+                try:
+                    await query.edit_message_text(text=loading_text)
+                except Exception as e:
+                    logger.error(f"Could not edit message text: {str(e)}")
+            
+            # Get calendar data
+            try:
+                # Get region/currency associated with the instrument
+                region = self._detect_region_for_instrument(instrument)
+                
+                # Get economic events
+                calendar_data = await self.calendar_service.get_events(region=region)
+                
+                if not calendar_data or len(calendar_data) == 0:
+                    raise Exception("No economic events found")
+                
+                # Format calendar data for display
+                today = datetime.now().date()
+                tomorrow = today + timedelta(days=1)
+                
+                events_today = [e for e in calendar_data if e.get('date').date() == today]
+                events_tomorrow = [e for e in calendar_data if e.get('date').date() == tomorrow]
+                
+                events_text = f"📅 <b>Economic Calendar for {instrument}</b>\n\n"
+                
+                # Today's events
+                events_text += "<b>Today:</b>\n"
+                if events_today:
+                    for event in events_today[:5]:  # Limit to 5 events
+                        time_str = event.get('date').strftime('%H:%M')
+                        importance = "🔴" if event.get('importance') == 'high' else "🟡" if event.get('importance') == 'medium' else "🟢"
+                        events_text += f"{time_str} {importance} {event.get('event')} ({event.get('country')})\n"
+                else:
+                    events_text += "No major events today\n"
+                
+                events_text += "\n<b>Tomorrow:</b>\n"
+                if events_tomorrow:
+                    for event in events_tomorrow[:5]:  # Limit to 5 events
+                        time_str = event.get('date').strftime('%H:%M')
+                        importance = "🔴" if event.get('importance') == 'high' else "🟡" if event.get('importance') == 'medium' else "🟢"
+                        events_text += f"{time_str} {importance} {event.get('event')} ({event.get('country')})\n"
+                else:
+                    events_text += "No major events tomorrow\n"
+                
+                events_text += "\n<i>🔴 High Impact | 🟡 Medium Impact | 🟢 Low Impact</i>"
+                
+                # Create keyboard for navigation
+                keyboard = [
+                    [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
+                ]
+                
+                # Update the message with calendar data
+                try:
+                    # First try to edit message text
+                    await query.edit_message_text(
+                        text=events_text,
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+                except Exception as text_error:
+                    # If that fails due to media, try to edit media with a calendar image
+                    if "There is no text in the message to edit" in str(text_error):
+                        # Use a calendar image or the GIF
+                        await query.edit_message_media(
+                            media=InputMediaPhoto(
+                                media="https://media1.giphy.com/media/v1.Y2lkPTc5MGI3NjExaWVkdzcxZHMydm8ybnBjYW9rNjd3b2gzeng2b3BhMjA0d3p5dDV1ZSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/gSzIKNrqtotEYrZv7i/giphy.gif",
+                                caption=events_text,
+                                parse_mode=ParseMode.HTML
+                            ),
+                            reply_markup=InlineKeyboardMarkup(keyboard)
+                        )
+                    else:
+                        # If it's a different error, re-raise
+                        raise text_error
+                
+            except Exception as calendar_error:
+                logger.error(f"Error fetching calendar data: {str(calendar_error)}")
+                
+                # Create dummy calendar data for fallback
+                calendar_text = f"""
+📅 <b>Economic Calendar for {instrument}</b>
+
+<b>Today:</b>
+14:30 🔴 US CPI (m/m) (US)
+16:00 🟡 Fed Chair Powell Speech (US)
+17:30 🟢 Crude Oil Inventories (US)
+
+<b>Tomorrow:</b>
+09:00 🔴 UK GDP (q/q) (UK)
+12:30 🟡 ECB Monetary Policy Statement (EU)
+14:30 🟢 US Initial Jobless Claims (US)
+
+<i>🔴 High Impact | 🟡 Medium Impact | 🟢 Low Impact</i>
+<i>Note: Using sample data due to service unavailability</i>
+"""
+                
+                # Create keyboard for navigation
+                keyboard = [
+                    [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
+                ]
+                
+                # Update with fallback calendar data
+                try:
+                    await query.edit_message_text(
+                        text=calendar_text,
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+                except Exception as e:
+                    logger.error(f"Error updating with fallback calendar: {str(e)}")
+                    # Try to send a new message
+                    await query.message.reply_text(
+                        text=calendar_text,
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+            
+            # Return to instrument selection state
+            return CHOOSE_INSTRUMENT
+            
+        except Exception as e:
+            logger.error(f"Error in show_calendar_analysis: {str(e)}")
+            error_text = f"Error loading economic calendar for {instrument}. Please try again."
+            try:
+                await query.edit_message_text(
+                    text=error_text,
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("⬅️ Back", callback_data="back_market")],
+                        [InlineKeyboardButton("🏠 Main Menu", callback_data="back_menu")]
+                    ])
+                )
+            except Exception as e:
+                logger.error(f"Error updating error message: {str(e)}")
+            
+            return BACK_TO_MENU
+            
+    def _detect_region_for_instrument(self, instrument: str) -> str:
+        """Detect region or currency associated with an instrument"""
+        instrument = instrument.upper()
+        
+        # For forex pairs
+        if len(instrument) == 6:
+            base_currency = instrument[:3]
+            quote_currency = instrument[3:6]
+            
+            # Check for major currencies
+            if base_currency in ["USD", "EUR", "GBP", "JPY", "AUD", "CAD", "CHF", "NZD"]:
+                return base_currency
+            elif quote_currency in ["USD", "EUR", "GBP", "JPY", "AUD", "CAD", "CHF", "NZD"]:
+                return quote_currency
+        
+        # For indices
+        if instrument in ["SPX", "DJI", "NASDAQ", "NDX"]:
+            return "USD"  # US indices
+        elif instrument in ["DAX", "CAC", "IBEX", "FTSE"]:
+            return "EUR"  # European indices
+        elif instrument == "NIKKEI":
+            return "JPY"  # Japanese index
+        
+        # For crypto
+        if instrument in ["BTC", "ETH", "XRP", "LTC"]:
+            return "CRYPTO"
+        
+        # Default fallback
+        return "USD"
