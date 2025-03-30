@@ -2129,8 +2129,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             
             # Create keyboard for navigation
             keyboard = [
-                [InlineKeyboardButton("⬅️ Back to Analysis", callback_data="back_to_analysis")],
-                [InlineKeyboardButton("🏠 Main Menu", callback_data="back_menu")]
+                [InlineKeyboardButton("⬅️ Back", callback_data="back_to_analysis")]
             ]
             
             # Update message with chart
