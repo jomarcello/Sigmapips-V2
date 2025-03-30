@@ -13,7 +13,7 @@ from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
 import copy
 
-from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery, InputMediaPhoto, BotCommand
+from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery, InputMediaPhoto, BotCommand, InputMediaAnimation
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -2100,8 +2100,9 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             loading_gif = await get_loading_gif()
             
             try:
+                from telegram import InputMediaAnimation
                 await query.edit_message_media(
-                    media=InputMediaPhoto(
+                    media=InputMediaAnimation(
                         media=loading_gif,
                         caption=loading_text,
                         parse_mode=ParseMode.HTML
