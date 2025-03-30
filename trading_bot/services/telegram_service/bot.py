@@ -1934,17 +1934,28 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 return await self.market_signals_callback(update, context)
                 
             elif query.data.startswith("instrument_"):
-                # Extract the instrument from the callback data
+                # Extract the instrument and action from the callback data
                 parts = query.data.split("_")
-                instrument = "_".join(parts[1:-1]) if len(parts) > 2 else parts[1]
-                logger.info(f"Refreshing sentiment analysis for {instrument}")
                 
-                # Set analysis type to sentiment
-                if context and hasattr(context, 'user_data'):
-                    context.user_data['analysis_type'] = 'sentiment'
+                if len(parts) >= 3:
+                    instrument = parts[1]
+                    action_type = parts[2]  # e.g., chart, sentiment, calendar
+                    
+                    # Route to appropriate function based on action type
+                    if action_type == "chart":
+                        logger.info(f"Showing technical chart for {instrument}")
+                        return await self.show_technical_analysis(update, context, instrument=instrument)
+                    elif action_type == "sentiment":
+                        logger.info(f"Showing sentiment analysis for {instrument}")
+                        # Call the appropriate sentiment analysis function here
+                        return await self.instrument_callback(update, context)
+                    elif action_type == "calendar":
+                        logger.info(f"Showing calendar for {instrument}")
+                        # Call the appropriate calendar function here
+                        return await self.instrument_callback(update, context)
                 
-                # Call show_sentiment_analysis with the instrument
-                return await self.show_sentiment_analysis(update, context, instrument=instrument)
+                # Default to the general instrument handler
+                return await self.instrument_callback(update, context)
                 
             elif query.data == "subscribe_monthly" or query.data == "subscription_info":
                 return await self.handle_subscription_callback(update, context)
@@ -1979,10 +1990,6 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             elif query.data.startswith("market_"):
                 # Handles all market selection callbacks like market_forex, market_crypto, etc.
                 return await self.market_callback(update, context)
-                
-            elif query.data.startswith("instrument_"):
-                # All instrument callbacks, dynamically detect the format: instrument_EURUSD_chart, etc.
-                return await self.instrument_callback(update, context)
                 
             elif query.data == "signal_technical":
                 return await self.signal_technical_callback(update, context)
