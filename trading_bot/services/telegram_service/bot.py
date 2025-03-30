@@ -2329,3 +2329,265 @@ Select an analysis type:
             logger.error(f"Error in back_to_signal_analysis_callback: {str(e)}")
             # Try to recover
             return await self.back_menu_callback(update, context)
+            
+    async def back_market_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
+        """Handle back_market callback to return to the market selection."""
+        query = update.callback_query
+        await query.answer()
+        
+        try:
+            # Clear instrument data
+            if context and hasattr(context, 'user_data'):
+                if 'instrument' in context.user_data:
+                    del context.user_data['instrument']
+            
+            # Get analysis type and determine if we're in signals flow
+            analysis_type = None
+            is_signals_flow = False
+            
+            if context and hasattr(context, 'user_data'):
+                analysis_type = context.user_data.get('analysis_type')
+                is_signals_flow = context.user_data.get('in_signals_flow', False)
+            
+            # Set the keyboard and text based on analysis type
+            if analysis_type == 'sentiment':
+                text = "Select a market for sentiment analysis:"
+                keyboard = MARKET_SENTIMENT_KEYBOARD
+            elif analysis_type == 'calendar':
+                text = "Select a market for economic calendar analysis:"
+                keyboard = MARKET_KEYBOARD
+            elif analysis_type == 'signals' or is_signals_flow:
+                text = "Select a market for trading signals:"
+                keyboard = MARKET_KEYBOARD_SIGNALS
+            else:
+                # Default to technical analysis
+                text = "Select a market for technical analysis:"
+                keyboard = MARKET_KEYBOARD
+            
+            # Show the market selection menu
+            await query.edit_message_text(
+                text=text,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode=ParseMode.HTML
+            )
+            
+            return CHOOSE_MARKET
+        except Exception as e:
+            logger.error(f"Error in back_market_callback: {str(e)}")
+            # Try to recover by going to analysis menu
+            try:
+                await query.edit_message_text(
+                    text="Choose an analysis type:",
+                    reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
+                    parse_mode=ParseMode.HTML
+                )
+            except Exception:
+                pass
+            return CHOOSE_ANALYSIS
+            
+    async def back_signals_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
+        """Handle back_signals callback to return to the signals menu."""
+        query = update.callback_query
+        await query.answer()
+        
+        try:
+            # Clear market and instrument data
+            if context and hasattr(context, 'user_data'):
+                keys_to_clear = ['market', 'instrument']
+                for key in keys_to_clear:
+                    if key in context.user_data:
+                        del context.user_data[key]
+                
+                # Make sure we maintain the signals flow flag
+                context.user_data['in_signals_flow'] = True
+            
+            # Check if user has subscription
+            user_id = update.effective_user.id
+            is_subscribed = await self.db.is_user_subscribed(user_id)
+            payment_failed = await self.db.has_payment_failed(user_id)
+            
+            if is_subscribed and not payment_failed:
+                # Show signals menu for subscribed users
+                await query.edit_message_text(
+                    text="Trading Signals Menu:",
+                    reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD),
+                    parse_mode=ParseMode.HTML
+                )
+                return CHOOSE_SIGNALS
+            else:
+                # Show subscription message for non-subscribers
+                if payment_failed:
+                    text = """
+❗ <b>Subscription Payment Failed</b> ❗
+
+Your subscription payment could not be processed and your service has been deactivated.
+
+To continue using Sigmapips AI and receive trading signals, please reactivate your subscription.
+                    """
+                    keyboard = [
+                        [InlineKeyboardButton("🔄 Reactivate Subscription", url="https://buy.stripe.com/9AQcPf3j63HL5JS145")],
+                        [InlineKeyboardButton("⬅️ Back to Menu", callback_data=CALLBACK_BACK_MENU)]
+                    ]
+                else:
+                    text = """
+🚀 <b>Trading Signals Subscription Required</b> 🚀
+
+To access trading signals, you need an active subscription.
+
+Get started today with a FREE 14-day trial!
+                    """
+                    keyboard = [
+                        [InlineKeyboardButton("🔥 Start 14-day FREE Trial", url="https://buy.stripe.com/3cs3eF9Hu9256NW9AA")],
+                        [InlineKeyboardButton("⬅️ Back to Menu", callback_data=CALLBACK_BACK_MENU)]
+                    ]
+                
+                await query.edit_message_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.HTML
+                )
+                return MENU
+        except Exception as e:
+            logger.error(f"Error in back_signals_callback: {str(e)}")
+            # Try to recover by going to main menu
+            return await self.back_menu_callback(update, context)
+            
+    async def back_instrument_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
+        """Handle back_instrument callback to return to the instrument selection."""
+        query = update.callback_query
+        await query.answer()
+        
+        try:
+            # Clear style/timeframe data but keep instrument
+            if context and hasattr(context, 'user_data'):
+                keys_to_clear = ['style', 'timeframe']
+                for key in keys_to_clear:
+                    if key in context.user_data:
+                        del context.user_data[key]
+            
+            # Get stored instrument from context
+            instrument = None
+            if context and hasattr(context, 'user_data'):
+                instrument = context.user_data.get('instrument')
+            
+            if not instrument:
+                # If no instrument, go back to market selection
+                return await self.back_market_callback(update, context)
+            
+            # Show the instrument options
+            # This might be a custom view for the instrument, for now we'll go back to market
+            return await self.back_market_callback(update, context)
+            
+        except Exception as e:
+            logger.error(f"Error in back_instrument_callback: {str(e)}")
+            # Try to recover by going to market selection
+            return await self.back_market_callback(update, context)
+            
+    async def _process_callback_query(self, update_data):
+        """Process callback query updates."""
+        try:
+            # Create a CallbackQuery object from the update data
+            query_data = update_data.get('callback_query', {})
+            
+            # Get the callback data
+            callback_data = query_data.get('data', '')
+            
+            # Get the message data
+            message = query_data.get('message', {})
+            chat_id = message.get('chat', {}).get('id')
+            message_id = message.get('message_id')
+            
+            # Get the user data
+            from_user = query_data.get('from', {})
+            user_id = from_user.get('id')
+            
+            logger.info(f"Processing callback query: {callback_data} from user {user_id}")
+            
+            # Create an Update object
+            from telegram import Update
+            update = Update.de_json(update_data, self.bot)
+            
+            # Create a context
+            context = None
+            
+            # Route the callback to the appropriate handler
+            if callback_data == CALLBACK_BACK_MENU:
+                await self.back_menu_callback(update, context)
+            elif callback_data == CALLBACK_ANALYSIS_TECHNICAL:
+                await self.analysis_technical_callback(update, context)
+            elif callback_data == CALLBACK_ANALYSIS_SENTIMENT:
+                await self.analysis_sentiment_callback(update, context)
+            elif callback_data == CALLBACK_ANALYSIS_CALENDAR:
+                await self.analysis_calendar_callback(update, context)
+            elif callback_data == "back_analysis":
+                await self.back_analysis_callback(update, context)
+            elif callback_data == "back_market":
+                await self.back_market_callback(update, context)
+            elif callback_data == "back_signals":
+                await self.back_signals_callback(update, context)
+            elif callback_data == "back_instrument":
+                await self.back_instrument_callback(update, context)
+            elif callback_data == "back_to_signal":
+                await self.back_to_signal_callback(update, context)
+            elif callback_data == "back_to_signal_analysis":
+                await self.back_to_signal_analysis_callback(update, context)
+            elif callback_data.startswith("signal_technical"):
+                await self.signal_technical_callback(update, context)
+            elif callback_data.startswith("signal_sentiment"):
+                await self.signal_sentiment_callback(update, context)
+            elif callback_data.startswith("signal_calendar"):
+                await self.signal_calendar_callback(update, context)
+            else:
+                # Default to the generic button callback
+                await self.button_callback(update, context)
+            
+            return {"status": "ok", "message": "Callback processed"}
+            
+        except Exception as e:
+            logger.error(f"Error processing callback query: {str(e)}")
+            logger.exception(e)
+            return {"status": "error", "message": str(e)}
+            
+    async def _process_message(self, update_data):
+        """Process message updates."""
+        try:
+            # Create an Update object
+            from telegram import Update
+            update = Update.de_json(update_data, self.bot)
+            
+            # Get message text
+            message = update_data.get('message', {})
+            text = message.get('text', '')
+            
+            # Get user data
+            from_user = message.get('from', {})
+            user_id = from_user.get('id')
+            
+            logger.info(f"Processing message: {text} from user {user_id}")
+            
+            # Create a context
+            context = None
+            
+            # Route the message to the appropriate handler
+            if text == '/start':
+                await self.start_command(update, context)
+            elif text == '/menu':
+                await self.show_main_menu(update, context)
+            elif text == '/help':
+                await self.help_command(update, context)
+            elif text.startswith('/set_subscription'):
+                await self.set_subscription_command(update, context)
+            elif text.startswith('/set_payment_failed') or text.startswith('/setpaymentfailed'):
+                await self.set_payment_failed_command(update, context)
+            else:
+                # Unknown command
+                await update.message.reply_text(
+                    "Unknown command. Please use /help to see all available commands."
+                )
+            
+            return {"status": "ok", "message": "Message processed"}
+            
+        except Exception as e:
+            logger.error(f"Error processing message: {str(e)}")
+            logger.exception(e)
+            return {"status": "error", "message": str(e)}
