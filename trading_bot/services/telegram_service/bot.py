@@ -3022,29 +3022,24 @@ Get started today with a FREE 14-day trial!
             
             # Handle different analysis types
             if analysis_type == 'sentiment':
-                # STAP 1: Toon eerst een loading GIF voor de gebruiker
+                # STAP 1: Toon eerst een loading indicator
                 try:
                     # Duidelijk signaleren dat we bezig zijn met laden
                     await query.answer("Loading sentiment analysis...")
                     
-                    # Eerst proberen de GIF te versturen
-                    gif_url = await get_loading_gif()
-                    sent_message = await query.message.reply_animation(
-                        animation=gif_url,
-                        caption=f"⏳ <b>Analyzing sentiment for {instrument}...</b>",
-                        parse_mode=ParseMode.HTML
-                    )
+                    # Gebruik update_message om loading in HETZELFDE bericht te tonen
+                    loading_gif = await get_loading_gif()
+                    loading_text = f"⏳ <b>Analyzing sentiment for {instrument}...</b>"
+                    loading_text_with_gif = await embed_gif_in_text(loading_gif, loading_text)
                     
-                    # Onthoud het bericht ID zodat we het later kunnen verwijderen
-                    loading_message_id = sent_message.message_id
-                except Exception as gif_error:
-                    logger.warning(f"Could not send loading GIF: {str(gif_error)}")
-                    loading_message_id = None
-                    # Fallback naar gewone tekst bij fout
-                    await query.message.reply_text(
-                        text=f"⏳ <b>Analyzing sentiment for {instrument}...</b>",
+                    await self.update_message(
+                        query=query,
+                        text=loading_text_with_gif,
+                        keyboard=None,
                         parse_mode=ParseMode.HTML
                     )
+                except Exception as gif_error:
+                    logger.warning(f"Could not show loading indicator: {str(gif_error)}")
                 
                 # STAP 2: Haal sentiment data op
                 try:
@@ -3118,17 +3113,7 @@ Get started today with a FREE 14-day trial!
                     # STAP 3: Gebruik één simpele back knop
                     back_keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]]
                     
-                    # Verwijder het loading bericht eerst als het bestaat
-                    if loading_message_id:
-                        try:
-                            await query.bot.delete_message(
-                                chat_id=query.message.chat_id,
-                                message_id=loading_message_id
-                            )
-                        except Exception as del_error:
-                            logger.warning(f"Could not delete loading message: {str(del_error)}")
-                    
-                    # Toon sentiment analyse
+                    # Toon sentiment analyse in HETZELFDE bericht (bijwerken, niet nieuw bericht)
                     await self.update_message(
                         query=query,
                         text=sentiment_text,
@@ -3138,16 +3123,6 @@ Get started today with a FREE 14-day trial!
                     
                 except Exception as e:
                     logger.error(f"Error getting sentiment data: {str(e)}")
-                    
-                    # Verwijder het loading bericht eerst als het bestaat
-                    if loading_message_id:
-                        try:
-                            await query.bot.delete_message(
-                                chat_id=query.message.chat_id,
-                                message_id=loading_message_id
-                            )
-                        except Exception as del_error:
-                            logger.warning(f"Could not delete loading message: {str(del_error)}")
                     
                     # Genereren van een "realistische" maar willekeurige sentiment analyse als fallback
                     bullish_score = random.randint(40, 60)  # Redelijk neutrale waarden
@@ -3180,6 +3155,7 @@ This is a simplified analysis based on available data. For more detailed insight
                     # Eén simpele back knop
                     back_keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]]
                     
+                    # Bijwerken van het huidige bericht
                     await self.update_message(
                         query=query,
                         text=fallback_text,
