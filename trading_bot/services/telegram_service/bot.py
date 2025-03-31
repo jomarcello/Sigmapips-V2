@@ -2703,8 +2703,8 @@ The current sentiment for {instrument} is neutral, with mixed signals in the mar
                         if market == "commodities":
                             keyboard = COMMODITIES_KEYBOARD
                         elif market == "indices":
-                            keyboard = INDICES_KEYBOARD
-                            else:
+                            keyboard = INDICES_KEYBOARD_SIGNALS
+                        else:
                             keyboard = FOREX_SENTIMENT_KEYBOARD  # Default to forex sentiment
                 elif is_signals:
                     # Use signals-specific keyboards
@@ -2716,7 +2716,7 @@ The current sentiment for {instrument} is neutral, with mixed signals in the mar
                         keyboard = COMMODITIES_KEYBOARD_SIGNALS
                     elif market == "indices":
                         keyboard = INDICES_KEYBOARD_SIGNALS
-                            else:
+                    else:
                         keyboard = FOREX_KEYBOARD_SIGNALS  # Default to forex signals
                 else:
                     # Use regular analysis keyboards
