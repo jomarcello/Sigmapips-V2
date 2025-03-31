@@ -80,7 +80,7 @@ class MarketSentimentService:
             elif isinstance(market_data, dict):
                 # Extract relevant data from dictionary
                 bullish = market_data.get('bullish_percentage', 50)
-                bearish = 100 - bullish if bullish <= 100 else 0
+                bearish = market_data.get('bearish_percentage', 100 - bullish) if bullish <= 100 else 0
                 
                 # Calculate neutral if not present
                 if 'neutral_percentage' in market_data:
@@ -96,25 +96,15 @@ class MarketSentimentService:
                     'analysis': market_data.get('analysis', '')
                 }
                 
-            # Fallback to default values if something went wrong
-            return {
-                'bullish': 50,
-                'bearish': 30,
-                'neutral': 20,
-                'analysis': f"Sentiment analysis for {instrument}"
-            }
+            # No valid data available - raise exception to be caught by caller
+            if not market_data:
+                raise ValueError(f"Could not generate sentiment analysis for {instrument}")
             
         except Exception as e:
             logger.error(f"Error in get_sentiment: {str(e)}")
             logger.exception(e)
-            
-            # Return default values on error
-            return {
-                'bullish': 50,
-                'bearish': 30,
-                'neutral': 20,
-                'analysis': f"Error generating sentiment analysis for {instrument}"
-            }
+            # Rethrow exception to be handled by calling function
+            raise ValueError(f"Failed to generate sentiment analysis for {instrument}: {str(e)}")
     
     async def get_market_sentiment(self, instrument: str, market_type: Optional[str] = None) -> Optional[dict]:
         """
@@ -134,116 +124,59 @@ class MarketSentimentService:
                 # Determine market type from instrument if not provided
                 market_type = self._guess_market_from_instrument(instrument)
             
-            # Use Tavily to get relevant market news if API keys are available
-            if self.tavily_api_key and self.deepseek_api_key and not self.use_mock:
-                try:
-                    # Build search query based on market type
-                    search_query = self._build_search_query(instrument, market_type)
-                    
-                    # Get news data using Tavily
-                    news_content = await self._get_tavily_news(search_query)
-                    
-                    # Process and format the news content
-                    formatted_content = self._format_data_manually(news_content, instrument)
-                    
-                    # Use DeepSeek to analyze the sentiment
-                    final_analysis = await self._format_with_deepseek(instrument, market_type, formatted_content)
-                    
-                    # Extract sentiment values from the text
-                    bullish_match = re.search(r'Bullish:\s*(\d+)%', final_analysis)
-                    bullish_percentage = int(bullish_match.group(1)) if bullish_match else 50
-                    
-                    sentiment = 'bullish' if bullish_percentage > 50 else 'bearish' if bullish_percentage < 50 else 'neutral'
-                    
-                    # Create dictionary result with all data
-                    result = {
-                        'overall_sentiment': sentiment,
-                        'sentiment_score': bullish_percentage / 100,
-                        'bullish_percentage': bullish_percentage,
-                        'bearish_percentage': 100 - bullish_percentage,
-                        'trend_strength': 'Strong' if abs(bullish_percentage - 50) > 15 else 'Moderate' if abs(bullish_percentage - 50) > 5 else 'Weak',
-                        'volatility': 'Moderate',  # Default value as this is hard to extract reliably
-                        'support_level': 'Not available',  # Would need more sophisticated analysis
-                        'resistance_level': 'Not available',  # Would need more sophisticated analysis
-                        'recommendation': 'See analysis for details',
-                        'analysis': final_analysis
-                    }
-                    
-                    return result
-                    
-                except Exception as e:
-                    logger.error(f"Error in API-based sentiment: {str(e)}")
-                    logger.error("Falling back to mock data")
+            # Check if API keys are available
+            if not self.tavily_api_key:
+                raise ValueError(f"Tavily API key not available for sentiment analysis")
+                
+            if not self.deepseek_api_key:
+                raise ValueError(f"DeepSeek API key not available for sentiment analysis")
             
-            # Fallback to mock data if API calls fail or no API keys are available
-            sentiment_score = random.uniform(0.3, 0.7)
-            bullish_percentage = int(sentiment_score * 100)
+            # Build search query based on market type
+            search_query = self._build_search_query(instrument, market_type)
             
-            # Determine trend strength
-            if abs(sentiment_score - 0.5) > 0.15:
-                trend_strength = "Strong"
-            elif abs(sentiment_score - 0.5) > 0.05:
-                trend_strength = "Moderate"
-            else:
-                trend_strength = "Weak"
+            # Get news data using Tavily
+            news_content = await self._get_tavily_news(search_query)
+            if not news_content:
+                raise ValueError(f"Failed to retrieve news content for {instrument}")
             
-            # Generate analysis text
-            analysis = f"""<b>🎯 {instrument} Market Analysis</b>
-
-<b>📈 Market Direction:</b>
-The {instrument} is currently showing {'bullish' if sentiment_score > 0.5 else 'bearish'} sentiment with {trend_strength.lower()} momentum. Overall sentiment is {bullish_percentage}% {'bullish' if sentiment_score > 0.5 else 'bearish'}.
-
-<b>📰 Latest News & Events:</b>
-• Market sentiment driven by technical factors
-• Regular trading activity observed
-• No major market-moving events at this time
-
-<b>🎯 Key Levels:</b>
-• Support: Previous low
-• Resistance: Previous high
-
-<b>⚠️ Risk Factors:</b>
-• Market Volatility: {random.choice(['High', 'Moderate', 'Low'])}
-• Watch for unexpected news events
-• Monitor broader market conditions
-
-<b>💡 Conclusion:</b>
-{random.choice([
-    'Consider long positions with proper risk management.',
-    'Watch for short opportunities near resistance.',
-    'Wait for clearer signals before taking new positions.',
-    'Monitor price action at key levels.'
-])}"""
-
-            # Return structured data with text analysis
-            return {
-                'overall_sentiment': 'bullish' if sentiment_score > 0.5 else 'bearish',
-                'sentiment_score': sentiment_score,
+            # Process and format the news content
+            formatted_content = self._format_data_manually(news_content, instrument)
+            
+            # Use DeepSeek to analyze the sentiment
+            final_analysis = await self._format_with_deepseek(instrument, market_type, formatted_content)
+            if not final_analysis:
+                raise ValueError(f"Failed to format DeepSeek analysis for {instrument}")
+            
+            # Extract sentiment values from the text
+            bullish_match = re.search(r'Bullish:\s*(\d+)%', final_analysis)
+            bullish_percentage = int(bullish_match.group(1)) if bullish_match else None
+            
+            if bullish_percentage is None:
+                raise ValueError(f"Could not extract bullish percentage from analysis for {instrument}")
+            
+            sentiment = 'bullish' if bullish_percentage > 50 else 'bearish' if bullish_percentage < 50 else 'neutral'
+            
+            # Create dictionary result with all data
+            result = {
+                'overall_sentiment': sentiment,
+                'sentiment_score': bullish_percentage / 100,
                 'bullish_percentage': bullish_percentage,
                 'bearish_percentage': 100 - bullish_percentage,
-                'trend_strength': trend_strength,
-                'volatility': random.choice(['High', 'Moderate', 'Low']),
-                'support_level': 'Previous low',
-                'resistance_level': 'Previous high',
-                'recommendation': 'Monitor price action and manage risk appropriately',
-                'analysis': analysis
+                'trend_strength': 'Strong' if abs(bullish_percentage - 50) > 15 else 'Moderate' if abs(bullish_percentage - 50) > 5 else 'Weak',
+                'volatility': 'Moderate',  # Default value as this is hard to extract reliably
+                'support_level': 'Not available',  # Would need more sophisticated analysis
+                'resistance_level': 'Not available',  # Would need more sophisticated analysis
+                'recommendation': 'See analysis for details',
+                'analysis': final_analysis
             }
             
+            return result
+                
         except Exception as e:
-            logger.error(f"Error getting market sentiment: {str(e)}")
-            return {
-                'overall_sentiment': 'neutral',
-                'sentiment_score': 0.5,
-                'bullish_percentage': 50,
-                'bearish_percentage': 50,
-                'trend_strength': 'Weak',
-                'volatility': 'Moderate',
-                'support_level': 'Not available',
-                'resistance_level': 'Not available',
-                'recommendation': 'Wait for clearer market signals',
-                'analysis': f"Error getting sentiment analysis for {instrument}. Please try again later."
-            }
-            
+            logger.error(f"Error in market sentiment analysis: {str(e)}")
+            logger.exception(e)
+            raise ValueError(f"Failed to analyze market sentiment for {instrument}: {str(e)}")
+    
     def _build_search_query(self, instrument: str, market_type: str) -> str:
         """Build a search query based on instrument and market type"""
         base_query = f"{instrument} market sentiment analysis"
