@@ -2220,6 +2220,18 @@ Get started today with a FREE 14-day trial!
     async def _handle_sentiment_analysis(self, query, instrument):
         """Handle sentiment analysis for an instrument"""
         try:
+            # First, show a "loading" message with the GIF
+            try:
+                await query.edit_message_media(
+                    media=InputMediaAnimation(
+                        media="https://media4.giphy.com/media/v1.Y2lkPTc5MGI3NjExeTM5ZDRnNzUwd204cGt5NDE3bXFjdW5lY2hvMG1pYTQ1dWpvYXlqdyZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/dpjUltnOPye7azvAhH/giphy.gif",
+                        caption="<b>Analyzing sentiment for {instrument}...</b>\n\nPlease wait while we process market data.",
+                        parse_mode=ParseMode.HTML
+                    )
+                )
+            except Exception as loading_error:
+                logger.warning(f"Could not show loading animation: {str(loading_error)}")
+            
             # Get sentiment data
             sentiment_data = await self.sentiment_service.get_sentiment(instrument)
             
@@ -2270,7 +2282,7 @@ The overall sentiment for {instrument} is {overall_sentiment} with {strength} co
             ]
             
             try:
-                # First try to edit the media
+                # Update the message with the analysis results
                 await query.edit_message_media(
                     media=InputMediaAnimation(
                         media="https://media4.giphy.com/media/v1.Y2lkPTc5MGI3NjExeTM5ZDRnNzUwd204cGt5NDE3bXFjdW5lY2hvMG1pYTQ1dWpvYXlqdyZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/dpjUltnOPye7azvAhH/giphy.gif",
@@ -2941,22 +2953,32 @@ The overall sentiment for {instrument} is {overall_sentiment} with {strength} co
             return TECHNICAL_KEYBOARDS.get(market, TECHNICAL_KEYBOARDS['forex'])
 
     async def direct_sentiment_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
-        """Handle direct sentiment analysis for an instrument"""
+        """Handle direct sentiment analysis request"""
         query = update.callback_query
         await query.answer()
         
         try:
-            # Extract instrument from callback data
-            instrument = query.data.replace('direct_sentiment_', '')
-            logger.info(f"Getting sentiment for {instrument}")
+            # This is called directly from a button, get instrument from callback_data
+            callback_parts = query.data.split("_")
+            if len(callback_parts) >= 2:
+                instrument = callback_parts[1]
+            else:
+                raise ValueError("Invalid callback data format")
             
-            # Store current state and instrument in user_data
-            if context and hasattr(context, 'user_data'):
-                context.user_data['instrument'] = instrument
-                context.user_data['current_state'] = SHOW_RESULT
+            # Show loading animation first
+            try:
+                await query.edit_message_media(
+                    media=InputMediaAnimation(
+                        media="https://media4.giphy.com/media/v1.Y2lkPTc5MGI3NjExeTM5ZDRnNzUwd204cGt5NDE3bXFjdW5lY2hvMG1pYTQ1dWpvYXlqdyZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/dpjUltnOPye7azvAhH/giphy.gif",
+                        caption=f"<b>Analyzing sentiment for {instrument}...</b>\n\nPlease wait while we process market data.",
+                        parse_mode=ParseMode.HTML
+                    )
+                )
+            except Exception as loading_error:
+                logger.warning(f"Could not show loading animation: {str(loading_error)}")
             
             try:
-                # Get market sentiment
+                # Get sentiment data
                 sentiment_data = await self.market_sentiment_service.get_sentiment(instrument)
                 
                 # Format sentiment message
