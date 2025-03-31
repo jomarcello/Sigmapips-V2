@@ -1606,58 +1606,34 @@ Get started today with a FREE 14-day trial!
             return {"status": "error", "message": str(e)}
 
     async def analysis_technical_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
-        """Handle technical analysis callback."""
+        """Handle technical analysis selection"""
         query = update.callback_query
         await query.answer()
         
         try:
-            # Clear old data
+            # Debug logging
+            logger.info("analysis_technical_callback aangeroepen")
+            
+            # Store analysis type in user_data
             if context and hasattr(context, 'user_data'):
-                # Set analysis type
                 context.user_data['analysis_type'] = 'technical'
-                # Clear any previous selections
-                keys_to_clear = ['market', 'instrument']
-                for key in keys_to_clear:
-                    if key in context.user_data:
-                        del context.user_data[key]
+                context.user_data['current_state'] = CHOOSE_MARKET
             
-            # Check if this is a signal-specific callback
-            callback_data = query.data
-            is_signal_specific = "signal" in callback_data
-            
-            if is_signal_specific:
-                # Extract signal ID from callback data if present
-                try:
-                    signal_id = callback_data.split("_")[-1]
-                    if context and hasattr(context, 'user_data'):
-                        context.user_data['signal_id'] = signal_id
-                except Exception:
-                    pass
-            
-            # Use new update_message utility to handle any message type
-            await self.update_message(
-                query=query,
+            # Show market selection for technical analysis
+            await query.edit_message_text(
                 text="Select a market for technical analysis:",
-                keyboard=MARKET_KEYBOARD,
-                parse_mode=ParseMode.HTML
+                reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
             )
             
             return CHOOSE_MARKET
+            
         except Exception as e:
             logger.error(f"Error in analysis_technical_callback: {str(e)}")
-            # Recovery - try sending a new message instead of editing
-            try:
-                await query.message.reply_text(
-                    text="Choose an analysis type:",
-                    reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
-                    parse_mode=ParseMode.HTML
-                )
-            except Exception:
-                pass
-            return CHOOSE_ANALYSIS
+            logger.exception(e)
+            return MENU
 
     async def analysis_sentiment_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
-        """Handle sentiment analysis callback"""
+        """Handle sentiment analysis selection"""
         query = update.callback_query
         await query.answer()
         
@@ -1684,55 +1660,31 @@ Get started today with a FREE 14-day trial!
             return MENU
 
     async def analysis_calendar_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
-        """Handle calendar analysis callback."""
+        """Handle calendar analysis selection"""
         query = update.callback_query
         await query.answer()
         
         try:
-            # Clear old data
+            # Debug logging
+            logger.info("analysis_calendar_callback aangeroepen")
+            
+            # Store analysis type in user_data
             if context and hasattr(context, 'user_data'):
-                # Set analysis type
                 context.user_data['analysis_type'] = 'calendar'
-                # Clear any previous selections
-                keys_to_clear = ['market', 'instrument']
-                for key in keys_to_clear:
-                    if key in context.user_data:
-                        del context.user_data[key]
+                context.user_data['current_state'] = CHOOSE_MARKET
             
-            # Check if this is a signal-specific callback
-            callback_data = query.data
-            is_signal_specific = "signal" in callback_data
-            
-            if is_signal_specific:
-                # Extract signal ID from callback data if present
-                try:
-                    signal_id = callback_data.split("_")[-1]
-                    if context and hasattr(context, 'user_data'):
-                        context.user_data['signal_id'] = signal_id
-                except Exception:
-                    pass
-            
-            # Use new update_message utility to handle any message type
-            await self.update_message(
-                query=query,
+            # Show market selection for calendar analysis
+            await query.edit_message_text(
                 text="Select a market for economic calendar analysis:",
-                keyboard=MARKET_KEYBOARD,
-                parse_mode=ParseMode.HTML
+                reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
             )
             
             return CHOOSE_MARKET
+            
         except Exception as e:
             logger.error(f"Error in analysis_calendar_callback: {str(e)}")
-            # Recovery - try sending a new message instead of editing
-            try:
-                await query.message.reply_text(
-                    text="Choose an analysis type:",
-                    reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
-                    parse_mode=ParseMode.HTML
-                )
-            except Exception:
-                pass
-            return CHOOSE_ANALYSIS
+            logger.exception(e)
+            return MENU
     
     async def back_to_signal_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
         """Handle back to signal callback - return to the signal details."""
