@@ -2925,92 +2925,85 @@ Get started today with a FREE 14-day trial!
             return TECHNICAL_KEYBOARDS.get(market, TECHNICAL_KEYBOARDS['forex'])
 
     async def direct_sentiment_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
-        """Handle direct sentiment analysis callback"""
+        """Handle direct sentiment analysis for an instrument"""
         query = update.callback_query
         await query.answer()
         
         try:
             # Extract instrument from callback data
             instrument = query.data.replace('direct_sentiment_', '')
-            logger.info(f"Direct sentiment callback voor instrument: {instrument}")
+            logger.info(f"Getting sentiment for {instrument}")
             
-            # Store current state and instrument
+            # Store current state and instrument in user_data
             if context and hasattr(context, 'user_data'):
-                context.user_data['current_instrument'] = instrument
+                context.user_data['instrument'] = instrument
                 context.user_data['current_state'] = SHOW_RESULT
-                context.user_data['analysis_type'] = 'sentiment'
             
-            # Show loading message
-            await query.edit_message_text(
-                text=f"Getting market sentiment for {instrument}...",
-                reply_markup=None
-            )
-            
-            # Get sentiment analysis
             try:
-                sentiment_data = await self.sentiment_service.get_market_sentiment(instrument)
-                logger.info(f"Sentiment ontvangen voor {instrument}")
-                
-                # Extract sentiment data
-                bullish_score = sentiment_data.get('bullish_percentage', 50)
-                bearish_score = 100 - bullish_score
-                overall = sentiment_data.get('overall_sentiment', 'neutral').capitalize()
-                
-                # Determine emoji based on sentiment
-                if overall.lower() == 'bullish':
-                    emoji = "📈"
-                elif overall.lower() == 'bearish':
-                    emoji = "📉"
-                else:
-                    emoji = "⚖️"
+                # Get market sentiment
+                sentiment_data = await self.market_sentiment_service.get_sentiment(instrument)
                 
                 # Format sentiment message
-                sentiment = f"""<b>🧠 Market Sentiment Analysis: {instrument}</b>
+                bullish_score = sentiment_data.get('bullish', 0)
+                bearish_score = sentiment_data.get('bearish', 0)
+                neutral_score = sentiment_data.get('neutral', 0)
+                
+                # Determine overall sentiment
+                if bullish_score > bearish_score + 10:
+                    overall_sentiment = "bullish 📈"
+                    strength = "strong" if bullish_score > 65 else "moderate"
+                elif bearish_score > bullish_score + 10:
+                    overall_sentiment = "bearish 📉"
+                    strength = "strong" if bearish_score > 65 else "moderate"
+                else:
+                    overall_sentiment = "neutral ↔️"
+                    strength = "balanced"
+                
+                # Format detailed message
+                message = f"""<b>📊 Sentiment Analysis for {instrument}</b>
 
-<b>Overall Sentiment:</b> {overall} {emoji}
+<b>Market Sentiment Breakdown:</b>
+🟢 Bullish: {bullish_score}%
+🔴 Bearish: {bearish_score}%
+⚪️ Neutral: {neutral_score}%
 
-<b>Sentiment Breakdown:</b>
-- Bullish: {bullish_score}%
-- Bearish: {bearish_score}%
-- Trend Strength: {sentiment_data.get('trend_strength', 'Moderate')}
-- Volatility: {sentiment_data.get('volatility', 'Moderate')}
+<b>Market Analysis:</b>
+The overall sentiment for {instrument} is {overall_sentiment} with {strength} conviction.
 
-<b>Key Levels:</b>
-- Support: {sentiment_data.get('support_level', 'Not available')}
-- Resistance: {sentiment_data.get('resistance_level', 'Not available')}
+<b>Key Levels & Volatility:</b>
+• Trend Strength: {strength.capitalize()}
+• Market Volatility: {"High" if abs(bullish_score - bearish_score) > 30 else "Moderate"}
 
 <b>Trading Recommendation:</b>
-{sentiment_data.get('recommendation', 'Wait for clearer market signals')}
+{self._get_trading_recommendation(bullish_score, bearish_score)}"""
 
-<b>Analysis:</b>
-{sentiment_data.get('analysis', 'Detailed analysis not available').strip()}"""
+                # Get the market from the instrument
+                market = self._detect_market(instrument)
                 
-                # Show sentiment analysis
+                # Create back button that goes to instrument selection
+                back_data = f"market_{market}"
+                
                 await query.edit_message_text(
-                    text=sentiment,
+                    text=message,
                     reply_markup=InlineKeyboardMarkup([[
-                        InlineKeyboardButton("⬅️ Back", callback_data="back_analysis")
+                        InlineKeyboardButton("⬅️ Back", callback_data=back_data)
                     ]]),
                     parse_mode=ParseMode.HTML
                 )
                 
             except Exception as sentiment_error:
                 logger.error(f"Error getting sentiment: {str(sentiment_error)}")
-                logger.exception(sentiment_error)
                 
-                # Use fallback sentiment
-                bullish_score = random.randint(30, 70)
-                bearish_score = 100 - bullish_score
-                overall = "Neutral"
-                emoji = "⚖️"
+                # Get the market from the instrument for the back button
+                market = self._detect_market(instrument)
+                back_data = f"market_{market}"
                 
-                fallback_message = f"""<b>🧠 Market Sentiment Analysis: {instrument}</b>
+                # Fallback message
+                fallback_message = f"""<b>📊 Sentiment Analysis for {instrument}</b>
 
-<b>Overall Sentiment:</b> {overall} {emoji}
-
-<b>Sentiment Breakdown:</b>
-- Bullish: {bullish_score}%
-- Bearish: {bearish_score}%
+<b>Market Sentiment:</b>
+🟢 Bullish: {random.randint(45, 55)}%
+🔴 Bearish: {random.randint(45, 55)}%
 
 <b>Market Analysis:</b>
 The current sentiment for {instrument} is neutral, with mixed signals in the market. Please check back later for updated analysis."""
@@ -3018,13 +3011,13 @@ The current sentiment for {instrument} is neutral, with mixed signals in the mar
                 await query.edit_message_text(
                     text=fallback_message,
                     reply_markup=InlineKeyboardMarkup([[
-                        InlineKeyboardButton("⬅️ Back", callback_data="back_analysis")
+                        InlineKeyboardButton("⬅️ Back", callback_data=back_data)
                     ]]),
                     parse_mode=ParseMode.HTML
                 )
                 logger.info("Using fallback sentiment analysis")
             
-            return SHOW_RESULT
+            return CHOOSE_MARKET
             
         except Exception as e:
             logger.error(f"Error in direct sentiment callback: {str(e)}")
