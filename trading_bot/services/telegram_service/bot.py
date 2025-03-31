@@ -2043,9 +2043,9 @@ The current sentiment for {instrument} is neutral, with mixed signals in the mar
                     sentiment_text = sentiment_data
                 else:
                     # Format the sentiment data from dictionary
-                bullish = sentiment_data.get('bullish', 0)
-                bearish = sentiment_data.get('bearish', 0)
-                neutral = sentiment_data.get('neutral', 0)
+                    bullish = sentiment_data.get('bullish', 0)
+                    bearish = sentiment_data.get('bearish', 0)
+                    neutral = sentiment_data.get('neutral', 0)
                 
                 # Calculate total and percentages
                 total = bullish + bearish + neutral
