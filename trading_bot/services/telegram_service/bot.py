@@ -2070,38 +2070,32 @@ Get started today with a FREE 14-day trial!
             return await self.back_menu_callback(update, context)
 
     async def back_market_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
-        """Handle back button press from instrument selection to return to market selection."""
+        """Handle back to market selection"""
         query = update.callback_query
         await query.answer()
         
         try:
-            # Get the current message text
-            message_text = query.message.text
+            # Get the analysis type from context
+            analysis_type = context.user_data.get('analysis_type', 'technical')
             
-            # Determine if we're in signals mode
-            is_signals = "signals" in message_text.lower()
-            
-            # Update the message with the market selection keyboard
-            if is_signals:
-                keyboard = SIGNALS_MARKET_KEYBOARD
-                message_text = "📊 <b>Select Market for Signals</b>"
+            # Choose the appropriate keyboard based on analysis type
+            if analysis_type == 'sentiment':
+                keyboard = MARKET_SENTIMENT_KEYBOARD
             else:
                 keyboard = MARKET_KEYBOARD
-                message_text = "📊 <b>Select Market for Analysis</b>"
             
-            await self.update_message(
-                query=query,
-                text=message_text,
-                keyboard=keyboard,
-                parse_mode=ParseMode.HTML
+            # Update message with market selection
+            await query.message.edit_reply_markup(
+                reply_markup=InlineKeyboardMarkup(keyboard)
             )
             
             return CHOOSE_MARKET
             
         except Exception as e:
             logger.error(f"Error in back_market_callback: {str(e)}")
-            return await self.back_menu_callback(update, context)
-            
+            logger.exception(e)
+            return MENU
+    
     async def back_analysis_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
         """Handle back button press from market selection to return to analysis type selection."""
         query = update.callback_query
