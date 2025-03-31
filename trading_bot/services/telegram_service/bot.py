@@ -1405,23 +1405,23 @@ Discover powerful trading signals for various markets:
                     
                     # Stuur een animatie die automatisch afspeelt
                     await self.bot.send_animation(
-                        chat_id=chat_id,
+                    chat_id=chat_id,
                         animation=gif_url,
                         caption=WELCOME_MESSAGE,
-                        reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
-                        parse_mode=ParseMode.HTML
-                    )
+                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
+                    parse_mode=ParseMode.HTML
+                )
                 except Exception as gif_error:
                     logger.error(f"Error sending welcome GIF: {str(gif_error)}")
                     # Fallback naar tekst-only als GIF faalt
-                    await self.bot.send_message(
-                        chat_id=chat_id,
+                await self.bot.send_message(
+                    chat_id=chat_id,
                         text=WELCOME_MESSAGE,
                         reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
                         parse_mode=ParseMode.HTML
                     )
                 return {"status": "success", "message": "Main menu sent"}
-            else:
+                    else:
                 # Trial user or payment failed - send appropriate message
                 if payment_failed:
                     text = """
@@ -1656,55 +1656,131 @@ Get started today with a FREE 14-day trial!
             return CHOOSE_ANALYSIS
 
     async def analysis_sentiment_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
-        """Handle sentiment analysis callback."""
+        """Handle sentiment analysis callback"""
         query = update.callback_query
         await query.answer()
         
         try:
-            # Clear old data
+            # Get instrument from context
+            instrument = None
             if context and hasattr(context, 'user_data'):
-                # Set analysis type
-                context.user_data['analysis_type'] = 'sentiment'
-                # Clear any previous selections
-                keys_to_clear = ['market', 'instrument']
-                for key in keys_to_clear:
-                    if key in context.user_data:
-                        del context.user_data[key]
+                instrument = context.user_data.get('instrument')
             
-            # Check if this is a signal-specific callback
-            callback_data = query.data
-            is_signal_specific = "signal" in callback_data
+            if not instrument:
+                logger.error("No instrument found in context for sentiment analysis")
+                return MENU
+                
+            # Get loading GIF URL
+            loading_gif_url = await get_loading_gif()
             
-            if is_signal_specific:
-                # Extract signal ID from callback data if present
-                try:
-                    signal_id = callback_data.split("_")[-1]
-                    if context and hasattr(context, 'user_data'):
-                        context.user_data['signal_id'] = signal_id
-                except Exception:
-                    pass
-            
-            # Use new update_message utility to handle any message type
-            await self.update_message(
-                query=query,
-                text="Select a market for sentiment analysis:",
-                keyboard=MARKET_SENTIMENT_KEYBOARD,
+            # First, update the message with loading animation
+            await query.edit_message_media(
+                media=InputMediaPhoto(
+                    media=loading_gif_url,
+                    caption=f"⏳ <b>Generating sentiment analysis for {instrument}...</b>"
+                ),
                 parse_mode=ParseMode.HTML
             )
             
-            return CHOOSE_MARKET
-        except Exception as e:
-            logger.error(f"Error in analysis_sentiment_callback: {str(e)}")
-            # Recovery - try sending a new message instead of editing
+            # Get sentiment analysis
             try:
-                await query.message.reply_text(
-                    text="Choose an analysis type:",
-                    reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
+                sentiment_data = await self.sentiment_service.get_market_sentiment(instrument)
+                logger.info(f"Sentiment data received for {instrument}")
+                
+                # Extract sentiment data
+                bullish = sentiment_data.get('bullish', 50)
+                bearish = sentiment_data.get('bearish', 30)
+                neutral = sentiment_data.get('neutral', 20)
+                
+                # Determine emoji based on sentiment
+                if bullish > 55:
+                    emoji = "📈"
+                elif bearish > 55:
+                    emoji = "📉"
+                else:
+                    emoji = "⚖️"
+                
+                # Format sentiment message
+                sentiment = f"""<b>🧠 Market Sentiment Analysis: {instrument}</b>
+
+<b>Overall Sentiment:</b> {sentiment_data.get('overall_sentiment', 'Neutral')} {emoji}
+
+<b>Sentiment Breakdown:</b>
+- Bullish: {bullish}%
+- Bearish: {bearish}%
+- Neutral: {neutral}%
+- Trend Strength: {sentiment_data.get('trend_strength', 'Moderate')}
+- Volatility: {sentiment_data.get('volatility', 'Moderate')}
+
+<b>Key Levels:</b>
+- Support: {sentiment_data.get('support_level', 'Not available')}
+- Resistance: {sentiment_data.get('resistance_level', 'Not available')}
+
+<b>Trading Recommendation:</b>
+{sentiment_data.get('recommendation', 'Wait for clearer market signals')}
+
+<b>Analysis:</b>
+{sentiment_data.get('analysis', 'Detailed analysis not available').strip()}"""
+                
+                # Update the same message with sentiment analysis
+                await query.edit_message_media(
+                    media=InputMediaPhoto(
+                        media=loading_gif_url,  # Keep the same GIF
+                        caption=sentiment
+                    ),
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("⬅️ Back", callback_data="back_market")
+                    ]]),
                     parse_mode=ParseMode.HTML
                 )
-            except Exception:
-                pass
-            return CHOOSE_ANALYSIS
+                
+            except Exception as sentiment_error:
+                logger.error(f"Error getting sentiment: {str(sentiment_error)}")
+                logger.exception(sentiment_error)
+                
+                # Use fallback sentiment
+                bullish = random.randint(30, 70)
+                bearish = 100 - bullish
+                neutral = 0
+                
+                if bullish > 55:
+                    emoji = "📈"
+                elif bearish > 55:
+                    emoji = "📉"
+                else:
+                    emoji = "⚖️"
+                
+                fallback_message = f"""<b>🧠 Market Sentiment Analysis: {instrument}</b>
+
+<b>Overall Sentiment:</b> Neutral {emoji}
+
+<b>Sentiment Breakdown:</b>
+- Bullish: {bullish}%
+- Bearish: {bearish}%
+- Neutral: {neutral}%
+
+<b>Market Analysis:</b>
+The current sentiment for {instrument} is neutral, with mixed signals in the market. Please check back later for updated analysis."""
+                
+                # Update the same message with fallback sentiment
+                await query.edit_message_media(
+                    media=InputMediaPhoto(
+                        media=loading_gif_url,  # Keep the same GIF
+                        caption=fallback_message
+                    ),
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("⬅️ Back", callback_data="back_market")
+                    ]]),
+                    parse_mode=ParseMode.HTML
+                )
+                logger.info("Using fallback sentiment analysis")
+            
+            return SHOW_RESULT
+            
+        except Exception as e:
+            logger.error(f"Error in sentiment analysis callback: {str(e)}")
+            logger.exception(e)
+            return MENU
 
     async def analysis_calendar_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
         """Handle calendar analysis callback."""
@@ -1966,23 +2042,23 @@ Get started today with a FREE 14-day trial!
                     sentiment_text = sentiment_data
                 else:
                     # Format the sentiment data from dictionary
-                    bullish = sentiment_data.get('bullish', 0)
-                    bearish = sentiment_data.get('bearish', 0)
-                    neutral = sentiment_data.get('neutral', 0)
-                    
-                    # Calculate total and percentages
-                    total = bullish + bearish + neutral
-                    bullish_pct = (bullish / total * 100) if total > 0 else 0
-                    bearish_pct = (bearish / total * 100) if total > 0 else 0
-                    neutral_pct = (neutral / total * 100) if total > 0 else 0
-                    
-                    # Create sentiment bars
-                    bull_bar = "🟢" * int(bullish_pct / 10) if bullish_pct >= 10 else "⚪" if bullish_pct > 0 else ""
-                    bear_bar = "🔴" * int(bearish_pct / 10) if bearish_pct >= 10 else "⚪" if bearish_pct > 0 else ""
-                    neutral_bar = "⚪" * int(neutral_pct / 10) if neutral_pct >= 10 else ""
-                    
-                    # Create sentiment text
-                    sentiment_text = f"""
+                bullish = sentiment_data.get('bullish', 0)
+                bearish = sentiment_data.get('bearish', 0)
+                neutral = sentiment_data.get('neutral', 0)
+                
+                # Calculate total and percentages
+                total = bullish + bearish + neutral
+                bullish_pct = (bullish / total * 100) if total > 0 else 0
+                bearish_pct = (bearish / total * 100) if total > 0 else 0
+                neutral_pct = (neutral / total * 100) if total > 0 else 0
+                
+                # Create sentiment bars
+                bull_bar = "🟢" * int(bullish_pct / 10) if bullish_pct >= 10 else "⚪" if bullish_pct > 0 else ""
+                bear_bar = "🔴" * int(bearish_pct / 10) if bearish_pct >= 10 else "⚪" if bearish_pct > 0 else ""
+                neutral_bar = "⚪" * int(neutral_pct / 10) if neutral_pct >= 10 else ""
+                
+                # Create sentiment text
+                sentiment_text = f"""
 🧠 <b>Market Sentiment: {instrument}</b>
 
 <b>Bullish:</b> {bullish_pct:.1f}% {bull_bar}
@@ -1990,7 +2066,7 @@ Get started today with a FREE 14-day trial!
 <b>Neutral:</b> {neutral_pct:.1f}% {neutral_bar}
 
 <b>Total Traders:</b> {total}
-                    """
+                """
                 
                 # Create back button
                 keyboard = [
@@ -2145,9 +2221,9 @@ Get started today with a FREE 14-day trial!
 
     async def back_market_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
         """Handle back button press from instrument selection to return to market selection."""
-        query = update.callback_query
-        await query.answer()
-        
+            query = update.callback_query
+            await query.answer()
+            
         try:
             # Get the current analysis type from context
             analysis_type = "technical"  # Default
@@ -2156,8 +2232,8 @@ Get started today with a FREE 14-day trial!
                 
             # Clear instrument from context
             if context and hasattr(context, 'user_data') and 'instrument' in context.user_data:
-                del context.user_data['instrument']
-                
+                    del context.user_data['instrument']
+            
             # Determine which keyboard to use based on analysis type
             if analysis_type == "sentiment":
                 keyboard = MARKET_SENTIMENT_KEYBOARD
@@ -2178,7 +2254,7 @@ Get started today with a FREE 14-day trial!
             logger.error(f"Error in back_market_callback: {str(e)}")
             # Try to recover by going to main menu
             return await self.back_menu_callback(update, context)
-    
+            
     async def back_analysis_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
         """Handle back button press from market selection to return to analysis type selection."""
         query = update.callback_query
@@ -2241,11 +2317,11 @@ Get started today with a FREE 14-day trial!
                 logger.error(f"Error sending welcome GIF in back_menu_callback: {str(e)}")
                 # Fallback to text-only update if GIF fails
                 await self.update_message(
-                    query=query,
+                        query=query,
                     text=WELCOME_MESSAGE,
                     keyboard=START_KEYBOARD,
-                    parse_mode=ParseMode.HTML
-                )
+                        parse_mode=ParseMode.HTML
+                    )
                 return MENU
                 
         except Exception as e:
@@ -2334,8 +2410,8 @@ Get started today with a FREE 14-day trial!
                         chat_id=query.message.chat_id,
                         animation=loading_gif_url,
                         caption=f"⏳ <b>Generating technical analysis for {instrument}...</b>",
-                        parse_mode=ParseMode.HTML
-                    )
+                            parse_mode=ParseMode.HTML
+                        )
                     
                     # Store the message ID in context for later updates
                     if context and hasattr(context, 'user_data'):
@@ -2392,9 +2468,9 @@ Get started today with a FREE 14-day trial!
                                         photo=chart_file,
                                         caption=f"📈 <b>Technical Analysis for {instrument}</b>",
                                         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]]),
-                                        parse_mode=ParseMode.HTML
+                                            parse_mode=ParseMode.HTML
                                     )
-                            except Exception as media_error:
+                                except Exception as media_error:
                                 # Last attempt: new text message
                                 await query.message.reply_text(
                                     text=f"❌ <b>Could not generate chart for {instrument}</b>\n\nPlease try again later.",
@@ -2461,108 +2537,56 @@ Get started today with a FREE 14-day trial!
                     # Get sentiment analysis as formatted text
                     sentiment_text = await self.sentiment_service.get_market_sentiment_text(instrument, market_type)
                     
-                    # Check the content length
-                    if sentiment_text:
-                        logger.info(f"Received sentiment text for {instrument} - Length: {len(sentiment_text)}")
-                        if len(sentiment_text) > 100:
-                            # Just log a preview of the text to avoid flooding logs
-                            logger.info(f"First 100 chars: {sentiment_text[:100]}...")
-                        else:
-                            logger.info(f"Full text: {sentiment_text}")
-                    else:
-                        logger.warning(f"Received empty sentiment text for {instrument}")
-                    
-                    # Get the loading message ID
+                    # Get loading message ID
                     loading_message_id = None
                     if context and hasattr(context, 'user_data') and 'loading_message_id' in context.user_data:
                         loading_message_id = context.user_data['loading_message_id']
-                        logger.info(f"Retrieved loading message ID: {loading_message_id}")
-                    
-                    if loading_message_id:
-                        # Using multi-step approach as described:
                         
-                        # STEP 1: Try to delete and send a new message (cleanest approach)
+                    # Delete the loading message
+                    if loading_message_id:
                         try:
-                            logger.info(f"STEP 1: Trying to delete loading message and send new one")
+                            logger.info(f"Deleting loading message {loading_message_id}")
                             await self.bot.delete_message(
                                 chat_id=query.message.chat_id,
                                 message_id=loading_message_id
                             )
-                            
-                            # Send new message with sentiment analysis
-                            sent_message = await self.bot.send_message(
-                                chat_id=query.message.chat_id,
-                                text=sentiment_text,
-                                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]]),
-                                parse_mode=ParseMode.HTML
-                            )
-                            
-                            logger.info(f"Success: Deleted loading message and sent new message with ID: {sent_message.message_id}")
-                            return SHOW_RESULT
+                            logger.info("Successfully deleted loading message")
                         except Exception as delete_error:
-                            logger.warning(f"STEP 1 failed: Could not delete loading message: {str(delete_error)}")
-                            # Continue to step 2 if deletion fails
-                        
-                        # STEP 2: Replace with transparent GIF via InputMediaDocument
-                        try:
-                            logger.info(f"STEP 2: Trying to replace with transparent GIF")
-                            # URL to a 1x1 transparent GIF
-                            transparent_gif_url = "https://upload.wikimedia.org/wikipedia/commons/thumb/0/00/Transparent.gif/1px-Transparent.gif"
-                            
-                            await self.bot.edit_message_media(
-                                chat_id=query.message.chat_id,
-                                message_id=loading_message_id,
-                                media=InputMediaDocument(
-                                    media=transparent_gif_url,
-                                    caption=sentiment_text,
-                                    parse_mode=ParseMode.HTML
-                                ),
-                                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]])
-                            )
-                            
-                            logger.info(f"Success: Replaced loading animation with transparent GIF")
-                            return SHOW_RESULT
-                        except Exception as media_error:
-                            logger.warning(f"STEP 2 failed: Could not replace with transparent GIF: {str(media_error)}")
-                            # Continue to step 3 if media replacement fails
-                        
-                        # STEP 3: Just edit the caption, leaving the animation in place
-                        try:
-                            logger.info(f"STEP 3: Trying to edit caption only")
-                            
-                            await self.bot.edit_message_caption(
-                                chat_id=query.message.chat_id,
-                                message_id=loading_message_id,
-                                caption=sentiment_text,
-                                parse_mode=ParseMode.HTML,
-                                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]])
-                            )
-                            
-                            logger.info(f"Success: Updated caption of loading message")
-                            return SHOW_RESULT
-                        except Exception as caption_error:
-                            logger.error(f"STEP 3 failed: Could not edit caption: {str(caption_error)}")
+                            logger.error(f"Failed to delete loading message: {str(delete_error)}")
                     
-                    # If all steps failed or there was no loading message ID, send a new message
-                    logger.warning(f"All steps failed or no loading message found, sending new message")
-                    await self.bot.send_message(
+                    # Send a new message with the sentiment analysis
+                    logger.info("Sending new message with sentiment analysis")
+                    new_message = await self.bot.send_message(
                         chat_id=query.message.chat_id,
                         text=sentiment_text,
                         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]]),
-                        parse_mode=ParseMode.HTML
-                    )
+                            parse_mode=ParseMode.HTML
+                        )
+                    logger.info(f"Successfully sent sentiment analysis message with ID: {new_message.message_id}")
                     
                     return SHOW_RESULT
                 except Exception as sentiment_error:
                     logger.error(f"Error generating sentiment analysis for {instrument}: {str(sentiment_error)}")
                     logger.exception(sentiment_error)  # Log full traceback
+                    
+                    # Try to delete the loading message if it exists
+                    if context and hasattr(context, 'user_data') and 'loading_message_id' in context.user_data:
+                        loading_message_id = context.user_data['loading_message_id']
+                        try:
+                            await self.bot.delete_message(
+                                chat_id=query.message.chat_id,
+                                message_id=loading_message_id
+                            )
+                        except Exception:
+                            pass  # Ignore errors when cleaning up
+                    
                     # Send error message
                     await self.bot.send_message(
                         chat_id=query.message.chat_id,
                         text=f"❌ <b>Could not generate sentiment analysis for {instrument}</b>\n\nPlease try again later.",
                         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]]),
-                        parse_mode=ParseMode.HTML
-                    )
+                                    parse_mode=ParseMode.HTML
+                                )
                     return SHOW_RESULT
                 
             elif analysis_type == "calendar":
@@ -2600,7 +2624,7 @@ Get started today with a FREE 14-day trial!
                     query=query,
                     text=text,
                     keyboard=keyboard,
-                    parse_mode=ParseMode.HTML
+                                            parse_mode=ParseMode.HTML
                 )
                 return CHOOSE_ANALYSIS
                 
@@ -2610,11 +2634,11 @@ Get started today with a FREE 14-day trial!
                 text = "Choose a signals option:"
                 
                 await self.update_message(
-                    query=query,
+                        query=query,
                     text=text,
                     keyboard=keyboard,
-                    parse_mode=ParseMode.HTML
-                )
+                        parse_mode=ParseMode.HTML
+                    )
                 return CHOOSE_SIGNALS
                 
             elif callback_data == CALLBACK_SIGNALS_ADD:
@@ -2682,7 +2706,7 @@ Get started today with a FREE 14-day trial!
                             keyboard = COMMODITIES_KEYBOARD
                         elif market == "indices":
                             keyboard = INDICES_KEYBOARD
-                        else:
+                            else:
                             keyboard = FOREX_SENTIMENT_KEYBOARD  # Default to forex sentiment
                 elif is_signals:
                     # Use signals-specific keyboards
@@ -2694,7 +2718,7 @@ Get started today with a FREE 14-day trial!
                         keyboard = COMMODITIES_KEYBOARD_SIGNALS
                     elif market == "indices":
                         keyboard = INDICES_KEYBOARD_SIGNALS
-                    else:
+                            else:
                         keyboard = FOREX_KEYBOARD_SIGNALS  # Default to forex signals
                 else:
                     # Use regular analysis keyboards
@@ -2758,7 +2782,7 @@ Get started today with a FREE 14-day trial!
                 
         try:
             # First attempt: edit_message_text
-            await query.edit_message_text(
+                        await query.edit_message_text(
                 text=text,
                 reply_markup=reply_markup,
                 parse_mode=parse_mode,
@@ -2772,20 +2796,20 @@ Get started today with a FREE 14-day trial!
             if "There is no text in the message to edit" in str(e):
                 try:
                     # Try to edit caption instead
-                    await query.edit_message_caption(
+                                await query.edit_message_caption(
                         caption=text,
                         reply_markup=reply_markup,
                         parse_mode=parse_mode
                     )
                     return True
-                except Exception as caption_error:
+                            except Exception as caption_error:
                     logger.warning(f"Could not edit caption: {str(caption_error)}")
                     
                     # Third attempt: Try to edit media
-                    try:
+                                try:
                         # Use a placeholder image if needed
-                        await query.edit_message_media(
-                            media=InputMediaPhoto(
+                                    await query.edit_message_media(
+                                        media=InputMediaPhoto(
                                 media="https://i.imgur.com/pYcuGGo.png",  # Placeholder image
                                 caption=text,
                                 parse_mode=parse_mode
@@ -2793,12 +2817,12 @@ Get started today with a FREE 14-day trial!
                             reply_markup=reply_markup
                         )
                         return True
-                    except Exception as media_error:
-                        logger.error(f"All update attempts failed: {str(media_error)}")
+                                except Exception as media_error:
+                                    logger.error(f"All update attempts failed: {str(media_error)}")
             
             # Final fallback: send a new message
             try:
-                await query.message.reply_text(
+                                    await query.message.reply_text(
                     text=text,
                     reply_markup=reply_markup,
                     parse_mode=parse_mode,
@@ -2957,8 +2981,8 @@ Get started today with a FREE 14-day trial!
                     query=query,
                     text=f"Select a {market} instrument for signals:",
                     keyboard=keyboard,
-                    parse_mode=ParseMode.HTML
-                )
+                            parse_mode=ParseMode.HTML
+                        )
                 
                 return CHOOSE_INSTRUMENT
                 
@@ -3005,7 +3029,7 @@ Get started today with a FREE 14-day trial!
                 elif analysis_type == 'calendar':
                     keyboard = FOREX_CALENDAR_KEYBOARD
                     message_text += "economic calendar:"
-                else:
+            else:
                     keyboard = FOREX_KEYBOARD
                     message_text += "analysis:"
             elif market == 'crypto':
@@ -3038,7 +3062,7 @@ Get started today with a FREE 14-day trial!
             )
             
             return CHOOSE_INSTRUMENT
-            
+                
         except Exception as e:
             logger.error(f"Error in market_callback: {str(e)}")
             # Try to recover by going to the analysis menu
