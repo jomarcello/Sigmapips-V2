@@ -2248,240 +2248,69 @@ Get started today with a FREE 14-day trial!
             return await self.back_menu_callback(update, context)
             
     async def instrument_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
-        """Handle instrument selection callback."""
+        """Handle instrument selection"""
         query = update.callback_query
         await query.answer()
         
         try:
-            # Extract the instrument and analysis type from the callback data
-            # Format: instrument_EURUSD_chart or instrument_BTCUSD_sentiment etc.
+            # Get callback data and analysis type
             callback_data = query.data
-            parts = callback_data.split("_")
+            analysis_type = context.user_data.get('analysis_type', 'technical') if context and hasattr(context, 'user_data') else 'technical'
             
-            # Need at least 3 parts: instrument_ + symbol + analysis_type
-            if len(parts) < 3:
-                logger.warning(f"Invalid instrument callback data: {callback_data}")
-                return await self.back_market_callback(update, context)
-                
-            instrument = parts[1]
-            analysis_type = parts[2] if len(parts) > 2 else "chart"  # Default to chart
+            # Extract instrument from callback
+            instrument = callback_data.replace('instrument_', '')
             
-            # Store the instrument in context for later use
+            # Store the selected instrument
             if context and hasattr(context, 'user_data'):
                 context.user_data['instrument'] = instrument
-                
-            # The analysis type should already be set, but ensure it is
-            if context and hasattr(context, 'user_data') and 'analysis_type' not in context.user_data:
-                context.user_data['analysis_type'] = analysis_type
-                
-            # Determine which type of analysis to perform
-            if analysis_type == "chart" or analysis_type == "technical":
-                # Get the loading gif
-                loading_gif_url = await get_loading_gif()
-                
-                try:
-                    # Try deleting the previous message and send a new GIF
-                    # This is more reliable than editing with animation
-                    await query.message.delete()
-                    
-                    # Send a new GIF that will autoplay
-                    sent_message = await self.bot.send_animation(
-                        chat_id=query.message.chat_id,
-                        animation=loading_gif_url,
-                        caption=f"⏳ <b>Generating technical analysis for {instrument}...</b>",
-                            parse_mode=ParseMode.HTML
-                        )
-                    
-                    # Store the message ID in context for later updates
-                    if context and hasattr(context, 'user_data'):
-                        context.user_data['loading_message_id'] = sent_message.message_id
-                        
-                except Exception as e:
-                    logger.error(f"Error sending loading animation: {str(e)}")
-                    # If we couldn't send animation, try with regular message
-                    sent_message = await self.bot.send_message(
-                        chat_id=query.message.chat_id,
-                        text=f"⏳ <b>Generating technical analysis for {instrument}...</b>",
-                        parse_mode=ParseMode.HTML
-                    )
-                    
-                    # Store the message ID in context
-                    if context and hasattr(context, 'user_data'):
-                        context.user_data['loading_message_id'] = sent_message.message_id
-                
-                # Now generate the chart asynchronously
-                try:
-                    # Get chart
-                    chart_path = await self.chart_service.get_technical_chart(instrument)
-                    
-                    # Check if we have a loading message ID stored
-                    message_id_to_update = None
-                    if context and hasattr(context, 'user_data') and 'loading_message_id' in context.user_data:
-                        message_id_to_update = context.user_data['loading_message_id']
-                        
-                    if message_id_to_update and chart_path:
-                        # Update the loading message with the actual chart
-                        try:
-                            # Delete the loading message
-                            await self.bot.delete_message(
-                                chat_id=query.message.chat_id,
-                                message_id=message_id_to_update
-                            )
-                            
-                            # Send the new message with the chart
-                            with open(chart_path, 'rb') as chart_file:
-                                await self.bot.send_photo(
-                                    chat_id=query.message.chat_id,
-                                    photo=chart_file,
-                                    caption=f"📈 <b>Technical Analysis for {instrument}</b>",
-                                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]]),
-                                    parse_mode=ParseMode.HTML
-                                )
-                        except Exception as update_error:
-                            logger.error(f"Error updating with chart: {str(update_error)}")
-                            # Try sending as a new message if update fails
-                            try:
-                                with open(chart_path, 'rb') as chart_file:
-                                    await self.bot.send_photo(
-                                        chat_id=query.message.chat_id,
-                                        photo=chart_file,
-                                        caption=f"📈 <b>Technical Analysis for {instrument}</b>",
-                                        parse_mode=ParseMode.HTML
-                                    )
-                            except Exception as media_error:
-                                # Last attempt: new text message
-                                await query.message.reply_text(
-                                    text=f"❌ <b>Could not generate chart for {instrument}</b>\n\nPlease try again later.",
-                                    parse_mode=ParseMode.HTML
-                                )
-                    
-                    return SHOW_RESULT
-                except Exception as chart_error:
-                    logger.error(f"Error generating chart for {instrument}: {str(chart_error)}")
-                    # Send error message
-                    await self.bot.send_message(
-                        chat_id=query.message.chat_id,
-                        text=f"❌ <b>Could not generate chart for {instrument}</b>\n\nPlease try again later.",
-                        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]]),
-                        parse_mode=ParseMode.HTML
-                    )
-                    return SHOW_RESULT
             
-            elif analysis_type == "sentiment":
-                # Get the loading gif
-                loading_gif_url = await get_loading_gif()
+            # Handle different analysis types
+            if analysis_type == 'technical':
+                # For technical analysis, format the TradingView URL
+                await self._handle_technical_analysis(query, instrument)
+                return SHOW_RESULT
                 
-                try:
-                    # Try deleting the previous message and send a new GIF
-                    await query.message.delete()
-                    
-                    # Send a new GIF that will autoplay
-                    sent_message = await self.bot.send_animation(
-                        chat_id=query.message.chat_id,
-                        animation=loading_gif_url,
-                        caption=f"⏳ <b>Generating sentiment analysis for {instrument}...</b>",
-                        parse_mode=ParseMode.HTML
-                    )
-                    
-                    # Store the message ID in context for later updates
-                    if context and hasattr(context, 'user_data'):
-                        context.user_data['loading_message_id'] = sent_message.message_id
-                        logger.info(f"Stored loading message ID: {sent_message.message_id} for {instrument} sentiment analysis")
-                        
-                except Exception as e:
-                    logger.error(f"Error sending loading animation: {str(e)}")
-                    # If we couldn't send animation, try with regular message
-                    sent_message = await self.bot.send_message(
-                        chat_id=query.message.chat_id,
-                        text=f"⏳ <b>Generating sentiment analysis for {instrument}...</b>",
-                        parse_mode=ParseMode.HTML
-                    )
-                    
-                    # Store the message ID in context
-                    if context and hasattr(context, 'user_data'):
-                        context.user_data['loading_message_id'] = sent_message.message_id
-                        logger.info(f"Stored loading message ID (from text): {sent_message.message_id} for {instrument} sentiment analysis")
+            elif analysis_type == 'sentiment':
+                # For sentiment analysis, show loading and trigger sentiment callback
+                loading_message = await query.message.reply_animation(
+                    animation="https://media.giphy.com/media/3oEjI6SIIHBdRxXI40/giphy.gif",
+                    caption=f"⏳ Generating sentiment analysis for {instrument}..."
+                )
                 
-                # Now generate the sentiment analysis
-                try:
-                    # Get market type if available in context
-                    market_type = None
-                    if context and hasattr(context, 'user_data'):
-                        market_type = context.user_data.get('market')
-                    
-                    logger.info(f"Getting sentiment analysis for {instrument} (market: {market_type})")
-                    
-                    # Get sentiment analysis as formatted text
-                    sentiment_text = await self.sentiment_service.get_market_sentiment_text(instrument, market_type)
-                    
-                    # Get loading message ID
-                    loading_message_id = None
-                    if context and hasattr(context, 'user_data') and 'loading_message_id' in context.user_data:
-                        loading_message_id = context.user_data['loading_message_id']
-                        
-                    # Delete the loading message
-                    if loading_message_id:
-                        try:
-                            logger.info(f"Deleting loading message {loading_message_id}")
-                            await self.bot.delete_message(
-                                chat_id=query.message.chat_id,
-                                message_id=loading_message_id
-                            )
-                            logger.info("Successfully deleted loading message")
-                        except Exception as delete_error:
-                            logger.error(f"Failed to delete loading message: {str(delete_error)}")
-                    
-                    # Send a new message with the sentiment analysis
-                    logger.info("Sending new message with sentiment analysis")
-                    new_message = await self.bot.send_message(
-                        chat_id=query.message.chat_id,
-                        text=sentiment_text,
-                        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]]),
-                            parse_mode=ParseMode.HTML
+                # Store the loading message ID for later deletion
+                if context and hasattr(context, 'user_data'):
+                    context.user_data['loading_message_id'] = loading_message.message_id
+                
+                # Trigger sentiment analysis
+                await self.direct_sentiment_callback(
+                    Update(
+                        update_id=update.update_id,
+                        callback_query=CallbackQuery(
+                            id=query.id,
+                            from_user=query.from_user,
+                            chat_instance=query.chat_instance,
+                            data=f"direct_sentiment_{instrument}",
+                            message=loading_message
                         )
-                    logger.info(f"Successfully sent sentiment analysis message with ID: {new_message.message_id}")
-                    
-                    return SHOW_RESULT
-                except Exception as sentiment_error:
-                    logger.error(f"Error generating sentiment analysis for {instrument}: {str(sentiment_error)}")
-                    logger.exception(sentiment_error)  # Log full traceback
-                    
-                    # Try to delete the loading message if it exists
-                    if context and hasattr(context, 'user_data') and 'loading_message_id' in context.user_data:
-                        loading_message_id = context.user_data['loading_message_id']
-                        try:
-                            await self.bot.delete_message(
-                                chat_id=query.message.chat_id,
-                                message_id=loading_message_id
-                            )
-                        except Exception:
-                            pass  # Ignore errors when cleaning up
-                    
-                    # Send error message
-                    await self.bot.send_message(
-                        chat_id=query.message.chat_id,
-                        text=f"❌ <b>Could not generate sentiment analysis for {instrument}</b>\n\nPlease try again later.",
-                        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]]),
-                                    parse_mode=ParseMode.HTML
-                                )
-                    return SHOW_RESULT
+                    ),
+                    context
+                )
+                return SHOW_RESULT
                 
-            elif analysis_type == "calendar":
-                # Handle calendar analysis
-                # Logic similar to sentiment but with calendar service
-                # This would be implemented in future updates
-                logger.warning(f"Calendar analysis not fully implemented for {instrument}")
-                return await self.back_market_callback(update, context)
-            
+            elif analysis_type == 'calendar':
+                # For calendar analysis, show economic calendar
+                await self._handle_calendar_analysis(query, instrument)
+                return SHOW_RESULT
+                
             else:
-                logger.warning(f"Unknown analysis type: {analysis_type}")
-                return await self.back_market_callback(update, context)
+                logger.error(f"Unknown analysis type: {analysis_type}")
+                return MENU
                 
         except Exception as e:
-            logger.error(f"Error in instrument_callback: {str(e)}")
-            # Try to recover by returning to market selection
-            return await self.back_market_callback(update, context)
-            
+            logger.error(f"Error in instrument callback: {str(e)}")
+            logger.exception(e)
+            return MENU
+
     async def button_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
         """General callback handler for buttons that don't have specific handlers."""
         query = update.callback_query
@@ -3011,11 +2840,16 @@ The overall sentiment for {instrument} is {overall_sentiment} with {strength} co
 
                 # Get the market from the instrument
                 market = self._detect_market(instrument)
-                
-                # Create back button that goes to instrument selection
                 back_data = f"market_{market}"
-                
-                await query.edit_message_text(
+
+                # Delete the loading message
+                try:
+                    await query.message.delete()
+                except Exception as delete_error:
+                    logger.warning(f"Could not delete loading message: {str(delete_error)}")
+
+                # Send new message with sentiment analysis
+                await query.message.reply_text(
                     text=message,
                     reply_markup=InlineKeyboardMarkup([[
                         InlineKeyboardButton("⬅️ Back", callback_data=back_data)
@@ -3030,6 +2864,12 @@ The overall sentiment for {instrument} is {overall_sentiment} with {strength} co
                 market = self._detect_market(instrument)
                 back_data = f"market_{market}"
                 
+                # Delete the loading message
+                try:
+                    await query.message.delete()
+                except Exception as delete_error:
+                    logger.warning(f"Could not delete loading message: {str(delete_error)}")
+
                 # Fallback message
                 fallback_message = f"""<b>📊 Sentiment Analysis for {instrument}</b>
 
@@ -3039,8 +2879,9 @@ The overall sentiment for {instrument} is {overall_sentiment} with {strength} co
 
 <b>Market Analysis:</b>
 The current sentiment for {instrument} is neutral, with mixed signals in the market. Please check back later for updated analysis."""
-                
-                await query.edit_message_text(
+
+                # Send new message with fallback analysis
+                await query.message.reply_text(
                     text=fallback_message,
                     reply_markup=InlineKeyboardMarkup([[
                         InlineKeyboardButton("⬅️ Back", callback_data=back_data)
