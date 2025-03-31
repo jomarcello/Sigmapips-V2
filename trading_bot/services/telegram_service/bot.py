@@ -2465,14 +2465,12 @@ The current sentiment for {instrument} is neutral, with mixed signals in the mar
                                         chat_id=query.message.chat_id,
                                         photo=chart_file,
                                         caption=f"📈 <b>Technical Analysis for {instrument}</b>",
-                                        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]]),
-                                            parse_mode=ParseMode.HTML
+                                        parse_mode=ParseMode.HTML
                                     )
-                                except Exception as media_error:
+                            except Exception as media_error:
                                 # Last attempt: new text message
                                 await query.message.reply_text(
                                     text=f"❌ <b>Could not generate chart for {instrument}</b>\n\nPlease try again later.",
-                                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]]),
                                     parse_mode=ParseMode.HTML
                                 )
                     
