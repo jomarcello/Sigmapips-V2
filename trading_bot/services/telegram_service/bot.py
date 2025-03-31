@@ -1952,29 +1952,34 @@ Get started today with a FREE 14-day trial!
             # Get the sentiment analysis
             try:
                 # Use the sentiment service to get the analysis
-                sentiment_data = await self.sentiment_service.get_market_sentiment(instrument)
+                sentiment_data = await self.sentiment_service.get_market_sentiment_text(instrument)
                 
                 if not sentiment_data:
                     raise ValueError(f"No sentiment data available for {instrument}")
                 
-                # Format the sentiment data
-                bullish = sentiment_data.get('bullish', 0)
-                bearish = sentiment_data.get('bearish', 0)
-                neutral = sentiment_data.get('neutral', 0)
-                
-                # Calculate total and percentages
-                total = bullish + bearish + neutral
-                bullish_pct = (bullish / total * 100) if total > 0 else 0
-                bearish_pct = (bearish / total * 100) if total > 0 else 0
-                neutral_pct = (neutral / total * 100) if total > 0 else 0
-                
-                # Create sentiment bars
-                bull_bar = "🟢" * int(bullish_pct / 10) if bullish_pct >= 10 else "⚪" if bullish_pct > 0 else ""
-                bear_bar = "🔴" * int(bearish_pct / 10) if bearish_pct >= 10 else "⚪" if bearish_pct > 0 else ""
-                neutral_bar = "⚪" * int(neutral_pct / 10) if neutral_pct >= 10 else ""
-                
-                # Create sentiment text
-                sentiment_text = f"""
+                # Check if we received a string (formatted text) or dictionary
+                if isinstance(sentiment_data, str):
+                    # Direct formatted text - display as is
+                    sentiment_text = sentiment_data
+                else:
+                    # Format the sentiment data from dictionary
+                    bullish = sentiment_data.get('bullish', 0)
+                    bearish = sentiment_data.get('bearish', 0)
+                    neutral = sentiment_data.get('neutral', 0)
+                    
+                    # Calculate total and percentages
+                    total = bullish + bearish + neutral
+                    bullish_pct = (bullish / total * 100) if total > 0 else 0
+                    bearish_pct = (bearish / total * 100) if total > 0 else 0
+                    neutral_pct = (neutral / total * 100) if total > 0 else 0
+                    
+                    # Create sentiment bars
+                    bull_bar = "🟢" * int(bullish_pct / 10) if bullish_pct >= 10 else "⚪" if bullish_pct > 0 else ""
+                    bear_bar = "🔴" * int(bearish_pct / 10) if bearish_pct >= 10 else "⚪" if bearish_pct > 0 else ""
+                    neutral_bar = "⚪" * int(neutral_pct / 10) if neutral_pct >= 10 else ""
+                    
+                    # Create sentiment text
+                    sentiment_text = f"""
 🧠 <b>Market Sentiment: {instrument}</b>
 
 <b>Bullish:</b> {bullish_pct:.1f}% {bull_bar}
@@ -1982,7 +1987,7 @@ Get started today with a FREE 14-day trial!
 <b>Neutral:</b> {neutral_pct:.1f}% {neutral_bar}
 
 <b>Total Traders:</b> {total}
-                """
+                    """
                 
                 # Create back button
                 keyboard = [
