@@ -2324,26 +2324,36 @@ The overall sentiment for {instrument} is {overall_sentiment} with {strength} co
             ]
             
             try:
-                # Update the message with the analysis results
-                await query.edit_message_media(
-                    media=InputMediaAnimation(
-                        media="https://media4.giphy.com/media/v1.Y2lkPTc5MGI3NjExeTM5ZDRnNzUwd204cGt5NDE3bXFjdW5lY2hvMG1pYTQ1dWpvYXlqdyZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/dpjUltnOPye7azvAhH/giphy.gif",
-                        caption=message,
-                        parse_mode=ParseMode.HTML
-                    ),
+                # Instead of updating with a GIF, try to send just the text content
+                # This should display the actual sentiment analysis
+                await query.edit_message_text(
+                    text=message,
+                    parse_mode=ParseMode.HTML,
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
-                logger.info(f"Successfully updated sentiment message for {instrument}")
-            except Exception as media_error:
-                logger.warning(f"Could not edit media: {str(media_error)}")
-                # Fallback to just updating the message
-                await self.update_message(
-                    query=query,
-                    text=message,
-                    keyboard=keyboard,
-                    parse_mode=ParseMode.HTML
-                )
-                logger.info(f"Updated sentiment message using fallback method for {instrument}")
+                logger.info(f"Successfully updated sentiment message as text for {instrument}")
+            except Exception as text_error:
+                logger.warning(f"Could not edit message text: {str(text_error)}")
+                
+                # Try to update caption instead
+                try:
+                    await query.edit_message_caption(
+                        caption=message,
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+                    logger.info(f"Successfully updated sentiment message caption for {instrument}")
+                except Exception as caption_error:
+                    logger.warning(f"Could not edit message caption: {str(caption_error)}")
+                    
+                    # Final fallback - try normal update method
+                    await self.update_message(
+                        query=query,
+                        text=message,
+                        keyboard=keyboard,
+                        parse_mode=ParseMode.HTML
+                    )
+                    logger.info(f"Updated sentiment message using fallback method for {instrument}")
             
         except Exception as e:
             logger.error(f"Error in _handle_sentiment_analysis: {str(e)}")
@@ -3128,30 +3138,29 @@ The overall sentiment for {instrument} is {overall_sentiment} with {strength} co
             # Update the message
             success = False
             try:
-                # Try to update with animation (most reliable for consistent UI)
-                if has_animation or has_photo or True:  # Force media path for consistency
-                    await query.edit_message_media(
-                        media=InputMediaAnimation(
-                            media="https://media4.giphy.com/media/v1.Y2lkPTc5MGI3NjExeTM5ZDRnNzUwd204cGt5NDE3bXFjdW5lY2hvMG1pYTQ1dWpvYXlqdyZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/dpjUltnOPye7azvAhH/giphy.gif",
-                            caption=message,
-                            parse_mode=ParseMode.HTML
-                        ),
-                        reply_markup=back_keyboard
-                    )
-                    logger.info(f"Successfully updated sentiment message with media for {instrument}")
-                    success = True
-                else:
-                    # Should never reach here due to 'True' above, but keep as fallback
-                    await query.edit_message_text(
-                        text=message,
+                # First try to update the text content directly
+                await query.edit_message_text(
+                    text=message,
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=back_keyboard
+                )
+                logger.info(f"Successfully updated sentiment message text for {instrument}")
+                success = True
+            except Exception as text_error:
+                logger.warning(f"Failed to edit message text: {str(text_error)}")
+                
+                # If text update failed, try to update caption
+                try:
+                    await query.edit_message_caption(
+                        caption=message,
                         parse_mode=ParseMode.HTML,
                         reply_markup=back_keyboard
                     )
-                    logger.info(f"Successfully updated sentiment message text for {instrument}")
+                    logger.info(f"Successfully updated sentiment message caption for {instrument}")
                     success = True
-            except Exception as media_error:
-                logger.warning(f"Failed to edit message: {str(media_error)}")
-                success = False
+                except Exception as caption_error:
+                    logger.warning(f"Failed to edit message caption: {str(caption_error)}")
+                    success = False
             
             # Only as a last resort, if all other methods failed
             if not success:
