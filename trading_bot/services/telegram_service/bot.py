@@ -1245,6 +1245,64 @@ If you have questions or encounter any issues, please contact our support team.
             text=help_text,
             parse_mode=ParseMode.HTML
         )
+        
+    async def set_subscription_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> None:
+        """Admin command to manually set a user's subscription status."""
+        # Only admins can use this command
+        user_id = update.effective_user.id
+        if not self.admin_users or user_id not in self.admin_users:
+            await update.message.reply_text("You are not authorized to use this command.")
+            return
+            
+        try:
+            # Format: /set_subscription [user_id] [status]
+            args = update.message.text.split()
+            if len(args) != 3:
+                await update.message.reply_text("Usage: /set_subscription [user_id] [true/false]")
+                return
+                
+            target_user_id = int(args[1])
+            subscription_status = args[2].lower() == "true"
+            
+            # Update subscription in database
+            await self.db.set_user_subscription(target_user_id, subscription_status)
+            
+            await update.message.reply_text(
+                f"Subscription status for user {target_user_id} set to: {subscription_status}"
+            )
+            
+        except Exception as e:
+            logger.error(f"Error in set_subscription_command: {str(e)}")
+            await update.message.reply_text(f"Error: {str(e)}")
+    
+    async def set_payment_failed_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> None:
+        """Admin command to manually set a user's payment failure status."""
+        # Only admins can use this command
+        user_id = update.effective_user.id
+        if not self.admin_users or user_id not in self.admin_users:
+            await update.message.reply_text("You are not authorized to use this command.")
+            return
+            
+        try:
+            # Format: /set_payment_failed [user_id] [status]
+            args = update.message.text.split()
+            if len(args) != 3:
+                await update.message.reply_text("Usage: /set_payment_failed [user_id] [true/false]")
+                return
+                
+            target_user_id = int(args[1])
+            payment_failed_status = args[2].lower() == "true"
+            
+            # Update payment failed status in database
+            await self.db.set_payment_failed(target_user_id, payment_failed_status)
+            
+            await update.message.reply_text(
+                f"Payment failed status for user {target_user_id} set to: {payment_failed_status}"
+            )
+            
+        except Exception as e:
+            logger.error(f"Error in set_payment_failed_command: {str(e)}")
+            await update.message.reply_text(f"Error: {str(e)}")
 
     async def show_main_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
         """Show the main menu with options for analysis or signals."""
@@ -2078,744 +2136,244 @@ Get started today with a FREE 14-day trial!
             return await self.back_menu_callback(update, context)
 
     async def back_market_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
-        """Handle the back to market selection button."""
-        try:
-            query = update.callback_query
-            await query.answer()
-            
-            # Clear instrument selection
-            if context and context.user_data:
-                if 'instrument' in context.user_data:
-                    del context.user_data['instrument']
-            
-            # Determine the appropriate keyboard based on analysis type
-            analysis_type = context.user_data.get('analysis_type', 'technical')
-            
-            # Prepare text message
-            message_text = f"📊 <b>Select Market for {analysis_type.title()} Analysis</b>\n\n"
-            message_text += "Choose the market you want to analyze:"
-            
-            # Create keyboard with market options
-            keyboard = [
-                [
-                    InlineKeyboardButton("💵 Forex", callback_data="market_forex"),
-                    InlineKeyboardButton("💰 Crypto", callback_data="market_crypto")
-                ],
-                [
-                    InlineKeyboardButton("📈 Stocks", callback_data="market_stocks"),
-                    InlineKeyboardButton("🛢️ Commodities", callback_data="market_commodities")
-                ],
-                [InlineKeyboardButton("⬅️ Back to Menu", callback_data="back_menu")]
-            ]
-            
-            # Controleer of het huidige bericht media bevat (foto of animatie)
-            has_media = bool(query.message.photo) or query.message.animation is not None
-            
-            if has_media:
-                try:
-                    # Verwijder het huidige bericht met media
-                    await query.message.delete()
-                    
-                    # Get a market analysis GIF voor auto-play
-                    market_gif_url = await get_analyse_gif()
-                    
-                    # Stuur een nieuw animatiebericht dat automatisch afspeelt
-                    await update.effective_chat.send_animation(
-                        animation=market_gif_url,
-                        caption=message_text,
-                        parse_mode=ParseMode.HTML,
-                        reply_markup=InlineKeyboardMarkup(keyboard)
-                    )
-                    
-                    return MARKET_SELECTION
-                except Exception as media_error:
-                    logger.warning(f"Could not handle media in back_market_callback: {str(media_error)}")
-                    # Ga verder met standaard update_message als fallback
-            
-            # Use update_message for robust error handling (fallback)
-            await self.update_message(
-                query=query,
-                text=message_text,
-                keyboard=keyboard,
-                parse_mode=ParseMode.HTML
-            )
-            
-            return MARKET_SELECTION
-        except Exception as e:
-            logger.error(f"Error in back_market_callback: {str(e)}")
-            # Try to recover by returning to main menu
-            return await self.back_menu_callback(update, context)
-            
-    async def instrument_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
-        """Handle instrument selection for all analysis types."""
+        """Handle back button press from instrument selection to return to market selection."""
         query = update.callback_query
         await query.answer()
         
         try:
-            # Extract instrument and analysis type from callback data
-            callback_data = query.data
-            parts = callback_data.split('_')
+            # Get the current analysis type from context
+            analysis_type = "technical"  # Default
+            if context and hasattr(context, 'user_data') and 'analysis_type' in context.user_data:
+                analysis_type = context.user_data['analysis_type']
+                
+            # Clear instrument from context
+            if context and hasattr(context, 'user_data') and 'instrument' in context.user_data:
+                del context.user_data['instrument']
+                
+            # Determine which keyboard to use based on analysis type
+            if analysis_type == "sentiment":
+                keyboard = MARKET_SENTIMENT_KEYBOARD
+            else:
+                keyboard = MARKET_KEYBOARD
+                
+            # Show market selection menu
+            await self.update_message(
+                query=query,
+                text=f"Select a market for {analysis_type} analysis:",
+                keyboard=keyboard,
+                parse_mode=ParseMode.HTML
+            )
             
+            return CHOOSE_MARKET
+            
+        except Exception as e:
+            logger.error(f"Error in back_market_callback: {str(e)}")
+            # Try to recover by going to main menu
+            return await self.back_menu_callback(update, context)
+    
+    async def back_analysis_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
+        """Handle back button press from market selection to return to analysis type selection."""
+        query = update.callback_query
+        await query.answer()
+        
+        try:
+            # Clear market from context if it exists
+            if context and hasattr(context, 'user_data') and 'market' in context.user_data:
+                del context.user_data['market']
+                
+            # Show analysis options menu
+            keyboard = ANALYSIS_KEYBOARD
+            text = "Choose an analysis type:"
+            
+            await self.update_message(
+                query=query,
+                text=text,
+                keyboard=keyboard,
+                parse_mode=ParseMode.HTML
+            )
+            
+            return CHOOSE_ANALYSIS
+            
+        except Exception as e:
+            logger.error(f"Error in back_analysis_callback: {str(e)}")
+            # Try to recover by going to main menu
+            return await self.back_menu_callback(update, context)
+    
+    async def back_menu_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
+        """Handle back button press to return to main menu."""
+        query = update.callback_query
+        await query.answer()
+        
+        try:
+            # Clear all navigation-related user data
+            if context and hasattr(context, 'user_data'):
+                keys_to_clear = ['market', 'instrument', 'analysis_type']
+                for key in keys_to_clear:
+                    if key in context.user_data:
+                        del context.user_data[key]
+                        
+            # Show the main menu with GIF if possible
+            try:
+                # Get welcome GIF
+                gif_url = await get_welcome_gif()
+                
+                # Try to delete the current message and send a new animation
+                await query.message.delete()
+                
+                # Send a new GIF that will autoplay
+                await self.bot.send_animation(
+                    chat_id=query.message.chat_id,
+                    animation=gif_url,
+                    caption=WELCOME_MESSAGE,
+                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
+                    parse_mode=ParseMode.HTML
+                )
+                return MENU
+            except Exception as e:
+                logger.error(f"Error sending welcome GIF in back_menu_callback: {str(e)}")
+                # Fallback to text-only update if GIF fails
+                await self.update_message(
+                    query=query,
+                    text=WELCOME_MESSAGE,
+                    keyboard=START_KEYBOARD,
+                    parse_mode=ParseMode.HTML
+                )
+                return MENU
+                
+        except Exception as e:
+            logger.error(f"Error in back_menu_callback: {str(e)}")
+            # Try to send a new message with the main menu as a last resort
+            try:
+                await query.message.reply_text(
+                    text=WELCOME_MESSAGE,
+                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
+                    parse_mode=ParseMode.HTML
+                )
+            except Exception:
+                pass
+            return MENU
+            
+    async def instrument_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
+        """Handle instrument selection callback."""
+        query = update.callback_query
+        await query.answer()
+        
+        try:
+            # Extract the instrument and analysis type from the callback data
+            # Format: instrument_EURUSD_chart or instrument_BTCUSD_sentiment etc.
+            callback_data = query.data
+            parts = callback_data.split("_")
+            
+            # Need at least 3 parts: instrument_ + symbol + analysis_type
             if len(parts) < 3:
                 logger.warning(f"Invalid instrument callback data: {callback_data}")
-                return await self.back_menu_callback(update, context)
-            
+                return await self.back_market_callback(update, context)
+                
             instrument = parts[1]
-            analysis_type = parts[2]  # 'sentiment', 'chart', 'calendar', etc.
+            analysis_type = parts[2] if len(parts) > 2 else "chart"  # Default to chart
             
-            logger.info(f"Instrument callback: instrument={instrument}, analysis_type={analysis_type}")
-            
-            # Store the instrument in user data
+            # Store the instrument in context for later use
             if context and hasattr(context, 'user_data'):
                 context.user_data['instrument'] = instrument
                 
-                # Make sure the analysis type is also set
-                if 'analysis_type' not in context.user_data:
-                    context.user_data['analysis_type'] = analysis_type
-            
-            # Handle different analysis types
-            if analysis_type == 'sentiment':
-                # STAP 1: Toon loading GIF
-                try:
-                    # Duidelijk signaleren dat we bezig zijn met laden
-                    await query.answer("Loading sentiment analysis...")
-                    
-                    # Werk het bestaande bericht bij met loading GIF
-                    try:
-                        # Gebruik een loading GIF met send_animation om auto-play te garanderen
-                        loading_gif_url = "https://media4.giphy.com/media/v1.Y2lkPTc5MGI3NjExdGh5cm1sNTVvemVqNXphOGw2Y3IwM2R0aHJ1d2h3ZHZ2MTM4b3l4OSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/dpjUltnOPye7azvAhH/giphy.gif"
-                        
-                        # Verwijder het huidige bericht en stuur een nieuw animatiebericht
-                        await query.message.delete()
-                        
-                        # Stuur een nieuw animatiebericht dat automatisch afspeelt
-                        sent_message = await update.effective_chat.send_animation(
-                            animation=loading_gif_url,
-                            caption=f"⏳ <b>Analyzing sentiment for {instrument}...</b>",
-                            parse_mode=ParseMode.HTML
-                        )
-                        
-                        # Sla het message ID op om het later te kunnen updaten
-                        if context and hasattr(context, 'user_data'):
-                            context.user_data['loading_message_id'] = sent_message.message_id
-                            
-                    except Exception as loading_error:
-                        logger.warning(f"Could not show loading GIF with send_animation: {str(loading_error)}")
-                        # Fallback naar edit_message_media
-                        try:
-                            await query.edit_message_media(
-                                media=InputMediaAnimation(
-                                    media=loading_gif_url,
-                                    caption=f"⏳ <b>Analyzing sentiment for {instrument}...</b>",
-                                    parse_mode=ParseMode.HTML
-                                ),
-                                reply_markup=None
-                            )
-                        except Exception as media_error:
-                            logger.warning(f"Could not edit message media: {str(media_error)}")
-                            # Fallback naar tekst-only loading als GIF niet werkt
-                            await self._safe_edit_message(
-                                query=query,
-                                text=f"⏳ <b>Analyzing sentiment for {instrument}...</b>",
-                                reply_markup=None,
-                                parse_mode=ParseMode.HTML
-                            )
-                except Exception as loading_error:
-                    logger.warning(f"Could not show loading indicator: {str(loading_error)}")
+            # The analysis type should already be set, but ensure it is
+            if context and hasattr(context, 'user_data') and 'analysis_type' not in context.user_data:
+                context.user_data['analysis_type'] = analysis_type
                 
-                # STAP 2: Haal sentiment data op
+            # Determine which type of analysis to perform
+            if analysis_type == "chart" or analysis_type == "technical":
+                # Get the loading gif
+                loading_gif_url = await get_loading_gif()
+                
                 try:
-                    sentiment_data = await self.sentiment_service.get_market_sentiment(instrument)
-                    logger.info(f"Got market sentiment data type: {type(sentiment_data)}")
+                    # Try deleting the previous message and send a new GIF
+                    # This is more reliable than editing with animation
+                    await query.message.delete()
                     
-                    # Handle verschillende responsformaten
-                    if isinstance(sentiment_data, str):
-                        # Als we een string krijgen, gebruik deze direct maar verwijder headers
-                        clean_data = sentiment_data
-                        
-                        # Controleer op en verwijder dubbele headers
-                        if "Market Analysis" in clean_data and instrument in clean_data:
-                            lines = clean_data.split('\n')
-                            # Sla de eerste regel over als die de header bevat
-                            if "Market Analysis" in lines[0] and instrument in lines[0]:
-                                clean_data = '\n'.join(lines[1:]).strip()
-                        
-                        sentiment_text = f"""<b>🧠 Market Sentiment Analysis: {instrument}</b>
-
-{clean_data}"""
-                    elif isinstance(sentiment_data, dict):
-                        # Bereken sentiment percentages
-                        bullish_score = sentiment_data.get('bullish_percentage', sentiment_data.get('bullish', 50))
-                        bearish_score = sentiment_data.get('bearish_percentage', sentiment_data.get('bearish', 30))
-                        overall = sentiment_data.get('overall_sentiment', 'neutral').capitalize()
-                        
-                        # Bepaal emoji op basis van sentiment
-                        if overall.lower() == 'bullish':
-                            emoji = "📈"
-                        elif overall.lower() == 'bearish':
-                            emoji = "📉"
-                        else:
-                            emoji = "⚖️"
-                        
-                        # Krijg analyse tekst en verwijder dubbele header
-                        analysis_text = sentiment_data.get('analysis', 'Detailed analysis not available').strip()
-                        
-                        # Controleer op en verwijder dubbele headers in de analyse tekst
-                        if "Market Analysis" in analysis_text and instrument in analysis_text:
-                            lines = analysis_text.split('\n')
-                            # Sla de eerste regel over als die de header bevat
-                            if "Market Analysis" in lines[0] and instrument in lines[0]:
-                                analysis_text = '\n'.join(lines[1:]).strip()
-                        
-                        # Formatteer sentiment bericht
-                        sentiment_text = f"""<b>🧠 Market Sentiment Analysis: {instrument}</b>
-
-<b>Overall Sentiment:</b> {overall} {emoji}
-
-<b>Sentiment Breakdown:</b>
-- Bullish: {bullish_score}%
-- Bearish: {bearish_score}%
-- Trend Strength: {sentiment_data.get('trend_strength', 'Moderate')}
-- Volatility: {sentiment_data.get('volatility', 'Moderate')}
-
-<b>Key Levels:</b>
-- Support: {sentiment_data.get('support_level', 'Not available')}
-- Resistance: {sentiment_data.get('resistance_level', 'Not available')}
-
-<b>Trading Recommendation:</b>
-{sentiment_data.get('recommendation', 'Wait for clearer market signals')}
-
-<b>Analysis:</b>
-{analysis_text}"""
-                    else:
-                        # Afhandelen van onverwachte responsetypes
-                        logger.warning(f"Unexpected sentiment data type: {type(sentiment_data)}")
-                        raise ValueError(f"Unexpected sentiment data type: {type(sentiment_data)}")
+                    # Send a new GIF that will autoplay
+                    sent_message = await self.bot.send_animation(
+                        chat_id=query.message.chat_id,
+                        animation=loading_gif_url,
+                        caption=f"⏳ <b>Generating technical analysis for {instrument}...</b>",
+                        parse_mode=ParseMode.HTML
+                    )
                     
-                    # STAP 3: Gebruik één simpele back knop
-                    back_keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]]
-                    
-                    # Werk hetzelfde bericht bij (100% garantie, geen fallbacks die nieuwe berichten maken)
-                    try:
-                        # Controleer of we een loading_message_id hebben (van een auto-play GIF)
-                        if context and hasattr(context, 'user_data') and 'loading_message_id' in context.user_data:
-                            # Update het loading-GIF bericht met de resultaten
-                            loading_message_id = context.user_data.pop('loading_message_id')
-                            
-                            try:
-                                # Update het bericht met de resultaten
-                                await context.bot.edit_message_caption(
-                                    chat_id=update.effective_chat.id,
-                                    message_id=loading_message_id,
-                                    caption=sentiment_text,
-                                    reply_markup=InlineKeyboardMarkup(back_keyboard),
-                                    parse_mode=ParseMode.HTML
-                                )
-                                return SHOW_RESULT
-                            except Exception as edit_error:
-                                logger.warning(f"Could not edit loading message caption: {str(edit_error)}")
-                                # Ga verder met standaard fallbacks als dit mislukt
+                    # Store the message ID in context for later updates
+                    if context and hasattr(context, 'user_data'):
+                        context.user_data['loading_message_id'] = sent_message.message_id
                         
-                        # Standaard poging: edit_message_text
-                        await query.edit_message_text(
-                            text=sentiment_text,
-                            reply_markup=InlineKeyboardMarkup(back_keyboard),
-                            parse_mode=ParseMode.HTML
-                        )
-                    except Exception as edit_error:
-                        logger.warning(f"Could not edit message text: {str(edit_error)}")
-                        # Tweede poging: edit_message_caption
-                        if "There is no text in the message to edit" in str(edit_error):
-                            try:
-                                await query.edit_message_caption(
-                                    caption=sentiment_text,
-                                    reply_markup=InlineKeyboardMarkup(back_keyboard),
-                                    parse_mode=ParseMode.HTML
-                                )
-                            except Exception as caption_error:
-                                logger.error(f"Could not edit caption either: {str(caption_error)}")
-                                # Laatste optie: media bijwerken
-                                try:
-                                    from telegram import InputMediaPhoto
-                                    await query.edit_message_media(
-                                        media=InputMediaPhoto(
-                                            media="https://i.imgur.com/pYcuGGo.png",  # Placeholder afbeelding
-                                            caption=sentiment_text,
-                                            parse_mode=ParseMode.HTML
-                                        ),
-                                        reply_markup=InlineKeyboardMarkup(back_keyboard)
-                                    )
-                                except Exception as media_error:
-                                    logger.error(f"All update attempts failed: {str(media_error)}")
-                    
-                    return SHOW_RESULT
-                    
                 except Exception as e:
-                    logger.error(f"Error getting sentiment data: {str(e)}")
+                    logger.error(f"Error sending loading animation: {str(e)}")
+                    # If we couldn't send animation, try with regular message
+                    sent_message = await self.bot.send_message(
+                        chat_id=query.message.chat_id,
+                        text=f"⏳ <b>Generating technical analysis for {instrument}...</b>",
+                        parse_mode=ParseMode.HTML
+                    )
                     
-                    # Genereren van een "realistische" maar willekeurige sentiment analyse als fallback
-                    bullish_score = random.randint(40, 60)  # Redelijk neutrale waarden
-                    bearish_score = 100 - bullish_score
-                    
-                    if bullish_score > 50:
-                        sentiment = "Bullish"
-                        emoji = "📈"
-                    elif bullish_score < 50:
-                        sentiment = "Bearish"
-                        emoji = "📉"
-                    else:
-                        sentiment = "Neutral"
-                        emoji = "⚖️"
-                        
-                    # Fallback sentiment message
-                    fallback_text = f"""<b>🧠 Market Sentiment Analysis: {instrument}</b>
-
-<b>Market Overview:</b>
-Current market sentiment for {instrument} appears to be {sentiment.lower()} {emoji}.
-
-<b>Sentiment Indicators:</b>
-- Bullish: {bullish_score}%
-- Bearish: {bearish_score}%
-- Overall: {sentiment}
-
-<b>Note:</b>
-This is a simplified analysis based on available data. For more detailed insights, please check back later or try a different analysis type."""
-                    
-                    # Eén simpele back knop
-                    back_keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]]
-                    
-                    # Werk hetzelfde bericht bij (geen nieuwe berichten)
-                    try:
-                        # Eerste poging: edit_message_text
-                        await query.edit_message_text(
-                            text=fallback_text,
-                            reply_markup=InlineKeyboardMarkup(back_keyboard),
-                            parse_mode=ParseMode.HTML
-                        )
-                    except Exception as edit_error:
-                        # Tweede poging: edit_message_caption
-                        if "There is no text in the message to edit" in str(edit_error):
-                            try:
-                                await query.edit_message_caption(
-                                    caption=fallback_text,
-                                    reply_markup=InlineKeyboardMarkup(back_keyboard),
-                                    parse_mode=ParseMode.HTML
-                                )
-                            except Exception as caption_error:
-                                logger.error(f"Could not edit caption either: {str(caption_error)}")
-                                # Laatste optie: media bijwerken
-                                try:
-                                    from telegram import InputMediaPhoto
-                                    await query.edit_message_media(
-                                        media=InputMediaPhoto(
-                                            media="https://i.imgur.com/pYcuGGo.png",  # Placeholder afbeelding
-                                            caption=fallback_text,
-                                            parse_mode=ParseMode.HTML
-                                        ),
-                                        reply_markup=InlineKeyboardMarkup(back_keyboard)
-                                    )
-                                except Exception as media_error:
-                                    logger.error(f"All update attempts failed: {str(media_error)}")
-                    
-                    return SHOW_RESULT
-            elif analysis_type == 'calendar':
-                # Toon loading indicator en haal kalendergegevens op
-                try:
-                    # Duidelijk signaleren dat we bezig zijn met laden
-                    await query.answer("Loading economic calendar data...")
-                    
-                    # Werk het bestaande bericht bij met loading GIF
-                    try:
-                        # Gebruik een loading GIF met send_animation om auto-play te garanderen
-                        loading_gif_url = "https://media4.giphy.com/media/v1.Y2lkPTc5MGI3NjExdGh5cm1sNTVvemVqNXphOGw2Y3IwM2R0aHJ1d2h3ZHZ2MTM4b3l4OSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/dpjUltnOPye7azvAhH/giphy.gif"
-                        
-                        # Verwijder het huidige bericht en stuur een nieuw animatiebericht
-                        await query.message.delete()
-                        
-                        # Stuur een nieuw animatiebericht dat automatisch afspeelt
-                        sent_message = await update.effective_chat.send_animation(
-                            animation=loading_gif_url,
-                            caption=f"⏳ <b>Loading economic calendar for {instrument}...</b>",
-                            parse_mode=ParseMode.HTML
-                        )
-                        
-                        # Sla het message ID op om het later te kunnen updaten
-                        if context and hasattr(context, 'user_data'):
-                            context.user_data['loading_message_id'] = sent_message.message_id
-                    except Exception as loading_error:
-                        logger.warning(f"Could not show loading GIF with send_animation: {str(loading_error)}")
-                        # Fallback naar edit_message_media
-                        try:
-                            await query.edit_message_media(
-                                media=InputMediaAnimation(
-                                    media=loading_gif_url,
-                                    caption=f"⏳ <b>Loading economic calendar for {instrument}...</b>",
-                                    parse_mode=ParseMode.HTML
-                                ),
-                                reply_markup=None
-                            )
-                        except Exception as media_error:
-                            logger.warning(f"Could not edit message media: {str(media_error)}")
-                            # Fallback naar tekst-only loading als GIF niet werkt
-                            await self._safe_edit_message(
-                                query=query,
-                                text=f"⏳ <b>Loading economic calendar for {instrument}...</b>",
-                                reply_markup=None,
-                                parse_mode=ParseMode.HTML
-                            )
-                    
-                    # Gebruik de kalender service om de events op te halen
-                    calendar_data = await self.calendar_service.get_events(instrument)
-                    
-                    if not calendar_data or not calendar_data.get('events'):
-                        raise ValueError(f"No economic events found for {instrument}")
-                    
-                    # Format de kalendergegevens
-                    events = calendar_data.get('events', [])
-                    
-                    # Sorteer events op datum/tijd
-                    events = sorted(events, key=lambda e: e.get('date', ''))
-                    
-                    # Format the calendar text with emoji indicators for importance
-                    calendar_text = f"<b>📅 Economic Calendar: {instrument}</b>\n\n"
-                    
-                    if not events:
-                        calendar_text += "No upcoming economic events found for this instrument.\n"
-                    else:
-                        # Beperken tot maximaal 10 events om Telegram-limieten te respecteren
-                        for event in events[:10]:
-                            # Voeg een emoji toe op basis van het belang
-                            importance = event.get('importance', '').lower()
-                            if importance == 'high':
-                                imp_emoji = "🔴"  # Hoog belang: rood
-                            elif importance == 'medium':
-                                imp_emoji = "🟠"  # Gemiddeld belang: oranje
-                            else:
-                                imp_emoji = "🟢"  # Laag belang: groen
-                                
-                            # Format de datumtijd
-                            date_str = event.get('date', 'TBA')
-                            time_str = event.get('time', '')
-                            if time_str:
-                                datetime_str = f"{date_str} {time_str}"
-                            else:
-                                datetime_str = date_str
-                                
-                            # Haal de titel en land op
-                            title = event.get('title', 'Unknown Event')
-                            country = event.get('country', '')
-                            country_emoji = ""
-                            
-                            # Voeg optioneel land-emoji toe
-                            if country:
-                                # Eenvoudige landcodes naar emoji-mapping
-                                country_map = {
-                                    'us': '🇺🇸', 'usa': '🇺🇸', 'united states': '🇺🇸',
-                                    'eu': '🇪🇺', 'euro': '🇪🇺', 'eurozone': '🇪🇺',
-                                    'uk': '🇬🇧', 'united kingdom': '🇬🇧', 'gb': '🇬🇧',
-                                    'jp': '🇯🇵', 'japan': '🇯🇵',
-                                    'ca': '🇨🇦', 'canada': '🇨🇦',
-                                    'au': '🇦🇺', 'australia': '🇦🇺',
-                                    'ch': '🇨🇭', 'switzerland': '🇨🇭',
-                                    'nz': '🇳🇿', 'new zealand': '🇳🇿'
-                                }
-                                country_lower = country.lower()
-                                country_emoji = country_map.get(country_lower, f"({country}) ")
-                                
-                            # Voeg forecast en previous values toe indien beschikbaar
-                            forecast = event.get('forecast', '')
-                            previous = event.get('previous', '')
-                            impact = event.get('impact', '')
-                            
-                            # Bouw event string op
-                            event_str = f"{imp_emoji} <b>{datetime_str}</b> {country_emoji}\n"
-                            event_str += f"<b>{title}</b>\n"
-                            
-                            if forecast:
-                                event_str += f"Forecast: {forecast}\n"
-                            if previous:
-                                event_str += f"Previous: {previous}\n"
-                            if impact:
-                                event_str += f"Potential Impact: {impact}\n"
-                                
-                            event_str += "\n"  # Lege regel tussen events
-                            
-                            calendar_text += event_str
-                            
-                        if len(events) > 10:
-                            calendar_text += f"\n<i>+ {len(events) - 10} more events not shown</i>\n"
-                            
-                    # Één simpele back knop
-                    back_keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]]
-                    
-                    # Toon de kalender in hetzelfde bericht met directe methodes
-                    try:
-                        # Controleer of we een loading_message_id hebben (van een auto-play GIF)
-                        if context and hasattr(context, 'user_data') and 'loading_message_id' in context.user_data:
-                            # Update het loading-GIF bericht met de resultaten
-                            loading_message_id = context.user_data.pop('loading_message_id')
-                            
-                            try:
-                                # Update het bericht met de resultaten
-                                await context.bot.edit_message_caption(
-                                    chat_id=update.effective_chat.id,
-                                    message_id=loading_message_id,
-                                    caption=calendar_text,
-                                    reply_markup=InlineKeyboardMarkup(back_keyboard),
-                                    parse_mode=ParseMode.HTML
-                                )
-                                return SHOW_RESULT
-                            except Exception as edit_error:
-                                logger.warning(f"Could not edit loading message caption: {str(edit_error)}")
-                                # Ga verder met standaard fallbacks als dit mislukt
-                        
-                        # Eerste poging: edit_message_text
-                        await query.edit_message_text(
-                            text=calendar_text,
-                            reply_markup=InlineKeyboardMarkup(back_keyboard),
-                            parse_mode=ParseMode.HTML
-                        )
-                    except Exception as edit_error:
-                        logger.warning(f"Could not edit message text: {str(edit_error)}")
-                        # Tweede poging: edit_message_caption
-                        if "There is no text in the message to edit" in str(edit_error):
-                            try:
-                                await query.edit_message_caption(
-                                    caption=calendar_text,
-                                    reply_markup=InlineKeyboardMarkup(back_keyboard),
-                                    parse_mode=ParseMode.HTML
-                                )
-                            except Exception as caption_error:
-                                logger.error(f"Could not edit caption either: {str(caption_error)}")
-                                # Laatste optie: media bijwerken
-                                try:
-                                    from telegram import InputMediaPhoto
-                                    await query.edit_message_media(
-                                        media=InputMediaPhoto(
-                                            media="https://i.imgur.com/7eWo6JO.png",  # Kalender placeholder image
-                                            caption=calendar_text,
-                                            parse_mode=ParseMode.HTML
-                                        ),
-                                        reply_markup=InlineKeyboardMarkup(back_keyboard)
-                                    )
-                                except Exception as media_error:
-                                    logger.error(f"All update attempts failed: {str(media_error)}")
-                                    # Allerlaatste poging: nieuw bericht
-                                    await query.message.reply_text(
-                                        text=calendar_text,
-                                        reply_markup=InlineKeyboardMarkup(back_keyboard),
-                                        parse_mode=ParseMode.HTML
-                                    )
-                    
-                    return SHOW_RESULT
-                    
-                except Exception as calendar_error:
-                    logger.error(f"Error getting calendar data for {instrument}: {str(calendar_error)}")
-                    
-                    # Toon foutmelding met directe methodes
-                    error_text = f"❌ <b>Could not load economic calendar for {instrument}</b>\n\nPlease try again later."
-                    back_keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]]
-                    
-                    try:
-                        # Eerste poging: edit_message_text
-                        await query.edit_message_text(
-                            text=error_text,
-                            reply_markup=InlineKeyboardMarkup(back_keyboard),
-                            parse_mode=ParseMode.HTML
-                        )
-                    except Exception as edit_error:
-                        # Tweede poging: edit_message_caption
-                        if "There is no text in the message to edit" in str(edit_error):
-                            try:
-                                await query.edit_message_caption(
-                                    caption=error_text,
-                                    reply_markup=InlineKeyboardMarkup(back_keyboard),
-                                    parse_mode=ParseMode.HTML
-                                )
-                            except Exception as caption_error:
-                                logger.error(f"Could not edit caption either: {str(caption_error)}")
-                                # Laatste optie: media bijwerken
-                                try:
-                                    from telegram import InputMediaPhoto
-                                    await query.edit_message_media(
-                                        media=InputMediaPhoto(
-                                            media="https://i.imgur.com/pYcuGGo.png",  # Error placeholder
-                                            caption=error_text,
-                                            parse_mode=ParseMode.HTML
-                                        ),
-                                        reply_markup=InlineKeyboardMarkup(back_keyboard)
-                                    )
-                                except Exception as media_error:
-                                    # Allerlaatste poging: nieuw bericht
-                                    await query.message.reply_text(
-                                        text=error_text,
-                                        reply_markup=InlineKeyboardMarkup(back_keyboard),
-                                        parse_mode=ParseMode.HTML
-                                    )
-                    
-                    return SHOW_RESULT
+                    # Store the message ID in context
+                    if context and hasattr(context, 'user_data'):
+                        context.user_data['loading_message_id'] = sent_message.message_id
                 
-            elif analysis_type == 'chart':
-                # Direct de chart genereren en tonen
+                # Now generate the chart asynchronously
                 try:
-                    # Duidelijk signaleren dat we bezig zijn met laden
-                    await query.answer("Generating chart...")
+                    # Get chart
+                    chart_path = await self.chart_service.get_technical_chart(instrument)
                     
-                    # Werk het bestaande bericht bij met loading GIF
-                    try:
-                        # Gebruik een loading GIF met send_animation om auto-play te garanderen
-                        loading_gif_url = "https://media4.giphy.com/media/v1.Y2lkPTc5MGI3NjExdGh5cm1sNTVvemVqNXphOGw2Y3IwM2R0aHJ1d2h3ZHZ2MTM4b3l4OSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/dpjUltnOPye7azvAhH/giphy.gif"
+                    # Check if we have a loading message ID stored
+                    message_id_to_update = None
+                    if context and hasattr(context, 'user_data') and 'loading_message_id' in context.user_data:
+                        message_id_to_update = context.user_data['loading_message_id']
                         
-                        # Verwijder het huidige bericht en stuur een nieuw animatiebericht
-                        await query.message.delete()
-                        
-                        # Stuur een nieuw animatiebericht dat automatisch afspeelt
-                        sent_message = await update.effective_chat.send_animation(
-                            animation=loading_gif_url,
-                            caption=f"⏳ <b>Generating chart for {instrument}...</b>",
-                            parse_mode=ParseMode.HTML
-                        )
-                        
-                        # Sla het message ID op om het later te kunnen updaten
-                        if context and hasattr(context, 'user_data'):
-                            context.user_data['loading_message_id'] = sent_message.message_id
-                    except Exception as loading_error:
-                        logger.warning(f"Could not show loading GIF with send_animation: {str(loading_error)}")
-                        # Fallback naar edit_message_media
+                    if message_id_to_update and chart_path:
+                        # Update the loading message with the actual chart
                         try:
-                            await query.edit_message_media(
-                                media=InputMediaAnimation(
-                                    media=loading_gif_url,
-                                    caption=f"⏳ <b>Generating chart for {instrument}...</b>",
-                                    parse_mode=ParseMode.HTML
-                                ),
-                                reply_markup=None
+                            # Delete the loading message
+                            await self.bot.delete_message(
+                                chat_id=query.message.chat_id,
+                                message_id=message_id_to_update
                             )
-                        except Exception as media_error:
-                            logger.warning(f"Could not edit message media: {str(media_error)}")
-                            # Fallback naar tekst-only loading als GIF niet werkt
-                            await self._safe_edit_message(
-                                query=query,
-                                text=f"⏳ <b>Generating chart for {instrument}...</b>",
-                                reply_markup=None,
-                                parse_mode=ParseMode.HTML
-                            )
-                    
-                    # Gebruik de chart service om de chart te genereren
-                    img_path, levels = await self.chart_service.get_chart(instrument)
-                    
-                    if not img_path or not os.path.exists(img_path):
-                        raise FileNotFoundError(f"Chart not found for {instrument}")
-                    
-                    # Format levels info
-                    levels_text = ""
-                    if levels and isinstance(levels, dict):
-                        # Sort levels by price
-                        sorted_levels = sorted(levels.items(), key=lambda x: float(x[1]) if x[1] else 0)
-                        
-                        for level_type, price in sorted_levels:
-                            emoji = "🟢" if level_type.lower() == "support" else "🔴"
-                            levels_text += f"{emoji} {level_type}: {price}\n"
-                    
-                    caption = f"📈 <b>Technical Analysis: {instrument}</b>\n\n"
-                    if levels_text:
-                        caption += f"<b>Key Levels:</b>\n{levels_text}\n"
-                    
-                    # Eén simpele back knop
-                    keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]]
-                    
-                    # Stuur de chart afbeelding met 100% garantie dat het in hetzelfde bericht blijft
-                    try:
-                        # Controleer of we een loading_message_id hebben (van een auto-play GIF)
-                        if context and hasattr(context, 'user_data') and 'loading_message_id' in context.user_data:
-                            # Update het loading-GIF bericht met de chart afbeelding
-                            loading_message_id = context.user_data.pop('loading_message_id')
                             
-                            try:
-                                # Open de afbeelding
-                                with open(img_path, 'rb') as image:
-                                    # Update het bericht met de chart afbeelding
-                                    await context.bot.edit_message_media(
-                                        chat_id=update.effective_chat.id,
-                                        message_id=loading_message_id,
-                                        media=InputMediaPhoto(
-                                            media=image,
-                                            caption=caption,
-                                            parse_mode=ParseMode.HTML
-                                        ),
-                                        reply_markup=InlineKeyboardMarkup(keyboard)
-                                    )
-                                return SHOW_RESULT
-                            except Exception as edit_error:
-                                logger.warning(f"Could not edit loading message media: {str(edit_error)}")
-                                # Ga verder met standaard fallbacks als dit mislukt
-                        
-                        # Open de afbeelding
-                        with open(img_path, 'rb') as image:
-                            # Probeer de media direct bij te werken
-                            await query.edit_message_media(
-                                media=InputMediaPhoto(
-                                    media=image,
-                                    caption=caption,
+                            # Send the new message with the chart
+                            with open(chart_path, 'rb') as chart_file:
+                                await self.bot.send_photo(
+                                    chat_id=query.message.chat_id,
+                                    photo=chart_file,
+                                    caption=f"📈 <b>Technical Analysis for {instrument}</b>",
+                                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]]),
                                     parse_mode=ParseMode.HTML
-                                ),
-                                reply_markup=InlineKeyboardMarkup(keyboard)
-                            )
-                    except Exception as media_error:
-                        logger.error(f"Could not update message media: {str(media_error)}")
-                        # Als laatste poging, stuur een nieuw bericht
-                        with open(img_path, 'rb') as image:
-                            await query.message.reply_photo(
-                                photo=image,
-                                caption=caption,
-                                parse_mode=ParseMode.HTML,
-                                reply_markup=InlineKeyboardMarkup(keyboard)
-                            )
+                                )
+                        except Exception as update_error:
+                            logger.error(f"Error updating with chart: {str(update_error)}")
+                            # Try sending as a new message if update fails
+                            try:
+                                with open(chart_path, 'rb') as chart_file:
+                                    await self.bot.send_photo(
+                                        chat_id=query.message.chat_id,
+                                        photo=chart_file,
+                                        caption=f"📈 <b>Technical Analysis for {instrument}</b>",
+                                        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]]),
+                                        parse_mode=ParseMode.HTML
+                                    )
+                            except Exception as media_error:
+                                # Last attempt: new text message
+                                await query.message.reply_text(
+                                    text=f"❌ <b>Could not generate chart for {instrument}</b>\n\nPlease try again later.",
+                                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]]),
+                                    parse_mode=ParseMode.HTML
+                                )
                     
                     return SHOW_RESULT
                 except Exception as chart_error:
                     logger.error(f"Error generating chart for {instrument}: {str(chart_error)}")
-                    
-                    # Toon foutmelding met één simpele back knop
-                    try:
-                        # Eerste poging: edit_message_text
-                        await query.edit_message_text(
-                            text=f"❌ <b>Could not generate chart for {instrument}</b>\n\nPlease try again later.",
-                            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]]),
-                            parse_mode=ParseMode.HTML
-                        )
-                    except Exception as edit_error:
-                        # Tweede poging: edit_message_caption
-                        if "There is no text in the message to edit" in str(edit_error):
-                            try:
-                                await query.edit_message_caption(
-                                    caption=f"❌ <b>Could not generate chart for {instrument}</b>\n\nPlease try again later.",
-                                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]]),
-                                    parse_mode=ParseMode.HTML
-                                )
-                            except Exception as caption_error:
-                                logger.error(f"Could not edit caption either: {str(caption_error)}")
-                                # Laatste optie: media bijwerken
-                                try:
-                                    from telegram import InputMediaPhoto
-                                    await query.edit_message_media(
-                                        media=InputMediaPhoto(
-                                            media="https://i.imgur.com/pYcuGGo.png",  # Placeholder error image
-                                            caption=f"❌ <b>Could not generate chart for {instrument}</b>\n\nPlease try again later.",
-                                            parse_mode=ParseMode.HTML
-                                        ),
-                                        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]])
-                                    )
-                                except Exception as media_error:
-                                    # Allerlaatste poging: nieuw bericht
-                                    await query.message.reply_text(
-                                        text=f"❌ <b>Could not generate chart for {instrument}</b>\n\nPlease try again later.",
-                                        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]]),
-                                        parse_mode=ParseMode.HTML
-                                    )
-                    
+                    # Send error message
+                    await self.bot.send_message(
+                        chat_id=query.message.chat_id,
+                        text=f"❌ <b>Could not generate chart for {instrument}</b>\n\nPlease try again later.",
+                        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]]),
+                        parse_mode=ParseMode.HTML
+                    )
                     return SHOW_RESULT
-                
             else:
                 logger.warning(f"Unknown analysis type: {analysis_type}")
                 return await self.back_market_callback(update, context)
@@ -2824,3 +2382,118 @@ This is a simplified analysis based on available data. For more detailed insight
             logger.error(f"Error in instrument_callback: {str(e)}")
             # Try to recover by returning to market selection
             return await self.back_market_callback(update, context)
+            
+    async def button_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
+        """General callback handler for buttons that don't have specific handlers."""
+        query = update.callback_query
+        await query.answer()
+        
+        try:
+            callback_data = query.data
+            logger.info(f"Generic button callback handling: {callback_data}")
+            
+            # Check which type of callback this is and route appropriately
+            if callback_data == CALLBACK_MENU_ANALYSE:
+                # Show the analysis options menu
+                keyboard = ANALYSIS_KEYBOARD
+                text = "Choose an analysis type:"
+                
+                await self.update_message(
+                    query=query,
+                    text=text,
+                    keyboard=keyboard,
+                    parse_mode=ParseMode.HTML
+                )
+                return CHOOSE_ANALYSIS
+                
+            elif callback_data == CALLBACK_MENU_SIGNALS:
+                # Show the signals options menu
+                keyboard = SIGNALS_KEYBOARD
+                text = "Choose a signals option:"
+                
+                await self.update_message(
+                    query=query,
+                    text=text,
+                    keyboard=keyboard,
+                    parse_mode=ParseMode.HTML
+                )
+                return CHOOSE_SIGNALS
+                
+            elif callback_data == CALLBACK_SIGNALS_ADD:
+                # Show market selection for adding new signal pairs
+                keyboard = MARKET_KEYBOARD_SIGNALS
+                text = "Select a market for trading signals:"
+                
+                await self.update_message(
+                    query=query,
+                    text=text,
+                    keyboard=keyboard,
+                    parse_mode=ParseMode.HTML
+                )
+                return CHOOSE_MARKET
+                
+            elif callback_data == CALLBACK_SIGNALS_MANAGE:
+                # Show existing signal subscriptions
+                # This would typically show the user's current signal preferences
+                # and allow them to modify or delete them
+                text = "Your current signal subscriptions:"
+                
+                # This is a placeholder - you would normally retrieve the user's preferences here
+                keyboard = [
+                    [InlineKeyboardButton("⬅️ Back to Signals", callback_data=CALLBACK_BACK_SIGNALS)]
+                ]
+                
+                await self.update_message(
+                    query=query,
+                    text=text,
+                    keyboard=keyboard,
+                    parse_mode=ParseMode.HTML
+                )
+                return CHOOSE_SIGNALS
+                
+            elif callback_data.startswith("market_"):
+                # Handle market selection
+                parts = callback_data.split("_")
+                market = parts[1]
+                is_signals = len(parts) > 2 and parts[2] == "signals"
+                is_sentiment = len(parts) > 2 and parts[2] == "sentiment"
+                
+                # Store market in context
+                if context and hasattr(context, 'user_data'):
+                    context.user_data['market'] = market
+                    if is_signals:
+                        context.user_data['is_signals'] = True
+                    if is_sentiment:
+                        context.user_data['is_sentiment'] = True
+                
+                # Show instruments for the selected market
+                if market == "forex":
+                    keyboard = FOREX_KEYBOARD
+                elif market == "crypto":
+                    keyboard = CRYPTO_KEYBOARD
+                elif market == "commodities":
+                    keyboard = COMMODITIES_KEYBOARD
+                elif market == "indices":
+                    keyboard = INDICES_KEYBOARD
+                else:
+                    # Fallback to forex if market not recognized
+                    keyboard = FOREX_KEYBOARD
+                
+                await self.update_message(
+                    query=query,
+                    text=f"Select an instrument from {market.capitalize()}:",
+                    keyboard=keyboard,
+                    parse_mode=ParseMode.HTML
+                )
+                return CHOOSE_INSTRUMENT
+                
+            else:
+                # Unknown callback type
+                logger.warning(f"Unknown callback data: {callback_data}")
+                # Try to go back to the main menu as a fallback
+                return await self.back_menu_callback(update, context)
+                
+        except Exception as e:
+            logger.error(f"Error in button_callback: {str(e)}")
+            # Try to recover by going to main menu
+            return await self.back_menu_callback(update, context)
