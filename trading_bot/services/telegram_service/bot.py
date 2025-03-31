@@ -2131,17 +2131,7 @@ Get started today with a FREE 14-day trial!
             
             # Handle different analysis types
             if analysis_type == 'sentiment':
-                # For sentiment analysis, show loading and trigger sentiment callback
-                loading_message = await query.message.reply_animation(
-                    animation="https://media.giphy.com/media/3oEjI6SIIHBdRxXI40/giphy.gif",
-                    caption=f"⏳ Generating sentiment analysis for {instrument}..."
-                )
-                
-                # Store the loading message ID for later deletion
-                if context and hasattr(context, 'user_data'):
-                    context.user_data['loading_message_id'] = loading_message.message_id
-                
-                # Trigger sentiment analysis immediately
+                # For sentiment analysis, trigger sentiment callback directly
                 await self._handle_sentiment_analysis(query, instrument)
                 return SHOW_RESULT
                 
@@ -2315,17 +2305,14 @@ The overall sentiment for {instrument} is {overall_sentiment} with {strength} co
                 [InlineKeyboardButton("⬅️ Back", callback_data=back_data)]
             ]
             
-            # Try to delete the loading message
-            try:
-                await query.message.delete()
-            except Exception as delete_error:
-                logger.warning(f"Could not delete loading message: {str(delete_error)}")
-            
-            # Send new message with analysis
-            await query.message.reply_text(
-                text=message,
-                reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode=ParseMode.HTML
+            # Update the existing message with sentiment analysis
+            await query.edit_message_media(
+                media=InputMediaAnimation(
+                    media="https://media4.giphy.com/media/v1.Y2lkPTc5MGI3NExeTM5ZDRnNzUwd204cGt5NDE3bXFjdW5lY2hvMG1pYTQ1dWpvYXlqdyZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/dpjUltnOPye7azvAhH/giphy.gif",
+                    caption=message,
+                    parse_mode=ParseMode.HTML
+                ),
+                reply_markup=InlineKeyboardMarkup(keyboard)
             )
             
         except Exception as e:
@@ -2335,26 +2322,11 @@ The overall sentiment for {instrument} is {overall_sentiment} with {strength} co
             market = self._detect_market(instrument)
             back_data = f"market_{market}"
             
-            # Generate fallback analysis
-            fallback_message = f"""<b>📊 Sentiment Analysis for {instrument}</b>
-
-<b>Market Sentiment:</b>
-🟢 Bullish: {random.randint(45, 55)}%
-🔴 Bearish: {random.randint(45, 55)}%
-
-<b>Market Analysis:</b>
-The current sentiment for {instrument} is neutral, with mixed signals in the market. Please check back later for updated analysis."""
-            
-            # Try to delete the loading message
-            try:
-                await query.message.delete()
-            except Exception as delete_error:
-                logger.warning(f"Could not delete loading message: {str(delete_error)}")
-            
-            # Send new message with fallback analysis
-            await query.message.reply_text(
-                text=fallback_message,
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data=back_data)]]),
+            # Show error message
+            await self.update_message(
+                query=query,
+                text=f"❌ Could not generate sentiment analysis for {instrument}.\n\nPlease try again later.",
+                keyboard=[[InlineKeyboardButton("⬅️ Back", callback_data=back_data)]],
                 parse_mode=ParseMode.HTML
             )
 
