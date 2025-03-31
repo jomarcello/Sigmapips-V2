@@ -1619,11 +1619,18 @@ Get started today with a FREE 14-day trial!
                 context.user_data['analysis_type'] = 'technical'
                 context.user_data['current_state'] = CHOOSE_MARKET
             
-            # Show market selection for technical analysis
-            await query.edit_message_text(
-                text="Select a market for technical analysis:",
-                reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
-            )
+            # Try to edit the message first, if it fails send a new message
+            try:
+                await query.edit_message_text(
+                    text="Select a market for technical analysis:",
+                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
+                )
+            except Exception as edit_error:
+                logger.warning(f"Could not edit message: {str(edit_error)}")
+                await query.message.reply_text(
+                    text="Select a market for technical analysis:",
+                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
+                )
             
             return CHOOSE_MARKET
             
@@ -1646,11 +1653,18 @@ Get started today with a FREE 14-day trial!
                 context.user_data['analysis_type'] = 'sentiment'
                 context.user_data['current_state'] = CHOOSE_MARKET
             
-            # Show market selection for sentiment analysis
-            await query.edit_message_text(
-                text="Select a market for sentiment analysis:",
-                reply_markup=InlineKeyboardMarkup(MARKET_SENTIMENT_KEYBOARD)
-            )
+            # Try to edit the message first, if it fails send a new message
+            try:
+                await query.edit_message_text(
+                    text="Select a market for sentiment analysis:",
+                    reply_markup=InlineKeyboardMarkup(MARKET_SENTIMENT_KEYBOARD)
+                )
+            except Exception as edit_error:
+                logger.warning(f"Could not edit message: {str(edit_error)}")
+                await query.message.reply_text(
+                    text="Select a market for sentiment analysis:",
+                    reply_markup=InlineKeyboardMarkup(MARKET_SENTIMENT_KEYBOARD)
+                )
             
             return CHOOSE_MARKET
             
@@ -1673,11 +1687,18 @@ Get started today with a FREE 14-day trial!
                 context.user_data['analysis_type'] = 'calendar'
                 context.user_data['current_state'] = CHOOSE_MARKET
             
-            # Show market selection for calendar analysis
-            await query.edit_message_text(
-                text="Select a market for economic calendar analysis:",
-                reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
-            )
+            # Try to edit the message first, if it fails send a new message
+            try:
+                await query.edit_message_text(
+                    text="Select a market for economic calendar analysis:",
+                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
+                )
+            except Exception as edit_error:
+                logger.warning(f"Could not edit message: {str(edit_error)}")
+                await query.message.reply_text(
+                    text="Select a market for economic calendar analysis:",
+                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
+                )
             
             return CHOOSE_MARKET
             
@@ -2773,32 +2794,30 @@ Get started today with a FREE 14-day trial!
         await query.answer()
         
         try:
-            # Get callback data
-            callback_data = query.data
+            # Extract market and analysis type from callback data
+            market = query.data.split('_')[0]  # forex, crypto, etc.
+            analysis_type = context.user_data.get('analysis_type', 'technical')
             
-            # Extract market and check if this is from sentiment menu
-            if '_sentiment' in callback_data:
-                market = callback_data.replace('market_', '').replace('_sentiment', '')
-                analysis_type = 'sentiment'
-            else:
-                market = callback_data.replace('market_', '')
-                # Determine analysis type from context or default to technical
-                analysis_type = context.user_data.get('analysis_type', 'technical') if context and hasattr(context, 'user_data') else 'technical'
-            
-            # Store market and analysis type in user_data
+            # Store selected market in user_data
             if context and hasattr(context, 'user_data'):
-                context.user_data['market'] = market
+                context.user_data['selected_market'] = market
                 context.user_data['analysis_type'] = analysis_type
-                context.user_data['current_state'] = CHOOSE_INSTRUMENT
             
-            # Get the appropriate keyboard based on market and analysis type
+            # Get appropriate keyboard for the market and analysis type
             keyboard = self.get_instrument_keyboard(market, analysis_type)
             
-            # Show instrument selection
-            await query.edit_message_text(
-                text=f"Select an instrument for {analysis_type.capitalize()} analysis:",
-                reply_markup=InlineKeyboardMarkup(keyboard)
-            )
+            # Try to edit the message first, if it fails send a new message
+            try:
+                await query.edit_message_text(
+                    text=f"Select an instrument for {analysis_type} analysis:",
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            except Exception as edit_error:
+                logger.warning(f"Could not edit message: {str(edit_error)}")
+                await query.message.reply_text(
+                    text=f"Select an instrument for {analysis_type} analysis:",
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
             
             return CHOOSE_INSTRUMENT
             
