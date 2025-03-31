@@ -2433,7 +2433,6 @@ Get started today with a FREE 14-day trial!
                     # Store the message ID in context for later updates
                     if context and hasattr(context, 'user_data'):
                         context.user_data['loading_message_id'] = sent_message.message_id
-                        context.user_data['loading_message'] = sent_message
                         logger.info(f"Stored loading message ID: {sent_message.message_id} for {instrument} sentiment analysis")
                         
                 except Exception as e:
@@ -2448,7 +2447,6 @@ Get started today with a FREE 14-day trial!
                     # Store the message ID in context
                     if context and hasattr(context, 'user_data'):
                         context.user_data['loading_message_id'] = sent_message.message_id
-                        context.user_data['loading_message'] = sent_message
                         logger.info(f"Stored loading message ID (from text): {sent_message.message_id} for {instrument} sentiment analysis")
                 
                 # Now generate the sentiment analysis
@@ -2463,47 +2461,90 @@ Get started today with a FREE 14-day trial!
                     # Get sentiment analysis as formatted text
                     sentiment_text = await self.sentiment_service.get_market_sentiment_text(instrument, market_type)
                     
-                    # Get loading message
-                    if context and hasattr(context, 'user_data') and 'loading_message' in context.user_data:
-                        loading_message = context.user_data['loading_message']
-                        logger.info(f"Retrieved loading message for updating")
-                        
-                        # Create a callback query wrapper to use with update_message
-                        class CallbackQueryWrapper:
-                            def __init__(self, message):
-                                self.message = message
-                                self.id = f"dummy_id_{uuid.uuid4()}"
-                                
-                            async def answer(self):
-                                pass
-                                
-                            async def edit_message_text(self, **kwargs):
-                                return await self.message.edit_text(**kwargs)
-                                
-                            async def edit_message_caption(self, **kwargs):
-                                return await self.message.edit_caption(**kwargs)
-                                
-                            async def edit_message_media(self, **kwargs):
-                                return await self.message.edit_media(**kwargs)
-                        
-                        # Create wrapper and update the message
-                        query_wrapper = CallbackQueryWrapper(loading_message)
-                        update_success = await self.update_message(
-                            query=query_wrapper,
-                            text=sentiment_text,
-                            keyboard=[[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]],
-                            parse_mode=ParseMode.HTML
-                        )
-                        
-                        if update_success:
-                            logger.info(f"Successfully updated loading message with sentiment analysis")
-                            return SHOW_RESULT
+                    # Check the content length
+                    if sentiment_text:
+                        logger.info(f"Received sentiment text for {instrument} - Length: {len(sentiment_text)}")
+                        if len(sentiment_text) > 100:
+                            # Just log a preview of the text to avoid flooding logs
+                            logger.info(f"First 100 chars: {sentiment_text[:100]}...")
                         else:
-                            logger.warning(f"Could not update loading message, sending new message")
+                            logger.info(f"Full text: {sentiment_text}")
                     else:
-                        logger.warning(f"No loading message found in context")
+                        logger.warning(f"Received empty sentiment text for {instrument}")
+                    
+                    # Get the loading message ID
+                    loading_message_id = None
+                    if context and hasattr(context, 'user_data') and 'loading_message_id' in context.user_data:
+                        loading_message_id = context.user_data['loading_message_id']
+                        logger.info(f"Retrieved loading message ID: {loading_message_id}")
+                    
+                    if loading_message_id:
+                        # Using multi-step approach as described:
                         
-                    # If we get here, we need to send a new message
+                        # STEP 1: Try to delete and send a new message (cleanest approach)
+                        try:
+                            logger.info(f"STEP 1: Trying to delete loading message and send new one")
+                            await self.bot.delete_message(
+                                chat_id=query.message.chat_id,
+                                message_id=loading_message_id
+                            )
+                            
+                            # Send new message with sentiment analysis
+                            sent_message = await self.bot.send_message(
+                                chat_id=query.message.chat_id,
+                                text=sentiment_text,
+                                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]]),
+                                parse_mode=ParseMode.HTML
+                            )
+                            
+                            logger.info(f"Success: Deleted loading message and sent new message with ID: {sent_message.message_id}")
+                            return SHOW_RESULT
+                        except Exception as delete_error:
+                            logger.warning(f"STEP 1 failed: Could not delete loading message: {str(delete_error)}")
+                            # Continue to step 2 if deletion fails
+                        
+                        # STEP 2: Replace with transparent GIF via InputMediaDocument
+                        try:
+                            logger.info(f"STEP 2: Trying to replace with transparent GIF")
+                            # URL to a 1x1 transparent GIF
+                            transparent_gif_url = "https://upload.wikimedia.org/wikipedia/commons/thumb/0/00/Transparent.gif/1px-Transparent.gif"
+                            
+                            await self.bot.edit_message_media(
+                                chat_id=query.message.chat_id,
+                                message_id=loading_message_id,
+                                media=InputMediaDocument(
+                                    media=transparent_gif_url,
+                                    caption=sentiment_text,
+                                    parse_mode=ParseMode.HTML
+                                ),
+                                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]])
+                            )
+                            
+                            logger.info(f"Success: Replaced loading animation with transparent GIF")
+                            return SHOW_RESULT
+                        except Exception as media_error:
+                            logger.warning(f"STEP 2 failed: Could not replace with transparent GIF: {str(media_error)}")
+                            # Continue to step 3 if media replacement fails
+                        
+                        # STEP 3: Just edit the caption, leaving the animation in place
+                        try:
+                            logger.info(f"STEP 3: Trying to edit caption only")
+                            
+                            await self.bot.edit_message_caption(
+                                chat_id=query.message.chat_id,
+                                message_id=loading_message_id,
+                                caption=sentiment_text,
+                                parse_mode=ParseMode.HTML,
+                                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]])
+                            )
+                            
+                            logger.info(f"Success: Updated caption of loading message")
+                            return SHOW_RESULT
+                        except Exception as caption_error:
+                            logger.error(f"STEP 3 failed: Could not edit caption: {str(caption_error)}")
+                    
+                    # If all steps failed or there was no loading message ID, send a new message
+                    logger.warning(f"All steps failed or no loading message found, sending new message")
                     await self.bot.send_message(
                         chat_id=query.message.chat_id,
                         text=sentiment_text,
