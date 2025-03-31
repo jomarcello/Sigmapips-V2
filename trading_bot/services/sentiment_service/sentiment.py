@@ -147,12 +147,66 @@ class MarketSentimentService:
             if not final_analysis:
                 raise ValueError(f"Failed to format DeepSeek analysis for {instrument}")
             
-            # Extract sentiment values from the text
+            # Try to extract sentiment values from the text
             bullish_match = re.search(r'Bullish:\s*(\d+)%', final_analysis)
-            bullish_percentage = int(bullish_match.group(1)) if bullish_match else None
             
-            if bullish_percentage is None:
-                raise ValueError(f"Could not extract bullish percentage from analysis for {instrument}")
+            # If we couldn't find bullish percentage in the DeepSeek response, look for keywords
+            # to determine sentiment direction and assign reasonable default values
+            bullish_percentage = None
+            bearish_percentage = None
+            
+            if bullish_match:
+                # Normal path - extract directly from regex match
+                bullish_percentage = int(bullish_match.group(1))
+                bearish_percentage = 100 - bullish_percentage
+            else:
+                logger.warning(f"Could not find bullish percentage in DeepSeek response for {instrument}. Using keyword analysis.")
+                
+                # Count sentiment-related keywords to determine bullish/bearish bias
+                bullish_keywords = ['bullish', 'upward', 'positive', 'increase', 'higher', 'rise', 'growth', 'gain']
+                bearish_keywords = ['bearish', 'downward', 'negative', 'decrease', 'lower', 'fall', 'decline', 'drop']
+                
+                # Count occurrences (case-insensitive)
+                bullish_count = sum(final_analysis.lower().count(keyword) for keyword in bullish_keywords)
+                bearish_count = sum(final_analysis.lower().count(keyword) for keyword in bearish_keywords)
+                
+                # Determine sentiment based on keyword frequency
+                if bullish_count > bearish_count:
+                    # More bullish than bearish mentions
+                    ratio = min(3, max(1.2, bullish_count / max(1, bearish_count)))
+                    bullish_percentage = min(85, int(50 * ratio))
+                elif bearish_count > bullish_count:
+                    # More bearish than bullish mentions
+                    ratio = min(3, max(1.2, bearish_count / max(1, bullish_count)))
+                    bullish_percentage = max(15, int(50 / ratio))
+                else:
+                    # Neutral if equal counts or no mentions
+                    bullish_percentage = 50
+                
+                bearish_percentage = 100 - bullish_percentage
+                
+                # Add the percentages to the analysis text for future reference
+                final_analysis = final_analysis.replace("<b>Market Sentiment Breakdown:</b>", 
+                    f"<b>Market Sentiment Breakdown:</b>\n🟢 Bullish: {bullish_percentage}%\n🔴 Bearish: {bearish_percentage}%\n⚪️ Neutral: 0%")
+                
+                # If we can't find the Market Sentiment Breakdown section, add it
+                if "<b>Market Sentiment Breakdown:</b>" not in final_analysis:
+                    sentiment_section = f"""
+
+<b>Market Sentiment Breakdown:</b>
+🟢 Bullish: {bullish_percentage}%
+🔴 Bearish: {bearish_percentage}%
+⚪️ Neutral: 0%
+
+"""
+                    # Insert after Market Direction section if it exists
+                    if "<b>📈 Market Direction:</b>" in final_analysis:
+                        parts = final_analysis.split("<b>📈 Market Direction:</b>", 1)
+                        direction_section = parts[1].split("<b>", 1)
+                        final_analysis = f"{parts[0]}<b>📈 Market Direction:</b>{direction_section[0]}{sentiment_section}<b>{direction_section[1]}"
+                    else:
+                        # Or add after the title
+                        final_analysis += sentiment_section
             
             sentiment = 'bullish' if bullish_percentage > 50 else 'bearish' if bullish_percentage < 50 else 'neutral'
             
@@ -161,7 +215,7 @@ class MarketSentimentService:
                 'overall_sentiment': sentiment,
                 'sentiment_score': bullish_percentage / 100,
                 'bullish_percentage': bullish_percentage,
-                'bearish_percentage': 100 - bullish_percentage,
+                'bearish_percentage': bearish_percentage,
                 'trend_strength': 'Strong' if abs(bullish_percentage - 50) > 15 else 'Moderate' if abs(bullish_percentage - 50) > 5 else 'Weak',
                 'volatility': 'Moderate',  # Default value as this is hard to extract reliably
                 'support_level': 'Not available',  # Would need more sophisticated analysis
@@ -660,6 +714,11 @@ Format your response EXACTLY as follows, with no additional text before or after
 
 <b>🎯 {instrument} Market Analysis</b>
 
+<b>Market Sentiment Breakdown:</b>
+🟢 Bullish: [percentage]%
+🔴 Bearish: [percentage]%
+⚪️ Neutral: [percentage]%
+
 <b>📈 Market Direction:</b>
 [Current trend, momentum and price action analysis]
 
@@ -676,13 +735,15 @@ Format your response EXACTLY as follows, with no additional text before or after
 <b>💡 Conclusion:</b>
 [Trading recommendation based on analysis. Always include a specific recommendation for either <b>long positions</b> or <b>short positions</b> in bold. If uncertain, recommend <b>wait for clearer signals</b> in bold.]
 
-Use HTML formatting for Telegram: <b>bold</b>, <i>italic</i>, etc.
-Keep the analysis concise but informative, focusing on actionable insights.
-DO NOT include any references to data sources.
-DO NOT include any introductory or closing text.
-DO NOT include any notes or placeholder sections.
-IMPORTANT: Always include a clear trading recommendation in bold tags in the conclusion section.
-IMPORTANT: All section headers must be in bold HTML tags as shown in the format above."""
+Rules:
+1. Use HTML formatting for Telegram: <b>bold</b>, <i>italic</i>, etc.
+2. Percentages MUST add up to 100% (Bullish + Bearish + Neutral)
+3. Keep the analysis concise but informative, focusing on actionable insights.
+4. DO NOT include any references to data sources.
+5. DO NOT include any introductory or closing text.
+6. DO NOT include any notes or placeholder sections.
+7. IMPORTANT: Always include a clear trading recommendation in bold tags in the conclusion section.
+8. IMPORTANT: All section headers must be in bold HTML tags as shown in the format above."""
                     
                     payload = {
                         "model": "deepseek-chat",
