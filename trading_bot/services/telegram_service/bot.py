@@ -587,6 +587,7 @@ class TelegramService:
         self.chart_service = ChartService()  # Initialize chart service
         self.calendar_service = EconomicCalendarService()  # Economic calendar service
         self.sentiment_service = MarketSentimentService()  # Market sentiment service
+        self.market_sentiment_service = self.sentiment_service  # Alias for backward compatibility
         
         # Initialize chart service
         asyncio.create_task(self.chart_service.initialize())
@@ -2111,7 +2112,6 @@ Get started today with a FREE 14-day trial!
     async def instrument_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
         """Handle instrument selection"""
         query = update.callback_query
-        await query.answer()
         
         try:
             # Get callback data and analysis type
@@ -2126,12 +2126,7 @@ Get started today with a FREE 14-day trial!
                 context.user_data['instrument'] = instrument
             
             # Handle different analysis types
-            if analysis_type == 'technical':
-                # For technical analysis, format the TradingView URL
-                await self._handle_technical_analysis(query, instrument)
-                return SHOW_RESULT
-                
-            elif analysis_type == 'sentiment':
+            if analysis_type == 'sentiment':
                 # For sentiment analysis, show loading and trigger sentiment callback
                 loading_message = await query.message.reply_animation(
                     animation="https://media.giphy.com/media/3oEjI6SIIHBdRxXI40/giphy.gif",
@@ -2142,20 +2137,13 @@ Get started today with a FREE 14-day trial!
                 if context and hasattr(context, 'user_data'):
                     context.user_data['loading_message_id'] = loading_message.message_id
                 
-                # Trigger sentiment analysis
-                await self.direct_sentiment_callback(
-                    Update(
-                        update_id=update.update_id,
-                        callback_query=CallbackQuery(
-                            id=query.id,
-                            from_user=query.from_user,
-                            chat_instance=query.chat_instance,
-                            data=f"direct_sentiment_{instrument}",
-                            message=loading_message
-                        )
-                    ),
-                    context
-                )
+                # Trigger sentiment analysis immediately
+                await self._handle_sentiment_analysis(query, instrument)
+                return SHOW_RESULT
+                
+            elif analysis_type == 'technical':
+                # For technical analysis, format the TradingView URL
+                await self._handle_technical_analysis(query, instrument)
                 return SHOW_RESULT
                 
             elif analysis_type == 'calendar':
@@ -2323,36 +2311,18 @@ The overall sentiment for {instrument} is {overall_sentiment} with {strength} co
                 [InlineKeyboardButton("⬅️ Back", callback_data=back_data)]
             ]
             
-            # Check if message has media
-            has_media = bool(query.message.photo) or query.message.animation is not None
+            # Try to delete the loading message
+            try:
+                await query.message.delete()
+            except Exception as delete_error:
+                logger.warning(f"Could not delete loading message: {str(delete_error)}")
             
-            if has_media:
-                try:
-                    # Try to delete the message first
-                    await query.message.delete()
-                    # Send new message with analysis
-                    await query.message.reply_text(
-                        text=message,
-                        reply_markup=InlineKeyboardMarkup(keyboard),
-                        parse_mode=ParseMode.HTML
-                    )
-                except Exception as delete_error:
-                    logger.warning(f"Could not delete message: {str(delete_error)}")
-                    # Try to update the existing message
-                    await self.update_message(
-                        query=query,
-                        text=message,
-                        keyboard=keyboard,
-                        parse_mode=ParseMode.HTML
-                    )
-            else:
-                # Update the existing message
-                await self.update_message(
-                    query=query,
-                    text=message,
-                    keyboard=keyboard,
-                    parse_mode=ParseMode.HTML
-                )
+            # Send new message with analysis
+            await query.message.reply_text(
+                text=message,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode=ParseMode.HTML
+            )
             
         except Exception as e:
             logger.error(f"Error in _handle_sentiment_analysis: {str(e)}")
@@ -2371,11 +2341,16 @@ The overall sentiment for {instrument} is {overall_sentiment} with {strength} co
 <b>Market Analysis:</b>
 The current sentiment for {instrument} is neutral, with mixed signals in the market. Please check back later for updated analysis."""
             
-            # Show error message
-            await self.update_message(
-                query=query,
+            # Try to delete the loading message
+            try:
+                await query.message.delete()
+            except Exception as delete_error:
+                logger.warning(f"Could not delete loading message: {str(delete_error)}")
+            
+            # Send new message with fallback analysis
+            await query.message.reply_text(
                 text=fallback_message,
-                keyboard=[[InlineKeyboardButton("⬅️ Back", callback_data=back_data)]],
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data=back_data)]]),
                 parse_mode=ParseMode.HTML
             )
 
