@@ -2011,36 +2011,103 @@ Get started today with a FREE 14-day trial!
             return MENU
             
     async def back_signals_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
-        """Handle back button press to return to signals selection."""
+        """Handle back to signals menu"""
         query = update.callback_query
         await query.answer()
         
         try:
             # Clear relevant context data
             if context and hasattr(context, 'user_data'):
-                keys_to_clear = ['market', 'instrument']
+                keys_to_clear = ['market', 'instrument', 'style', 'timeframe']
                 for key in keys_to_clear:
                     if key in context.user_data:
                         del context.user_data[key]
             
-            # Show the signals options menu
-            keyboard = SIGNALS_KEYBOARD
-            text = "Choose a signals option:"
+            # Show signals menu
+            text = """Choose an option:
+
+➕ Add New Pairs - Set up new trading pairs
+⚙️ Manage Preferences - View and edit your saved pairs"""
             
             await self.update_message(
                 query=query,
                 text=text,
-                keyboard=keyboard,
+                keyboard=SIGNALS_KEYBOARD,
                 parse_mode=ParseMode.HTML
             )
             
             return CHOOSE_SIGNALS
-                
+            
         except Exception as e:
             logger.error(f"Error in back_signals_callback: {str(e)}")
             # Try to recover by going to main menu
             return await self.back_menu_callback(update, context)
+
+    async def back_market_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
+        """Handle back to market selection"""
+        query = update.callback_query
+        await query.answer()
+        
+        try:
+            # Check if message contains media
+            has_media = bool(query.message.photo) or query.message.animation is not None
             
+            # Get the analysis type, defaulting to technical if context is None or analysis_type not set
+            analysis_type = 'technical'
+            if context and hasattr(context, 'user_data'):
+                analysis_type = context.user_data.get('analysis_type', 'technical')
+            
+            # Choose the appropriate keyboard based on analysis type
+            if analysis_type == 'sentiment':
+                keyboard = MARKET_SENTIMENT_KEYBOARD
+            else:
+                keyboard = MARKET_KEYBOARD
+            
+            if has_media:
+                try:
+                    # Try to delete the message first
+                    await query.message.delete()
+                    # Send a new message with the market selection
+                    await query.message.reply_text(
+                        text="Select a market for analysis:",
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+                except Exception as delete_error:
+                    logger.warning(f"Could not delete message: {str(delete_error)}")
+                    try:
+                        # Try to replace media with empty content
+                        await query.message.edit_media(
+                            media=InputMediaDocument(
+                                media="https://upload.wikimedia.org/wikipedia/commons/thumb/0/00/Transparent.gif/1px-Transparent.gif",
+                                caption="Select a market for analysis:",
+                            ),
+                            reply_markup=InlineKeyboardMarkup(keyboard)
+                        )
+                    except Exception as edit_error:
+                        logger.warning(f"Could not edit media: {str(edit_error)}")
+                        # If all else fails, just try to edit the caption
+                        await query.message.edit_caption(
+                            caption="Select a market for analysis:",
+                            reply_markup=InlineKeyboardMarkup(keyboard)
+                        )
+            else:
+                # If no media, just update the reply markup
+                await query.message.edit_reply_markup(
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            
+            return CHOOSE_MARKET
+            
+        except Exception as e:
+            logger.error(f"Error in back_market_callback: {str(e)}")
+            logger.exception(e)
+            # If something goes wrong, try to show the main menu
+            try:
+                await self.show_main_menu(update, context)
+            except:
+                pass
+            return MENU
+
     async def instrument_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
         """Handle instrument selection"""
         query = update.callback_query
