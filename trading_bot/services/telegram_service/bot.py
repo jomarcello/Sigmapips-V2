@@ -1222,6 +1222,30 @@ Discover powerful trading signals for various markets:
                 parse_mode=ParseMode.HTML
             )
 
+    async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> None:
+        """Send a help message when the /help command is used."""
+        help_text = """
+📚 <b>Sigmapips AI Bot Help</b> 📚
+
+<b>Available Commands:</b>
+• /start - Start the bot and see the welcome message
+• /menu - Show the main menu with all features
+• /help - Display this help message
+
+<b>Available Features:</b>
+• Market Analysis - Get technical analysis, sentiment analysis, and economic calendar data
+• Trading Signals - Receive trading signals for various markets
+• Account Management - View and manage your subscription
+
+<b>Need more help?</b>
+If you have questions or encounter any issues, please contact our support team.
+"""
+        
+        await update.message.reply_text(
+            text=help_text,
+            parse_mode=ParseMode.HTML
+        )
+
     async def show_main_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
         """Show the main menu with options for analysis or signals."""
         # Get user ID
@@ -1363,26 +1387,19 @@ Get started today with a FREE 14-day trial!
                         [InlineKeyboardButton("⬅️ Back to Menu", callback_data=CALLBACK_BACK_MENU)]
                     ]
                 
-                success = await self._safe_edit_message(
-                    query=query,
+                # Send message directly since we don't have a query object here
+                await self.bot.send_message(
+                    chat_id=chat_id,
                     text=text,
                     reply_markup=InlineKeyboardMarkup(keyboard),
                     parse_mode=ParseMode.HTML
                 )
                 
-                if not success:
-                    # If all edit attempts failed, send a new message
-                    await query.message.reply_text(
-                        text=text,
-                        reply_markup=InlineKeyboardMarkup(keyboard),
-                        parse_mode=ParseMode.HTML
-                    )
+                return {"status": "success", "message": "Subscription message sent"}
                 
-                return MENU
         except Exception as e:
-            logger.error(f"Error in back_signals_callback: {str(e)}")
-            # Try to recover by going to main menu
-            return await self.back_menu_callback(update, context)
+            logger.error(f"Error in force_send_main_menu: {str(e)}")
+            return {"status": "error", "message": str(e)}
             
     async def back_instrument_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
         """Handle back_instrument callback to return to the instrument selection."""
