@@ -388,42 +388,6 @@ TIMEFRAME_DISPLAY_MAP = {
     "H4": "4 Hours"
 }
 
-# Voeg deze functie toe aan het begin van bot.py, na de imports
-def _detect_market(instrument: str) -> str:
-    """Detecteer market type gebaseerd op instrument"""
-    instrument = instrument.upper()
-    
-    # Commodities eerst checken
-    commodities = [
-        "XAUUSD",  # Gold
-        "XAGUSD",  # Silver
-        "WTIUSD",  # Oil WTI
-        "BCOUSD",  # Oil Brent
-    ]
-    if instrument in commodities:
-        logger.info(f"Detected {instrument} as commodity")
-        return "commodities"
-    
-    # Crypto pairs
-    crypto_base = ["BTC", "ETH", "XRP", "SOL", "BNB", "ADA", "DOT", "LINK"]
-    if any(c in instrument for c in crypto_base):
-        logger.info(f"Detected {instrument} as crypto")
-        return "crypto"
-    
-    # Major indices
-    indices = [
-        "US30", "US500", "US100",  # US indices
-        "UK100", "DE40", "FR40",   # European indices
-        "JP225", "AU200", "HK50"   # Asian indices
-    ]
-    if instrument in indices:
-        logger.info(f"Detected {instrument} as index")
-        return "indices"
-    
-    # Forex pairs als default
-    logger.info(f"Detected {instrument} as forex")
-    return "forex"
-
 # Voeg dit toe als decorator functie bovenaan het bestand na de imports
 def require_subscription(func):
     """Check if user has an active subscription"""
@@ -2368,13 +2332,48 @@ The overall sentiment for {instrument} is {overall_sentiment} with {strength} co
             )
 
     async def _handle_market_selection(self, query, market, analysis_type='technical'):
-        """Handle market selection"""
+        """Handle market selection for different analysis types"""
         try:
-            # Get appropriate keyboard based on market and analysis type
-            keyboard = self.get_instrument_keyboard(market, analysis_type)
+            logger.info(f"Handling market selection for {market} with analysis_type={analysis_type}")
             
             # Format message
-            message = f"Select an instrument from {market.capitalize()}:"
+            message = f"Select an instrument from {market.capitalize()} for {analysis_type} analysis:"
+            
+            # Get appropriate keyboard based on market and analysis type
+            keyboard = None
+            
+            if analysis_type == 'sentiment':
+                # Use sentiment-specific keyboards
+                if market == "forex":
+                    keyboard = FOREX_SENTIMENT_KEYBOARD
+                elif market == "crypto":
+                    keyboard = CRYPTO_SENTIMENT_KEYBOARD
+                else:
+                    # Use instrument keyboard with correct analysis type
+                    keyboard = self.get_instrument_keyboard(market, 'sentiment')
+            elif analysis_type == 'calendar':
+                # Use calendar-specific keyboards if we have them, otherwise general ones
+                if market == "forex":
+                    keyboard = FOREX_CALENDAR_KEYBOARD
+                else:
+                    keyboard = self.get_instrument_keyboard(market, 'calendar')
+            else:
+                # Default to technical analysis keyboards
+                if market == "forex":
+                    keyboard = FOREX_KEYBOARD
+                elif market == "crypto":
+                    keyboard = CRYPTO_KEYBOARD
+                elif market == "commodities":
+                    keyboard = COMMODITIES_KEYBOARD
+                elif market == "indices":
+                    keyboard = INDICES_KEYBOARD
+                else:
+                    keyboard = self.get_instrument_keyboard(market, 'technical')
+            
+            # Ensure we have a keyboard
+            if not keyboard:
+                logger.warning(f"No keyboard found for market {market} with analysis_type {analysis_type}")
+                keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_analysis")]]
             
             # Update message
             await self.update_message(
@@ -2388,48 +2387,54 @@ The overall sentiment for {instrument} is {overall_sentiment} with {strength} co
             
         except Exception as e:
             logger.error(f"Error in _handle_market_selection: {str(e)}")
+            logger.exception(e)
             
-            # Show error message
-            await self.update_message(
-                query=query,
-                text="❌ Could not load instruments. Please try again.",
-                keyboard=[[InlineKeyboardButton("⬅️ Back to Menu", callback_data=CALLBACK_BACK_MENU)]],
-                parse_mode=ParseMode.HTML
-            )
+            # Show error message with back button
+            try:
+                await self.update_message(
+                    query=query,
+                    text="❌ Could not load instruments. Please try again.",
+                    keyboard=[[InlineKeyboardButton("⬅️ Back to Menu", callback_data=CALLBACK_BACK_MENU)]],
+                    parse_mode=ParseMode.HTML
+                )
+            except:
+                # If all else fails, try to get the user back to the menu
+                await self.back_menu_callback(update, None)
+                
             return MENU
 
     async def button_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
         """General callback handler for buttons that don't have specific handlers."""
         query = update.callback_query
-        await query.answer()
+        callback_data = query.data
+        
+        logger.info(f"Generic button callback handling: {callback_data}")
         
         try:
-            callback_data = query.data
-            logger.info(f"Generic button callback handling: {callback_data}")
+            # Answer the callback query to remove the loading indicator
+            await query.answer()
             
-            # Check which type of callback this is and route appropriately
             if callback_data == CALLBACK_MENU_ANALYSE:
-                # Show the analysis options menu
-                keyboard = ANALYSIS_KEYBOARD
-                text = "Choose an analysis type:"
-                
+                # Show analysis options menu
                 await self.update_message(
                     query=query,
-                    text=text,
-                    keyboard=InlineKeyboardMarkup(keyboard),
+                    text="Choose an analysis type:",
+                    keyboard=ANALYSIS_KEYBOARD,
                     parse_mode=ParseMode.HTML
                 )
                 return CHOOSE_ANALYSIS
                 
             elif callback_data == CALLBACK_MENU_SIGNALS:
-                # Show the signals options menu
-                keyboard = SIGNALS_KEYBOARD
-                text = "Choose a signals option:"
+                # Show signals options menu
+                text = """Choose an option:
+
+➕ Add New Pairs - Set up new trading pairs
+⚙️ Manage Preferences - View and edit your saved pairs"""
                 
                 await self.update_message(
                     query=query,
                     text=text,
-                    keyboard=InlineKeyboardMarkup(keyboard),
+                    keyboard=SIGNALS_KEYBOARD,
                     parse_mode=ParseMode.HTML
                 )
                 return CHOOSE_SIGNALS
@@ -2470,71 +2475,57 @@ The overall sentiment for {instrument} is {overall_sentiment} with {strength} co
                 # Handle market selection
                 parts = callback_data.split("_")
                 market = parts[1]
-                is_signals = len(parts) > 2 and parts[2] == "signals"
-                is_sentiment = len(parts) > 2 and parts[2] == "sentiment"
+                
+                # Determine analysis type from callback data parts or context
+                analysis_type = 'technical'  # Default
+                is_signals = False
+                
+                # Special suffix handling
+                if len(parts) > 2:
+                    if parts[2] == "signals":
+                        is_signals = True
+                    elif parts[2] == "sentiment":
+                        analysis_type = 'sentiment'
+                    elif parts[2] == "calendar":
+                        analysis_type = 'calendar'
                 
                 # Store market in context
                 if context and hasattr(context, 'user_data'):
                     context.user_data['market'] = market
                     if is_signals:
                         context.user_data['is_signals'] = True
-                    if is_sentiment:
-                        context.user_data['is_sentiment'] = True
-                        context.user_data['analysis_type'] = 'sentiment'
+                    context.user_data['analysis_type'] = analysis_type
                 
-                # Choose the appropriate keyboard based on market type and analysis type
-                keyboard = None
-                text = f"Select an instrument from {market.capitalize()}:"
-                
-                if is_sentiment:
-                    # Use sentiment-specific keyboards
-                    if market == "forex":
-                        keyboard = FOREX_SENTIMENT_KEYBOARD
-                    elif market == "crypto":
-                        keyboard = CRYPTO_SENTIMENT_KEYBOARD
-                    else:
-                        # For now, we'll use the regular keyboards for other markets in sentiment mode
-                        # In the future, you might want to create sentiment-specific keyboards for all markets
-                        if market == "commodities":
-                            keyboard = COMMODITIES_KEYBOARD
-                        elif market == "indices":
-                            keyboard = INDICES_KEYBOARD_SIGNALS
-                        else:
-                            keyboard = FOREX_SENTIMENT_KEYBOARD  # Default to forex sentiment
-                elif is_signals:
+                # Use the dedicated market selection handler for consistent handling
+                if is_signals:
+                    # Handle signals separately (reuses existing code)
+                    keyboard = None
+                    text = f"Select an instrument from {market.capitalize()}:"
+                    
                     # Use signals-specific keyboards
                     if market == "forex":
                         keyboard = FOREX_KEYBOARD_SIGNALS
                     elif market == "crypto":
                         keyboard = CRYPTO_KEYBOARD_SIGNALS
                     elif market == "commodities":
-                        keyboard = COMMODITIES_KEYBOARD_SIGNALS
+                        keyboard = COMMODITIES_KEYBOARD  # Fallback if not defined
                     elif market == "indices":
                         keyboard = INDICES_KEYBOARD_SIGNALS
                     else:
                         keyboard = FOREX_KEYBOARD_SIGNALS  # Default to forex signals
+                    
+                    # Update message with selected keyboard
+                    await self.update_message(
+                        query=query,
+                        text=text,
+                        keyboard=InlineKeyboardMarkup(keyboard),
+                        parse_mode=ParseMode.HTML
+                    )
+                    
+                    return CHOOSE_INSTRUMENT
                 else:
-                    # Use regular analysis keyboards
-                    if market == "forex":
-                        keyboard = FOREX_KEYBOARD
-                    elif market == "crypto":
-                        keyboard = CRYPTO_KEYBOARD
-                    elif market == "commodities":
-                        keyboard = COMMODITIES_KEYBOARD
-                    elif market == "indices":
-                        keyboard = INDICES_KEYBOARD
-                    else:
-                        keyboard = FOREX_KEYBOARD  # Default to forex
-                
-                # Update message with selected keyboard
-                await self.update_message(
-                    query=query,
-                    text=text,
-                    keyboard=InlineKeyboardMarkup(keyboard),
-                    parse_mode=ParseMode.HTML
-                )
-                
-                return CHOOSE_INSTRUMENT
+                    # Use the market selection handler for analysis types
+                    return await self._handle_market_selection(query, market, analysis_type)
                 
             else:
                 # Unknown callback type
@@ -2544,9 +2535,10 @@ The overall sentiment for {instrument} is {overall_sentiment} with {strength} co
                 
         except Exception as e:
             logger.error(f"Error in button_callback: {str(e)}")
+            logger.exception(e)
             # Try to recover by going to main menu
             return await self.back_menu_callback(update, context)
-            
+
     async def update_message(self, query, text, keyboard=None, parse_mode=ParseMode.HTML, **kwargs):
         """Update an existing message with new text and keyboard."""
         try:
@@ -3070,3 +3062,38 @@ The current sentiment for {instrument} is neutral, with mixed signals in the mar
             logger.error(f"Error in direct sentiment callback: {str(e)}")
             logger.exception(e)
             return MENU
+
+    def _detect_market(self, instrument: str) -> str:
+        """Detecteer market type gebaseerd op instrument"""
+        instrument = instrument.upper()
+        
+        # Commodities eerst checken
+        commodities = [
+            "XAUUSD",  # Gold
+            "XAGUSD",  # Silver
+            "WTIUSD",  # Oil WTI
+            "BCOUSD",  # Oil Brent
+        ]
+        if instrument in commodities:
+            logger.info(f"Detected {instrument} as commodity")
+            return "commodities"
+        
+        # Crypto pairs
+        crypto_base = ["BTC", "ETH", "XRP", "SOL", "BNB", "ADA", "DOT", "LINK"]
+        if any(c in instrument for c in crypto_base):
+            logger.info(f"Detected {instrument} as crypto")
+            return "crypto"
+        
+        # Major indices
+        indices = [
+            "US30", "US500", "US100",  # US indices
+            "UK100", "DE40", "FR40",   # European indices
+            "JP225", "AU200", "HK50"   # Asian indices
+        ]
+        if instrument in indices:
+            logger.info(f"Detected {instrument} as index")
+            return "indices"
+        
+        # Forex pairs als default
+        logger.info(f"Detected {instrument} as forex")
+        return "forex"
