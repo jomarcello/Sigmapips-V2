@@ -2430,6 +2430,7 @@ Get started today with a FREE 14-day trial!
                     # Store the message ID in context for later updates
                     if context and hasattr(context, 'user_data'):
                         context.user_data['loading_message_id'] = sent_message.message_id
+                        logger.info(f"Stored loading message ID: {sent_message.message_id} for {instrument} sentiment analysis")
                         
                 except Exception as e:
                     logger.error(f"Error sending loading animation: {str(e)}")
@@ -2443,6 +2444,7 @@ Get started today with a FREE 14-day trial!
                     # Store the message ID in context
                     if context and hasattr(context, 'user_data'):
                         context.user_data['loading_message_id'] = sent_message.message_id
+                        logger.info(f"Stored loading message ID (from text): {sent_message.message_id} for {instrument} sentiment analysis")
                 
                 # Now generate the sentiment analysis
                 try:
@@ -2451,22 +2453,58 @@ Get started today with a FREE 14-day trial!
                     if context and hasattr(context, 'user_data'):
                         market_type = context.user_data.get('market')
                     
+                    logger.info(f"Getting sentiment analysis for {instrument} (market: {market_type})")
+                    
                     # Get sentiment analysis as formatted text
                     sentiment_text = await self.sentiment_service.get_market_sentiment_text(instrument, market_type)
+                    
+                    # Check the content length
+                    if sentiment_text:
+                        logger.info(f"Received sentiment text for {instrument} - Length: {len(sentiment_text)}")
+                        if len(sentiment_text) > 100:
+                            # Just log a preview of the text to avoid flooding logs
+                            logger.info(f"First 100 chars: {sentiment_text[:100]}...")
+                        else:
+                            logger.info(f"Full text: {sentiment_text}")
+                    else:
+                        logger.warning(f"Received empty sentiment text for {instrument}")
                     
                     # Check if we have a loading message ID stored
                     message_id_to_update = None
                     if context and hasattr(context, 'user_data') and 'loading_message_id' in context.user_data:
                         message_id_to_update = context.user_data['loading_message_id']
+                        logger.info(f"Retrieved loading message ID: {message_id_to_update} for updating")
                         
                     if message_id_to_update:
-                        # Delete the loading message
-                        await self.bot.delete_message(
-                            chat_id=query.message.chat_id,
-                            message_id=message_id_to_update
-                        )
-                        
-                        # Send new message with sentiment analysis
+                        try:
+                            # Delete the loading message
+                            logger.info(f"Deleting loading message: {message_id_to_update}")
+                            await self.bot.delete_message(
+                                chat_id=query.message.chat_id,
+                                message_id=message_id_to_update
+                            )
+                            logger.info(f"Loading message deleted successfully")
+                            
+                            # Send new message with sentiment analysis
+                            logger.info(f"Sending sentiment analysis message for {instrument}")
+                            sent = await self.bot.send_message(
+                                chat_id=query.message.chat_id,
+                                text=sentiment_text,
+                                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]]),
+                                parse_mode=ParseMode.HTML
+                            )
+                            logger.info(f"Sentiment analysis message sent successfully with ID: {sent.message_id}")
+                        except Exception as update_error:
+                            logger.error(f"Error in message update process: {str(update_error)}")
+                            # Try a direct message without deleting as a fallback
+                            await self.bot.send_message(
+                                chat_id=query.message.chat_id,
+                                text=sentiment_text,
+                                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]]),
+                                parse_mode=ParseMode.HTML
+                            )
+                    else:
+                        logger.warning(f"No loading message ID found, sending new message")
                         await self.bot.send_message(
                             chat_id=query.message.chat_id,
                             text=sentiment_text,
@@ -2477,6 +2515,7 @@ Get started today with a FREE 14-day trial!
                     return SHOW_RESULT
                 except Exception as sentiment_error:
                     logger.error(f"Error generating sentiment analysis for {instrument}: {str(sentiment_error)}")
+                    logger.exception(sentiment_error)  # Log full traceback
                     # Send error message
                     await self.bot.send_message(
                         chat_id=query.message.chat_id,
