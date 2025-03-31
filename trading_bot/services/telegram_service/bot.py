@@ -2253,6 +2253,37 @@ Get started today with a FREE 14-day trial!
                 pass
             return MENU
             
+    async def back_signals_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
+        """Handle back button press to return to signals selection."""
+        query = update.callback_query
+        await query.answer()
+        
+        try:
+            # Clear relevant context data
+            if context and hasattr(context, 'user_data'):
+                keys_to_clear = ['market', 'instrument']
+                for key in keys_to_clear:
+                    if key in context.user_data:
+                        del context.user_data[key]
+            
+            # Show the signals options menu
+            keyboard = SIGNALS_KEYBOARD
+            text = "Choose a signals option:"
+            
+            await self.update_message(
+                query=query,
+                text=text,
+                keyboard=keyboard,
+                parse_mode=ParseMode.HTML
+            )
+            
+            return CHOOSE_SIGNALS
+                
+        except Exception as e:
+            logger.error(f"Error in back_signals_callback: {str(e)}")
+            # Try to recover by going to main menu
+            return await self.back_menu_callback(update, context)
+            
     async def instrument_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
         """Handle instrument selection callback."""
         query = update.callback_query
@@ -2497,3 +2528,192 @@ Get started today with a FREE 14-day trial!
             logger.error(f"Error in button_callback: {str(e)}")
             # Try to recover by going to main menu
             return await self.back_menu_callback(update, context)
+            
+    async def update_message(self, query, text, keyboard=None, parse_mode=ParseMode.HTML, **kwargs):
+        """
+        Helper method to update a message with robust error handling and multiple fallbacks.
+        
+        Args:
+            query: The callback query containing the message to update
+            text: New text for the message
+            keyboard: Optional keyboard markup to display with the message
+            parse_mode: Parse mode for the text (HTML, Markdown, etc.)
+            **kwargs: Additional parameters for edit_message_text
+        
+        Returns:
+            bool: Success status
+        """
+        if not query or not query.message:
+            logger.warning("Cannot update message: query or message is None")
+            return False
+            
+        # Convert keyboard to InlineKeyboardMarkup if it's a list
+        reply_markup = None
+        if keyboard:
+            if isinstance(keyboard, list):
+                reply_markup = InlineKeyboardMarkup(keyboard)
+            else:
+                reply_markup = keyboard
+                
+        try:
+            # First attempt: edit_message_text
+            await query.edit_message_text(
+                text=text,
+                reply_markup=reply_markup,
+                parse_mode=parse_mode,
+                **kwargs
+            )
+            return True
+        except Exception as e:
+            logger.warning(f"Could not edit message text: {str(e)}")
+            
+            # Second attempt: If message has no text (like media messages)
+            if "There is no text in the message to edit" in str(e):
+                try:
+                    # Try to edit caption instead
+                    await query.edit_message_caption(
+                        caption=text,
+                        reply_markup=reply_markup,
+                        parse_mode=parse_mode
+                    )
+                    return True
+                except Exception as caption_error:
+                    logger.warning(f"Could not edit caption: {str(caption_error)}")
+                    
+                    # Third attempt: Try to edit media
+                    try:
+                        # Use a placeholder image if needed
+                        await query.edit_message_media(
+                            media=InputMediaPhoto(
+                                media="https://i.imgur.com/pYcuGGo.png",  # Placeholder image
+                                caption=text,
+                                parse_mode=parse_mode
+                            ),
+                            reply_markup=reply_markup
+                        )
+                        return True
+                    except Exception as media_error:
+                        logger.error(f"All update attempts failed: {str(media_error)}")
+            
+            # Final fallback: send a new message
+            try:
+                await query.message.reply_text(
+                    text=text,
+                    reply_markup=reply_markup,
+                    parse_mode=parse_mode,
+                    **kwargs
+                )
+                return True
+            except Exception as reply_error:
+                logger.error(f"Could not send fallback message: {str(reply_error)}")
+                return False
+                
+    async def process_signal(self, signal_data):
+        """
+        Process a trading signal and send it to subscribers.
+        
+        Args:
+            signal_data: Dictionary containing signal information
+            
+        Returns:
+            bool: Success status
+        """
+        try:
+            # Validate required fields
+            required_fields = ['instrument', 'direction', 'message']
+            for field in required_fields:
+                if field not in signal_data:
+                    logger.error(f"Missing required field in signal: {field}")
+                    return False
+                    
+            # Extract signal data
+            instrument = signal_data['instrument']
+            direction = signal_data['direction']
+            message = signal_data['message']
+            
+            # Format timestamp if not provided
+            if 'timestamp' not in signal_data:
+                signal_data['timestamp'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                
+            # Get list of subscribers who should receive this signal
+            subscribers = await self.get_subscribers_for_instrument(instrument)
+            
+            if not subscribers:
+                logger.warning(f"No subscribers found for instrument {instrument}")
+                return True  # Return True as this is not an error
+                
+            # Send signal to all subscribers
+            success_count = 0
+            for subscriber_id in subscribers:
+                try:
+                    # Create signal message with appropriate formatting
+                    signal_emoji = "🟢" if direction.lower() == "buy" else "🔴"
+                    formatted_message = f"""
+<b>{signal_emoji} {direction.upper()} SIGNAL: {instrument}</b>
+{signal_data['timestamp']}
+
+{message}
+"""
+                    
+                    # Create buttons for signal actions
+                    keyboard = [
+                        [
+                            InlineKeyboardButton("📈 Technical Analysis", 
+                                                callback_data=f"analysis_technical_signal_{instrument}"),
+                            InlineKeyboardButton("🧠 Sentiment", 
+                                                callback_data=f"analysis_sentiment_signal_{instrument}")
+                        ],
+                        [
+                            InlineKeyboardButton("📅 Economic Calendar", 
+                                                callback_data=f"analysis_calendar_signal_{instrument}"),
+                            InlineKeyboardButton("⬅️ Back", 
+                                                callback_data="back_menu")
+                        ]
+                    ]
+                    
+                    # Send message to subscriber
+                    await self.bot.send_message(
+                        chat_id=subscriber_id,
+                        text=formatted_message,
+                        reply_markup=InlineKeyboardMarkup(keyboard),
+                        parse_mode=ParseMode.HTML
+                    )
+                    success_count += 1
+                    
+                except Exception as e:
+                    logger.error(f"Error sending signal to {subscriber_id}: {str(e)}")
+                    
+            # Log results
+            logger.info(f"Signal for {instrument} sent to {success_count}/{len(subscribers)} subscribers")
+            
+            # Store signal for later reference
+            self.user_signals[instrument] = signal_data
+            self._save_signals()
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error processing signal: {str(e)}")
+            return False
+            
+    async def get_subscribers_for_instrument(self, instrument):
+        """
+        Get subscribers who should receive signals for a specific instrument.
+        
+        Args:
+            instrument: The instrument code (e.g., 'EURUSD')
+            
+        Returns:
+            list: List of subscriber chat IDs
+        """
+        try:
+            # Detect the market for this instrument
+            market = self._detect_market(instrument)
+            
+            # For now, return all subscribers
+            # In a real implementation, you would filter based on user preferences
+            return await self.get_subscribers()
+            
+        except Exception as e:
+            logger.error(f"Error getting subscribers for instrument {instrument}: {str(e)}")
+            return []
