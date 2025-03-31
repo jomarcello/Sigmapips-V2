@@ -2584,26 +2584,60 @@ Get started today with a FREE 14-day trial!
                         context.user_data['is_signals'] = True
                     if is_sentiment:
                         context.user_data['is_sentiment'] = True
+                        context.user_data['analysis_type'] = 'sentiment'
                 
-                # Show instruments for the selected market
-                if market == "forex":
-                    keyboard = FOREX_KEYBOARD
-                elif market == "crypto":
-                    keyboard = CRYPTO_KEYBOARD
-                elif market == "commodities":
-                    keyboard = COMMODITIES_KEYBOARD
-                elif market == "indices":
-                    keyboard = INDICES_KEYBOARD
+                # Choose the appropriate keyboard based on market type and analysis type
+                keyboard = None
+                text = f"Select an instrument from {market.capitalize()}:"
+                
+                if is_sentiment:
+                    # Use sentiment-specific keyboards
+                    if market == "forex":
+                        keyboard = FOREX_SENTIMENT_KEYBOARD
+                    elif market == "crypto":
+                        keyboard = CRYPTO_SENTIMENT_KEYBOARD
+                    else:
+                        # For now, we'll use the regular keyboards for other markets in sentiment mode
+                        # In the future, you might want to create sentiment-specific keyboards for all markets
+                        if market == "commodities":
+                            keyboard = COMMODITIES_KEYBOARD
+                        elif market == "indices":
+                            keyboard = INDICES_KEYBOARD
+                        else:
+                            keyboard = FOREX_SENTIMENT_KEYBOARD  # Default to forex sentiment
+                elif is_signals:
+                    # Use signals-specific keyboards
+                    if market == "forex":
+                        keyboard = FOREX_KEYBOARD_SIGNALS
+                    elif market == "crypto":
+                        keyboard = CRYPTO_KEYBOARD_SIGNALS
+                    elif market == "commodities":
+                        keyboard = COMMODITIES_KEYBOARD_SIGNALS
+                    elif market == "indices":
+                        keyboard = INDICES_KEYBOARD_SIGNALS
+                    else:
+                        keyboard = FOREX_KEYBOARD_SIGNALS  # Default to forex signals
                 else:
-                    # Fallback to forex if market not recognized
-                    keyboard = FOREX_KEYBOARD
+                    # Use regular analysis keyboards
+                    if market == "forex":
+                        keyboard = FOREX_KEYBOARD
+                    elif market == "crypto":
+                        keyboard = CRYPTO_KEYBOARD
+                    elif market == "commodities":
+                        keyboard = COMMODITIES_KEYBOARD
+                    elif market == "indices":
+                        keyboard = INDICES_KEYBOARD
+                    else:
+                        keyboard = FOREX_KEYBOARD  # Default to forex
                 
+                # Update message with selected keyboard
                 await self.update_message(
                     query=query,
-                    text=f"Select an instrument from {market.capitalize()}:",
+                    text=text,
                     keyboard=keyboard,
                     parse_mode=ParseMode.HTML
                 )
+                
                 return CHOOSE_INSTRUMENT
                 
             else:
@@ -2805,3 +2839,128 @@ Get started today with a FREE 14-day trial!
         except Exception as e:
             logger.error(f"Error getting subscribers for instrument {instrument}: {str(e)}")
             return []
+
+    async def market_callback(self, update: Update, context=None) -> int:
+        """Handle market selection for analysis"""
+        query = update.callback_query
+        
+        # Extract callback data
+        callback_data = query.data
+        
+        # Check if this is for signals
+        if "_signals" in callback_data:
+            try:
+                # Extract market from callback data
+                market = callback_data.replace('market_', '').replace('_signals', '')
+                
+                # Answer callback query to remove loading indicator
+                await query.answer()
+                
+                # Store market in context
+                if context and hasattr(context, 'user_data'):
+                    context.user_data['market'] = market
+                    context.user_data['is_signals'] = True
+                
+                # Choose keyboard based on market
+                if market == 'forex':
+                    keyboard = FOREX_KEYBOARD_SIGNALS
+                elif market == 'crypto':
+                    keyboard = CRYPTO_KEYBOARD_SIGNALS
+                elif market == 'commodities':
+                    keyboard = COMMODITIES_KEYBOARD_SIGNALS
+                elif market == 'indices':
+                    keyboard = INDICES_KEYBOARD_SIGNALS
+                else:
+                    keyboard = FOREX_KEYBOARD_SIGNALS  # Default to forex
+                
+                # Update message with instrument options
+                await self.update_message(
+                    query=query,
+                    text=f"Select a {market} instrument for signals:",
+                    keyboard=keyboard,
+                    parse_mode=ParseMode.HTML
+                )
+                
+                return CHOOSE_INSTRUMENT
+                
+            except Exception as e:
+                logger.error(f"Error in market_callback for signals: {str(e)}")
+                logger.exception(e)
+                return MENU
+        
+        # Extract market and check if this is from sentiment menu
+        if '_sentiment' in callback_data:
+            market = callback_data.replace('market_', '').replace('_sentiment', '')
+            analysis_type = 'sentiment'
+        else:
+            market = callback_data.replace('market_', '')
+            # Determine analysis type from context or default to technical
+            analysis_type = 'technical'  # Default
+            if context and hasattr(context, 'user_data') and 'analysis_type' in context.user_data:
+                analysis_type = context.user_data['analysis_type']
+        
+        try:
+            # Answer the callback query
+            await query.answer()
+            
+            # Log the market and analysis type
+            logger.info(f"Market callback: market={market}, analysis_type={analysis_type}, callback_data={callback_data}")
+            
+            # Store in user_data for future use
+            if context and hasattr(context, 'user_data'):
+                context.user_data['market'] = market
+                context.user_data['analysis_type'] = analysis_type
+                logger.info(f"Stored in context: market={market}, analysis_type={analysis_type}")
+            
+            # Choose the keyboard based on market and analysis type
+            keyboard = None
+            message_text = f"Select a {market} pair for "
+            
+            if market == 'forex':
+                if analysis_type == 'technical':
+                    keyboard = FOREX_KEYBOARD
+                    message_text += "technical analysis:"
+                elif analysis_type == 'sentiment':
+                    keyboard = FOREX_SENTIMENT_KEYBOARD
+                    message_text += "sentiment analysis:"
+                elif analysis_type == 'calendar':
+                    keyboard = FOREX_CALENDAR_KEYBOARD
+                    message_text += "economic calendar:"
+                else:
+                    keyboard = FOREX_KEYBOARD
+                    message_text += "analysis:"
+            elif market == 'crypto':
+                if analysis_type == 'technical':
+                    keyboard = CRYPTO_KEYBOARD
+                    message_text += "technical analysis:"
+                elif analysis_type == 'sentiment':
+                    keyboard = CRYPTO_SENTIMENT_KEYBOARD
+                    message_text += "sentiment analysis:"
+                else:
+                    keyboard = CRYPTO_KEYBOARD
+                    message_text += "analysis:"
+            elif market == 'commodities':
+                keyboard = COMMODITIES_KEYBOARD
+                message_text += "analysis:"
+            elif market == 'indices':
+                keyboard = INDICES_KEYBOARD
+                message_text += "analysis:"
+            else:
+                # Default to forex if market type not recognized
+                keyboard = FOREX_KEYBOARD
+                message_text += "analysis:"
+            
+            # Update the message with the selected keyboard
+            await self.update_message(
+                query=query,
+                text=message_text,
+                keyboard=keyboard,
+                parse_mode=ParseMode.HTML
+            )
+            
+            return CHOOSE_INSTRUMENT
+            
+        except Exception as e:
+            logger.error(f"Error in market_callback: {str(e)}")
+            # Try to recover by going to the analysis menu
+            return await self.back_analysis_callback(update, context)
