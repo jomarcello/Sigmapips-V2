@@ -2410,6 +2410,89 @@ Get started today with a FREE 14-day trial!
                         parse_mode=ParseMode.HTML
                     )
                     return SHOW_RESULT
+            
+            elif analysis_type == "sentiment":
+                # Get the loading gif
+                loading_gif_url = await get_loading_gif()
+                
+                try:
+                    # Try deleting the previous message and send a new GIF
+                    await query.message.delete()
+                    
+                    # Send a new GIF that will autoplay
+                    sent_message = await self.bot.send_animation(
+                        chat_id=query.message.chat_id,
+                        animation=loading_gif_url,
+                        caption=f"⏳ <b>Generating sentiment analysis for {instrument}...</b>",
+                        parse_mode=ParseMode.HTML
+                    )
+                    
+                    # Store the message ID in context for later updates
+                    if context and hasattr(context, 'user_data'):
+                        context.user_data['loading_message_id'] = sent_message.message_id
+                        
+                except Exception as e:
+                    logger.error(f"Error sending loading animation: {str(e)}")
+                    # If we couldn't send animation, try with regular message
+                    sent_message = await self.bot.send_message(
+                        chat_id=query.message.chat_id,
+                        text=f"⏳ <b>Generating sentiment analysis for {instrument}...</b>",
+                        parse_mode=ParseMode.HTML
+                    )
+                    
+                    # Store the message ID in context
+                    if context and hasattr(context, 'user_data'):
+                        context.user_data['loading_message_id'] = sent_message.message_id
+                
+                # Now generate the sentiment analysis
+                try:
+                    # Get market type if available in context
+                    market_type = None
+                    if context and hasattr(context, 'user_data'):
+                        market_type = context.user_data.get('market')
+                    
+                    # Get sentiment analysis as formatted text
+                    sentiment_text = await self.sentiment_service.get_market_sentiment_text(instrument, market_type)
+                    
+                    # Check if we have a loading message ID stored
+                    message_id_to_update = None
+                    if context and hasattr(context, 'user_data') and 'loading_message_id' in context.user_data:
+                        message_id_to_update = context.user_data['loading_message_id']
+                        
+                    if message_id_to_update:
+                        # Delete the loading message
+                        await self.bot.delete_message(
+                            chat_id=query.message.chat_id,
+                            message_id=message_id_to_update
+                        )
+                        
+                        # Send new message with sentiment analysis
+                        await self.bot.send_message(
+                            chat_id=query.message.chat_id,
+                            text=sentiment_text,
+                            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]]),
+                            parse_mode=ParseMode.HTML
+                        )
+                    
+                    return SHOW_RESULT
+                except Exception as sentiment_error:
+                    logger.error(f"Error generating sentiment analysis for {instrument}: {str(sentiment_error)}")
+                    # Send error message
+                    await self.bot.send_message(
+                        chat_id=query.message.chat_id,
+                        text=f"❌ <b>Could not generate sentiment analysis for {instrument}</b>\n\nPlease try again later.",
+                        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]]),
+                        parse_mode=ParseMode.HTML
+                    )
+                    return SHOW_RESULT
+                
+            elif analysis_type == "calendar":
+                # Handle calendar analysis
+                # Logic similar to sentiment but with calendar service
+                # This would be implemented in future updates
+                logger.warning(f"Calendar analysis not fully implemented for {instrument}")
+                return await self.back_market_callback(update, context)
+            
             else:
                 logger.warning(f"Unknown analysis type: {analysis_type}")
                 return await self.back_market_callback(update, context)
