@@ -2075,8 +2075,13 @@ Get started today with a FREE 14-day trial!
         await query.answer()
         
         try:
-            # Get the analysis type from context
-            analysis_type = context.user_data.get('analysis_type', 'technical')
+            # Check if message contains media
+            has_media = bool(query.message.photo) or query.message.animation is not None
+            
+            # Get the analysis type, defaulting to technical if context is None or analysis_type not set
+            analysis_type = 'technical'
+            if context and hasattr(context, 'user_data'):
+                analysis_type = context.user_data.get('analysis_type', 'technical')
             
             # Choose the appropriate keyboard based on analysis type
             if analysis_type == 'sentiment':
@@ -2084,16 +2089,49 @@ Get started today with a FREE 14-day trial!
             else:
                 keyboard = MARKET_KEYBOARD
             
-            # Update message with market selection
-            await query.message.edit_reply_markup(
-                reply_markup=InlineKeyboardMarkup(keyboard)
-            )
+            if has_media:
+                try:
+                    # Try to delete the message first
+                    await query.message.delete()
+                    # Send a new message with the market selection
+                    await query.message.reply_text(
+                        text="Select a market for analysis:",
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+                except Exception as delete_error:
+                    logger.warning(f"Could not delete message: {str(delete_error)}")
+                    try:
+                        # Try to replace media with empty content
+                        await query.message.edit_media(
+                            media=InputMediaDocument(
+                                media="https://upload.wikimedia.org/wikipedia/commons/thumb/0/00/Transparent.gif/1px-Transparent.gif",
+                                caption="Select a market for analysis:",
+                            ),
+                            reply_markup=InlineKeyboardMarkup(keyboard)
+                        )
+                    except Exception as edit_error:
+                        logger.warning(f"Could not edit media: {str(edit_error)}")
+                        # If all else fails, just try to edit the caption
+                        await query.message.edit_caption(
+                            caption="Select a market for analysis:",
+                            reply_markup=InlineKeyboardMarkup(keyboard)
+                        )
+            else:
+                # If no media, just update the reply markup
+                await query.message.edit_reply_markup(
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
             
             return CHOOSE_MARKET
             
         except Exception as e:
             logger.error(f"Error in back_market_callback: {str(e)}")
             logger.exception(e)
+            # If something goes wrong, try to show the main menu
+            try:
+                await self.show_main_menu(update, context)
+            except:
+                pass
             return MENU
     
     async def back_analysis_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
