@@ -206,19 +206,19 @@ FOREX_KEYBOARD = [
 # Define forex sentiment keyboard with explicit analysis types
 FOREX_SENTIMENT_KEYBOARD = [
     [
-        InlineKeyboardButton("EUR/USD", callback_data=_format_instrument_callback("EURUSD", "sentiment")),
-        InlineKeyboardButton("GBP/USD", callback_data=_format_instrument_callback("GBPUSD", "sentiment")),
-        InlineKeyboardButton("AUD/USD", callback_data=_format_instrument_callback("AUDUSD", "sentiment"))
+        InlineKeyboardButton("EUR/USD", callback_data="instrument_EURUSD_sentiment"),
+        InlineKeyboardButton("GBP/USD", callback_data="instrument_GBPUSD_sentiment"),
+        InlineKeyboardButton("AUD/USD", callback_data="instrument_AUDUSD_sentiment")
     ],
     [
-        InlineKeyboardButton("USD/JPY", callback_data=_format_instrument_callback("USDJPY", "sentiment")),
-        InlineKeyboardButton("USD/CHF", callback_data=_format_instrument_callback("USDCHF", "sentiment")),
-        InlineKeyboardButton("USD/CAD", callback_data=_format_instrument_callback("USDCAD", "sentiment"))
+        InlineKeyboardButton("USD/JPY", callback_data="instrument_USDJPY_sentiment"),
+        InlineKeyboardButton("USD/CHF", callback_data="instrument_USDCHF_sentiment"),
+        InlineKeyboardButton("USD/CAD", callback_data="instrument_USDCAD_sentiment")
     ],
     [
-        InlineKeyboardButton("EUR/GBP", callback_data=_format_instrument_callback("EURGBP", "sentiment")),
-        InlineKeyboardButton("EUR/JPY", callback_data=_format_instrument_callback("EURJPY", "sentiment")),
-        InlineKeyboardButton("GBP/JPY", callback_data=_format_instrument_callback("GBPJPY", "sentiment"))
+        InlineKeyboardButton("EUR/GBP", callback_data="instrument_EURGBP_sentiment"),
+        InlineKeyboardButton("EUR/JPY", callback_data="instrument_EURJPY_sentiment"),
+        InlineKeyboardButton("GBP/JPY", callback_data="instrument_GBPJPY_sentiment")
     ],
     [InlineKeyboardButton("⬅️ Back", callback_data="back_analysis")]
 ]
@@ -261,11 +261,21 @@ CRYPTO_SENTIMENT_KEYBOARD = [
 # Indices keyboard voor analyse
 INDICES_KEYBOARD = [
     [
-        InlineKeyboardButton("US30", callback_data="instrument_US30"),
-        InlineKeyboardButton("US500", callback_data="instrument_US500"),
-        InlineKeyboardButton("US100", callback_data="instrument_US100")
+        InlineKeyboardButton("US30", callback_data="instrument_US30_chart"),
+        InlineKeyboardButton("US500", callback_data="instrument_US500_chart"),
+        InlineKeyboardButton("US100", callback_data="instrument_US100_chart")
     ],
-    [InlineKeyboardButton("⬅️ Terug", callback_data="back_market")]
+    [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
+]
+
+# Commodities keyboard voor analyse
+COMMODITIES_KEYBOARD = [
+    [
+        InlineKeyboardButton("GOLD", callback_data="instrument_XAUUSD_chart"),
+        InlineKeyboardButton("SILVER", callback_data="instrument_XAGUSD_chart"),
+        InlineKeyboardButton("OIL", callback_data="instrument_USOIL_chart")
+    ],
+    [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
 ]
 
 # Indices keyboard voor signals - Fix de "Terug" knop naar "Back"
@@ -274,26 +284,6 @@ INDICES_KEYBOARD_SIGNALS = [
         InlineKeyboardButton("US30", callback_data="instrument_US30_signals"),
         InlineKeyboardButton("US500", callback_data="instrument_US500_signals"),
         InlineKeyboardButton("US100", callback_data="instrument_US100_signals")
-    ],
-    [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
-]
-
-# Commodities keyboard voor analyse
-COMMODITIES_KEYBOARD = [
-    [
-        InlineKeyboardButton("GOLD", callback_data="instrument_XAUUSD"),
-        InlineKeyboardButton("SILVER", callback_data="instrument_XAGUSD"),
-        InlineKeyboardButton("OIL", callback_data="instrument_USOIL")
-    ],
-    [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
-]
-
-# Commodities keyboard voor signals - Fix de "Terug" knop naar "Back"
-COMMODITIES_KEYBOARD_SIGNALS = [
-    [
-        InlineKeyboardButton("XAUUSD", callback_data="instrument_XAUUSD_signals"),
-        InlineKeyboardButton("XAGUSD", callback_data="instrument_XAGUSD_signals"),
-        InlineKeyboardButton("USOIL", callback_data="instrument_USOIL_signals")
     ],
     [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
 ]
@@ -2112,18 +2102,32 @@ Get started today with a FREE 14-day trial!
     async def instrument_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
         """Handle instrument selection"""
         query = update.callback_query
+        await query.answer()
         
         try:
             # Get callback data and analysis type
             callback_data = query.data
-            analysis_type = context.user_data.get('analysis_type', 'technical') if context and hasattr(context, 'user_data') else 'technical'
+            analysis_type = None
             
-            # Extract instrument from callback
-            instrument = callback_data.replace('instrument_', '')
+            # Extract analysis type from callback data
+            if '_sentiment' in callback_data:
+                analysis_type = 'sentiment'
+                instrument = callback_data.replace('instrument_', '').replace('_sentiment', '')
+            elif '_chart' in callback_data:
+                analysis_type = 'technical'
+                instrument = callback_data.replace('instrument_', '').replace('_chart', '')
+            elif '_calendar' in callback_data:
+                analysis_type = 'calendar'
+                instrument = callback_data.replace('instrument_', '').replace('_calendar', '')
+            else:
+                # Default to technical analysis if no type specified
+                analysis_type = 'technical'
+                instrument = callback_data.replace('instrument_', '')
             
-            # Store the selected instrument
+            # Store the selected instrument and analysis type
             if context and hasattr(context, 'user_data'):
                 context.user_data['instrument'] = instrument
+                context.user_data['analysis_type'] = analysis_type
             
             # Handle different analysis types
             if analysis_type == 'sentiment':
