@@ -1662,124 +1662,24 @@ Get started today with a FREE 14-day trial!
         await query.answer()
         
         try:
-            # Get instrument from context
-            instrument = None
+            # Debug logging
+            logger.info("analysis_sentiment_callback aangeroepen")
+            
+            # Store analysis type in user_data
             if context and hasattr(context, 'user_data'):
-                instrument = context.user_data.get('instrument')
+                context.user_data['analysis_type'] = 'sentiment'
+                context.user_data['current_state'] = CHOOSE_MARKET
             
-            if not instrument:
-                logger.error("No instrument found in context for sentiment analysis")
-                return MENU
-                
-            # Get loading GIF URL
-            loading_gif_url = await get_loading_gif()
-            
-            # First, update the message with loading animation
-            await query.edit_message_media(
-                media=InputMediaPhoto(
-                    media=loading_gif_url,
-                    caption=f"⏳ <b>Generating sentiment analysis for {instrument}...</b>"
-                ),
-                parse_mode=ParseMode.HTML
+            # Show market selection for sentiment analysis
+            await query.edit_message_text(
+                text="Select a market for sentiment analysis:",
+                reply_markup=InlineKeyboardMarkup(MARKET_SENTIMENT_KEYBOARD)
             )
             
-            # Get sentiment analysis
-            try:
-                sentiment_data = await self.sentiment_service.get_market_sentiment(instrument)
-                logger.info(f"Sentiment data received for {instrument}")
-                
-                # Extract sentiment data
-                bullish = sentiment_data.get('bullish', 50)
-                bearish = sentiment_data.get('bearish', 30)
-                neutral = sentiment_data.get('neutral', 20)
-                
-                # Determine emoji based on sentiment
-                if bullish > 55:
-                    emoji = "📈"
-                elif bearish > 55:
-                    emoji = "📉"
-                else:
-                    emoji = "⚖️"
-                
-                # Format sentiment message
-                sentiment = f"""<b>🧠 Market Sentiment Analysis: {instrument}</b>
-
-<b>Overall Sentiment:</b> {sentiment_data.get('overall_sentiment', 'Neutral')} {emoji}
-
-<b>Sentiment Breakdown:</b>
-- Bullish: {bullish}%
-- Bearish: {bearish}%
-- Neutral: {neutral}%
-- Trend Strength: {sentiment_data.get('trend_strength', 'Moderate')}
-- Volatility: {sentiment_data.get('volatility', 'Moderate')}
-
-<b>Key Levels:</b>
-- Support: {sentiment_data.get('support_level', 'Not available')}
-- Resistance: {sentiment_data.get('resistance_level', 'Not available')}
-
-<b>Trading Recommendation:</b>
-{sentiment_data.get('recommendation', 'Wait for clearer market signals')}
-
-<b>Analysis:</b>
-{sentiment_data.get('analysis', 'Detailed analysis not available').strip()}"""
-                
-                # Update the same message with sentiment analysis
-                await query.edit_message_media(
-                    media=InputMediaPhoto(
-                        media=loading_gif_url,  # Keep the same GIF
-                        caption=sentiment
-                    ),
-                    reply_markup=InlineKeyboardMarkup([[
-                        InlineKeyboardButton("⬅️ Back", callback_data="back_market")
-                    ]]),
-                    parse_mode=ParseMode.HTML
-                )
-                
-            except Exception as sentiment_error:
-                logger.error(f"Error getting sentiment: {str(sentiment_error)}")
-                logger.exception(sentiment_error)
-                
-                # Use fallback sentiment
-                bullish = random.randint(30, 70)
-                bearish = 100 - bullish
-                neutral = 0
-                
-                if bullish > 55:
-                    emoji = "📈"
-                elif bearish > 55:
-                    emoji = "📉"
-                else:
-                    emoji = "⚖️"
-                
-                fallback_message = f"""<b>🧠 Market Sentiment Analysis: {instrument}</b>
-
-<b>Overall Sentiment:</b> Neutral {emoji}
-
-<b>Sentiment Breakdown:</b>
-- Bullish: {bullish}%
-- Bearish: {bearish}%
-- Neutral: {neutral}%
-
-<b>Market Analysis:</b>
-The current sentiment for {instrument} is neutral, with mixed signals in the market. Please check back later for updated analysis."""
-                
-                # Update the same message with fallback sentiment
-                await query.edit_message_media(
-                    media=InputMediaPhoto(
-                        media=loading_gif_url,  # Keep the same GIF
-                        caption=fallback_message
-                    ),
-                    reply_markup=InlineKeyboardMarkup([[
-                        InlineKeyboardButton("⬅️ Back", callback_data="back_market")
-                    ]]),
-                    parse_mode=ParseMode.HTML
-                )
-                logger.info("Using fallback sentiment analysis")
-            
-            return SHOW_RESULT
+            return CHOOSE_MARKET
             
         except Exception as e:
-            logger.error(f"Error in sentiment analysis callback: {str(e)}")
+            logger.error(f"Error in analysis_sentiment_callback: {str(e)}")
             logger.exception(e)
             return MENU
 
@@ -2915,61 +2815,269 @@ The current sentiment for {instrument} is neutral, with mixed signals in the mar
             logger.error(f"Error getting subscribers for instrument {instrument}: {str(e)}")
             return []
 
-    async def market_callback(self, update: Update, context=None) -> int:
-        """Handle market selection callback."""
+    async def market_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
+        """Handle market selection for analysis"""
         query = update.callback_query
         await query.answer()
         
         try:
-            # Get the selected market
-            market = query.data.split('_')[1]
+            # Get callback data
+            callback_data = query.data
             
-            # Get the current message text
-            message_text = query.message.text
-            
-            # Determine if we're in signals mode
-            is_signals = "signals" in message_text.lower()
-            
-            # Determine if we're in sentiment analysis mode
-            is_sentiment = "sentiment" in message_text.lower()
-            
-            # Select appropriate keyboard based on mode and market
-            if is_signals:
-                # Use signals-specific keyboards
-                if market == "forex":
-                    keyboard = FOREX_KEYBOARD_SIGNALS
-                elif market == "crypto":
-                    keyboard = CRYPTO_KEYBOARD_SIGNALS
-                elif market == "commodities":
-                    keyboard = COMMODITIES_KEYBOARD_SIGNALS
-                elif market == "indices":
-                    keyboard = INDICES_KEYBOARD_SIGNALS
-                else:
-                    keyboard = FOREX_KEYBOARD_SIGNALS  # Default to forex signals
+            # Extract market and check if this is from sentiment menu
+            if '_sentiment' in callback_data:
+                market = callback_data.replace('market_', '').replace('_sentiment', '')
+                analysis_type = 'sentiment'
             else:
-                # Use regular analysis keyboards
-                if market == "forex":
-                    keyboard = FOREX_SENTIMENT_KEYBOARD if is_sentiment else FOREX_KEYBOARD
-                elif market == "crypto":
-                    keyboard = CRYPTO_SENTIMENT_KEYBOARD if is_sentiment else CRYPTO_KEYBOARD
-                elif market == "commodities":
-                    keyboard = COMMODITIES_SENTIMENT_KEYBOARD if is_sentiment else COMMODITIES_KEYBOARD
-                elif market == "indices":
-                    keyboard = INDICES_SENTIMENT_KEYBOARD if is_sentiment else INDICES_KEYBOARD
-                else:
-                    keyboard = FOREX_SENTIMENT_KEYBOARD if is_sentiment else FOREX_KEYBOARD  # Default to forex
+                market = callback_data.replace('market_', '')
+                # Determine analysis type from context or default to technical
+                analysis_type = context.user_data.get('analysis_type', 'technical') if context and hasattr(context, 'user_data') else 'technical'
             
-            # Update the message with the selected keyboard
-            await self.update_message(
-                query=query,
-                text=message_text,
-                keyboard=keyboard,
-                parse_mode=ParseMode.HTML
+            # Store market and analysis type in user_data
+            if context and hasattr(context, 'user_data'):
+                context.user_data['market'] = market
+                context.user_data['analysis_type'] = analysis_type
+                context.user_data['current_state'] = CHOOSE_INSTRUMENT
+            
+            # Get the appropriate keyboard based on market and analysis type
+            keyboard = self.get_instrument_keyboard(market, analysis_type)
+            
+            # Show instrument selection
+            await query.edit_message_text(
+                text=f"Select an instrument for {analysis_type.capitalize()} analysis:",
+                reply_markup=InlineKeyboardMarkup(keyboard)
             )
             
             return CHOOSE_INSTRUMENT
             
         except Exception as e:
             logger.error(f"Error in market_callback: {str(e)}")
-            # Try to recover by going to the analysis menu
-            return await self.back_analysis_callback(update, context)
+            logger.exception(e)
+            return MENU
+
+    def get_instrument_keyboard(self, market: str, analysis_type: str) -> List[List[InlineKeyboardButton]]:
+        """Get the appropriate keyboard for instrument selection based on market and analysis type"""
+        # Define sentiment-specific keyboards
+        SENTIMENT_KEYBOARDS = {
+            'forex': [
+                [
+                    InlineKeyboardButton("EURUSD", callback_data="direct_sentiment_EURUSD"),
+                    InlineKeyboardButton("GBPUSD", callback_data="direct_sentiment_GBPUSD")
+                ],
+                [
+                    InlineKeyboardButton("USDJPY", callback_data="direct_sentiment_USDJPY"),
+                    InlineKeyboardButton("USDCHF", callback_data="direct_sentiment_USDCHF")
+                ],
+                [
+                    InlineKeyboardButton("AUDUSD", callback_data="direct_sentiment_AUDUSD"),
+                    InlineKeyboardButton("USDCAD", callback_data="direct_sentiment_USDCAD")
+                ],
+                [
+                    InlineKeyboardButton("EURGBP", callback_data="direct_sentiment_EURGBP"),
+                    InlineKeyboardButton("EURJPY", callback_data="direct_sentiment_EURJPY")
+                ],
+                [InlineKeyboardButton("⬅️ Back", callback_data="back_analysis")]
+            ],
+            'crypto': [
+                [
+                    InlineKeyboardButton("BTCUSD", callback_data="direct_sentiment_BTCUSD"),
+                    InlineKeyboardButton("ETHUSD", callback_data="direct_sentiment_ETHUSD")
+                ],
+                [
+                    InlineKeyboardButton("XRPUSD", callback_data="direct_sentiment_XRPUSD"),
+                    InlineKeyboardButton("ADAUSD", callback_data="direct_sentiment_ADAUSD")
+                ],
+                [InlineKeyboardButton("⬅️ Back", callback_data="back_analysis")]
+            ],
+            'commodities': [
+                [
+                    InlineKeyboardButton("XAUUSD", callback_data="direct_sentiment_XAUUSD"),
+                    InlineKeyboardButton("XAGUSD", callback_data="direct_sentiment_XAGUSD")
+                ],
+                [
+                    InlineKeyboardButton("USOUSD", callback_data="direct_sentiment_USOUSD"),
+                    InlineKeyboardButton("NQUSD", callback_data="direct_sentiment_NQUSD")
+                ],
+                [InlineKeyboardButton("⬅️ Back", callback_data="back_analysis")]
+            ],
+            'indices': [
+                [
+                    InlineKeyboardButton("SPXUSD", callback_data="direct_sentiment_SPXUSD"),
+                    InlineKeyboardButton("DJIUSD", callback_data="direct_sentiment_DJIUSD")
+                ],
+                [
+                    InlineKeyboardButton("NDXUSD", callback_data="direct_sentiment_NDXUSD"),
+                    InlineKeyboardButton("RUTUSD", callback_data="direct_sentiment_RUTUSD")
+                ],
+                [InlineKeyboardButton("⬅️ Back", callback_data="back_analysis")]
+            ]
+        }
+        
+        # Define technical analysis keyboards
+        TECHNICAL_KEYBOARDS = {
+            'forex': [
+                [
+                    InlineKeyboardButton("EURUSD", callback_data="instrument_EURUSD_chart"),
+                    InlineKeyboardButton("GBPUSD", callback_data="instrument_GBPUSD_chart")
+                ],
+                [
+                    InlineKeyboardButton("USDJPY", callback_data="instrument_USDJPY_chart"),
+                    InlineKeyboardButton("USDCHF", callback_data="instrument_USDCHF_chart")
+                ],
+                [
+                    InlineKeyboardButton("AUDUSD", callback_data="instrument_AUDUSD_chart"),
+                    InlineKeyboardButton("USDCAD", callback_data="instrument_USDCAD_chart")
+                ],
+                [
+                    InlineKeyboardButton("EURGBP", callback_data="instrument_EURGBP_chart"),
+                    InlineKeyboardButton("EURJPY", callback_data="instrument_EURJPY_chart")
+                ],
+                [InlineKeyboardButton("⬅️ Back", callback_data="back_analysis")]
+            ],
+            'crypto': [
+                [
+                    InlineKeyboardButton("BTCUSD", callback_data="instrument_BTCUSD_chart"),
+                    InlineKeyboardButton("ETHUSD", callback_data="instrument_ETHUSD_chart")
+                ],
+                [
+                    InlineKeyboardButton("XRPUSD", callback_data="instrument_XRPUSD_chart"),
+                    InlineKeyboardButton("ADAUSD", callback_data="instrument_ADAUSD_chart")
+                ],
+                [InlineKeyboardButton("⬅️ Back", callback_data="back_analysis")]
+            ],
+            'commodities': [
+                [
+                    InlineKeyboardButton("XAUUSD", callback_data="instrument_XAUUSD_chart"),
+                    InlineKeyboardButton("XAGUSD", callback_data="instrument_XAGUSD_chart")
+                ],
+                [
+                    InlineKeyboardButton("USOUSD", callback_data="instrument_USOUSD_chart"),
+                    InlineKeyboardButton("NQUSD", callback_data="instrument_NQUSD_chart")
+                ],
+                [InlineKeyboardButton("⬅️ Back", callback_data="back_analysis")]
+            ],
+            'indices': [
+                [
+                    InlineKeyboardButton("SPXUSD", callback_data="instrument_SPXUSD_chart"),
+                    InlineKeyboardButton("DJIUSD", callback_data="instrument_DJIUSD_chart")
+                ],
+                [
+                    InlineKeyboardButton("NDXUSD", callback_data="instrument_NDXUSD_chart"),
+                    InlineKeyboardButton("RUTUSD", callback_data="instrument_RUTUSD_chart")
+                ],
+                [InlineKeyboardButton("⬅️ Back", callback_data="back_analysis")]
+            ]
+        }
+        
+        # Return the appropriate keyboard based on analysis type
+        if analysis_type == 'sentiment':
+            return SENTIMENT_KEYBOARDS.get(market, SENTIMENT_KEYBOARDS['forex'])
+        else:
+            return TECHNICAL_KEYBOARDS.get(market, TECHNICAL_KEYBOARDS['forex'])
+
+    async def direct_sentiment_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
+        """Handle direct sentiment analysis callback"""
+        query = update.callback_query
+        await query.answer()
+        
+        try:
+            # Extract instrument from callback data
+            instrument = query.data.replace('direct_sentiment_', '')
+            logger.info(f"Direct sentiment callback voor instrument: {instrument}")
+            
+            # Store current state and instrument
+            if context and hasattr(context, 'user_data'):
+                context.user_data['current_instrument'] = instrument
+                context.user_data['current_state'] = SHOW_RESULT
+                context.user_data['analysis_type'] = 'sentiment'
+            
+            # Show loading message
+            await query.edit_message_text(
+                text=f"Getting market sentiment for {instrument}...",
+                reply_markup=None
+            )
+            
+            # Get sentiment analysis
+            try:
+                sentiment_data = await self.sentiment_service.get_market_sentiment(instrument)
+                logger.info(f"Sentiment ontvangen voor {instrument}")
+                
+                # Extract sentiment data
+                bullish_score = sentiment_data.get('bullish_percentage', 50)
+                bearish_score = 100 - bullish_score
+                overall = sentiment_data.get('overall_sentiment', 'neutral').capitalize()
+                
+                # Determine emoji based on sentiment
+                if overall.lower() == 'bullish':
+                    emoji = "📈"
+                elif overall.lower() == 'bearish':
+                    emoji = "📉"
+                else:
+                    emoji = "⚖️"
+                
+                # Format sentiment message
+                sentiment = f"""<b>🧠 Market Sentiment Analysis: {instrument}</b>
+
+<b>Overall Sentiment:</b> {overall} {emoji}
+
+<b>Sentiment Breakdown:</b>
+- Bullish: {bullish_score}%
+- Bearish: {bearish_score}%
+- Trend Strength: {sentiment_data.get('trend_strength', 'Moderate')}
+- Volatility: {sentiment_data.get('volatility', 'Moderate')}
+
+<b>Key Levels:</b>
+- Support: {sentiment_data.get('support_level', 'Not available')}
+- Resistance: {sentiment_data.get('resistance_level', 'Not available')}
+
+<b>Trading Recommendation:</b>
+{sentiment_data.get('recommendation', 'Wait for clearer market signals')}
+
+<b>Analysis:</b>
+{sentiment_data.get('analysis', 'Detailed analysis not available').strip()}"""
+                
+                # Show sentiment analysis
+                await query.edit_message_text(
+                    text=sentiment,
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("⬅️ Back", callback_data="back_analysis")
+                    ]]),
+                    parse_mode=ParseMode.HTML
+                )
+                
+            except Exception as sentiment_error:
+                logger.error(f"Error getting sentiment: {str(sentiment_error)}")
+                logger.exception(sentiment_error)
+                
+                # Use fallback sentiment
+                bullish_score = random.randint(30, 70)
+                bearish_score = 100 - bullish_score
+                overall = "Neutral"
+                emoji = "⚖️"
+                
+                fallback_message = f"""<b>🧠 Market Sentiment Analysis: {instrument}</b>
+
+<b>Overall Sentiment:</b> {overall} {emoji}
+
+<b>Sentiment Breakdown:</b>
+- Bullish: {bullish_score}%
+- Bearish: {bearish_score}%
+
+<b>Market Analysis:</b>
+The current sentiment for {instrument} is neutral, with mixed signals in the market. Please check back later for updated analysis."""
+                
+                await query.edit_message_text(
+                    text=fallback_message,
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("⬅️ Back", callback_data="back_analysis")
+                    ]]),
+                    parse_mode=ParseMode.HTML
+                )
+                logger.info("Using fallback sentiment analysis")
+            
+            return SHOW_RESULT
+            
+        except Exception as e:
+            logger.error(f"Error in direct sentiment callback: {str(e)}")
+            logger.exception(e)
+            return MENU
