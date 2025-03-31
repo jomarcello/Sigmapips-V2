@@ -31,15 +31,13 @@ class MarketSentimentService:
         else:
             logger.warning("No Tavily API key found")
         
-        # If no DeepSeek API key is provided, we'll use mock data
+        # Log DeepSeek API key status
         if self.deepseek_api_key:
             masked_key = self.deepseek_api_key[:6] + "..." + self.deepseek_api_key[-4:] if len(self.deepseek_api_key) > 10 else "***"
             logger.info(f"DeepSeek API key is configured: {masked_key}")
         else:
-            logger.warning("No DeepSeek API key found, using mock data")
+            logger.warning("No DeepSeek API key found")
             
-        self.use_mock = not self.deepseek_api_key
-    
     async def get_sentiment(self, instrument: str, market_type: Optional[str] = None) -> Dict[str, Any]:
         """
         Get sentiment for a given instrument. This function is used by the TelegramService.
@@ -368,186 +366,32 @@ Please try again later or choose a different instrument.
 """
     
     def _format_data_manually(self, news_content: str, instrument: str) -> str:
-        """Format market data manually when DeepSeek API fails"""
+        """Format market data manually for further processing"""
         try:
             logger.info(f"Manually formatting market data for {instrument}")
             
-            # Extract key phrases and content
-            news_lines = news_content.split('\n')
+            # Extract key phrases and content from news_content
+            formatted_text = f"# Market Data for {instrument}\n\n"
             
-            # Create a simple sentiment analysis based on keywords in the news content
-            positive_keywords = [
-                'bullish', 'gain', 'up', 'rise', 'growth', 'positive', 'surge', 
-                'rally', 'outperform', 'increase', 'higher', 'strong', 'advance',
-                'recovery', 'support', 'buy', 'long', 'optimistic', 'upward'
-            ]
-            
-            negative_keywords = [
-                'bearish', 'loss', 'down', 'fall', 'decline', 'negative', 'drop', 
-                'plunge', 'underperform', 'decrease', 'lower', 'weak', 'retreat',
-                'resistance', 'sell', 'short', 'pessimistic', 'downward'
-            ]
-            
-            # Count instances of positive and negative keywords
-            positive_count = sum(1 for word in positive_keywords if word.lower() in news_content.lower())
-            negative_count = sum(1 for word in negative_keywords if word.lower() in news_content.lower())
-            
-            # Determine sentiment based on keyword counts
-            if positive_count > negative_count:
-                sentiment = "bullish"
-                sentiment_score = min(90, 50 + (positive_count - negative_count) * 5)
-            elif negative_count > positive_count:
-                sentiment = "bearish"
-                sentiment_score = max(10, 50 - (negative_count - positive_count) * 5)
+            # Add news content sections
+            if "Market Analysis" in news_content:
+                formatted_text += news_content
             else:
-                sentiment = "neutral"
-                sentiment_score = 50
+                # Extract key parts of the news content
+                sections = news_content.split("\n\n")
+                for section in sections:
+                    if len(section.strip()) > 0:
+                        formatted_text += section.strip() + "\n\n"
             
-            # Format instrument name for display
-            if instrument.startswith("EUR"):
-                display_name = "EUR/USD"
-            elif instrument.startswith("GBP"):
-                display_name = "GBP/USD"
-            elif instrument.startswith("USD"):
-                if "JPY" in instrument:
-                    display_name = "USD/JPY"
-                elif "CHF" in instrument:
-                    display_name = "USD/CHF"
-                elif "CAD" in instrument:
-                    display_name = "USD/CAD"
-                else:
-                    display_name = instrument
-            else:
-                display_name = instrument
-            
-            # Create the analysis text with proper HTML formatting
-            analysis = f"<b>🧠 Market Sentiment Analysis: {instrument}</b>\n\n"
-            
-            # Market Direction section
-            analysis += "<b>📈 Market Direction:</b>\n"
-            
-            # Build a more sophisticated direction description
-            if sentiment == "bullish":
-                trend_desc = f"{display_name} is showing positive momentum with potential for upward movement"
-                if sentiment_score > 75:
-                    trend_desc += ", indicating strong bullish bias in current conditions."
-                else:
-                    trend_desc += ", with cautious optimism in market sentiment."
-            elif sentiment == "bearish":
-                trend_desc = f"{display_name} is facing downward pressure in current trading conditions"
-                if sentiment_score < 25:
-                    trend_desc += ", showing significant bearish momentum."
-                else:
-                    trend_desc += ", with moderate selling interest."
-            else:
-                trend_desc = f"{display_name} is trading in a narrow range, showing cautious momentum ahead of key market events."
-                trend_desc += " The pair exhibits mixed signals amid current economic uncertainty."
-            
-            analysis += f"{trend_desc}\n\n"
-            
-            # Latest News section
-            analysis += "<b>📰 Latest News & Events:</b>\n"
-            
-            # Find key news points
-            news_points = []
-            for line in news_lines:
-                line = line.strip()
-                # Skip empty lines and headers
-                if not line or line.startswith('Market Analysis') or line.startswith('Detailed Market'):
-                    continue
-                    
-                # If it's a numbered point or looks like a news title, add it
-                if (line.startswith(('•', '1.', '2.', '3.', '4.', '5.')) or 
-                    (len(line) > 20 and len(line) < 150 and not line.startswith('Source:'))):
-                    # Clean up the line
-                    cleaned_line = re.sub(r'^[0-9]+\.\s*', '', line)
-                    cleaned_line = re.sub(r'^•\s*', '', cleaned_line)
-                    
-                    # Skip lines that contain section headers we'll add separately
-                    if any(header in cleaned_line for header in 
-                          ["Market Direction", "Latest News", "Key Levels", "Risk Factors", "Conclusion"]):
-                        continue
-                        
-                    news_points.append(cleaned_line)
-            
-            # Use extracted news points or generate default ones
-            if news_points:
-                # Add up to 3 unique news points that are meaningful
-                added_points = set()
-                count = 0
+            # Make sure it's not too long
+            if len(formatted_text) > 6000:
+                formatted_text = formatted_text[:6000] + "...\n\n(content truncated for processing)"
                 
-                for point in news_points:
-                    # Skip very short points and duplicates
-                    if len(point) < 15 or point in added_points:
-                        continue
-                        
-                    analysis += f"• {point}\n"
-                    added_points.add(point)
-                    count += 1
-                    
-                    if count >= 3:
-                        break
-            
-            # If no valid news points were found, generate contextual ones
-            if not news_points or len(added_points) == 0:
-                if instrument.startswith("EUR") or instrument.startswith("GBP") or "JPY" in instrument:
-                    # Forex specific news
-                    analysis += f"• Central bank policy divergence remains a key factor for {display_name} direction.\n"
-                    analysis += f"• Economic data releases from major economies continue to influence {display_name}.\n"
-                    analysis += "• Market liquidity and risk sentiment are affecting current trading conditions.\n"
-                elif "BTC" in instrument or "ETH" in instrument:
-                    # Crypto specific news
-                    analysis += "• Regulatory developments continue to impact overall cryptocurrency sentiment.\n"
-                    analysis += f"• {instrument} price action shows correlation with broader market risk appetite.\n"
-                    analysis += "• Technical factors and on-chain metrics influence current trading patterns.\n"
-                else:
-                    # Generic market news
-                    analysis += f"• {display_name} shows sensitivity to changing economic conditions.\n"
-                    analysis += "• Market participants are weighing various factors affecting price direction.\n"
-                    analysis += "• Technical analysis indicates potential volatility in short-term trading.\n"
-            
-            analysis += "\n"
-            
-            # Risk Factors section
-            analysis += "<b>⚠️ Risk Factors:</b>\n"
-            
-            # Generate contextual risk factors
-            if instrument.startswith("EUR") or instrument.startswith("GBP") or "JPY" in instrument:
-                # Forex specific risks
-                analysis += "• Economic data surprises could lead to sudden price movements.\n"
-                analysis += "• Central bank communication may shift market expectations unexpectedly.\n"
-                analysis += "• Geopolitical tensions could increase safe-haven flows and market volatility.\n"
-            elif "BTC" in instrument or "ETH" in instrument:
-                # Crypto specific risks
-                analysis += "• Regulatory announcements could impact market sentiment rapidly.\n"
-                analysis += "• Market liquidity issues may exacerbate price movements in either direction.\n"
-                analysis += "• Technical resistance or support breaches may trigger cascading orders.\n"
-            else:
-                # Generic market risks
-                analysis += f"• Increased volatility may occur around key economic releases affecting {display_name}.\n"
-                analysis += "• Unexpected news or events could trigger sharp price adjustments.\n"
-                analysis += "• Changing market sentiment may lead to quick reversals in current trends.\n"
-            
-            analysis += "\n"
-            
-            # Conclusion section
-            analysis += "<b>💡 Conclusion:</b>\n"
-            
-            # Generate appropriate conclusion based on sentiment score
-            if sentiment_score > 65:
-                analysis += f"Current market conditions suggest positive momentum for {display_name}. <b>Consider long positions</b> with appropriate risk management and defined stop-loss levels."
-            elif sentiment_score < 35:
-                analysis += f"Market indicators point to downward pressure on {display_name}. <b>Consider short positions</b> with careful risk control and attention to potential support levels."
-            else:
-                analysis += f"Mixed signals suggest caution in current {display_name} trading environment. <b>Wait for clearer signals</b> before establishing new positions, or consider reduced position sizes with tight risk parameters."
-            
-            # Return only the formatted analysis string
-            return analysis
+            return formatted_text
             
         except Exception as e:
             logger.error(f"Error formatting market data manually: {str(e)}")
-            logger.exception(e)
-            return self._get_fallback_sentiment(instrument)['analysis']  # Return only the analysis part of fallback
+            return f"# Market Data for {instrument}\n\nError formatting data: {str(e)}\n\nRaw content: {news_content[:500]}..."
     
     async def _get_tavily_news(self, search_query: str) -> str:
         """Use Tavily API to get latest news and market data"""
@@ -624,8 +468,8 @@ Please try again later or choose a different instrument.
     async def _format_with_deepseek(self, instrument: str, market: str, market_data: str) -> str:
         """Use DeepSeek to format the news into a structured Telegram message"""
         if not self.deepseek_api_key:
-            logger.warning("No DeepSeek API key available, skipping formatting")
-            return None
+            logger.warning("No DeepSeek API key available, cannot format data")
+            raise ValueError("DeepSeek API key is required for sentiment analysis")
             
         logger.info(f"Formatting market data for {instrument} using DeepSeek API")
         
@@ -715,9 +559,9 @@ Format your response EXACTLY as follows, with no additional text before or after
 <b>🎯 {instrument} Market Analysis</b>
 
 <b>Market Sentiment Breakdown:</b>
-🟢 Bullish: [percentage]%
-🔴 Bearish: [percentage]%
-⚪️ Neutral: [percentage]%
+🟢 Bullish: [percentage, must be a number between 0-100]%
+🔴 Bearish: [percentage, must be a number between 0-100]%
+⚪️ Neutral: [percentage, must be a number between 0-100]%
 
 <b>📈 Market Direction:</b>
 [Current trend, momentum and price action analysis]
@@ -738,12 +582,13 @@ Format your response EXACTLY as follows, with no additional text before or after
 Rules:
 1. Use HTML formatting for Telegram: <b>bold</b>, <i>italic</i>, etc.
 2. Percentages MUST add up to 100% (Bullish + Bearish + Neutral)
-3. Keep the analysis concise but informative, focusing on actionable insights.
-4. DO NOT include any references to data sources.
-5. DO NOT include any introductory or closing text.
-6. DO NOT include any notes or placeholder sections.
-7. IMPORTANT: Always include a clear trading recommendation in bold tags in the conclusion section.
-8. IMPORTANT: All section headers must be in bold HTML tags as shown in the format above."""
+3. Use only numbers for percentages, not words.
+4. Keep the analysis concise but informative, focusing on actionable insights.
+5. DO NOT include any references to data sources.
+6. DO NOT include any introductory or closing text.
+7. DO NOT include any notes or placeholder sections.
+8. IMPORTANT: Always include a clear trading recommendation in bold tags in the conclusion section.
+9. IMPORTANT: All section headers must be in bold HTML tags as shown in the format above."""
                     
                     payload = {
                         "model": "deepseek-chat",
@@ -842,106 +687,14 @@ Rules:
             return 'forex'  # Default to forex
     
     def _get_mock_sentiment_data(self, instrument: str) -> Dict[str, Any]:
-        """Generate mock sentiment data for testing"""
-        market = self._guess_market_from_instrument(instrument)
-        sentiment_score = random.uniform(0.3, 0.7)
-        trend = 'upward' if sentiment_score > 0.5 else 'downward'
-        volatility = random.choice(['high', 'moderate', 'low'])
-        bullish_percentage = int(sentiment_score * 100)
-        
-        analysis = f"""<b>🎯 {instrument} Market Analysis</b>
-
-<b>📈 Market Direction:</b>
-The {instrument} is showing a {trend} trend with {volatility} volatility. Price action indicates {'momentum building' if sentiment_score > 0.6 else 'potential reversal' if sentiment_score < 0.4 else 'consolidation'}.
-
-<b>📰 Latest News & Events:</b>
-• No significant market-moving news at this time
-• Regular market fluctuations based on supply and demand
-• Technical factors are the primary price drivers currently
-
-<b>🎯 Key Levels:</b>
-• Support Levels:
-  - Technical support at previous low
-• Resistance Levels:
-  - Technical resistance at previous high
-
-<b>⚠️ Risk Factors:</b>
-• Market volatility could increase with upcoming economic data releases
-• Low liquidity periods may cause price spikes
-
-<b>💡 Conclusion:</b>
-{f"Market conditions suggest momentum may continue. <b>Consider long positions</b> with appropriate stop losses." if sentiment_score > 0.6 else f"Current technical signals indicate potential downside. <b>Consider short positions</b> with tight risk management." if sentiment_score < 0.4 else f"Current market conditions lack clear direction. <b>Wait for clearer signals</b> before taking new positions."}"""
-        
-        # Clean up any markdown formatting that might be in the analysis
-        analysis = re.sub(r'^```html\s*', '', analysis)
-        analysis = re.sub(r'\s*```$', '', analysis)
-        
-        return {
-            'overall_sentiment': 'bullish' if sentiment_score > 0.6 else 'bearish' if sentiment_score < 0.4 else 'neutral',
-            'sentiment_score': round(sentiment_score, 2),
-            'bullish_percentage': bullish_percentage,
-            'trend_strength': 'Strong' if abs(sentiment_score - 0.5) > 0.3 else 'Moderate' if abs(sentiment_score - 0.5) > 0.1 else 'Weak',
-            'volatility': volatility.capitalize(),
-            'support_level': 'See analysis for details',
-            'resistance_level': 'See analysis for details',
-            'recommendation': 'Consider long positions' if sentiment_score > 0.6 else 'Watch for shorts' if sentiment_score < 0.4 else 'Wait for signals',
-            'analysis': analysis,
-            'source': 'mock_data'
-        }
+        """This function is no longer used - mock data is not supported"""
+        logger.warning(f"_get_mock_sentiment_data called for {instrument} but mock data is not supported")
+        raise ValueError(f"Mock sentiment data is not supported. API keys are required for sentiment analysis.")
     
     def _get_fallback_sentiment(self, instrument: str) -> Dict[str, Any]:
-        """Fallback sentiment analysis"""
-        # Format instrument name for display
-        if instrument.startswith("EUR"):
-            display_name = "EUR/USD"
-        elif instrument.startswith("GBP"):
-            display_name = "GBP/USD"
-        elif instrument.startswith("USD"):
-            if "JPY" in instrument:
-                display_name = "USD/JPY"
-            elif "CHF" in instrument:
-                display_name = "USD/CHF"
-            elif "CAD" in instrument:
-                display_name = "USD/CAD"
-            else:
-                display_name = instrument
-        else:
-            display_name = instrument
-            
-        analysis = f"""<b>🧠 Market Sentiment Analysis: {instrument}</b>
-
-<b>📈 Market Direction:</b>
-{display_name} is trading in a narrow range, showing cautious momentum ahead of key market events. The pair exhibits mixed signals amid current economic uncertainty.
-
-<b>📰 Latest News & Events:</b>
-• Market participants are closely monitoring upcoming economic data releases.
-• Technical indicators show a consolidation pattern forming in current price action.
-• Current trading volumes indicate reduced market participation at these levels.
-
-<b>⚠️ Risk Factors:</b>
-• Economic data surprises could lead to sudden price movements.
-• Change in market sentiment may trigger position adjustments.
-• Technical breakouts could accelerate price movement in either direction.
-
-<b>💡 Conclusion:</b>
-Mixed signals suggest caution in current {display_name} trading environment. <b>Wait for clearer signals</b> before establishing new positions, or consider reduced position sizes with tight risk parameters."""
-
-        # Clean up any markdown formatting that might be in the analysis
-        analysis = re.sub(r'^```html\s*', '', analysis)
-        analysis = re.sub(r'\s*```$', '', analysis)
-
-        return {
-            'overall_sentiment': 'neutral',
-            'sentiment_score': 0.5,
-            'bullish_percentage': 50,
-            'trend_strength': 'Weak',
-            'volatility': 'Moderate',
-            'support_level': 'See analysis for details',
-            'resistance_level': 'See analysis for details',
-            'recommendation': 'Wait for clearer market signals',
-            'analysis': analysis,
-            'source': 'fallback'
-        }
+        """This function is no longer used - fallback data is not supported"""
+        logger.warning(f"_get_fallback_sentiment called for {instrument} but fallback data is not supported")
+        raise ValueError(f"Fallback sentiment data is not supported. API keys are required for sentiment analysis.")
 
     async def _get_alternative_news(self, instrument: str, market: str) -> str:
         """Alternative news source when Tavily API fails"""
