@@ -2225,37 +2225,68 @@ Get started today with a FREE 14-day trial!
                 await query.edit_message_media(
                     media=InputMediaAnimation(
                         media="https://media4.giphy.com/media/v1.Y2lkPTc5MGI3NjExeTM5ZDRnNzUwd204cGt5NDE3bXFjdW5lY2hvMG1pYTQ1dWpvYXlqdyZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/dpjUltnOPye7azvAhH/giphy.gif",
-                        caption="<b>Analyzing sentiment for {instrument}...</b>\n\nPlease wait while we process market data.",
+                        caption=f"<b>Analyzing sentiment for {instrument}...</b>\n\nPlease wait while we process market data.",
                         parse_mode=ParseMode.HTML
                     )
                 )
             except Exception as loading_error:
                 logger.warning(f"Could not show loading animation: {str(loading_error)}")
             
-            # Get sentiment data
-            sentiment_data = await self.sentiment_service.get_sentiment(instrument)
+            # Try to get sentiment data
+            sentiment_data = None
+            try:
+                sentiment_data = await self.sentiment_service.get_sentiment(instrument)
+            except Exception as sentiment_error:
+                logger.error(f"Error getting sentiment data: {str(sentiment_error)}")
+                # We'll handle this later in the fallback
             
             if not sentiment_data:
-                raise ValueError(f"No sentiment data available for {instrument}")
-            
-            # Format sentiment scores
-            bullish_score = sentiment_data.get('bullish', 0)
-            bearish_score = sentiment_data.get('bearish', 0)
-            neutral_score = sentiment_data.get('neutral', 0)
-            
-            # Determine overall sentiment
-            if bullish_score > bearish_score + 10:
-                overall_sentiment = "bullish 📈"
-                strength = "strong" if bullish_score > 65 else "moderate"
-            elif bearish_score > bullish_score + 10:
-                overall_sentiment = "bearish 📉"
-                strength = "strong" if bearish_score > 65 else "moderate"
-            else:
-                overall_sentiment = "neutral ↔️"
+                # Generate fallback sentiment data
+                bullish_score = 50
+                bearish_score = 50
+                neutral_score = 0
                 strength = "balanced"
-            
-            # Format message
-            message = f"""<b>📊 Sentiment Analysis for {instrument}</b>
+                overall_sentiment = "neutral ↔️"
+                
+                # Basic fallback message about the error
+                message = f"""<b>📊 Sentiment Analysis for {instrument}</b>
+
+<b>Note:</b> Could not retrieve detailed sentiment data at this time.
+
+<b>Market Sentiment Breakdown:</b>
+🟢 Bullish: {bullish_score}%
+🔴 Bearish: {bearish_score}%
+⚪️ Neutral: {neutral_score}%
+
+<b>Market Analysis:</b>
+The overall sentiment for {instrument} is {overall_sentiment} with {strength} conviction.
+
+<b>Key Levels & Volatility:</b>
+• Trend Strength: {strength.capitalize()}
+• Market Volatility: Moderate
+
+<b>Trading Recommendation:</b>
+<b>Wait for clearer signals</b> before taking any positions. Monitor price action closely for potential opportunities.
+"""
+            else:
+                # Format sentiment scores from the successful API response
+                bullish_score = sentiment_data.get('bullish', 0)
+                bearish_score = sentiment_data.get('bearish', 0)
+                neutral_score = sentiment_data.get('neutral', 0)
+                
+                # Determine overall sentiment
+                if bullish_score > bearish_score + 10:
+                    overall_sentiment = "bullish 📈"
+                    strength = "strong" if bullish_score > 65 else "moderate"
+                elif bearish_score > bullish_score + 10:
+                    overall_sentiment = "bearish 📉"
+                    strength = "strong" if bearish_score > 65 else "moderate"
+                else:
+                    overall_sentiment = "neutral ↔️"
+                    strength = "balanced"
+                
+                # Format message
+                message = f"""<b>📊 Sentiment Analysis for {instrument}</b>
 
 <b>Market Sentiment Breakdown:</b>
 🟢 Bullish: {bullish_score}%
@@ -2960,27 +2991,93 @@ The overall sentiment for {instrument} is {overall_sentiment} with {strength} co
         try:
             # This is called directly from a button, get instrument from callback_data
             callback_parts = query.data.split("_")
-            if len(callback_parts) >= 2:
+            if len(callback_parts) >= 3:
+                instrument = callback_parts[2]
+            elif len(callback_parts) >= 2:
                 instrument = callback_parts[1]
             else:
                 raise ValueError("Invalid callback data format")
             
+            logger.info(f"Processing direct sentiment analysis for {instrument}")
+            
+            # Save instrument and state in context if available
+            if context and hasattr(context, 'user_data'):
+                context.user_data['instrument'] = instrument
+                context.user_data['current_state'] = SHOW_RESULT
+            
+            # Check if the message already has media
+            has_animation = hasattr(query.message, 'animation') and query.message.animation is not None
+            has_photo = hasattr(query.message, 'photo') and len(query.message.photo) > 0
+            
+            # Get the market type for the back button
+            market = self._detect_market(instrument)
+            back_data = f"market_{market}"
+            back_keyboard = InlineKeyboardMarkup([[
+                InlineKeyboardButton("⬅️ Back", callback_data=back_data)
+            ]])
+            
             # Show loading animation first
             try:
-                await query.edit_message_media(
-                    media=InputMediaAnimation(
-                        media="https://media4.giphy.com/media/v1.Y2lkPTc5MGI3NjExeTM5ZDRnNzUwd204cGt5NDE3bXFjdW5lY2hvMG1pYTQ1dWpvYXlqdyZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/dpjUltnOPye7azvAhH/giphy.gif",
-                        caption=f"<b>Analyzing sentiment for {instrument}...</b>\n\nPlease wait while we process market data.",
-                        parse_mode=ParseMode.HTML
+                # If the message is a photo or animation, we can edit it with another media
+                if has_animation or has_photo:
+                    await query.edit_message_media(
+                        media=InputMediaAnimation(
+                            media="https://media4.giphy.com/media/v1.Y2lkPTc5MGI3NjExeTM5ZDRnNzUwd204cGt5NDE3bXFjdW5lY2hvMG1pYTQ1dWpvYXlqdyZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/dpjUltnOPye7azvAhH/giphy.gif",
+                            caption=f"<b>Analyzing sentiment for {instrument}...</b>\n\nPlease wait while we process market data.",
+                            parse_mode=ParseMode.HTML
+                        ),
+                        reply_markup=back_keyboard
                     )
-                )
+                else:
+                    # For text messages, just edit the text
+                    await query.edit_message_text(
+                        text=f"<b>Analyzing sentiment for {instrument}...</b>\n\nPlease wait while we process market data.",
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=back_keyboard
+                    )
             except Exception as loading_error:
                 logger.warning(f"Could not show loading animation: {str(loading_error)}")
             
+            # Try to get sentiment data
+            sentiment_data = None
             try:
                 # Get sentiment data
+                logger.info(f"Getting sentiment for {instrument}")
                 sentiment_data = await self.market_sentiment_service.get_sentiment(instrument)
+            except Exception as sentiment_error:
+                logger.error(f"Error getting sentiment data: {str(sentiment_error)}")
+                # We'll handle this in the fallback
+            
+            # Process the sentiment data or create a fallback response
+            if not sentiment_data:
+                # Generate fallback sentiment data
+                bullish_score = 50
+                bearish_score = 50
+                neutral_score = 0
+                strength = "balanced"
+                overall_sentiment = "neutral ↔️"
                 
+                # Basic fallback message about the error
+                message = f"""<b>📊 Sentiment Analysis for {instrument}</b>
+
+<b>Note:</b> Could not retrieve detailed sentiment data at this time.
+
+<b>Market Sentiment Breakdown:</b>
+🟢 Bullish: {bullish_score}%
+🔴 Bearish: {bearish_score}%
+⚪️ Neutral: {neutral_score}%
+
+<b>Market Analysis:</b>
+The overall sentiment for {instrument} is {overall_sentiment} with {strength} conviction.
+
+<b>Key Levels & Volatility:</b>
+• Trend Strength: {strength.capitalize()}
+• Market Volatility: Moderate
+
+<b>Trading Recommendation:</b>
+<b>Wait for clearer signals</b> before taking any positions. Monitor price action closely for potential opportunities.
+"""
+            else:                
                 # Format sentiment message
                 bullish_score = sentiment_data.get('bullish', 0)
                 bearish_score = sentiment_data.get('bearish', 0)
@@ -3015,74 +3112,74 @@ The overall sentiment for {instrument} is {overall_sentiment} with {strength} co
 <b>Trading Recommendation:</b>
 {self._get_trading_recommendation(bullish_score, bearish_score)}"""
 
-                # Get the market from the instrument
-                market = self._detect_market(instrument)
-                back_data = f"market_{market}"
-
-                # Create JSON-serializable keyboard data
-                keyboard_data = [[{"text": "⬅️ Back", "callback_data": back_data}]]
-                
-                # Convert to proper keyboard format
-                keyboard = InlineKeyboardMarkup([
-                    [InlineKeyboardButton(**button) for button in row]
-                    for row in keyboard_data
-                ])
-
-                try:
-                    # First try to edit the media
+            # Update the message
+            success = False
+            try:
+                # Try to update with animation (most reliable for consistent UI)
+                if has_animation or has_photo or True:  # Force media path for consistency
                     await query.edit_message_media(
                         media=InputMediaAnimation(
                             media="https://media4.giphy.com/media/v1.Y2lkPTc5MGI3NjExeTM5ZDRnNzUwd204cGt5NDE3bXFjdW5lY2hvMG1pYTQ1dWpvYXlqdyZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/dpjUltnOPye7azvAhH/giphy.gif",
                             caption=message,
                             parse_mode=ParseMode.HTML
                         ),
-                        reply_markup=keyboard
+                        reply_markup=back_keyboard
                     )
-                except Exception as media_error:
-                    logger.warning(f"Could not edit media: {str(media_error)}")
-                    # Fallback to just updating the message
-                    await self.update_message(
-                        query=query,
+                    logger.info(f"Successfully updated sentiment message with media for {instrument}")
+                    success = True
+                else:
+                    # Should never reach here due to 'True' above, but keep as fallback
+                    await query.edit_message_text(
                         text=message,
-                        keyboard=keyboard_data,  # Pass data format for update_message to handle
-                        parse_mode=ParseMode.HTML
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=back_keyboard
                     )
-                
-                return SHOW_RESULT
-                
-            except Exception as sentiment_error:
-                logger.error(f"Error getting sentiment: {str(sentiment_error)}")
-                
-                # Get the market from the instrument for the back button
+                    logger.info(f"Successfully updated sentiment message text for {instrument}")
+                    success = True
+            except Exception as media_error:
+                logger.warning(f"Failed to edit message: {str(media_error)}")
+                success = False
+            
+            # Only as a last resort, if all other methods failed
+            if not success:
                 try:
-                    market = self._detect_market(instrument)
-                    back_data = f"market_{market}"
-                except:
-                    # Fallback to analysis if market detection fails
-                    back_data = "back_analysis"
-                
-                # Create JSON-serializable keyboard data
-                keyboard_data = [[{"text": "⬅️ Back", "callback_data": back_data}]]
-                
-                # Fallback message
-                fallback_message = f"""<b>📊 Sentiment Analysis for {instrument}</b>
-
-<b>Market Analysis:</b>
-The current sentiment for {instrument} is neutral, with mixed signals in the market. Please check back later for updated analysis."""
-
-                # Send new message with fallback analysis
-                await self.update_message(
-                    query=query,
-                    text=fallback_message,
-                    keyboard=keyboard_data,
-                    parse_mode=ParseMode.HTML
-                )
-                
-                return CHOOSE_MARKET
+                    await query.message.reply_text(
+                        text=message,
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=back_keyboard
+                    )
+                    logger.info(f"Sent new message with sentiment for {instrument} as fallback")
+                except Exception as reply_error:
+                    logger.error(f"All message update attempts failed: {str(reply_error)}")
+            
+            return SHOW_RESULT
                 
         except Exception as e:
-            logger.error(f"Error in direct sentiment callback: {str(e)}")
+            logger.error(f"Unhandled error in direct_sentiment_callback: {str(e)}")
             logger.exception(e)
+            
+            # Try to send a simple error message
+            try:
+                # First try to update the existing message
+                try:
+                    await query.edit_message_text(
+                        text=f"❌ Could not generate sentiment analysis.\n\nPlease try again later.",
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=InlineKeyboardMarkup([[
+                            InlineKeyboardButton("⬅️ Back to Menu", callback_data=CALLBACK_BACK_MENU)
+                        ]])
+                    )
+                except:
+                    # If that fails, send a new message
+                    await query.message.reply_text(
+                        text="An error occurred. Please try again or use the menu command.",
+                        reply_markup=InlineKeyboardMarkup([[
+                            InlineKeyboardButton("⬅️ Back to Menu", callback_data=CALLBACK_BACK_MENU)
+                        ]])
+                    )
+            except:
+                pass
+                
             return MENU
 
     def _detect_market(self, instrument: str) -> str:
