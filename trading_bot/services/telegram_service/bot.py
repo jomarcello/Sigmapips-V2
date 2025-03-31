@@ -2235,13 +2235,24 @@ Get started today with a FREE 14-day trial!
             # Try to get sentiment data
             sentiment_data = None
             try:
+                logger.info(f"Requesting sentiment data for {instrument}")
                 sentiment_data = await self.sentiment_service.get_sentiment(instrument)
+                if sentiment_data:
+                    # Log the received data (without the full analysis which could be very long)
+                    debug_data = {k: v for k, v in sentiment_data.items() if k != 'analysis'}
+                    logger.info(f"Received sentiment data for {instrument}: {debug_data}")
+                    if 'analysis' in sentiment_data:
+                        analysis_preview = sentiment_data['analysis'][:100] + "..." if len(sentiment_data['analysis']) > 100 else sentiment_data['analysis']
+                        logger.info(f"Analysis preview: {analysis_preview}")
+                else:
+                    logger.warning(f"No sentiment data received for {instrument}")
             except Exception as sentiment_error:
                 logger.error(f"Error getting sentiment data: {str(sentiment_error)}")
                 # We'll handle this later in the fallback
             
             if not sentiment_data:
                 # Generate fallback sentiment data
+                logger.warning(f"Using fallback sentiment data for {instrument}")
                 bullish_score = 50
                 bearish_score = 50
                 neutral_score = 0
@@ -2322,6 +2333,7 @@ The overall sentiment for {instrument} is {overall_sentiment} with {strength} co
                     ),
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
+                logger.info(f"Successfully updated sentiment message for {instrument}")
             except Exception as media_error:
                 logger.warning(f"Could not edit media: {str(media_error)}")
                 # Fallback to just updating the message
@@ -2331,6 +2343,7 @@ The overall sentiment for {instrument} is {overall_sentiment} with {strength} co
                     keyboard=keyboard,
                     parse_mode=ParseMode.HTML
                 )
+                logger.info(f"Updated sentiment message using fallback method for {instrument}")
             
         except Exception as e:
             logger.error(f"Error in _handle_sentiment_analysis: {str(e)}")
