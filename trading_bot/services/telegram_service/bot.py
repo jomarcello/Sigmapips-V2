@@ -2619,8 +2619,8 @@ The current sentiment for {instrument} is neutral, with mixed signals in the mar
                 await self.update_message(
                     query=query,
                     text=text,
-                    keyboard=keyboard,
-                                            parse_mode=ParseMode.HTML
+                    keyboard=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.HTML
                 )
                 return CHOOSE_ANALYSIS
                 
@@ -2630,11 +2630,11 @@ The current sentiment for {instrument} is neutral, with mixed signals in the mar
                 text = "Choose a signals option:"
                 
                 await self.update_message(
-                        query=query,
+                    query=query,
                     text=text,
-                    keyboard=keyboard,
-                        parse_mode=ParseMode.HTML
-                    )
+                    keyboard=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.HTML
+                )
                 return CHOOSE_SIGNALS
                 
             elif callback_data == CALLBACK_SIGNALS_ADD:
@@ -2645,7 +2645,7 @@ The current sentiment for {instrument} is neutral, with mixed signals in the mar
                 await self.update_message(
                     query=query,
                     text=text,
-                    keyboard=keyboard,
+                    keyboard=InlineKeyboardMarkup(keyboard),
                     parse_mode=ParseMode.HTML
                 )
                 return CHOOSE_MARKET
