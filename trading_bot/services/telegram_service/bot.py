@@ -11,8 +11,10 @@ import copy
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional, Union
 import random
+import uuid
+from enum import Enum
 
-from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery, InputMediaPhoto, BotCommand, InputMediaAnimation, InputMediaDocument
+from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery, InputMediaPhoto, BotCommand, InputMediaAnimation, InputMediaDocument, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.constants import ParseMode
 from telegram.ext import (
     Application,
@@ -23,7 +25,8 @@ from telegram.ext import (
     CallbackContext,
     MessageHandler,
     filters,
-    PicklePersistence
+    PicklePersistence,
+    PollAnswerHandler
 )
 from telegram.request import HTTPXRequest
 from telegram.error import TelegramError, BadRequest
@@ -2477,32 +2480,94 @@ Get started today with a FREE 14-day trial!
                         
                     if message_id_to_update:
                         try:
-                            # Delete the loading message
-                            logger.info(f"Deleting loading message: {message_id_to_update}")
+                            logger.info(f"Updating message {message_id_to_update} with sentiment analysis for {instrument}")
+                            
+                            # First approach: Try to detect if the message has a photo or animation
+                            message = await self.bot.get_messages(
+                                chat_id=query.message.chat_id,
+                                message_ids=message_id_to_update
+                            )
+                            
+                            has_media = bool(getattr(message, 'photo', None)) or message.animation is not None
+                            logger.info(f"Message has media: {has_media}")
+                            
+                            if has_media:
+                                # Update with a transparent GIF while keeping the sentiment text in caption
+                                transparent_gif_url = "https://upload.wikimedia.org/wikipedia/commons/thumb/0/00/Transparent.gif/1px-Transparent.gif"
+                                
+                                # Use InputMediaDocument with a caption containing the sentiment analysis
+                                try:
+                                    logger.info("Trying to update with InputMediaDocument (transparent GIF)")
+                                    await self.bot.edit_message_media(
+                                        chat_id=query.message.chat_id,
+                                        message_id=message_id_to_update,
+                                        media=InputMediaDocument(
+                                            media=transparent_gif_url,
+                                            caption=sentiment_text,
+                                            parse_mode=ParseMode.HTML
+                                        ),
+                                        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]])
+                                    )
+                                    logger.info("Successfully updated message with InputMediaDocument")
+                                    return SHOW_RESULT
+                                except Exception as media_error:
+                                    logger.error(f"Error updating with InputMediaDocument: {str(media_error)}")
+                                    # Fall through to next approach
+                            
+                            # Second approach: Try to edit message text directly
+                            try:
+                                logger.info("Trying to edit message text")
+                                await self.bot.edit_message_text(
+                                    chat_id=query.message.chat_id,
+                                    message_id=message_id_to_update,
+                                    text=sentiment_text,
+                                    parse_mode=ParseMode.HTML,
+                                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]])
+                                )
+                                logger.info("Successfully edited message text")
+                                return SHOW_RESULT
+                            except Exception as text_error:
+                                logger.error(f"Error editing message text: {str(text_error)}")
+                                # Fall through to next approach
+                            
+                            # Third approach: Try to edit just the caption
+                            try:
+                                logger.info("Trying to edit message caption")
+                                await self.bot.edit_message_caption(
+                                    chat_id=query.message.chat_id,
+                                    message_id=message_id_to_update,
+                                    caption=sentiment_text,
+                                    parse_mode=ParseMode.HTML,
+                                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]])
+                                )
+                                logger.info("Successfully edited message caption")
+                                return SHOW_RESULT
+                            except Exception as caption_error:
+                                logger.error(f"Error editing message caption: {str(caption_error)}")
+                                # Final approach: Delete and send new message
+                        
+                        except Exception as update_error:
+                            logger.error(f"Error in message update process: {str(update_error)}")
+                        
+                        # Final fallback: Delete old message and send new one
+                        try:
+                            logger.info(f"Deleting loading message: {message_id_to_update} and sending new message")
                             await self.bot.delete_message(
                                 chat_id=query.message.chat_id,
                                 message_id=message_id_to_update
                             )
-                            logger.info(f"Loading message deleted successfully")
+                        except Exception as delete_error:
+                            logger.error(f"Error deleting loading message: {str(delete_error)}")
+                            # Continue to send new message anyway
                             
-                            # Send new message with sentiment analysis
-                            logger.info(f"Sending sentiment analysis message for {instrument}")
-                            sent = await self.bot.send_message(
-                                chat_id=query.message.chat_id,
-                                text=sentiment_text,
-                                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]]),
-                                parse_mode=ParseMode.HTML
-                            )
-                            logger.info(f"Sentiment analysis message sent successfully with ID: {sent.message_id}")
-                        except Exception as update_error:
-                            logger.error(f"Error in message update process: {str(update_error)}")
-                            # Try a direct message without deleting as a fallback
-                            await self.bot.send_message(
-                                chat_id=query.message.chat_id,
-                                text=sentiment_text,
-                                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]]),
-                                parse_mode=ParseMode.HTML
-                            )
+                        # Send new message with sentiment analysis
+                        sent = await self.bot.send_message(
+                            chat_id=query.message.chat_id,
+                            text=sentiment_text,
+                            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]]),
+                            parse_mode=ParseMode.HTML
+                        )
+                        logger.info(f"Sentiment analysis message sent as new message with ID: {sent.message_id}")
                     else:
                         logger.warning(f"No loading message ID found, sending new message")
                         await self.bot.send_message(
