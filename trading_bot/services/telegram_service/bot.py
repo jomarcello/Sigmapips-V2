@@ -2222,29 +2222,27 @@ The current sentiment for {instrument} is neutral, with mixed signals in the mar
 
     async def back_market_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
         """Handle back button press from instrument selection to return to market selection."""
-            query = update.callback_query
-            await query.answer()
-            
+        query = update.callback_query
+        await query.answer()
+        
         try:
-            # Get the current analysis type from context
-            analysis_type = "technical"  # Default
-            if context and hasattr(context, 'user_data') and 'analysis_type' in context.user_data:
-                analysis_type = context.user_data['analysis_type']
-                
-            # Clear instrument from context
-            if context and hasattr(context, 'user_data') and 'instrument' in context.user_data:
-                    del context.user_data['instrument']
+            # Get the current message text
+            message_text = query.message.text
             
-            # Determine which keyboard to use based on analysis type
-            if analysis_type == "sentiment":
-                keyboard = MARKET_SENTIMENT_KEYBOARD
+            # Determine if we're in signals mode
+            is_signals = "signals" in message_text.lower()
+            
+            # Update the message with the market selection keyboard
+            if is_signals:
+                keyboard = SIGNALS_MARKET_KEYBOARD
+                message_text = "📊 <b>Select Market for Signals</b>"
             else:
                 keyboard = MARKET_KEYBOARD
-                
-            # Show market selection menu
+                message_text = "📊 <b>Select Market for Analysis</b>"
+            
             await self.update_message(
                 query=query,
-                text=f"Select a market for {analysis_type} analysis:",
+                text=message_text,
                 keyboard=keyboard,
                 parse_mode=ParseMode.HTML
             )
@@ -2253,7 +2251,6 @@ The current sentiment for {instrument} is neutral, with mixed signals in the mar
             
         except Exception as e:
             logger.error(f"Error in back_market_callback: {str(e)}")
-            # Try to recover by going to main menu
             return await self.back_menu_callback(update, context)
             
     async def back_analysis_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> int:
@@ -2756,36 +2753,12 @@ The current sentiment for {instrument} is neutral, with mixed signals in the mar
             return await self.back_menu_callback(update, context)
             
     async def update_message(self, query, text, keyboard=None, parse_mode=ParseMode.HTML, **kwargs):
-        """
-        Helper method to update a message with robust error handling and multiple fallbacks.
-        
-        Args:
-            query: The callback query containing the message to update
-            text: New text for the message
-            keyboard: Optional keyboard markup to display with the message
-            parse_mode: Parse mode for the text (HTML, Markdown, etc.)
-            **kwargs: Additional parameters for edit_message_text
-        
-        Returns:
-            bool: Success status
-        """
-        if not query or not query.message:
-            logger.warning("Cannot update message: query or message is None")
-            return False
-            
-        # Convert keyboard to InlineKeyboardMarkup if it's a list
-        reply_markup = None
-        if keyboard:
-            if isinstance(keyboard, list):
-                reply_markup = InlineKeyboardMarkup(keyboard)
-            else:
-                reply_markup = keyboard
-                
+        """Update an existing message with new text and keyboard."""
         try:
             # First attempt: edit_message_text
-                        await query.edit_message_text(
+            await query.edit_message_text(
                 text=text,
-                reply_markup=reply_markup,
+                reply_markup=keyboard,
                 parse_mode=parse_mode,
                 **kwargs
             )
@@ -2797,35 +2770,35 @@ The current sentiment for {instrument} is neutral, with mixed signals in the mar
             if "There is no text in the message to edit" in str(e):
                 try:
                     # Try to edit caption instead
-                                await query.edit_message_caption(
+                    await query.edit_message_caption(
                         caption=text,
-                        reply_markup=reply_markup,
+                        reply_markup=keyboard,
                         parse_mode=parse_mode
                     )
                     return True
-                            except Exception as caption_error:
+                except Exception as caption_error:
                     logger.warning(f"Could not edit caption: {str(caption_error)}")
                     
                     # Third attempt: Try to edit media
-                                try:
+                    try:
                         # Use a placeholder image if needed
-                                    await query.edit_message_media(
-                                        media=InputMediaPhoto(
-                                media="https://i.imgur.com/pYcuGGo.png",  # Placeholder image
+                        await query.edit_message_media(
+                            media=InputMediaPhoto(
+                                media="https://via.placeholder.com/800x600.png?text=Loading...",
                                 caption=text,
                                 parse_mode=parse_mode
                             ),
-                            reply_markup=reply_markup
+                            reply_markup=keyboard
                         )
                         return True
-                                except Exception as media_error:
-                                    logger.error(f"All update attempts failed: {str(media_error)}")
+                    except Exception as media_error:
+                        logger.error(f"All update attempts failed: {str(media_error)}")
             
             # Final fallback: send a new message
             try:
-                                    await query.message.reply_text(
+                await query.message.reply_text(
                     text=text,
-                    reply_markup=reply_markup,
+                    reply_markup=keyboard,
                     parse_mode=parse_mode,
                     **kwargs
                 )
@@ -2833,7 +2806,7 @@ The current sentiment for {instrument} is neutral, with mixed signals in the mar
             except Exception as reply_error:
                 logger.error(f"Could not send fallback message: {str(reply_error)}")
                 return False
-                
+
     async def process_signal(self, signal_data):
         """
         Process a trading signal and send it to subscribers.
@@ -2945,114 +2918,48 @@ The current sentiment for {instrument} is neutral, with mixed signals in the mar
             return []
 
     async def market_callback(self, update: Update, context=None) -> int:
-        """Handle market selection for analysis"""
+        """Handle market selection callback."""
         query = update.callback_query
-        
-        # Extract callback data
-        callback_data = query.data
-        
-        # Check if this is for signals
-        if "_signals" in callback_data:
-            try:
-                # Extract market from callback data
-                market = callback_data.replace('market_', '').replace('_signals', '')
-                
-                # Answer callback query to remove loading indicator
-                await query.answer()
-                
-                # Store market in context
-                if context and hasattr(context, 'user_data'):
-                    context.user_data['market'] = market
-                    context.user_data['is_signals'] = True
-                
-                # Choose keyboard based on market
-                if market == 'forex':
-                    keyboard = FOREX_KEYBOARD_SIGNALS
-                elif market == 'crypto':
-                    keyboard = CRYPTO_KEYBOARD_SIGNALS
-                elif market == 'commodities':
-                    keyboard = COMMODITIES_KEYBOARD_SIGNALS
-                elif market == 'indices':
-                    keyboard = INDICES_KEYBOARD_SIGNALS
-                else:
-                    keyboard = FOREX_KEYBOARD_SIGNALS  # Default to forex
-                
-                # Update message with instrument options
-                await self.update_message(
-                    query=query,
-                    text=f"Select a {market} instrument for signals:",
-                    keyboard=keyboard,
-                            parse_mode=ParseMode.HTML
-                        )
-                
-                return CHOOSE_INSTRUMENT
-                
-            except Exception as e:
-                logger.error(f"Error in market_callback for signals: {str(e)}")
-                logger.exception(e)
-                return MENU
-        
-        # Extract market and check if this is from sentiment menu
-        if '_sentiment' in callback_data:
-            market = callback_data.replace('market_', '').replace('_sentiment', '')
-            analysis_type = 'sentiment'
-        else:
-            market = callback_data.replace('market_', '')
-            # Determine analysis type from context or default to technical
-            analysis_type = 'technical'  # Default
-            if context and hasattr(context, 'user_data') and 'analysis_type' in context.user_data:
-                analysis_type = context.user_data['analysis_type']
+        await query.answer()
         
         try:
-            # Answer the callback query
-            await query.answer()
+            # Get the selected market
+            market = query.data.split('_')[1]
             
-            # Log the market and analysis type
-            logger.info(f"Market callback: market={market}, analysis_type={analysis_type}, callback_data={callback_data}")
+            # Get the current message text
+            message_text = query.message.text
             
-            # Store in user_data for future use
-            if context and hasattr(context, 'user_data'):
-                context.user_data['market'] = market
-                context.user_data['analysis_type'] = analysis_type
-                logger.info(f"Stored in context: market={market}, analysis_type={analysis_type}")
+            # Determine if we're in signals mode
+            is_signals = "signals" in message_text.lower()
             
-            # Choose the keyboard based on market and analysis type
-            keyboard = None
-            message_text = f"Select a {market} pair for "
+            # Determine if we're in sentiment analysis mode
+            is_sentiment = "sentiment" in message_text.lower()
             
-            if market == 'forex':
-                if analysis_type == 'technical':
-                    keyboard = FOREX_KEYBOARD
-                    message_text += "technical analysis:"
-                elif analysis_type == 'sentiment':
-                    keyboard = FOREX_SENTIMENT_KEYBOARD
-                    message_text += "sentiment analysis:"
-                elif analysis_type == 'calendar':
-                    keyboard = FOREX_CALENDAR_KEYBOARD
-                    message_text += "economic calendar:"
-            else:
-                    keyboard = FOREX_KEYBOARD
-                    message_text += "analysis:"
-            elif market == 'crypto':
-                if analysis_type == 'technical':
-                    keyboard = CRYPTO_KEYBOARD
-                    message_text += "technical analysis:"
-                elif analysis_type == 'sentiment':
-                    keyboard = CRYPTO_SENTIMENT_KEYBOARD
-                    message_text += "sentiment analysis:"
+            # Select appropriate keyboard based on mode and market
+            if is_signals:
+                # Use signals-specific keyboards
+                if market == "forex":
+                    keyboard = FOREX_KEYBOARD_SIGNALS
+                elif market == "crypto":
+                    keyboard = CRYPTO_KEYBOARD_SIGNALS
+                elif market == "commodities":
+                    keyboard = COMMODITIES_KEYBOARD_SIGNALS
+                elif market == "indices":
+                    keyboard = INDICES_KEYBOARD_SIGNALS
                 else:
-                    keyboard = CRYPTO_KEYBOARD
-                    message_text += "analysis:"
-            elif market == 'commodities':
-                keyboard = COMMODITIES_KEYBOARD
-                message_text += "analysis:"
-            elif market == 'indices':
-                keyboard = INDICES_KEYBOARD
-                message_text += "analysis:"
+                    keyboard = FOREX_KEYBOARD_SIGNALS  # Default to forex signals
             else:
-                # Default to forex if market type not recognized
-                keyboard = FOREX_KEYBOARD
-                message_text += "analysis:"
+                # Use regular analysis keyboards
+                if market == "forex":
+                    keyboard = FOREX_SENTIMENT_KEYBOARD if is_sentiment else FOREX_KEYBOARD
+                elif market == "crypto":
+                    keyboard = CRYPTO_SENTIMENT_KEYBOARD if is_sentiment else CRYPTO_KEYBOARD
+                elif market == "commodities":
+                    keyboard = COMMODITIES_SENTIMENT_KEYBOARD if is_sentiment else COMMODITIES_KEYBOARD
+                elif market == "indices":
+                    keyboard = INDICES_SENTIMENT_KEYBOARD if is_sentiment else INDICES_KEYBOARD
+                else:
+                    keyboard = FOREX_SENTIMENT_KEYBOARD if is_sentiment else FOREX_KEYBOARD  # Default to forex
             
             # Update the message with the selected keyboard
             await self.update_message(
@@ -3063,7 +2970,7 @@ The current sentiment for {instrument} is neutral, with mixed signals in the mar
             )
             
             return CHOOSE_INSTRUMENT
-                
+            
         except Exception as e:
             logger.error(f"Error in market_callback: {str(e)}")
             # Try to recover by going to the analysis menu
