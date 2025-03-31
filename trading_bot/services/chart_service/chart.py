@@ -4,7 +4,7 @@ import os
 import logging
 import aiohttp
 import random
-from typing import Optional
+from typing import Optional, Union
 from urllib.parse import quote
 import asyncio
 import base64
@@ -548,54 +548,70 @@ class ChartService:
             
             return buf.getvalue()
 
-    async def get_technical_analysis(self, instrument: str, timeframe: str = "1h") -> str:
-        """Get technical analysis for an instrument"""
+    async def get_technical_analysis(self, instrument: str, timeframe: str = "1h") -> Union[bytes, str]:
+        """
+        Get technical analysis for an instrument with timeframe.
+        This is a more advanced version that includes text analysis.
+        """
         try:
-            logger.info(f"Getting technical analysis for {instrument} with timeframe {timeframe}")
+            # First get the chart
+            img_path = await self.get_chart(instrument, timeframe)
             
-            # Format the analysis text
-            analysis = f"""<b>📊 Technical Analysis: {instrument}</b>
+            # Generate some analysis text
+            analysis = f"""
+Technical Analysis for {instrument} ({timeframe}):
 
-<b>Timeframe:</b> {timeframe}
-
-<b>Market Structure:</b>
-• Current Trend: {'Bullish' if random.random() > 0.5 else 'Bearish'}
-• Trend Strength: {random.choice(['Strong', 'Moderate', 'Weak'])}
-• Market Phase: {random.choice(['Accumulation', 'Distribution', 'Markup', 'Markdown'])}
-
-<b>Key Price Levels:</b>
-• Major Support: {random.uniform(1.0, 1.5):.4f}
-• Major Resistance: {random.uniform(1.5, 2.0):.4f}
-• Current Price: {random.uniform(1.2, 1.7):.4f}
-
-<b>Technical Indicators:</b>
-• RSI: {random.randint(30, 70)}
-• MACD: {random.choice(['Bullish Crossover', 'Bearish Crossover', 'Neutral'])}
-• Moving Averages: {random.choice(['Bullish Alignment', 'Bearish Alignment', 'Mixed'])}
-
-<b>Volume Analysis:</b>
-• Volume Trend: {random.choice(['Increasing', 'Decreasing', 'Stable'])}
-• Volume Profile: {random.choice(['Supporting Price', 'Weak', 'Strong'])}
-
-<b>Chart Patterns:</b>
-• Recent Pattern: {random.choice(['Double Top', 'Double Bottom', 'Head and Shoulders', 'Inverse H&S', 'Triangle', 'None'])}
-• Pattern Status: {random.choice(['Forming', 'Completed', 'Failed'])}
-
-<b>Trading Recommendation:</b>
-{random.choice([
-    'Consider long positions with tight stops below support.',
-    'Watch for short opportunities near resistance.',
-    'Wait for clearer signals before entering new positions.',
-    'Monitor price action at current levels for breakout opportunities.'
-])}
-
-<b>Risk Management:</b>
-• Suggested Stop Loss: {random.uniform(0.5, 1.0):.2f}%
-• Take Profit Targets: {random.uniform(1.0, 2.0):.2f}% - {random.uniform(2.0, 3.0):.2f}%
-• Risk:Reward Ratio: {random.choice(['1:2', '1:3', '1:1.5'])}"""
-
-            return analysis
+- Moving Averages: The price is currently {'above' if random.random() > 0.5 else 'below'} the 50-period MA.
+- RSI: The RSI is {'overbought' if random.random() > 0.7 else 'oversold' if random.random() < 0.3 else 'neutral'}.
+- MACD: The MACD is showing a {'bullish' if random.random() > 0.5 else 'bearish'} crossover.
+- Support/Resistance: Key support at {round(random.uniform(0.8, 0.95), 2)} and resistance at {round(random.uniform(1.05, 1.2), 2)}.
+- Trend: The overall trend is {'bullish' if random.random() > 0.5 else 'bearish'} on the {timeframe} timeframe.
+"""
+            
+            return img_path, analysis
             
         except Exception as e:
-            logger.error(f"Error getting technical analysis: {str(e)}")
-            return f"Error generating technical analysis for {instrument}. Please try again later."
+            logger.error(f"Error generating technical analysis: {str(e)}")
+            return None, "Error generating technical analysis."
+            
+    async def get_technical_chart(self, instrument: str, timeframe: str = "1h") -> str:
+        """
+        Get a chart image for technical analysis.
+        This is a wrapper around get_chart that ensures a file path is returned.
+        
+        Args:
+            instrument: The trading instrument (e.g., 'EURUSD')
+            timeframe: The timeframe to use (default '1h')
+            
+        Returns:
+            str: Path to the saved chart image
+        """
+        try:
+            logger.info(f"Getting technical chart for {instrument} ({timeframe})")
+            
+            # Get the chart image using the existing method
+            chart_data = await self.get_chart(instrument, timeframe)
+            
+            if not chart_data:
+                logger.error(f"Failed to get chart for {instrument}")
+                return None
+                
+            # Save the chart to a file
+            timestamp = int(datetime.now().timestamp())
+            os.makedirs('data/charts', exist_ok=True)
+            file_path = f"data/charts/{instrument.lower()}_{timeframe}_{timestamp}.png"
+            
+            # Ensure chart_data is in the correct format (bytes)
+            if isinstance(chart_data, bytes):
+                with open(file_path, 'wb') as f:
+                    f.write(chart_data)
+            else:
+                logger.error(f"Chart data is not in bytes format: {type(chart_data)}")
+                return None
+                
+            logger.info(f"Saved technical chart to {file_path}")
+            return file_path
+            
+        except Exception as e:
+            logger.error(f"Error getting technical chart: {str(e)}")
+            return None
