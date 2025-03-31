@@ -9,7 +9,7 @@ import re
 import time
 import copy
 from datetime import datetime, timedelta
-from typing import Dict, Any, List, Optional, Union
+from typing import Dict, Any, List, Optional, Union, Set
 import random
 import uuid
 from enum import Enum
@@ -533,11 +533,11 @@ class TelegramService:
         
         # Setup configuration 
         self.stripe_service = stripe_service
-        self.user_signals = {}
+        self.user_signals: Dict[int, Dict[str, Any]] = {}
         self.signals_dir = "data/signals"
         self.signals_enabled_val = True
         self.polling_started = False
-        self.admin_users = [1093307376]  # Add your Telegram ID here for testing
+        self.admin_users: List[int] = [1093307376]  # Add your Telegram ID here for testing
         self._signals_enabled = True  # Enable signals by default
         
         # GIF utilities for UI
@@ -2305,22 +2305,35 @@ The overall sentiment for {instrument} is {overall_sentiment} with {strength} co
                 [InlineKeyboardButton("⬅️ Back", callback_data=back_data)]
             ]
             
-            # Update the existing message with sentiment analysis
-            await query.edit_message_media(
-                media=InputMediaAnimation(
-                    media="https://media4.giphy.com/media/v1.Y2lkPTc5MGI3NExeTM5ZDRnNzUwd204cGt5NDE3bXFjdW5lY2hvMG1pYTQ1dWpvYXlqdyZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/dpjUltnOPye7azvAhH/giphy.gif",
-                    caption=message,
+            try:
+                # First try to edit the media
+                await query.edit_message_media(
+                    media=InputMediaAnimation(
+                        media="https://media4.giphy.com/media/v1.Y2lkPTc5MGI3NjExeTM5ZDRnNzUwd204cGt5NDE3bXFjdW5lY2hvMG1pYTQ1dWpvYXlqdyZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/dpjUltnOPye7azvAhH/giphy.gif",
+                        caption=message,
+                        parse_mode=ParseMode.HTML
+                    ),
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            except Exception as media_error:
+                logger.warning(f"Could not edit media: {str(media_error)}")
+                # Fallback to just updating the message
+                await self.update_message(
+                    query=query,
+                    text=message,
+                    keyboard=keyboard,
                     parse_mode=ParseMode.HTML
-                ),
-                reply_markup=InlineKeyboardMarkup(keyboard)
-            )
+                )
             
         except Exception as e:
             logger.error(f"Error in _handle_sentiment_analysis: {str(e)}")
-            
-            # Get the market from the instrument for the back button
-            market = self._detect_market(instrument)
-            back_data = f"market_{market}"
+            try:
+                # Get the market from the instrument for the back button
+                market = self._detect_market(instrument)
+                back_data = f"market_{market}"
+            except:
+                # Fallback to analysis if market detection fails
+                back_data = "back_analysis"
             
             # Show error message
             await self.update_message(
