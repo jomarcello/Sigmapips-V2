@@ -2550,85 +2550,141 @@ The overall sentiment for {instrument} is {overall_sentiment} with {strength} co
     async def update_message(self, query, text, keyboard=None, parse_mode=ParseMode.HTML, **kwargs):
         """Update an existing message with new text and keyboard."""
         try:
+            # Ensure keyboard is properly formatted
+            if keyboard is not None and not isinstance(keyboard, InlineKeyboardMarkup):
+                if isinstance(keyboard, list):
+                    # Convert nested list structure to InlineKeyboardMarkup
+                    processed_keyboard = []
+                    for row in keyboard:
+                        processed_row = []
+                        for button in row:
+                            if isinstance(button, dict):
+                                # Dictionary format (already compatible with json)
+                                processed_row.append(InlineKeyboardButton(**button))
+                            elif isinstance(button, InlineKeyboardButton):
+                                # Already an InlineKeyboardButton
+                                processed_row.append(button)
+                            else:
+                                # Skip invalid buttons
+                                logger.warning(f"Invalid button format: {button}")
+                                continue
+                        processed_keyboard.append(processed_row)
+                    keyboard = InlineKeyboardMarkup(processed_keyboard)
+                else:
+                    # Not a valid keyboard format
+                    logger.warning(f"Invalid keyboard format: {type(keyboard)}, using empty keyboard")
+                    keyboard = None
+
             # First attempt: edit_message_text
-            await query.edit_message_text(
-                text=text,
-                reply_markup=keyboard,
-                parse_mode=parse_mode,
-                **kwargs
-            )
-            return True
-        except Exception as e:
-            logger.warning(f"Could not edit message text: {str(e)}")
-            
-            # Second attempt: If message has no text (like media messages)
-            if "There is no text in the message to edit" in str(e):
-                try:
-                    # Try to edit caption instead
-                    await query.edit_message_caption(
-                        caption=text,
-                        reply_markup=keyboard,
-                        parse_mode=parse_mode
-                    )
-                    return True
-                except Exception as caption_error:
-                    logger.warning(f"Could not edit caption: {str(caption_error)}")
-                    
-                    # Third attempt: Try to edit media
-                    try:
-                        # Use a placeholder image if needed
-                        await query.edit_message_media(
-                            media=InputMediaPhoto(
-                                media="https://via.placeholder.com/800x600.png?text=Loading...",
-                                caption=text,
-                                parse_mode=parse_mode
-                            ),
-                            reply_markup=keyboard
-                        )
-                        return True
-                    except Exception as media_error:
-                        logger.error(f"All update attempts failed: {str(media_error)}")
-            
-            # Final fallback: send a new message
             try:
-                await query.message.reply_text(
+                await query.edit_message_text(
                     text=text,
                     reply_markup=keyboard,
                     parse_mode=parse_mode,
                     **kwargs
                 )
                 return True
-            except Exception as reply_error:
-                logger.error(f"Could not send fallback message: {str(reply_error)}")
-                return False
+            except Exception as e:
+                logger.warning(f"Could not edit message text: {str(e)}")
+                
+                # Second attempt: If message has no text (like media messages)
+                if "There is no text in the message to edit" in str(e):
+                    try:
+                        # Try to edit caption instead
+                        await query.edit_message_caption(
+                            caption=text,
+                            reply_markup=keyboard,
+                            parse_mode=parse_mode
+                        )
+                        return True
+                    except Exception as caption_error:
+                        logger.warning(f"Could not edit caption: {str(caption_error)}")
+                        
+                        # Third attempt: Try to edit media
+                        try:
+                            # Use a placeholder image if needed
+                            await query.edit_message_media(
+                                media=InputMediaPhoto(
+                                    media="https://via.placeholder.com/800x600.png?text=Loading...",
+                                    caption=text,
+                                    parse_mode=parse_mode
+                                ),
+                                reply_markup=keyboard
+                            )
+                            return True
+                        except Exception as media_error:
+                            logger.error(f"All update attempts failed: {str(media_error)}")
+                
+                # Final fallback: send a new message
+                try:
+                    await query.message.reply_text(
+                        text=text,
+                        reply_markup=keyboard,
+                        parse_mode=parse_mode,
+                        **kwargs
+                    )
+                    return True
+                except Exception as reply_error:
+                    logger.error(f"Could not send fallback message: {str(reply_error)}")
+                    return False
+        except Exception as e:
+            logger.error(f"Unexpected error in update_message: {str(e)}")
+            return False
 
     async def process_signal(self, signal_data):
         """
         Process a trading signal and send it to subscribers.
-        
-        Args:
-            signal_data: Dictionary containing signal information
-            
-        Returns:
-            bool: Success status
         """
         try:
-            # Validate required fields
-            required_fields = ['instrument', 'direction', 'message']
-            for field in required_fields:
-                if field not in signal_data:
-                    logger.error(f"Missing required field in signal: {field}")
-                    return False
-                    
-            # Extract signal data
-            instrument = signal_data['instrument']
-            direction = signal_data['direction']
-            message = signal_data['message']
+            # Ensure signal_data is a dictionary
+            if not isinstance(signal_data, dict):
+                logger.error(f"Invalid signal data format: {type(signal_data)}")
+                return False
+
+            # Extract and validate direction field from multiple possible sources
+            direction = None
+            direction_sources = ['direction', 'signal', 'action', 'position']
             
+            for source in direction_sources:
+                if source in signal_data and signal_data[source]:
+                    direction = str(signal_data[source]).upper()
+                    break
+                
+            if not direction:
+                direction = self._determine_direction(signal_data)  # Fallback to determining direction from price/sl
+                
+            # Update signal_data with normalized direction
+            signal_data['direction'] = direction
+            
+            # Normalize instrument field - look in multiple places
+            instrument = None
+            instrument_sources = ['instrument', 'symbol', 'pair', 'ticker']
+            
+            for source in instrument_sources:
+                if source in signal_data and signal_data[source]:
+                    instrument = str(signal_data[source]).upper()
+                    break
+                
+            if not instrument:
+                logger.error("Missing required field in signal: instrument")
+                return False
+                
+            # Update signal_data with normalized instrument
+            signal_data['instrument'] = instrument
+
+            # Create a default message if one doesn't exist
+            if 'message' not in signal_data or not signal_data['message']:
+                # Build a default message
+                price_info = f" at {signal_data.get('price', 'market price')}" if 'price' in signal_data else ""
+                sl_info = f", SL: {signal_data.get('sl', 'Not specified')}" if 'sl' in signal_data else ""
+                tp_info = f", TP: {signal_data.get('tp', signal_data.get('tp1', 'Not specified'))}" if ('tp' in signal_data or 'tp1' in signal_data) else ""
+                
+                signal_data['message'] = f"{direction} {instrument}{price_info}{sl_info}{tp_info}"
+                
             # Format timestamp if not provided
             if 'timestamp' not in signal_data:
                 signal_data['timestamp'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                
+                    
             # Get list of subscribers who should receive this signal
             subscribers = await self.get_subscribers_for_instrument(instrument)
             
@@ -2641,55 +2697,75 @@ The overall sentiment for {instrument} is {overall_sentiment} with {strength} co
             for subscriber_id in subscribers:
                 try:
                     # Create signal message with appropriate formatting
-                    signal_emoji = "🟢" if direction.lower() == "buy" else "🔴"
+                    signal_emoji = "🟢" if direction.lower() in ["buy", "long"] else "🔴"
                     formatted_message = f"""
 <b>{signal_emoji} {direction.upper()} SIGNAL: {instrument}</b>
 {signal_data['timestamp']}
 
-{message}
+{signal_data['message']}
 """
-                    
-                    # Create buttons for signal actions
-                    keyboard = [
+                    # Create keyboard data first - use dictionaries for JSON serialization
+                    keyboard_data = [
                         [
-                            InlineKeyboardButton("📈 Technical Analysis", 
-                                                callback_data=f"analysis_technical_signal_{instrument}"),
-                            InlineKeyboardButton("🧠 Sentiment", 
-                                                callback_data=f"analysis_sentiment_signal_{instrument}")
+                            {"text": "📈 Technical Analysis", "callback_data": f"analysis_technical_signal_{instrument}"},
+                            {"text": "🧠 Sentiment", "callback_data": f"analysis_sentiment_signal_{instrument}"}
                         ],
                         [
-                            InlineKeyboardButton("📅 Economic Calendar", 
-                                                callback_data=f"analysis_calendar_signal_{instrument}"),
-                            InlineKeyboardButton("⬅️ Back", 
-                                                callback_data="back_menu")
+                            {"text": "📅 Economic Calendar", "callback_data": f"analysis_calendar_signal_{instrument}"},
+                            {"text": "⬅️ Back", "callback_data": "back_menu"}
                         ]
                     ]
+                    
+                    # Convert keyboard data to InlineKeyboardMarkup
+                    keyboard = InlineKeyboardMarkup([
+                        [InlineKeyboardButton(**button) for button in row]
+                        for row in keyboard_data
+                    ])
                     
                     # Send message to subscriber
                     await self.bot.send_message(
                         chat_id=subscriber_id,
                         text=formatted_message,
-                        reply_markup=InlineKeyboardMarkup(keyboard),
+                        reply_markup=keyboard,
                         parse_mode=ParseMode.HTML
                     )
                     success_count += 1
                     
+                    # Store signal in user_signals
+                    self.user_signals[subscriber_id] = {
+                        'instrument': instrument,
+                        'direction': direction,
+                        'message': signal_data['message'],
+                        'timestamp': signal_data['timestamp']
+                    }
+                    
                 except Exception as e:
                     logger.error(f"Error sending signal to {subscriber_id}: {str(e)}")
                     
+            # Save updated signals
+            self._save_signals()
+                    
             # Log results
             logger.info(f"Signal for {instrument} sent to {success_count}/{len(subscribers)} subscribers")
-            
-            # Store signal for later reference
-            self.user_signals[instrument] = signal_data
-            self._save_signals()
-            
             return True
-            
+                
         except Exception as e:
-            logger.error(f"Error processing signal: {str(e)}")
+            logger.error(f"Error in process_signal: {str(e)}")
+            logger.exception(e)
             return False
+
+    def _determine_direction(self, signal_data):
+        """Determine signal direction from price and stop loss levels."""
+        try:
+            price = float(signal_data.get('price', 0))
+            sl = float(signal_data.get('sl', 0))
             
+            if price and sl:
+                return "BUY" if price > sl else "SELL"
+            return "UNKNOWN"
+        except:
+            return "UNKNOWN"
+
     async def get_subscribers_for_instrument(self, instrument):
         """
         Get subscribers who should receive signals for a specific instrument.
@@ -2929,56 +3005,67 @@ The overall sentiment for {instrument} is {overall_sentiment} with {strength} co
                 market = self._detect_market(instrument)
                 back_data = f"market_{market}"
 
-                # Delete the loading message
-                try:
-                    await query.message.delete()
-                except Exception as delete_error:
-                    logger.warning(f"Could not delete loading message: {str(delete_error)}")
+                # Create JSON-serializable keyboard data
+                keyboard_data = [[{"text": "⬅️ Back", "callback_data": back_data}]]
+                
+                # Convert to proper keyboard format
+                keyboard = InlineKeyboardMarkup([
+                    [InlineKeyboardButton(**button) for button in row]
+                    for row in keyboard_data
+                ])
 
-                # Send new message with sentiment analysis
-                await query.message.reply_text(
-                    text=message,
-                    reply_markup=InlineKeyboardMarkup([[
-                        InlineKeyboardButton("⬅️ Back", callback_data=back_data)
-                    ]]),
-                    parse_mode=ParseMode.HTML
-                )
+                try:
+                    # First try to edit the media
+                    await query.edit_message_media(
+                        media=InputMediaAnimation(
+                            media="https://media4.giphy.com/media/v1.Y2lkPTc5MGI3NjExeTM5ZDRnNzUwd204cGt5NDE3bXFjdW5lY2hvMG1pYTQ1dWpvYXlqdyZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/dpjUltnOPye7azvAhH/giphy.gif",
+                            caption=message,
+                            parse_mode=ParseMode.HTML
+                        ),
+                        reply_markup=keyboard
+                    )
+                except Exception as media_error:
+                    logger.warning(f"Could not edit media: {str(media_error)}")
+                    # Fallback to just updating the message
+                    await self.update_message(
+                        query=query,
+                        text=message,
+                        keyboard=keyboard_data,  # Pass data format for update_message to handle
+                        parse_mode=ParseMode.HTML
+                    )
+                
+                return SHOW_RESULT
                 
             except Exception as sentiment_error:
                 logger.error(f"Error getting sentiment: {str(sentiment_error)}")
                 
                 # Get the market from the instrument for the back button
-                market = self._detect_market(instrument)
-                back_data = f"market_{market}"
-                
-                # Delete the loading message
                 try:
-                    await query.message.delete()
-                except Exception as delete_error:
-                    logger.warning(f"Could not delete loading message: {str(delete_error)}")
-
+                    market = self._detect_market(instrument)
+                    back_data = f"market_{market}"
+                except:
+                    # Fallback to analysis if market detection fails
+                    back_data = "back_analysis"
+                
+                # Create JSON-serializable keyboard data
+                keyboard_data = [[{"text": "⬅️ Back", "callback_data": back_data}]]
+                
                 # Fallback message
                 fallback_message = f"""<b>📊 Sentiment Analysis for {instrument}</b>
-
-<b>Market Sentiment:</b>
-🟢 Bullish: {random.randint(45, 55)}%
-🔴 Bearish: {random.randint(45, 55)}%
 
 <b>Market Analysis:</b>
 The current sentiment for {instrument} is neutral, with mixed signals in the market. Please check back later for updated analysis."""
 
                 # Send new message with fallback analysis
-                await query.message.reply_text(
+                await self.update_message(
+                    query=query,
                     text=fallback_message,
-                    reply_markup=InlineKeyboardMarkup([[
-                        InlineKeyboardButton("⬅️ Back", callback_data=back_data)
-                    ]]),
+                    keyboard=keyboard_data,
                     parse_mode=ParseMode.HTML
                 )
-                logger.info("Using fallback sentiment analysis")
-            
-            return CHOOSE_MARKET
-            
+                
+                return CHOOSE_MARKET
+                
         except Exception as e:
             logger.error(f"Error in direct sentiment callback: {str(e)}")
             logger.exception(e)
