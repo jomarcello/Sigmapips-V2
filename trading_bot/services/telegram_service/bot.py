@@ -1323,7 +1323,8 @@ If you have questions or encounter any issues, please contact our support team.
                 gif_url = await get_welcome_gif()
                 
                 # Send GIF with main menu keyboard
-                await update.message.reply_animation(
+                await self.bot.send_animation(
+                    chat_id=user_id,
                     animation=gif_url,
                     caption=WELCOME_MESSAGE,
                     reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
@@ -1405,23 +1406,23 @@ Discover powerful trading signals for various markets:
                     
                     # Stuur een animatie die automatisch afspeelt
                     await self.bot.send_animation(
-                    chat_id=chat_id,
+                        chat_id=chat_id,
                         animation=gif_url,
                         caption=WELCOME_MESSAGE,
-                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
-                    parse_mode=ParseMode.HTML
-                )
+                        reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
+                        parse_mode=ParseMode.HTML
+                    )
                 except Exception as gif_error:
                     logger.error(f"Error sending welcome GIF: {str(gif_error)}")
                     # Fallback naar tekst-only als GIF faalt
-                await self.bot.send_message(
-                    chat_id=chat_id,
+                    await self.bot.send_message(
+                        chat_id=chat_id,
                         text=WELCOME_MESSAGE,
                         reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
                         parse_mode=ParseMode.HTML
                     )
                 return {"status": "success", "message": "Main menu sent"}
-                    else:
+            else:
                 # Trial user or payment failed - send appropriate message
                 if payment_failed:
                     text = """
