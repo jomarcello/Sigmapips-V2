@@ -2664,7 +2664,7 @@ The current sentiment for {instrument} is neutral, with mixed signals in the mar
                 await self.update_message(
                     query=query,
                     text=text,
-                    keyboard=keyboard,
+                    keyboard=InlineKeyboardMarkup(keyboard),
                     parse_mode=ParseMode.HTML
                 )
                 return CHOOSE_SIGNALS
@@ -2733,7 +2733,7 @@ The current sentiment for {instrument} is neutral, with mixed signals in the mar
                 await self.update_message(
                     query=query,
                     text=text,
-                    keyboard=keyboard,
+                    keyboard=InlineKeyboardMarkup(keyboard),
                     parse_mode=ParseMode.HTML
                 )
                 
