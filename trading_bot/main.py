@@ -227,11 +227,7 @@ async def receive_signal(request: Request):
         # Haal de data op
         signal_data = await request.json()
         
-        # Controleer of de bot signalen accepteert
-        if not telegram_service.signals_enabled:
-            return {"status": "disabled", "message": "Signal processing is currently disabled"}
-        
-        # Verwerk het signaal
+        # Process the signal directly without checking if enabled
         success = await telegram_service.process_signal(signal_data)
         
         if success:
