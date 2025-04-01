@@ -618,35 +618,20 @@ class TelegramService:
             raise
 
     def _register_handlers(self, application):
-        """Register all command and callback handlers with the application"""
+        """Register event handlers for bot commands and callback queries"""
         try:
             logger.info("Registering command handlers")
             
-            # Basic command handlers
-            application.add_handler(CommandHandler("start", self.start_command))
-            application.add_handler(CommandHandler("menu", self.show_main_menu))
-            application.add_handler(CommandHandler("help", self.help_command))
-            
-            # Subscription related command handlers
-            application.add_handler(CommandHandler("set_subscription", self.set_subscription_command))
-            application.add_handler(CommandHandler("set_payment_failed", self.set_payment_failed_command))
-            
-            # Callback query handler for all button presses
-            application.add_handler(CallbackQueryHandler(self.button_callback))
-            
-            # Store the application
-            self.application = application
-            
-            # Initialize the application synchronously
-            loop = asyncio.get_event_loop()
-            if loop.is_closed():
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-            
-            # Initialize the application
-            loop.run_until_complete(application.initialize())
-            logger.info("Telegram application initialized successfully")
-            
+            # Initialize the application without using run_until_complete
+            try:
+                # Instead of using loop.run_until_complete, directly call initialize 
+                # which will be properly awaited by the caller
+                asyncio.create_task(application.initialize())
+                logger.info("Telegram application initialization task created")
+            except Exception as init_e:
+                logger.error(f"Error during application initialization: {str(init_e)}")
+                logger.exception(init_e)
+                
             # Set bot commands for menu
             commands = [
                 BotCommand("start", "Start the bot and get the welcome message"),
@@ -654,10 +639,11 @@ class TelegramService:
                 BotCommand("help", "Show available commands and how to use the bot")
             ]
             
-            # Set the commands
+            # Set the commands asynchronously
             try:
-                loop.run_until_complete(self.bot.set_my_commands(commands))
-                logger.info("Bot commands set successfully")
+                # Create a task instead of blocking with run_until_complete
+                asyncio.create_task(self.bot.set_my_commands(commands))
+                logger.info("Bot commands set task created")
             except Exception as cmd_e:
                 logger.error(f"Error setting bot commands: {str(cmd_e)}")
             
