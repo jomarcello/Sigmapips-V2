@@ -114,34 +114,44 @@ async def startup_event():
         logger.info("Chart service initialized")
         
         # First try in polling mode (safer option)
-        force_polling = os.getenv("FORCE_POLLING", "false").lower() == "true"
+        force_polling = os.getenv("FORCE_POLLING", "true").lower() == "true"  # Default to polling mode to be safe
         
         # Log environment variables
         webhook_url = os.getenv("WEBHOOK_URL", "")
         logger.info(f"WEBHOOK_URL from environment: '{webhook_url}'")
         
-        # Initialize telegram service
-        await telegram_service.initialize(use_webhook=not force_polling)
+        # Initialize telegram service with polling mode
+        # Always use polling mode to avoid the event loop issue
+        await telegram_service.initialize(use_webhook=False)
         logger.info("Telegram service initialized")
         
-        # Setup the webhook route only if not in forced polling mode
-        if not force_polling:
-            # Wait a short time for the initialization to complete
-            await asyncio.sleep(1)
-            logger.info("Setting up webhook...")
-            await telegram_service.setup_webhook(app)
-            logger.info("Webhook setup completed")
-            
-            # Verify webhook info from Telegram
-            webhook_info = await telegram_service.bot.get_webhook_info()
-            logger.info(f"Telegram webhook info: URL={webhook_info.url}, pending_updates={webhook_info.pending_update_count}, has_custom_certificate={webhook_info.has_custom_certificate}")
-            
-            # Log the routes registered in the app to verify what endpoints exist
-            routes = [{"path": route.path, "name": route.name, "methods": [method for method in route.methods]} 
-                     for route in app.routes]
-            logger.info(f"Registered routes: {json.dumps(routes)}")
-        else:
-            logger.info("Skipping webhook setup due to FORCE_POLLING=true")
+        # Skip webhook setup - we're using polling mode for stability
+        logger.info("Using polling mode for Telegram bot - no webhook setup required")
+        
+        # Manually register signal endpoints - even though we're in polling mode
+        # Use the FastAPI endpoints at app level to avoid webhook issues
+        @app.post("/signal")
+        async def process_tradingview_signal(request: Request):
+            """Process TradingView webhook signal"""
+            try:
+                # Get the signal data from the request
+                signal_data = await request.json()
+                logger.info(f"Received TradingView webhook signal: {signal_data}")
+                
+                # Process the signal
+                success = await telegram_service.process_signal(signal_data)
+                
+                if success:
+                    return {"status": "success", "message": "Signal processed successfully"}
+                else:
+                    return {"status": "error", "message": "Failed to process signal"}
+                    
+            except Exception as e:
+                logger.error(f"Error processing TradingView webhook signal: {str(e)}")
+                logger.exception(e)
+                return {"status": "error", "message": str(e)}
+        
+        logger.info("Signal endpoints registered directly on FastAPI app")
         
     except Exception as e:
         logger.error(f"Error initializing services: {str(e)}")
