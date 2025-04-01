@@ -14,17 +14,17 @@ async def get_welcome_gif():
 async def get_menu_gif():
     """Get the menu GIF URL."""
     # SigmaPips welcome GIF in zwart met logo
-    return "https://media1.giphy.com/media/v1.Y2lkPTc5MGI3NjExaWVkdzcxZHMydm8ybnBjYW9rNjd3b2gzeng2b3BhMjA0d3p5dDV1ZSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/gSzIKNrqtotEYrZv7i/giphy.gif"
+    return "https://media.giphy.com/media/gSzIKNrqtotEYrZv7i/giphy.gif"
 
 async def get_analyse_gif():
     """Get the analysis GIF URL."""
     # SigmaPips analyse GIF in zwart met logo
-    return "https://media1.giphy.com/media/v1.Y2lkPTc5MGI3NjExaWVkdzcxZHMydm8ybnBjYW9rNjd3b2gzeng2b3BhMjA0d3p5dDV1ZSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/gSzIKNrqtotEYrZv7i/giphy.gif"
+    return "https://media.giphy.com/media/gSzIKNrqtotEYrZv7i/giphy.gif"
 
 async def get_signals_gif():
     """Get the signals GIF URL."""
     # SigmaPips signals GIF in zwart met logo
-    return "https://media1.giphy.com/media/v1.Y2lkPTc5MGI3NjExaWVkdzcxZHMydm8ybnBjYW9rNjd3b2gzeng2b3BhMjA0d3p5dDV1ZSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/gSzIKNrqtotEYrZv7i/giphy.gif"
+    return "https://media.giphy.com/media/gSzIKNrqtotEYrZv7i/giphy.gif"
 
 # Nieuwe functie voor het verzenden van een GIF met caption en keyboard
 async def send_gif_with_caption(update: Update, gif_url: str, caption: str, reply_markup=None, parse_mode=ParseMode.HTML):
