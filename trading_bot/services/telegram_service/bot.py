@@ -13,6 +13,7 @@ import random
 from fastapi import FastAPI, Request, HTTPException, status
 from telegram import Bot, Update, BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery, InputMediaPhoto
 from telegram.constants import ParseMode
+from telegram.request import HTTPXRequest
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -22,8 +23,7 @@ from telegram.ext import (
     CallbackContext,
     MessageHandler,
     filters,
-    PicklePersistence,
-    HTTPXRequest,
+    PicklePersistence
 )
 from telegram.error import TelegramError, BadRequest
 import httpx
@@ -39,9 +39,6 @@ import trading_bot.services.telegram_service.gif_utils as gif_utils
 
 # Initialize logger
 logger = logging.getLogger(__name__)
-
-# Initialize logger for this module
-logger = get_logger(__name__)
 
 # Callback data constants
 CALLBACK_ANALYSIS_TECHNICAL = "analysis_technical"
