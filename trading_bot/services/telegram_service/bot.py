@@ -11,7 +11,7 @@ import time
 import random
 
 from fastapi import FastAPI, Request, HTTPException, status
-from telegram import Bot, Update, BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery, InputMediaPhoto
+from telegram import Bot, Update, BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery, InputMediaPhoto, InputMediaAnimation, InputMediaDocument
 from telegram.constants import ParseMode
 from telegram.request import HTTPXRequest
 from telegram.ext import (
@@ -1796,16 +1796,30 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         logger.info(f"Showing technical analysis for instrument: {instrument}")
         
         try:
-            # Show loading message
+            # Show loading message with GIF
             loading_text = f"Generating technical analysis for {instrument}..."
+            loading_gif = "https://media.giphy.com/media/dpjUltnOPye7azvAhH/giphy.gif"
+            
             try:
-                await query.edit_message_text(text=loading_text)
+                # Try to show loading GIF with message
+                await query.edit_message_media(
+                    media=InputMediaAnimation(
+                        media=loading_gif,
+                        caption=loading_text,
+                        parse_mode=ParseMode.HTML
+                    )
+                )
             except Exception as e:
-                logger.warning(f"Could not edit message text: {str(e)}")
+                logger.warning(f"Could not show loading GIF: {str(e)}")
+                # Fall back to just text
                 try:
-                    await query.edit_message_caption(caption=loading_text)
+                    await query.edit_message_text(text=loading_text)
                 except Exception as e:
-                    logger.error(f"Could not edit message caption: {str(e)}")
+                    logger.warning(f"Could not edit message text: {str(e)}")
+                    try:
+                        await query.edit_message_caption(caption=loading_text)
+                    except Exception as e:
+                        logger.error(f"Could not edit message caption: {str(e)}")
             
             # Get chart from chart service
             chart_url = await self.chart_service.get_chart(instrument)
@@ -1818,7 +1832,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 [InlineKeyboardButton("⬅️ Back", callback_data="back_to_analysis")]
             ]
             
-            # Update message with chart
+            # Update message with chart - replace the loading GIF
             try:
                 await query.edit_message_media(
                     media=InputMediaPhoto(
@@ -1887,16 +1901,30 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         logger.info(f"Showing sentiment analysis for instrument: {instrument}")
         
         try:
-            # Show loading message
+            # Show loading message with GIF
             loading_text = f"Generating sentiment analysis for {instrument}..."
+            loading_gif = "https://media.giphy.com/media/dpjUltnOPye7azvAhH/giphy.gif"
+            
             try:
-                await query.edit_message_text(text=loading_text)
+                # Try to show loading GIF with message
+                await query.edit_message_media(
+                    media=InputMediaAnimation(
+                        media=loading_gif,
+                        caption=loading_text,
+                        parse_mode=ParseMode.HTML
+                    )
+                )
             except Exception as e:
-                logger.warning(f"Could not edit message text: {str(e)}")
+                logger.warning(f"Could not show loading GIF: {str(e)}")
+                # Fall back to just text
                 try:
-                    await query.edit_message_caption(caption=loading_text)
+                    await query.edit_message_text(text=loading_text)
                 except Exception as e:
-                    logger.error(f"Could not edit message caption: {str(e)}")
+                    logger.warning(f"Could not edit message text: {str(e)}")
+                    try:
+                        await query.edit_message_caption(caption=loading_text)
+                    except Exception as e:
+                        logger.error(f"Could not edit message caption: {str(e)}")
             
             # Get sentiment analysis from sentiment service
             # Initialize MarketSentimentService if it's not already initialized
@@ -1937,21 +1965,34 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 [InlineKeyboardButton("⬅️ Back", callback_data="back_to_analysis")]
             ]
             
-            # Update message with sentiment analysis
+            # Remove the loading GIF and update with sentiment results
             try:
-                await query.edit_message_text(
-                    text=message,
-                    reply_markup=InlineKeyboardMarkup(keyboard),
-                    parse_mode=ParseMode.HTML
-                )
-            except Exception as e:
-                logger.error(f"Error updating message with sentiment: {str(e)}")
-                # Try to send a new message as fallback
-                await query.message.reply_text(
-                    text=message,
-                    parse_mode=ParseMode.HTML,
+                # First try to replace the loading GIF with a transparent GIF
+                await query.edit_message_media(
+                    media=InputMediaDocument(
+                        media="https://upload.wikimedia.org/wikipedia/commons/thumb/0/00/Transparent.gif/1px-Transparent.gif",
+                        caption=message,
+                        parse_mode=ParseMode.HTML
+                    ),
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
+            except Exception as e:
+                logger.warning(f"Could not replace loading GIF with transparent GIF: {str(e)}")
+                # Try to edit message text as fallback
+                try:
+                    await query.edit_message_text(
+                        text=message,
+                        reply_markup=InlineKeyboardMarkup(keyboard),
+                        parse_mode=ParseMode.HTML
+                    )
+                except Exception as e:
+                    logger.error(f"Error updating message with sentiment: {str(e)}")
+                    # Try to send a new message as fallback
+                    await query.message.reply_text(
+                        text=message,
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
             
             return CHOOSE_ANALYSIS
             
@@ -1962,7 +2003,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 await query.edit_message_text(
                     text=error_text,
                     reply_markup=InlineKeyboardMarkup([
-                        [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
+                        [InlineKeyboardButton("⬅️ Back", callback_data="back_market")],
                     ])
                 )
             except Exception as e:
@@ -1971,7 +2012,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     await query.edit_message_caption(
                         caption=error_text,
                         reply_markup=InlineKeyboardMarkup([
-                            [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
+                            [InlineKeyboardButton("⬅️ Back", callback_data="back_market")],
                         ])
                     )
                 except Exception as e:
@@ -2641,46 +2682,98 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         query = update.callback_query
         await query.answer()
         
-        # Get an analysis GIF URL
+        # Check if the message has a photo or animation that needs to be removed
+        has_photo = bool(query.message.photo) or query.message.animation is not None
+        
+        # Get an analysis GIF URL for the menu
         gif_url = await gif_utils.get_analyse_gif()
         
-        # Update the message with the GIF using the helper function
-        success = await gif_utils.update_message_with_gif(
-            query=query,
-            gif_url=gif_url,
-            text="Select your analysis type:",
-            reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
-        )
+        # Prepare keyboard for analysis menu
+        keyboard = ANALYSIS_KEYBOARD
+        text = "Select your analysis type:"
         
-        if not success:
-            # If the helper function failed, try a direct approach as fallback
+        if has_photo:
             try:
-                # First try to edit message text
-                await query.edit_message_text(
-                    text="Select your analysis type:",
-                    reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
+                # Try to delete the message first (cleanest approach)
+                await query.message.delete()
+                # Send a new message with the analysis selection
+                await query.message.reply_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(keyboard),
                     parse_mode=ParseMode.HTML
                 )
-            except Exception as text_error:
-                # If that fails due to caption, try editing caption
-                if "There is no text in the message to edit" in str(text_error):
+            except Exception as delete_error:
+                logger.warning(f"Could not delete message: {str(delete_error)}")
+                try:
+                    # Try to replace media with transparent GIF
+                    await query.message.edit_media(
+                        media=InputMediaDocument(
+                            media="https://upload.wikimedia.org/wikipedia/commons/thumb/0/00/Transparent.gif/1px-Transparent.gif",
+                            caption=text,
+                            parse_mode=ParseMode.HTML
+                        ),
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+                except Exception as edit_error:
+                    logger.warning(f"Could not edit media with transparent GIF: {str(edit_error)}")
+                    # If all else fails, just try to edit the caption
                     try:
-                        await query.edit_message_caption(
-                            caption="Select your analysis type:",
-                            reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
-                            parse_mode=ParseMode.HTML
+                        await query.message.edit_caption(
+                            caption=text,
+                            reply_markup=InlineKeyboardMarkup(keyboard)
                         )
-                    except Exception as e:
-                        logger.error(f"Failed to update caption in analysis_callback: {str(e)}")
-                        # Try to send a new message as last resort
+                    except Exception as caption_error:
+                        logger.error(f"Could not edit caption: {str(caption_error)}")
+                        # Last resort - send a new message
                         await query.message.reply_text(
-                            text="Select your analysis type:",
-                            reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
+                            text=text,
+                            reply_markup=InlineKeyboardMarkup(keyboard),
                             parse_mode=ParseMode.HTML
                         )
-                else:
-                    # Re-raise for other errors
-                    raise
+        else:
+            # No photo or animation to remove, just update the text and keyboard
+            success = await gif_utils.update_message_with_gif(
+                query=query,
+                gif_url=gif_url,
+                text=text,
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            
+            if not success:
+                # If the helper function failed, try a direct approach as fallback
+                try:
+                    # First try to edit message text
+                    await query.edit_message_text(
+                        text=text,
+                        reply_markup=InlineKeyboardMarkup(keyboard),
+                        parse_mode=ParseMode.HTML
+                    )
+                except Exception as text_error:
+                    # If that fails due to caption, try editing caption
+                    if "There is no text in the message to edit" in str(text_error):
+                        try:
+                            await query.edit_message_caption(
+                                caption=text,
+                                reply_markup=InlineKeyboardMarkup(keyboard),
+                                parse_mode=ParseMode.HTML
+                            )
+                        except Exception as e:
+                            logger.error(f"Failed to update caption: {str(e)}")
+                            # Try to send a new message as last resort
+                            await query.message.reply_text(
+                                text=text,
+                                reply_markup=InlineKeyboardMarkup(keyboard),
+                                parse_mode=ParseMode.HTML
+                            )
+                    else:
+                        # Re-raise for other errors
+                        logger.error(f"Error updating message: {str(text_error)}")
+                        # Send a new message as last resort
+                        await query.message.reply_text(
+                            text=text,
+                            reply_markup=InlineKeyboardMarkup(keyboard),
+                            parse_mode=ParseMode.HTML
+                        )
         
         return CHOOSE_ANALYSIS
 
