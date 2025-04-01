@@ -1177,22 +1177,31 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         # Show loading message
         try:
             await query.edit_message_text(
-                text="Loading economic calendar for today...",
+                text="Loading economic calendar data for today...",
                 parse_mode=ParseMode.HTML
             )
-        except Exception as e:
-            logger.error(f"Error displaying loading message: {str(e)}")
-            try:
-                await query.edit_message_caption(
-                    caption="Loading economic calendar for today...",
-                    parse_mode=ParseMode.HTML
-                )
-            except Exception:
-                pass
-        
+        except Exception as text_error:
+            # If that fails due to caption, try editing caption
+            if "There is no text in the message to edit" in str(text_error):
+                try:
+                    await query.edit_message_caption(
+                        caption="Loading economic calendar data for today...",
+                        parse_mode=ParseMode.HTML
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to update caption: {str(e)}")
+            else:
+                # Re-raise for other errors
+                raise
+                
+        # Initialize EconomicCalendarService if it's not already initialized
+        if not hasattr(self, 'calendar_service') or self.calendar_service is None:
+            self.calendar_service = EconomicCalendarService()
+            
+        # Get today's calendar data
         try:
-            # Get calendar data for today without requiring an instrument
-            calendar_data = await self.calendar_service.get_events()
+            # Get today's calendar data without filtering by instrument
+            calendar_data = await self.calendar_service.get_calendar()
             
             if not calendar_data:
                 raise Exception("Failed to get calendar data")
@@ -1200,29 +1209,32 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Format the calendar message
             message = f"📅 <b>Economic Calendar for Today</b>\n\n"
             
-            # Add events if available
-            if "events" in calendar_data and calendar_data["events"]:
-                events = calendar_data["events"]
-                for event in events[:10]:  # Limit to first 10 events to avoid message too long
-                    impact = "🔴" if event.get("impact") == "high" else "🟡" if event.get("impact") == "medium" else "🟢"
-                    message += f"{impact} <b>{event.get('date', 'Unknown date')}:</b> {event.get('title', 'Unknown event')}\n"
-                    if "forecast" in event and event["forecast"]:
-                        message += f"   Forecast: {event['forecast']}\n"
-                    if "previous" in event and event["previous"]:
-                        message += f"   Previous: {event['previous']}\n"
-                    message += "\n"
+            # Add calendar events
+            if calendar_data and len(calendar_data) > 0:
+                # Sort events by time
+                calendar_data.sort(key=lambda x: x.get('time', '00:00'))
                 
-                if len(events) > 10:
-                    message += f"<i>+{len(events) - 10} more events...</i>\n"
+                for event in calendar_data:
+                    # Extract event details
+                    time = event.get('time', 'N/A')
+                    country = event.get('country', 'N/A')
+                    title = event.get('title', 'N/A')
+                    impact = event.get('impact', 'N/A')
+                    
+                    # Format impact with emoji
+                    impact_emoji = "🔴" if impact.lower() == "high" else "🟠" if impact.lower() == "medium" else "🟢"
+                    
+                    # Add event to message
+                    message += f"{time} - {country} - {title} {impact_emoji}\n"
             else:
-                message += "No upcoming economic events found for today.\n"
+                message += "No economic events scheduled for today.\n"
             
-            # Create simplified keyboard with only one back button
+            # Create keyboard with only a back button
             keyboard = [
                 [InlineKeyboardButton("⬅️ Back", callback_data="back_to_analysis")]
             ]
             
-            # Update message with calendar
+            # Update message with calendar data
             try:
                 await query.edit_message_text(
                     text=message,
@@ -1237,12 +1249,12 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     parse_mode=ParseMode.HTML,
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
-            
+                
             return CHOOSE_ANALYSIS
-            
+                
         except Exception as e:
-            logger.error(f"Error generating calendar: {str(e)}")
-            error_text = f"Error loading economic calendar. Please try again."
+            logger.error(f"Error loading calendar data: {str(e)}")
+            error_text = "Error loading economic calendar data. Please try again."
             try:
                 await query.edit_message_text(
                     text=error_text,
@@ -1252,8 +1264,17 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 )
             except Exception as e:
                 logger.error(f"Error updating error message: {str(e)}")
-            
-            return CHOOSE_ANALYSIS
+                try:
+                    await query.edit_message_caption(
+                        caption=error_text,
+                        reply_markup=InlineKeyboardMarkup([
+                            [InlineKeyboardButton("⬅️ Back", callback_data="back_to_analysis")]
+                        ])
+                    )
+                except Exception as e:
+                    logger.error(f"Error updating error caption: {str(e)}")
+                    
+            return BACK_TO_MENU
 
     async def signal_technical_callback(self, update: Update, context=None) -> int:
         """Handle signal_technical button press"""
@@ -1792,10 +1813,9 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             if not chart_url:
                 raise Exception("Failed to generate chart")
             
-            # Create keyboard for navigation
+            # Create keyboard with only a back button
             keyboard = [
-                [InlineKeyboardButton("⬅️ Back to Analysis", callback_data="back_to_analysis")],
-                [InlineKeyboardButton("🏠 Main Menu", callback_data="back_menu")]
+                [InlineKeyboardButton("⬅️ Back", callback_data="back_to_analysis")]
             ]
             
             # Update message with chart
@@ -1803,7 +1823,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 await query.edit_message_media(
                     media=InputMediaPhoto(
                         media=chart_url,
-                        caption=f"📊 Technical Analysis for {instrument}\n\nSelect an option:",
+                        caption=f"📊 Technical Analysis for {instrument}",
                         parse_mode=ParseMode.HTML
                     ),
                     reply_markup=InlineKeyboardMarkup(keyboard)
@@ -1813,7 +1833,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 # Try to send a new message as fallback
                 await query.message.reply_photo(
                     photo=chart_url,
-                    caption=f"📊 Technical Analysis for {instrument}\n\nSelect an option:",
+                    caption=f"📊 Technical Analysis for {instrument}",
                     parse_mode=ParseMode.HTML,
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
@@ -1828,7 +1848,6 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     text=error_text,
                     reply_markup=InlineKeyboardMarkup([
                         [InlineKeyboardButton("⬅️ Back", callback_data="back_market")],
-                        [InlineKeyboardButton("🏠 Main Menu", callback_data="back_menu")]
                     ])
                 )
             except Exception as e:
@@ -1838,7 +1857,6 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                         caption=error_text,
                         reply_markup=InlineKeyboardMarkup([
                             [InlineKeyboardButton("⬅️ Back", callback_data="back_market")],
-                            [InlineKeyboardButton("🏠 Main Menu", callback_data="back_menu")]
                         ])
                     )
                 except Exception as e:
@@ -1881,6 +1899,10 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     logger.error(f"Could not edit message caption: {str(e)}")
             
             # Get sentiment analysis from sentiment service
+            # Initialize MarketSentimentService if it's not already initialized
+            if not hasattr(self, 'sentiment_service') or self.sentiment_service is None:
+                self.sentiment_service = MarketSentimentService()
+                
             sentiment_data = await self.sentiment_service.get_sentiment(instrument)
             
             if not sentiment_data:
@@ -1910,7 +1932,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             if "source" in sentiment_data:
                 message += f"\n<i>Source: {sentiment_data['source']}</i>"
             
-            # Create keyboard for navigation with only a single back button
+            # Create keyboard with only a single back button
             keyboard = [
                 [InlineKeyboardButton("⬅️ Back", callback_data="back_to_analysis")]
             ]
@@ -1940,8 +1962,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 await query.edit_message_text(
                     text=error_text,
                     reply_markup=InlineKeyboardMarkup([
-                        [InlineKeyboardButton("⬅️ Back", callback_data="back_market")],
-                        [InlineKeyboardButton("🏠 Main Menu", callback_data="back_menu")]
+                        [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
                     ])
                 )
             except Exception as e:
@@ -1950,8 +1971,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     await query.edit_message_caption(
                         caption=error_text,
                         reply_markup=InlineKeyboardMarkup([
-                            [InlineKeyboardButton("⬅️ Back", callback_data="back_market")],
-                            [InlineKeyboardButton("🏠 Main Menu", callback_data="back_menu")]
+                            [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
                         ])
                     )
                 except Exception as e:
@@ -2352,6 +2372,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
     async def instrument_signals_callback(self, update: Update, context=None) -> int:
         """Handle instrument selection for signals"""
         query = update.callback_query
+        await query.answer()
         callback_data = query.data
         
         # Extract the instrument from the callback data
@@ -2383,71 +2404,89 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             )
             return CHOOSE_MARKET
         
-        # Get applicable timeframes for this instrument
-        timeframes = []
+        # Each instrument has only one timeframe available, get it directly
         if instrument in INSTRUMENT_TIMEFRAME_MAP:
-            # If the instrument has a predefined timeframe, only show that one
+            # Get the predefined timeframe for this instrument
             timeframe = INSTRUMENT_TIMEFRAME_MAP[instrument]
             timeframe_display = TIMEFRAME_DISPLAY_MAP.get(timeframe, timeframe)
-            timeframes = [(timeframe, timeframe_display)]
-        else:
-            # Otherwise show the standard timeframes
-            timeframes = [
-                ("M15", "15 Minutes"),
-                ("M30", "30 Minutes"),
-                ("H1", "1 Hour"),
-                ("H4", "4 Hours")
+            
+            # Directly subscribe the user to this instrument with its fixed timeframe
+            user_id = update.effective_user.id
+            await self.db.subscribe_to_instrument(user_id, instrument, timeframe)
+            
+            # Show success message
+            success_message = f"✅ Successfully subscribed to {instrument} ({timeframe_display}) signals!"
+            
+            # Create keyboard with options to add more or go back
+            keyboard = [
+                [InlineKeyboardButton("➕ Add More Pairs", callback_data="signals_add")],
+                [InlineKeyboardButton("⬅️ Back to Signals", callback_data="back_signals")]
             ]
-        
-        # Create keyboard with available timeframes
-        keyboard = []
-        for tf_code, tf_name in timeframes:
-            if tf_code == "M15":
-                emoji = "🏃"  # Scalping
-            elif tf_code == "M30":
-                emoji = "⚡"  # Fast trading
-            elif tf_code == "H1":
-                emoji = "📊"  # Intraday
-            elif tf_code == "H4":
-                emoji = "🌊"  # Swing
-            else:
-                emoji = "⏱️"  # Generic time emoji
-                
-            keyboard.append([InlineKeyboardButton(f"{emoji} {tf_name}", callback_data=f"timeframe_{instrument}_{tf_code}")])
-        
-        # Add back button
-        keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="back_market")])
-        
-        # Show timeframe selection
-        try:
-            await query.edit_message_text(
-                text=f"Select timeframe for {instrument} signals:",
-                reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode=ParseMode.HTML
-            )
-        except Exception as text_error:
-            # If that fails due to caption, try editing caption
-            if "There is no text in the message to edit" in str(text_error):
-                try:
-                    await query.edit_message_caption(
-                        caption=f"Select timeframe for {instrument} signals:",
-                        reply_markup=InlineKeyboardMarkup(keyboard),
-                        parse_mode=ParseMode.HTML
-                    )
-                except Exception as e:
-                    logger.error(f"Failed to update caption in instrument_signals_callback: {str(e)}")
-                    # Try to send a new message as last resort
-                    await query.message.reply_text(
-                        text=f"Select timeframe for {instrument} signals:",
-                        reply_markup=InlineKeyboardMarkup(keyboard),
-                        parse_mode=ParseMode.HTML
-                    )
-            else:
-                # Re-raise for other errors
-                raise
-        
-        return CHOOSE_TIMEFRAME
-
+            
+            try:
+                await query.edit_message_text(
+                    text=success_message,
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.HTML
+                )
+            except Exception as text_error:
+                # If that fails due to caption, try editing caption
+                if "There is no text in the message to edit" in str(text_error):
+                    try:
+                        await query.edit_message_caption(
+                            caption=success_message,
+                            reply_markup=InlineKeyboardMarkup(keyboard),
+                            parse_mode=ParseMode.HTML
+                        )
+                    except Exception as e:
+                        logger.error(f"Failed to update caption: {str(e)}")
+                        # Try to send a new message as last resort
+                        await query.message.reply_text(
+                            text=success_message,
+                            reply_markup=InlineKeyboardMarkup(keyboard),
+                            parse_mode=ParseMode.HTML
+                        )
+                else:
+                    # Re-raise for other errors
+                    raise
+            
+            return CHOOSE_SIGNALS
+        else:
+            # Instrument not found in mapping
+            error_message = f"❌ Sorry, {instrument} is currently not available for signal subscription."
+            
+            # Show error and back button
+            keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]]
+            
+            try:
+                await query.edit_message_text(
+                    text=error_message,
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.HTML
+                )
+            except Exception as text_error:
+                # If that fails due to caption, try editing caption
+                if "There is no text in the message to edit" in str(text_error):
+                    try:
+                        await query.edit_message_caption(
+                            caption=error_message,
+                            reply_markup=InlineKeyboardMarkup(keyboard),
+                            parse_mode=ParseMode.HTML
+                        )
+                    except Exception as e:
+                        logger.error(f"Failed to update caption: {str(e)}")
+                        # Try to send a new message as last resort
+                        await query.message.reply_text(
+                            text=error_message,
+                            reply_markup=InlineKeyboardMarkup(keyboard),
+                            parse_mode=ParseMode.HTML
+                        )
+                else:
+                    # Re-raise for other errors
+                    raise
+            
+            return CHOOSE_MARKET
+    
     async def back_market_callback(self, update: Update, context=None) -> int:
         """Handle back button to return to market selection"""
         query = update.callback_query
