@@ -38,11 +38,13 @@ from trading_bot.services.payment_service.stripe_service import StripeService
 from trading_bot.services.payment_service.stripe_config import get_subscription_features
 from fastapi import Request, HTTPException, status
 
-# GIF utilities for richer UI experience
-from trading_bot.services.telegram_service.gif_utils import get_welcome_gif, get_menu_gif, get_analyse_gif, get_signals_gif, send_welcome_gif, send_menu_gif, send_analyse_gif, send_signals_gif, send_gif_with_caption, update_message_with_gif, embed_gif_in_text
+# Import from local modules
+from trading_bot.services.telegram_service.logger import get_logger
+from trading_bot.services.telegram_service.states import *
 import trading_bot.services.telegram_service.gif_utils as gif_utils
 
-logger = logging.getLogger(__name__)
+# Initialize logger for this module
+logger = get_logger(__name__)
 
 # Callback data constants
 CALLBACK_ANALYSIS_TECHNICAL = "analysis_technical"
@@ -619,197 +621,57 @@ class TelegramService:
 
     def _register_handlers(self, application):
         """Register all command and callback handlers with the application"""
-
-        # Callback query handler for all button presses
-        application.add_handler(CallbackQueryHandler(self.button_callback))
-        
-        logger.info("All handlers registered successfully")
-                    
-            # Register the signal processing API endpoint
-            @app.post("/api/signals")
-            async def process_signal_api(request: Request):
-                try:
-                    signal_data = await request.json()
-                    
-                    # Validate API key if one is set
-                    api_key = request.headers.get("X-API-Key")
-                    expected_key = os.getenv("SIGNAL_API_KEY")
-                    
-                    if expected_key and api_key != expected_key:
-                        logger.warning(f"Invalid API key used in signal API request")
-                        return {"status": "error", "message": "Invalid API key"}
-                    
-                    # Process the signal
-                    success = await self.process_signal(signal_data)
-                    
-                    if success:
-                        return {"status": "success", "message": "Signal processed successfully"}
-                    else:
-                        return {"status": "error", "message": "Failed to process signal"}
-                    
-                except Exception as e:
-                    logger.error(f"Error processing signal API request: {str(e)}")
-                    logger.exception(e)
-                    return {"status": "error", "message": str(e)}
-            
-            # Register TradingView webhook endpoint at /signal
-            @app.post("/signal")
-            async def process_tradingview_signal(request: Request):
-                """Process TradingView webhook signal"""
-                try:
-                    # Get the signal data from the request
-                    signal_data = await request.json()
-                    logger.info(f"Received TradingView webhook signal: {signal_data}")
-                    
-                    # Process the signal
-                    success = await self.process_signal(signal_data)
-                    
-                    if success:
-                        return {"status": "success", "message": "Signal processed successfully"}
-                    else:
-                        return {"status": "error", "message": "Failed to process signal"}
-                        
-                except Exception as e:
-                    logger.error(f"Error processing TradingView webhook signal: {str(e)}")
-                    logger.exception(e)
-                    return {"status": "error", "message": str(e)}
-            
-            logger.info(f"Signal API endpoint registered at /api/signals")
-            logger.info(f"TradingView signal endpoint registered at /signal")
-            
-            # Enable signals functionality in webhook mode
-            logger.info("Initializing signal processing in webhook mode")
-            self._load_signals()
-            
-            return app
-            
-        except Exception as e:
-            logger.error(f"Error setting up webhook: {str(e)}")
-            logger.exception(e)
-            return app
-
-    async def process_update(self, update_data: dict):
-        """Process an update from the Telegram webhook."""
         try:
-            # Parse the update
-            update = Update.de_json(data=update_data, bot=self.bot)
-            logger.info(f"Received Telegram update: {update.update_id}")
+            logger.info("Registering command handlers")
             
-            # Check if this is a command message
-            if update.message and update.message.text and update.message.text.startswith('/'):
-                command = update.message.text.split(' ')[0].lower()
-                logger.info(f"Received command: {command}")
-                
-                # Direct command handling with None context (will use self.bot internally)
-                try:
-                    if command == '/start':
-                        await self.start_command(update, None)
-                        return
-                    elif command == '/menu':
-                        await self.show_main_menu(update, None)
-                        return
-                    elif command == '/help':
-                        await self.help_command(update, None)
-                        return
-                except asyncio.CancelledError:
-                    logger.warning(f"Command processing was cancelled for update {update.update_id}")
-                    return
-                except Exception as cmd_e:
-                    logger.error(f"Error handling command {command}: {str(cmd_e)}")
-                    logger.exception(cmd_e)
-                    # Try to send an error message to the user
-                    try:
-                        await self.bot.send_message(
-                            chat_id=update.effective_chat.id,
-                            text="Sorry, there was an error processing your command. Please try again later."
-                        )
-                    except Exception:
-                        pass  # Ignore if we can't send the error message
-                    return
+            # Basic command handlers
+            application.add_handler(CommandHandler("start", self.start_command))
+            application.add_handler(CommandHandler("menu", self.show_main_menu))
+            application.add_handler(CommandHandler("help", self.help_command))
             
-            # Check if this is a callback query (button press)
-            if update.callback_query:
-                try:
-                    logger.info(f"Received callback query: {update.callback_query.data}")
-                    await self.button_callback(update, None)
-                    return
-                except asyncio.CancelledError:
-                    logger.warning(f"Button callback processing was cancelled for update {update.update_id}")
-                    return
-                except Exception as cb_e:
-                    logger.error(f"Error handling callback query {update.callback_query.data}: {str(cb_e)}")
-                    logger.exception(cb_e)
-                    # Try to notify the user
-                    try:
-                        await update.callback_query.answer(text="Error processing. Please try again.")
-                    except Exception:
-                        pass  # Ignore if we can't send the error message
-                    return
+            # Subscription related command handlers
+            application.add_handler(CommandHandler("set_subscription", self.set_subscription_command))
+            application.add_handler(CommandHandler("set_payment_failed", self.set_payment_failed_command))
             
-            # Try to process the update with the application if it's initialized
-            try:
-                # First check if the application is initialized
-                if self.application:
-                    try:
-                        # Process the update with a timeout
-                        await asyncio.wait_for(
-                            self.application.process_update(update),
-                            timeout=45.0  # Increased from 30 to 45 seconds timeout
-                        )
-                    except asyncio.CancelledError:
-                        logger.warning(f"Application processing was cancelled for update {update.update_id}")
-                    except RuntimeError as re:
-                        if "not initialized" in str(re).lower():
-                            logger.warning("Application not initialized, trying to initialize it")
-                            try:
-                                await self.application.initialize()
-                                await self.application.process_update(update)
-                            except Exception as init_e:
-                                logger.error(f"Failed to initialize application on-the-fly: {str(init_e)}")
-                    except asyncio.TimeoutError:
-                        logger.warning(f"Update {update.update_id} processing timed out, continuing with next update")
-                    except Exception as e:
-                        logger.error(f"Error processing update with application: {str(e)}")
-                        logger.error(traceback.format_exc())
-                else:
-                    logger.warning("Application not available to process update")
-            except Exception as e:
-                logger.error(f"Error in update processing: {str(e)}")
-                logger.error(traceback.format_exc())
-        except Exception as e:
-            logger.error(f"Failed to process update data: {str(e)}")
-            logger.error(traceback.format_exc())
-
-    def setup(self):
-        """Set up the bot with all handlers"""
-        # Build application with the existing bot instance
-        application = Application.builder().bot(self.bot).build()
-        
-        # Command handlers
-        application.add_handler(CommandHandler("start", self.start_command))
-        application.add_handler(CommandHandler("menu", self.show_main_menu))
-        application.add_handler(CommandHandler("help", self.help_command))
-        application.add_handler(CommandHandler("set_subscription", self.set_subscription_command))
-        application.add_handler(CommandHandler("set_payment_failed", self.set_payment_failed_command))
-        
-        # Callback query handler for all button presses
-        application.add_handler(CallbackQueryHandler(self.button_callback))
-        
-        self.application = application
-        
-        # Initialize the application synchronously using a loop
-        try:
+            # Callback query handler for all button presses
+            application.add_handler(CallbackQueryHandler(self.button_callback))
+            
+            # Store the application
+            self.application = application
+            
+            # Initialize the application synchronously
             loop = asyncio.get_event_loop()
             if loop.is_closed():
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
-            loop.run_until_complete(self.application.initialize())
-            logger.info("Application initialized successfully")
-        except Exception as e:
-            logger.error(f"Error initializing application: {str(e)}")
-            logger.exception(e)
             
-        return application
+            # Initialize the application
+            loop.run_until_complete(application.initialize())
+            logger.info("Telegram application initialized successfully")
+            
+            # Set bot commands for menu
+            commands = [
+                BotCommand("start", "Start the bot and get the welcome message"),
+                BotCommand("menu", "Show the main menu"),
+                BotCommand("help", "Show available commands and how to use the bot")
+            ]
+            
+            # Set the commands
+            try:
+                loop.run_until_complete(self.bot.set_my_commands(commands))
+                logger.info("Bot commands set successfully")
+            except Exception as cmd_e:
+                logger.error(f"Error setting bot commands: {str(cmd_e)}")
+            
+            # Load signals
+            self._load_signals()
+            
+            logger.info("Bot setup completed successfully")
+            
+        except Exception as e:
+            logger.error(f"Error setting up bot: {str(e)}")
+            logger.exception(e)
+            raise
 
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> None:
         """Send a welcome message when the bot is started."""
@@ -2963,3 +2825,302 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             )
         
         return SUBSCRIBE
+        
+    async def get_subscribers_for_instrument(self, instrument: str, timeframe: str = None) -> List[int]:
+        """
+        Get a list of subscribed user IDs for a specific instrument and timeframe
+        
+        Args:
+            instrument: The trading instrument (e.g., EURUSD)
+            timeframe: Optional timeframe filter
+            
+        Returns:
+            List of subscribed user IDs
+        """
+        try:
+            # Get all subscribers from the database
+            subscribers = await self.db.get_signal_subscriptions(instrument, timeframe)
+            
+            # Filter out subscribers that don't have an active subscription
+            active_subscribers = []
+            for subscriber in subscribers:
+                user_id = subscriber['user_id']
+                
+                # Check if user is subscribed
+                is_subscribed = await self.db.is_user_subscribed(user_id)
+                
+                # Check if payment has failed
+                payment_failed = await self.db.has_payment_failed(user_id)
+                
+                if is_subscribed and not payment_failed:
+                    active_subscribers.append(user_id)
+                else:
+                    logger.info(f"User {user_id} doesn't have an active subscription, skipping signal")
+            
+            return active_subscribers
+            
+        except Exception as e:
+            logger.error(f"Error getting subscribers for {instrument}: {str(e)}")
+            return []
+    
+    async def process_signal(self, signal_data: Dict[str, Any]) -> bool:
+        """
+        Process a trading signal and send it to subscribed users
+        
+        Args:
+            signal_data: Dict containing signal information
+                Required keys:
+                - instrument: The trading pair/instrument (e.g., EURUSD)
+                - direction: "buy" or "sell"
+                - timeframe: The signal timeframe (e.g., "1h", "4h", "M15", etc.)
+                
+                Optional keys:
+                - entry: Entry price point
+                - stop_loss: Stop loss price
+                - take_profit: Take profit target
+                - risk_reward: Risk-reward ratio
+                - confidence: Signal confidence level (1-100)
+                - notes: Additional notes about the signal
+                - chart_url: URL to chart image
+                
+        Returns:
+            bool: True if signal was processed successfully, False otherwise
+        """
+        try:
+            # Extract required fields
+            instrument = signal_data.get('instrument')
+            direction = signal_data.get('direction', '').lower()
+            timeframe = signal_data.get('timeframe')
+            
+            # Basic validation
+            if not instrument or not direction:
+                logger.error(f"Missing required fields in signal data: {signal_data}")
+                return False
+                
+            if direction not in ['buy', 'sell']:
+                logger.error(f"Invalid direction {direction} in signal data")
+                return False
+            
+            # Optional fields with defaults
+            entry = signal_data.get('entry', 'Market')
+            stop_loss = signal_data.get('stop_loss', 'Not specified')
+            take_profit = signal_data.get('take_profit', 'Not specified')
+            risk_reward = signal_data.get('risk_reward', 'Not specified')
+            confidence = signal_data.get('confidence', 'Not specified')
+            notes = signal_data.get('notes', '')
+            chart_url = signal_data.get('chart_url', '')
+            
+            # Create signal ID for tracking
+            signal_id = f"{instrument}_{direction}_{timeframe}_{int(time.time())}"
+            
+            # Create signal message
+            direction_emoji = "🟢 BUY" if direction == "buy" else "🔴 SELL"
+            signal_message = f"""
+🔔 <b>NEW SIGNAL ALERT</b> 🔔
+
+<b>Instrument:</b> {instrument}
+<b>Direction:</b> {direction_emoji}
+<b>Timeframe:</b> {timeframe}
+
+<b>Entry:</b> {entry}
+<b>Stop Loss:</b> {stop_loss}
+<b>Take Profit:</b> {take_profit}
+<b>Risk/Reward:</b> {risk_reward}
+<b>Confidence:</b> {confidence}
+
+{notes}
+"""
+            
+            # Determine market type for the instrument
+            market_type = _detect_market(instrument)
+            
+            # Create signal data structure for storage and future reference
+            formatted_signal = {
+                'id': signal_id,
+                'timestamp': datetime.now().isoformat(),
+                'instrument': instrument,
+                'direction': direction,
+                'timeframe': timeframe,
+                'entry': entry,
+                'stop_loss': stop_loss, 
+                'take_profit': take_profit,
+                'risk_reward': risk_reward,
+                'confidence': confidence,
+                'notes': notes,
+                'chart_url': chart_url,
+                'market': market_type,
+                'message': signal_message
+            }
+            
+            # Save signal for history tracking
+            if not os.path.exists(self.signals_dir):
+                os.makedirs(self.signals_dir, exist_ok=True)
+                
+            # Save to signals directory
+            with open(f"{self.signals_dir}/{signal_id}.json", 'w') as f:
+                json.dump(formatted_signal, f)
+            
+            # Get subscribers for this instrument
+            subscribers = await self.get_subscribers_for_instrument(instrument, timeframe)
+            
+            if not subscribers:
+                logger.info(f"No subscribers found for {instrument} {timeframe}")
+                return True  # Successfully processed, just no subscribers
+            
+            # Send signal to all subscribers
+            logger.info(f"Sending signal {signal_id} to {len(subscribers)} subscribers")
+            
+            sent_count = 0
+            for user_id in subscribers:
+                try:
+                    # Prepare keyboard with analysis options
+                    keyboard = [
+                        [InlineKeyboardButton("🔍 Analyze", callback_data=f"analyze_from_signal_{instrument}_{signal_id}")],
+                        [InlineKeyboardButton("📊 Charts", callback_data=f"charts_from_signal_{instrument}_{signal_id}")],
+                        [InlineKeyboardButton("🏠 Main Menu", callback_data="back_menu")]
+                    ]
+                    
+                    # If we have a chart URL, send it as a photo
+                    if chart_url:
+                        try:
+                            await self.bot.send_photo(
+                                chat_id=user_id,
+                                photo=chart_url,
+                                caption=signal_message,
+                                parse_mode=ParseMode.HTML,
+                                reply_markup=InlineKeyboardMarkup(keyboard)
+                            )
+                        except Exception as photo_e:
+                            # If photo fails, fallback to just text
+                            logger.error(f"Could not send photo for signal {signal_id}: {str(photo_e)}")
+                            await self.bot.send_message(
+                                chat_id=user_id,
+                                text=signal_message,
+                                parse_mode=ParseMode.HTML,
+                                reply_markup=InlineKeyboardMarkup(keyboard)
+                            )
+                    else:
+                        # Send as regular message
+                        await self.bot.send_message(
+                            chat_id=user_id,
+                            text=signal_message,
+                            parse_mode=ParseMode.HTML,
+                            reply_markup=InlineKeyboardMarkup(keyboard)
+                        )
+                    
+                    sent_count += 1
+                    # Store signal reference in user data for quick access
+                    if str(user_id) not in self.user_signals:
+                        self.user_signals[str(user_id)] = {}
+                    
+                    self.user_signals[str(user_id)][signal_id] = formatted_signal
+                    
+                except Exception as e:
+                    logger.error(f"Error sending signal to user {user_id}: {str(e)}")
+            
+            logger.info(f"Successfully sent signal {signal_id} to {sent_count}/{len(subscribers)} subscribers")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error processing signal: {str(e)}")
+            logger.exception(e)
+            return False
+            
+    def _load_signals(self):
+        """Load stored signals from the signals directory"""
+        if not os.path.exists(self.signals_dir):
+            os.makedirs(self.signals_dir, exist_ok=True)
+            return
+            
+        # Load all signal files
+        signal_files = [f for f in os.listdir(self.signals_dir) if f.endswith('.json')]
+        
+        if not signal_files:
+            logger.info("No stored signals found")
+            return
+            
+        signals_count = 0
+        for signal_file in signal_files:
+            try:
+                with open(f"{self.signals_dir}/{signal_file}", 'r') as f:
+                    signal = json.load(f)
+                    
+                signal_id = signal.get('id')
+                if not signal_id:
+                    continue
+                    
+                # Store in memory for quick access
+                # Here we organize by instrument for easier lookup
+                instrument = signal.get('instrument')
+                if instrument:
+                    signals_count += 1
+            except Exception as e:
+                logger.error(f"Error loading signal file {signal_file}: {str(e)}")
+                
+        logger.info(f"Loaded {signals_count} signals from storage")
+
+    def register_api_endpoints(self, app: FastAPI):
+        """Register FastAPI endpoints for webhook and signal handling"""
+        if not app:
+            logger.warning("No FastAPI app provided, skipping API endpoint registration")
+            return
+            
+        # Register the signal processing API endpoint
+        @app.post("/api/signals")
+        async def process_signal_api(request: Request):
+            try:
+                signal_data = await request.json()
+                
+                # Validate API key if one is set
+                api_key = request.headers.get("X-API-Key")
+                expected_key = os.getenv("SIGNAL_API_KEY")
+                
+                if expected_key and api_key != expected_key:
+                    logger.warning("Invalid API key used in signal API request")
+                    return {"status": "error", "message": "Invalid API key"}
+                
+                # Process the signal
+                success = await self.process_signal(signal_data)
+                
+                if success:
+                    return {"status": "success", "message": "Signal processed successfully"}
+                else:
+                    return {"status": "error", "message": "Failed to process signal"}
+                
+            except Exception as e:
+                logger.error(f"Error processing signal API request: {str(e)}")
+                logger.exception(e)
+                return {"status": "error", "message": str(e)}
+        
+        # Register TradingView webhook endpoint
+        @app.post("/signal")
+        async def process_tradingview_signal(request: Request):
+            try:
+                signal_data = await request.json()
+                logger.info(f"Received TradingView webhook signal: {signal_data}")
+                
+                success = await self.process_signal(signal_data)
+                
+                if success:
+                    return {"status": "success", "message": "Signal processed successfully"}
+                else:
+                    return {"status": "error", "message": "Failed to process signal"}
+                    
+            except Exception as e:
+                logger.error(f"Error processing TradingView webhook signal: {str(e)}")
+                logger.exception(e)
+                return {"status": "error", "message": str(e)}
+        
+        # Register Telegram webhook endpoint
+        @app.post(self.webhook_path)
+        async def telegram_webhook(request: Request):
+            try:
+                update_data = await request.json()
+                await self.process_update(update_data)
+                return {"status": "success"}
+            except Exception as e:
+                logger.error(f"Error processing Telegram webhook: {str(e)}")
+                logger.exception(e)
+                return {"status": "error", "message": str(e)}
+                
+        logger.info(f"API endpoints registered at /api/signals, /signal, and {self.webhook_path}")
