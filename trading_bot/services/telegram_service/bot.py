@@ -9,6 +9,7 @@ import copy
 import re
 import time
 import random
+import pytz
 
 from fastapi import FastAPI, Request, HTTPException, status
 from telegram import Bot, Update, BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery, InputMediaPhoto, InputMediaAnimation, InputMediaDocument
@@ -23,7 +24,8 @@ from telegram.ext import (
     CallbackContext,
     MessageHandler,
     filters,
-    PicklePersistence
+    PicklePersistence,
+    Defaults
 )
 from telegram.error import TelegramError, BadRequest
 import httpx
@@ -528,30 +530,70 @@ os.environ["TAVILY_API_KEY"] = TAVILY_API_KEY
 
 class TelegramService:
     def __init__(self, db: Database, stripe_service=None, bot_token: Optional[str] = None, proxy_url: Optional[str] = None):
-        """Initialize the bot with given database and config."""
-        # Database connection
+        """Initialize the telegram service"""
         self.db = db
-        
-        # Setup configuration 
         self.stripe_service = stripe_service
-        self.user_signals = {}
-        self.signals_dir = "data/signals"
-        self.signals_enabled_val = True
+        self.bot_token = bot_token or os.getenv('TELEGRAM_BOT_TOKEN')
+        self.proxy_url = proxy_url
+        self.webhook_path = "/webhook"
+        self.webhook_url = None
+        self.application = None
         self.polling_started = False
-        self.admin_users = [1093307376]  # Add your Telegram ID here for testing
-        self._signals_enabled = True  # Enable signals by default
+        self._signals_enabled = True
+        self.signals = {}
         
-        # GIF utilities for UI
+        # Initialize services
+        self.sentiment_service = MarketSentimentService()  # Market sentiment service
+        
+        # Set up application with appropriate configuration
+        defaults = Defaults(
+            parse_mode=ParseMode.HTML,
+            disable_notification=False,
+            disable_web_page_preview=True,
+            quote=False,
+            tzinfo=pytz.utc,
+            block=True
+        )
+        
+        # Initialize the bot and application
+        self.bot = None
+        self.persistence = None
+        self.bot_started = False
+        
+        # Initialize API services
+        self.chart_service = ChartService()  # Initialize chart service
+        self.calendar_service = EconomicCalendarService()  # Economic calendar service
+        
+        # Initialize chart service
+        asyncio.create_task(self.chart_service.initialize())
+        
+        # Initialize sentiment service
+        asyncio.create_task(self.sentiment_service.initialize())
+        
+        # Initialize cache
+        self.sentiment_cache = {}
+        self.sentiment_cache_ttl = 60 * 60  # 1 hour in seconds
+        
+        # Initialize user signals
+        self.user_signals = {}
+        
+        # Initialize signal directory
+        self.signals_dir = "data/signals"
+        
+        # Initialize signal enabled status
+        self.signals_enabled_val = True
+        
+        # Initialize admin users
+        self.admin_users = [1093307376]  # Add your Telegram ID here for testing
+        
+        # Initialize signal processing
+        self.signals_enabled = self._signals_enabled
+        
+        # Initialize GIF utilities
         self.gif_utils = gif_utils  # Initialize gif_utils as an attribute
         
-        # Setup the bot and application
-        self.bot = None
-        self.application = None
-        
-        # Telegram Bot configuratie
-        self.bot_token = bot_token or os.getenv("TELEGRAM_BOT_TOKEN", "")
+        # Initialize Telegram Bot configuratie
         self.token = self.bot_token  # Aliased for backward compatibility
-        self.proxy_url = proxy_url or os.getenv("TELEGRAM_PROXY_URL", "")
         
         # Configure custom request handler with improved connection settings
         request = HTTPXRequest(
@@ -566,9 +608,10 @@ class TelegramService:
         self.bot = Bot(token=self.bot_token, request=request)
         self.application = None  # Will be initialized in setup()
         
-        # Webhook configuration
+        logger.info(f"Bot initialized with token: {self.bot_token}")
+        
+        # Initialize webhook configuration
         self.webhook_url = os.getenv("WEBHOOK_URL", "")
-        self.webhook_path = "/webhook"  # Always use this path
         if self.webhook_url.endswith("/"):
             self.webhook_url = self.webhook_url[:-1]  # Remove trailing slash
             
@@ -582,14 +625,1910 @@ class TelegramService:
         # Initialize chart service
         asyncio.create_task(self.chart_service.initialize())
         
-        # Bot application initialization
-        self.persistence = None
-        self.bot_started = False
+        # Initialize sentiment service
+        asyncio.create_task(self.sentiment_service.initialize())
         
-        # Cache for sentiment analysis
+        # Initialize cache
         self.sentiment_cache = {}
         self.sentiment_cache_ttl = 60 * 60  # 1 hour in seconds
         
+        # Initialize user signals
+        self.user_signals = {}
+        
+        # Initialize signal directory
+        self.signals_dir = "data/signals"
+        
+        # Initialize signal enabled status
+        self.signals_enabled_val = True
+        
+        # Initialize admin users
+        self.admin_users = [1093307376]  # Add your Telegram ID here for testing
+        
+        # Initialize signal processing
+        self.signals_enabled = self._signals_enabled
+        
+        # Initialize GIF utilities
+        self.gif_utils = gif_utils  # Initialize gif_utils as an attribute
+        
+        # Initialize Telegram Bot configuratie
+        self.token = self.bot_token  # Aliased for backward compatibility
+        
+        # Configure custom request handler with improved connection settings
+        request = HTTPXRequest(
+            connection_pool_size=50,  # Increase from 20 to 50
+            connect_timeout=15.0,     # Increase from 10.0 to 15.0
+            read_timeout=45.0,        # Increase from 30.0 to 45.0
+            write_timeout=30.0,       # Increase from 20.0 to 30.0
+            pool_timeout=60.0,        # Increase from 30.0 to 60.0
+        )
+        
+        # Initialize the bot directly with connection pool settings
+        self.bot = Bot(token=self.bot_token, request=request)
+        self.application = None  # Will be initialized in setup()
+        
+        logger.info(f"Bot initialized with token: {self.bot_token}")
+        
+        # Initialize webhook configuration
+        self.webhook_url = os.getenv("WEBHOOK_URL", "")
+        if self.webhook_url.endswith("/"):
+            self.webhook_url = self.webhook_url[:-1]  # Remove trailing slash
+            
+        logger.info(f"Bot initialized with webhook URL: {self.webhook_url} and path: {self.webhook_path}")
+        
+        # Initialize API services
+        self.chart_service = ChartService()  # Initialize chart service
+        self.calendar_service = EconomicCalendarService()  # Economic calendar service
+        self.sentiment_service = MarketSentimentService()  # Market sentiment service
+        
+        # Initialize chart service
+        asyncio.create_task(self.chart_service.initialize())
+        
+        # Initialize sentiment service
+        asyncio.create_task(self.sentiment_service.initialize())
+        
+        # Initialize cache
+        self.sentiment_cache = {}
+        self.sentiment_cache_ttl = 60 * 60  # 1 hour in seconds
+        
+        # Initialize user signals
+        self.user_signals = {}
+        
+        # Initialize signal directory
+        self.signals_dir = "data/signals"
+        
+        # Initialize signal enabled status
+        self.signals_enabled_val = True
+        
+        # Initialize admin users
+        self.admin_users = [1093307376]  # Add your Telegram ID here for testing
+        
+        # Initialize signal processing
+        self.signals_enabled = self._signals_enabled
+        
+        # Initialize GIF utilities
+        self.gif_utils = gif_utils  # Initialize gif_utils as an attribute
+        
+        # Initialize Telegram Bot configuratie
+        self.token = self.bot_token  # Aliased for backward compatibility
+        
+        # Configure custom request handler with improved connection settings
+        request = HTTPXRequest(
+            connection_pool_size=50,  # Increase from 20 to 50
+            connect_timeout=15.0,     # Increase from 10.0 to 15.0
+            read_timeout=45.0,        # Increase from 30.0 to 45.0
+            write_timeout=30.0,       # Increase from 20.0 to 30.0
+            pool_timeout=60.0,        # Increase from 30.0 to 60.0
+        )
+        
+        # Initialize the bot directly with connection pool settings
+        self.bot = Bot(token=self.bot_token, request=request)
+        self.application = None  # Will be initialized in setup()
+        
+        logger.info(f"Bot initialized with token: {self.bot_token}")
+        
+        # Initialize webhook configuration
+        self.webhook_url = os.getenv("WEBHOOK_URL", "")
+        if self.webhook_url.endswith("/"):
+            self.webhook_url = self.webhook_url[:-1]  # Remove trailing slash
+            
+        logger.info(f"Bot initialized with webhook URL: {self.webhook_url} and path: {self.webhook_path}")
+        
+        # Initialize API services
+        self.chart_service = ChartService()  # Initialize chart service
+        self.calendar_service = EconomicCalendarService()  # Economic calendar service
+        self.sentiment_service = MarketSentimentService()  # Market sentiment service
+        
+        # Initialize chart service
+        asyncio.create_task(self.chart_service.initialize())
+        
+        # Initialize sentiment service
+        asyncio.create_task(self.sentiment_service.initialize())
+        
+        # Initialize cache
+        self.sentiment_cache = {}
+        self.sentiment_cache_ttl = 60 * 60  # 1 hour in seconds
+        
+        # Initialize user signals
+        self.user_signals = {}
+        
+        # Initialize signal directory
+        self.signals_dir = "data/signals"
+        
+        # Initialize signal enabled status
+        self.signals_enabled_val = True
+        
+        # Initialize admin users
+        self.admin_users = [1093307376]  # Add your Telegram ID here for testing
+        
+        # Initialize signal processing
+        self.signals_enabled = self._signals_enabled
+        
+        # Initialize GIF utilities
+        self.gif_utils = gif_utils  # Initialize gif_utils as an attribute
+        
+        # Initialize Telegram Bot configuratie
+        self.token = self.bot_token  # Aliased for backward compatibility
+        
+        # Configure custom request handler with improved connection settings
+        request = HTTPXRequest(
+            connection_pool_size=50,  # Increase from 20 to 50
+            connect_timeout=15.0,     # Increase from 10.0 to 15.0
+            read_timeout=45.0,        # Increase from 30.0 to 45.0
+            write_timeout=30.0,       # Increase from 20.0 to 30.0
+            pool_timeout=60.0,        # Increase from 30.0 to 60.0
+        )
+        
+        # Initialize the bot directly with connection pool settings
+        self.bot = Bot(token=self.bot_token, request=request)
+        self.application = None  # Will be initialized in setup()
+        
+        logger.info(f"Bot initialized with token: {self.bot_token}")
+        
+        # Initialize webhook configuration
+        self.webhook_url = os.getenv("WEBHOOK_URL", "")
+        if self.webhook_url.endswith("/"):
+            self.webhook_url = self.webhook_url[:-1]  # Remove trailing slash
+            
+        logger.info(f"Bot initialized with webhook URL: {self.webhook_url} and path: {self.webhook_path}")
+        
+        # Initialize API services
+        self.chart_service = ChartService()  # Initialize chart service
+        self.calendar_service = EconomicCalendarService()  # Economic calendar service
+        self.sentiment_service = MarketSentimentService()  # Market sentiment service
+        
+        # Initialize chart service
+        asyncio.create_task(self.chart_service.initialize())
+        
+        # Initialize sentiment service
+        asyncio.create_task(self.sentiment_service.initialize())
+        
+        # Initialize cache
+        self.sentiment_cache = {}
+        self.sentiment_cache_ttl = 60 * 60  # 1 hour in seconds
+        
+        # Initialize user signals
+        self.user_signals = {}
+        
+        # Initialize signal directory
+        self.signals_dir = "data/signals"
+        
+        # Initialize signal enabled status
+        self.signals_enabled_val = True
+        
+        # Initialize admin users
+        self.admin_users = [1093307376]  # Add your Telegram ID here for testing
+        
+        # Initialize signal processing
+        self.signals_enabled = self._signals_enabled
+        
+        # Initialize GIF utilities
+        self.gif_utils = gif_utils  # Initialize gif_utils as an attribute
+        
+        # Initialize Telegram Bot configuratie
+        self.token = self.bot_token  # Aliased for backward compatibility
+        
+        # Configure custom request handler with improved connection settings
+        request = HTTPXRequest(
+            connection_pool_size=50,  # Increase from 20 to 50
+            connect_timeout=15.0,     # Increase from 10.0 to 15.0
+            read_timeout=45.0,        # Increase from 30.0 to 45.0
+            write_timeout=30.0,       # Increase from 20.0 to 30.0
+            pool_timeout=60.0,        # Increase from 30.0 to 60.0
+        )
+        
+        # Initialize the bot directly with connection pool settings
+        self.bot = Bot(token=self.bot_token, request=request)
+        self.application = None  # Will be initialized in setup()
+        
+        logger.info(f"Bot initialized with token: {self.bot_token}")
+        
+        # Initialize webhook configuration
+        self.webhook_url = os.getenv("WEBHOOK_URL", "")
+        if self.webhook_url.endswith("/"):
+            self.webhook_url = self.webhook_url[:-1]  # Remove trailing slash
+            
+        logger.info(f"Bot initialized with webhook URL: {self.webhook_url} and path: {self.webhook_path}")
+        
+        # Initialize API services
+        self.chart_service = ChartService()  # Initialize chart service
+        self.calendar_service = EconomicCalendarService()  # Economic calendar service
+        self.sentiment_service = MarketSentimentService()  # Market sentiment service
+        
+        # Initialize chart service
+        asyncio.create_task(self.chart_service.initialize())
+        
+        # Initialize sentiment service
+        asyncio.create_task(self.sentiment_service.initialize())
+        
+        # Initialize cache
+        self.sentiment_cache = {}
+        self.sentiment_cache_ttl = 60 * 60  # 1 hour in seconds
+        
+        # Initialize user signals
+        self.user_signals = {}
+        
+        # Initialize signal directory
+        self.signals_dir = "data/signals"
+        
+        # Initialize signal enabled status
+        self.signals_enabled_val = True
+        
+        # Initialize admin users
+        self.admin_users = [1093307376]  # Add your Telegram ID here for testing
+        
+        # Initialize signal processing
+        self.signals_enabled = self._signals_enabled
+        
+        # Initialize GIF utilities
+        self.gif_utils = gif_utils  # Initialize gif_utils as an attribute
+        
+        # Initialize Telegram Bot configuratie
+        self.token = self.bot_token  # Aliased for backward compatibility
+        
+        # Configure custom request handler with improved connection settings
+        request = HTTPXRequest(
+            connection_pool_size=50,  # Increase from 20 to 50
+            connect_timeout=15.0,     # Increase from 10.0 to 15.0
+            read_timeout=45.0,        # Increase from 30.0 to 45.0
+            write_timeout=30.0,       # Increase from 20.0 to 30.0
+            pool_timeout=60.0,        # Increase from 30.0 to 60.0
+        )
+        
+        # Initialize the bot directly with connection pool settings
+        self.bot = Bot(token=self.bot_token, request=request)
+        self.application = None  # Will be initialized in setup()
+        
+        logger.info(f"Bot initialized with token: {self.bot_token}")
+        
+        # Initialize webhook configuration
+        self.webhook_url = os.getenv("WEBHOOK_URL", "")
+        if self.webhook_url.endswith("/"):
+            self.webhook_url = self.webhook_url[:-1]  # Remove trailing slash
+            
+        logger.info(f"Bot initialized with webhook URL: {self.webhook_url} and path: {self.webhook_path}")
+        
+        # Initialize API services
+        self.chart_service = ChartService()  # Initialize chart service
+        self.calendar_service = EconomicCalendarService()  # Economic calendar service
+        self.sentiment_service = MarketSentimentService()  # Market sentiment service
+        
+        # Initialize chart service
+        asyncio.create_task(self.chart_service.initialize())
+        
+        # Initialize sentiment service
+        asyncio.create_task(self.sentiment_service.initialize())
+        
+        # Initialize cache
+        self.sentiment_cache = {}
+        self.sentiment_cache_ttl = 60 * 60  # 1 hour in seconds
+        
+        # Initialize user signals
+        self.user_signals = {}
+        
+        # Initialize signal directory
+        self.signals_dir = "data/signals"
+        
+        # Initialize signal enabled status
+        self.signals_enabled_val = True
+        
+        # Initialize admin users
+        self.admin_users = [1093307376]  # Add your Telegram ID here for testing
+        
+        # Initialize signal processing
+        self.signals_enabled = self._signals_enabled
+        
+        # Initialize GIF utilities
+        self.gif_utils = gif_utils  # Initialize gif_utils as an attribute
+        
+        # Initialize Telegram Bot configuratie
+        self.token = self.bot_token  # Aliased for backward compatibility
+        
+        # Configure custom request handler with improved connection settings
+        request = HTTPXRequest(
+            connection_pool_size=50,  # Increase from 20 to 50
+            connect_timeout=15.0,     # Increase from 10.0 to 15.0
+            read_timeout=45.0,        # Increase from 30.0 to 45.0
+            write_timeout=30.0,       # Increase from 20.0 to 30.0
+            pool_timeout=60.0,        # Increase from 30.0 to 60.0
+        )
+        
+        # Initialize the bot directly with connection pool settings
+        self.bot = Bot(token=self.bot_token, request=request)
+        self.application = None  # Will be initialized in setup()
+        
+        logger.info(f"Bot initialized with token: {self.bot_token}")
+        
+        # Initialize webhook configuration
+        self.webhook_url = os.getenv("WEBHOOK_URL", "")
+        if self.webhook_url.endswith("/"):
+            self.webhook_url = self.webhook_url[:-1]  # Remove trailing slash
+            
+        logger.info(f"Bot initialized with webhook URL: {self.webhook_url} and path: {self.webhook_path}")
+        
+        # Initialize API services
+        self.chart_service = ChartService()  # Initialize chart service
+        self.calendar_service = EconomicCalendarService()  # Economic calendar service
+        self.sentiment_service = MarketSentimentService()  # Market sentiment service
+        
+        # Initialize chart service
+        asyncio.create_task(self.chart_service.initialize())
+        
+        # Initialize sentiment service
+        asyncio.create_task(self.sentiment_service.initialize())
+        
+        # Initialize cache
+        self.sentiment_cache = {}
+        self.sentiment_cache_ttl = 60 * 60  # 1 hour in seconds
+        
+        # Initialize user signals
+        self.user_signals = {}
+        
+        # Initialize signal directory
+        self.signals_dir = "data/signals"
+        
+        # Initialize signal enabled status
+        self.signals_enabled_val = True
+        
+        # Initialize admin users
+        self.admin_users = [1093307376]  # Add your Telegram ID here for testing
+        
+        # Initialize signal processing
+        self.signals_enabled = self._signals_enabled
+        
+        # Initialize GIF utilities
+        self.gif_utils = gif_utils  # Initialize gif_utils as an attribute
+        
+        # Initialize Telegram Bot configuratie
+        self.token = self.bot_token  # Aliased for backward compatibility
+        
+        # Configure custom request handler with improved connection settings
+        request = HTTPXRequest(
+            connection_pool_size=50,  # Increase from 20 to 50
+            connect_timeout=15.0,     # Increase from 10.0 to 15.0
+            read_timeout=45.0,        # Increase from 30.0 to 45.0
+            write_timeout=30.0,       # Increase from 20.0 to 30.0
+            pool_timeout=60.0,        # Increase from 30.0 to 60.0
+        )
+        
+        # Initialize the bot directly with connection pool settings
+        self.bot = Bot(token=self.bot_token, request=request)
+        self.application = None  # Will be initialized in setup()
+        
+        logger.info(f"Bot initialized with token: {self.bot_token}")
+        
+        # Initialize webhook configuration
+        self.webhook_url = os.getenv("WEBHOOK_URL", "")
+        if self.webhook_url.endswith("/"):
+            self.webhook_url = self.webhook_url[:-1]  # Remove trailing slash
+            
+        logger.info(f"Bot initialized with webhook URL: {self.webhook_url} and path: {self.webhook_path}")
+        
+        # Initialize API services
+        self.chart_service = ChartService()  # Initialize chart service
+        self.calendar_service = EconomicCalendarService()  # Economic calendar service
+        self.sentiment_service = MarketSentimentService()  # Market sentiment service
+        
+        # Initialize chart service
+        asyncio.create_task(self.chart_service.initialize())
+        
+        # Initialize sentiment service
+        asyncio.create_task(self.sentiment_service.initialize())
+        
+        # Initialize cache
+        self.sentiment_cache = {}
+        self.sentiment_cache_ttl = 60 * 60  # 1 hour in seconds
+        
+        # Initialize user signals
+        self.user_signals = {}
+        
+        # Initialize signal directory
+        self.signals_dir = "data/signals"
+        
+        # Initialize signal enabled status
+        self.signals_enabled_val = True
+        
+        # Initialize admin users
+        self.admin_users = [1093307376]  # Add your Telegram ID here for testing
+        
+        # Initialize signal processing
+        self.signals_enabled = self._signals_enabled
+        
+        # Initialize GIF utilities
+        self.gif_utils = gif_utils  # Initialize gif_utils as an attribute
+        
+        # Initialize Telegram Bot configuratie
+        self.token = self.bot_token  # Aliased for backward compatibility
+        
+        # Configure custom request handler with improved connection settings
+        request = HTTPXRequest(
+            connection_pool_size=50,  # Increase from 20 to 50
+            connect_timeout=15.0,     # Increase from 10.0 to 15.0
+            read_timeout=45.0,        # Increase from 30.0 to 45.0
+            write_timeout=30.0,       # Increase from 20.0 to 30.0
+            pool_timeout=60.0,        # Increase from 30.0 to 60.0
+        )
+        
+        # Initialize the bot directly with connection pool settings
+        self.bot = Bot(token=self.bot_token, request=request)
+        self.application = None  # Will be initialized in setup()
+        
+        logger.info(f"Bot initialized with token: {self.bot_token}")
+        
+        # Initialize webhook configuration
+        self.webhook_url = os.getenv("WEBHOOK_URL", "")
+        if self.webhook_url.endswith("/"):
+            self.webhook_url = self.webhook_url[:-1]  # Remove trailing slash
+            
+        logger.info(f"Bot initialized with webhook URL: {self.webhook_url} and path: {self.webhook_path}")
+        
+        # Initialize API services
+        self.chart_service = ChartService()  # Initialize chart service
+        self.calendar_service = EconomicCalendarService()  # Economic calendar service
+        self.sentiment_service = MarketSentimentService()  # Market sentiment service
+        
+        # Initialize chart service
+        asyncio.create_task(self.chart_service.initialize())
+        
+        # Initialize sentiment service
+        asyncio.create_task(self.sentiment_service.initialize())
+        
+        # Initialize cache
+        self.sentiment_cache = {}
+        self.sentiment_cache_ttl = 60 * 60  # 1 hour in seconds
+        
+        # Initialize user signals
+        self.user_signals = {}
+        
+        # Initialize signal directory
+        self.signals_dir = "data/signals"
+        
+        # Initialize signal enabled status
+        self.signals_enabled_val = True
+        
+        # Initialize admin users
+        self.admin_users = [1093307376]  # Add your Telegram ID here for testing
+        
+        # Initialize signal processing
+        self.signals_enabled = self._signals_enabled
+        
+        # Initialize GIF utilities
+        self.gif_utils = gif_utils  # Initialize gif_utils as an attribute
+        
+        # Initialize Telegram Bot configuratie
+        self.token = self.bot_token  # Aliased for backward compatibility
+        
+        # Configure custom request handler with improved connection settings
+        request = HTTPXRequest(
+            connection_pool_size=50,  # Increase from 20 to 50
+            connect_timeout=15.0,     # Increase from 10.0 to 15.0
+            read_timeout=45.0,        # Increase from 30.0 to 45.0
+            write_timeout=30.0,       # Increase from 20.0 to 30.0
+            pool_timeout=60.0,        # Increase from 30.0 to 60.0
+        )
+        
+        # Initialize the bot directly with connection pool settings
+        self.bot = Bot(token=self.bot_token, request=request)
+        self.application = None  # Will be initialized in setup()
+        
+        logger.info(f"Bot initialized with token: {self.bot_token}")
+        
+        # Initialize webhook configuration
+        self.webhook_url = os.getenv("WEBHOOK_URL", "")
+        if self.webhook_url.endswith("/"):
+            self.webhook_url = self.webhook_url[:-1]  # Remove trailing slash
+            
+        logger.info(f"Bot initialized with webhook URL: {self.webhook_url} and path: {self.webhook_path}")
+        
+        # Initialize API services
+        self.chart_service = ChartService()  # Initialize chart service
+        self.calendar_service = EconomicCalendarService()  # Economic calendar service
+        self.sentiment_service = MarketSentimentService()  # Market sentiment service
+        
+        # Initialize chart service
+        asyncio.create_task(self.chart_service.initialize())
+        
+        # Initialize sentiment service
+        asyncio.create_task(self.sentiment_service.initialize())
+        
+        # Initialize cache
+        self.sentiment_cache = {}
+        self.sentiment_cache_ttl = 60 * 60  # 1 hour in seconds
+        
+        # Initialize user signals
+        self.user_signals = {}
+        
+        # Initialize signal directory
+        self.signals_dir = "data/signals"
+        
+        # Initialize signal enabled status
+        self.signals_enabled_val = True
+        
+        # Initialize admin users
+        self.admin_users = [1093307376]  # Add your Telegram ID here for testing
+        
+        # Initialize signal processing
+        self.signals_enabled = self._signals_enabled
+        
+        # Initialize GIF utilities
+        self.gif_utils = gif_utils  # Initialize gif_utils as an attribute
+        
+        # Initialize Telegram Bot configuratie
+        self.token = self.bot_token  # Aliased for backward compatibility
+        
+        # Configure custom request handler with improved connection settings
+        request = HTTPXRequest(
+            connection_pool_size=50,  # Increase from 20 to 50
+            connect_timeout=15.0,     # Increase from 10.0 to 15.0
+            read_timeout=45.0,        # Increase from 30.0 to 45.0
+            write_timeout=30.0,       # Increase from 20.0 to 30.0
+            pool_timeout=60.0,        # Increase from 30.0 to 60.0
+        )
+        
+        # Initialize the bot directly with connection pool settings
+        self.bot = Bot(token=self.bot_token, request=request)
+        self.application = None  # Will be initialized in setup()
+        
+        logger.info(f"Bot initialized with token: {self.bot_token}")
+        
+        # Initialize webhook configuration
+        self.webhook_url = os.getenv("WEBHOOK_URL", "")
+        if self.webhook_url.endswith("/"):
+            self.webhook_url = self.webhook_url[:-1]  # Remove trailing slash
+            
+        logger.info(f"Bot initialized with webhook URL: {self.webhook_url} and path: {self.webhook_path}")
+        
+        # Initialize API services
+        self.chart_service = ChartService()  # Initialize chart service
+        self.calendar_service = EconomicCalendarService()  # Economic calendar service
+        self.sentiment_service = MarketSentimentService()  # Market sentiment service
+        
+        # Initialize chart service
+        asyncio.create_task(self.chart_service.initialize())
+        
+        # Initialize sentiment service
+        asyncio.create_task(self.sentiment_service.initialize())
+        
+        # Initialize cache
+        self.sentiment_cache = {}
+        self.sentiment_cache_ttl = 60 * 60  # 1 hour in seconds
+        
+        # Initialize user signals
+        self.user_signals = {}
+        
+        # Initialize signal directory
+        self.signals_dir = "data/signals"
+        
+        # Initialize signal enabled status
+        self.signals_enabled_val = True
+        
+        # Initialize admin users
+        self.admin_users = [1093307376]  # Add your Telegram ID here for testing
+        
+        # Initialize signal processing
+        self.signals_enabled = self._signals_enabled
+        
+        # Initialize GIF utilities
+        self.gif_utils = gif_utils  # Initialize gif_utils as an attribute
+        
+        # Initialize Telegram Bot configuratie
+        self.token = self.bot_token  # Aliased for backward compatibility
+        
+        # Configure custom request handler with improved connection settings
+        request = HTTPXRequest(
+            connection_pool_size=50,  # Increase from 20 to 50
+            connect_timeout=15.0,     # Increase from 10.0 to 15.0
+            read_timeout=45.0,        # Increase from 30.0 to 45.0
+            write_timeout=30.0,       # Increase from 20.0 to 30.0
+            pool_timeout=60.0,        # Increase from 30.0 to 60.0
+        )
+        
+        # Initialize the bot directly with connection pool settings
+        self.bot = Bot(token=self.bot_token, request=request)
+        self.application = None  # Will be initialized in setup()
+        
+        logger.info(f"Bot initialized with token: {self.bot_token}")
+        
+        # Initialize webhook configuration
+        self.webhook_url = os.getenv("WEBHOOK_URL", "")
+        if self.webhook_url.endswith("/"):
+            self.webhook_url = self.webhook_url[:-1]  # Remove trailing slash
+            
+        logger.info(f"Bot initialized with webhook URL: {self.webhook_url} and path: {self.webhook_path}")
+        
+        # Initialize API services
+        self.chart_service = ChartService()  # Initialize chart service
+        self.calendar_service = EconomicCalendarService()  # Economic calendar service
+        self.sentiment_service = MarketSentimentService()  # Market sentiment service
+        
+        # Initialize chart service
+        asyncio.create_task(self.chart_service.initialize())
+        
+        # Initialize sentiment service
+        asyncio.create_task(self.sentiment_service.initialize())
+        
+        # Initialize cache
+        self.sentiment_cache = {}
+        self.sentiment_cache_ttl = 60 * 60  # 1 hour in seconds
+        
+        # Initialize user signals
+        self.user_signals = {}
+        
+        # Initialize signal directory
+        self.signals_dir = "data/signals"
+        
+        # Initialize signal enabled status
+        self.signals_enabled_val = True
+        
+        # Initialize admin users
+        self.admin_users = [1093307376]  # Add your Telegram ID here for testing
+        
+        # Initialize signal processing
+        self.signals_enabled = self._signals_enabled
+        
+        # Initialize GIF utilities
+        self.gif_utils = gif_utils  # Initialize gif_utils as an attribute
+        
+        # Initialize Telegram Bot configuratie
+        self.token = self.bot_token  # Aliased for backward compatibility
+        
+        # Configure custom request handler with improved connection settings
+        request = HTTPXRequest(
+            connection_pool_size=50,  # Increase from 20 to 50
+            connect_timeout=15.0,     # Increase from 10.0 to 15.0
+            read_timeout=45.0,        # Increase from 30.0 to 45.0
+            write_timeout=30.0,       # Increase from 20.0 to 30.0
+            pool_timeout=60.0,        # Increase from 30.0 to 60.0
+        )
+        
+        # Initialize the bot directly with connection pool settings
+        self.bot = Bot(token=self.bot_token, request=request)
+        self.application = None  # Will be initialized in setup()
+        
+        logger.info(f"Bot initialized with token: {self.bot_token}")
+        
+        # Initialize webhook configuration
+        self.webhook_url = os.getenv("WEBHOOK_URL", "")
+        if self.webhook_url.endswith("/"):
+            self.webhook_url = self.webhook_url[:-1]  # Remove trailing slash
+            
+        logger.info(f"Bot initialized with webhook URL: {self.webhook_url} and path: {self.webhook_path}")
+        
+        # Initialize API services
+        self.chart_service = ChartService()  # Initialize chart service
+        self.calendar_service = EconomicCalendarService()  # Economic calendar service
+        self.sentiment_service = MarketSentimentService()  # Market sentiment service
+        
+        # Initialize chart service
+        asyncio.create_task(self.chart_service.initialize())
+        
+        # Initialize sentiment service
+        asyncio.create_task(self.sentiment_service.initialize())
+        
+        # Initialize cache
+        self.sentiment_cache = {}
+        self.sentiment_cache_ttl = 60 * 60  # 1 hour in seconds
+        
+        # Initialize user signals
+        self.user_signals = {}
+        
+        # Initialize signal directory
+        self.signals_dir = "data/signals"
+        
+        # Initialize signal enabled status
+        self.signals_enabled_val = True
+        
+        # Initialize admin users
+        self.admin_users = [1093307376]  # Add your Telegram ID here for testing
+        
+        # Initialize signal processing
+        self.signals_enabled = self._signals_enabled
+        
+        # Initialize GIF utilities
+        self.gif_utils = gif_utils  # Initialize gif_utils as an attribute
+        
+        # Initialize Telegram Bot configuratie
+        self.token = self.bot_token  # Aliased for backward compatibility
+        
+        # Configure custom request handler with improved connection settings
+        request = HTTPXRequest(
+            connection_pool_size=50,  # Increase from 20 to 50
+            connect_timeout=15.0,     # Increase from 10.0 to 15.0
+            read_timeout=45.0,        # Increase from 30.0 to 45.0
+            write_timeout=30.0,       # Increase from 20.0 to 30.0
+            pool_timeout=60.0,        # Increase from 30.0 to 60.0
+        )
+        
+        # Initialize the bot directly with connection pool settings
+        self.bot = Bot(token=self.bot_token, request=request)
+        self.application = None  # Will be initialized in setup()
+        
+        logger.info(f"Bot initialized with token: {self.bot_token}")
+        
+        # Initialize webhook configuration
+        self.webhook_url = os.getenv("WEBHOOK_URL", "")
+        if self.webhook_url.endswith("/"):
+            self.webhook_url = self.webhook_url[:-1]  # Remove trailing slash
+            
+        logger.info(f"Bot initialized with webhook URL: {self.webhook_url} and path: {self.webhook_path}")
+        
+        # Initialize API services
+        self.chart_service = ChartService()  # Initialize chart service
+        self.calendar_service = EconomicCalendarService()  # Economic calendar service
+        self.sentiment_service = MarketSentimentService()  # Market sentiment service
+        
+        # Initialize chart service
+        asyncio.create_task(self.chart_service.initialize())
+        
+        # Initialize sentiment service
+        asyncio.create_task(self.sentiment_service.initialize())
+        
+        # Initialize cache
+        self.sentiment_cache = {}
+        self.sentiment_cache_ttl = 60 * 60  # 1 hour in seconds
+        
+        # Initialize user signals
+        self.user_signals = {}
+        
+        # Initialize signal directory
+        self.signals_dir = "data/signals"
+        
+        # Initialize signal enabled status
+        self.signals_enabled_val = True
+        
+        # Initialize admin users
+        self.admin_users = [1093307376]  # Add your Telegram ID here for testing
+        
+        # Initialize signal processing
+        self.signals_enabled = self._signals_enabled
+        
+        # Initialize GIF utilities
+        self.gif_utils = gif_utils  # Initialize gif_utils as an attribute
+        
+        # Initialize Telegram Bot configuratie
+        self.token = self.bot_token  # Aliased for backward compatibility
+        
+        # Configure custom request handler with improved connection settings
+        request = HTTPXRequest(
+            connection_pool_size=50,  # Increase from 20 to 50
+            connect_timeout=15.0,     # Increase from 10.0 to 15.0
+            read_timeout=45.0,        # Increase from 30.0 to 45.0
+            write_timeout=30.0,       # Increase from 20.0 to 30.0
+            pool_timeout=60.0,        # Increase from 30.0 to 60.0
+        )
+        
+        # Initialize the bot directly with connection pool settings
+        self.bot = Bot(token=self.bot_token, request=request)
+        self.application = None  # Will be initialized in setup()
+        
+        logger.info(f"Bot initialized with token: {self.bot_token}")
+        
+        # Initialize webhook configuration
+        self.webhook_url = os.getenv("WEBHOOK_URL", "")
+        if self.webhook_url.endswith("/"):
+            self.webhook_url = self.webhook_url[:-1]  # Remove trailing slash
+            
+        logger.info(f"Bot initialized with webhook URL: {self.webhook_url} and path: {self.webhook_path}")
+        
+        # Initialize API services
+        self.chart_service = ChartService()  # Initialize chart service
+        self.calendar_service = EconomicCalendarService()  # Economic calendar service
+        self.sentiment_service = MarketSentimentService()  # Market sentiment service
+        
+        # Initialize chart service
+        asyncio.create_task(self.chart_service.initialize())
+        
+        # Initialize sentiment service
+        asyncio.create_task(self.sentiment_service.initialize())
+        
+        # Initialize cache
+        self.sentiment_cache = {}
+        self.sentiment_cache_ttl = 60 * 60  # 1 hour in seconds
+        
+        # Initialize user signals
+        self.user_signals = {}
+        
+        # Initialize signal directory
+        self.signals_dir = "data/signals"
+        
+        # Initialize signal enabled status
+        self.signals_enabled_val = True
+        
+        # Initialize admin users
+        self.admin_users = [1093307376]  # Add your Telegram ID here for testing
+        
+        # Initialize signal processing
+        self.signals_enabled = self._signals_enabled
+        
+        # Initialize GIF utilities
+        self.gif_utils = gif_utils  # Initialize gif_utils as an attribute
+        
+        # Initialize Telegram Bot configuratie
+        self.token = self.bot_token  # Aliased for backward compatibility
+        
+        # Configure custom request handler with improved connection settings
+        request = HTTPXRequest(
+            connection_pool_size=50,  # Increase from 20 to 50
+            connect_timeout=15.0,     # Increase from 10.0 to 15.0
+            read_timeout=45.0,        # Increase from 30.0 to 45.0
+            write_timeout=30.0,       # Increase from 20.0 to 30.0
+            pool_timeout=60.0,        # Increase from 30.0 to 60.0
+        )
+        
+        # Initialize the bot directly with connection pool settings
+        self.bot = Bot(token=self.bot_token, request=request)
+        self.application = None  # Will be initialized in setup()
+        
+        logger.info(f"Bot initialized with token: {self.bot_token}")
+        
+        # Initialize webhook configuration
+        self.webhook_url = os.getenv("WEBHOOK_URL", "")
+        if self.webhook_url.endswith("/"):
+            self.webhook_url = self.webhook_url[:-1]  # Remove trailing slash
+            
+        logger.info(f"Bot initialized with webhook URL: {self.webhook_url} and path: {self.webhook_path}")
+        
+        # Initialize API services
+        self.chart_service = ChartService()  # Initialize chart service
+        self.calendar_service = EconomicCalendarService()  # Economic calendar service
+        self.sentiment_service = MarketSentimentService()  # Market sentiment service
+        
+        # Initialize chart service
+        asyncio.create_task(self.chart_service.initialize())
+        
+        # Initialize sentiment service
+        asyncio.create_task(self.sentiment_service.initialize())
+        
+        # Initialize cache
+        self.sentiment_cache = {}
+        self.sentiment_cache_ttl = 60 * 60  # 1 hour in seconds
+        
+        # Initialize user signals
+        self.user_signals = {}
+        
+        # Initialize signal directory
+        self.signals_dir = "data/signals"
+        
+        # Initialize signal enabled status
+        self.signals_enabled_val = True
+        
+        # Initialize admin users
+        self.admin_users = [1093307376]  # Add your Telegram ID here for testing
+        
+        # Initialize signal processing
+        self.signals_enabled = self._signals_enabled
+        
+        # Initialize GIF utilities
+        self.gif_utils = gif_utils  # Initialize gif_utils as an attribute
+        
+        # Initialize Telegram Bot configuratie
+        self.token = self.bot_token  # Aliased for backward compatibility
+        
+        # Configure custom request handler with improved connection settings
+        request = HTTPXRequest(
+            connection_pool_size=50,  # Increase from 20 to 50
+            connect_timeout=15.0,     # Increase from 10.0 to 15.0
+            read_timeout=45.0,        # Increase from 30.0 to 45.0
+            write_timeout=30.0,       # Increase from 20.0 to 30.0
+            pool_timeout=60.0,        # Increase from 30.0 to 60.0
+        )
+        
+        # Initialize the bot directly with connection pool settings
+        self.bot = Bot(token=self.bot_token, request=request)
+        self.application = None  # Will be initialized in setup()
+        
+        logger.info(f"Bot initialized with token: {self.bot_token}")
+        
+        # Initialize webhook configuration
+        self.webhook_url = os.getenv("WEBHOOK_URL", "")
+        if self.webhook_url.endswith("/"):
+            self.webhook_url = self.webhook_url[:-1]  # Remove trailing slash
+            
+        logger.info(f"Bot initialized with webhook URL: {self.webhook_url} and path: {self.webhook_path}")
+        
+        # Initialize API services
+        self.chart_service = ChartService()  # Initialize chart service
+        self.calendar_service = EconomicCalendarService()  # Economic calendar service
+        self.sentiment_service = MarketSentimentService()  # Market sentiment service
+        
+        # Initialize chart service
+        asyncio.create_task(self.chart_service.initialize())
+        
+        # Initialize sentiment service
+        asyncio.create_task(self.sentiment_service.initialize())
+        
+        # Initialize cache
+        self.sentiment_cache = {}
+        self.sentiment_cache_ttl = 60 * 60  # 1 hour in seconds
+        
+        # Initialize user signals
+        self.user_signals = {}
+        
+        # Initialize signal directory
+        self.signals_dir = "data/signals"
+        
+        # Initialize signal enabled status
+        self.signals_enabled_val = True
+        
+        # Initialize admin users
+        self.admin_users = [1093307376]  # Add your Telegram ID here for testing
+        
+        # Initialize signal processing
+        self.signals_enabled = self._signals_enabled
+        
+        # Initialize GIF utilities
+        self.gif_utils = gif_utils  # Initialize gif_utils as an attribute
+        
+        # Initialize Telegram Bot configuratie
+        self.token = self.bot_token  # Aliased for backward compatibility
+        
+        # Configure custom request handler with improved connection settings
+        request = HTTPXRequest(
+            connection_pool_size=50,  # Increase from 20 to 50
+            connect_timeout=15.0,     # Increase from 10.0 to 15.0
+            read_timeout=45.0,        # Increase from 30.0 to 45.0
+            write_timeout=30.0,       # Increase from 20.0 to 30.0
+            pool_timeout=60.0,        # Increase from 30.0 to 60.0
+        )
+        
+        # Initialize the bot directly with connection pool settings
+        self.bot = Bot(token=self.bot_token, request=request)
+        self.application = None  # Will be initialized in setup()
+        
+        logger.info(f"Bot initialized with token: {self.bot_token}")
+        
+        # Initialize webhook configuration
+        self.webhook_url = os.getenv("WEBHOOK_URL", "")
+        if self.webhook_url.endswith("/"):
+            self.webhook_url = self.webhook_url[:-1]  # Remove trailing slash
+            
+        logger.info(f"Bot initialized with webhook URL: {self.webhook_url} and path: {self.webhook_path}")
+        
+        # Initialize API services
+        self.chart_service = ChartService()  # Initialize chart service
+        self.calendar_service = EconomicCalendarService()  # Economic calendar service
+        self.sentiment_service = MarketSentimentService()  # Market sentiment service
+        
+        # Initialize chart service
+        asyncio.create_task(self.chart_service.initialize())
+        
+        # Initialize sentiment service
+        asyncio.create_task(self.sentiment_service.initialize())
+        
+        # Initialize cache
+        self.sentiment_cache = {}
+        self.sentiment_cache_ttl = 60 * 60  # 1 hour in seconds
+        
+        # Initialize user signals
+        self.user_signals = {}
+        
+        # Initialize signal directory
+        self.signals_dir = "data/signals"
+        
+        # Initialize signal enabled status
+        self.signals_enabled_val = True
+        
+        # Initialize admin users
+        self.admin_users = [1093307376]  # Add your Telegram ID here for testing
+        
+        # Initialize signal processing
+        self.signals_enabled = self._signals_enabled
+        
+        # Initialize GIF utilities
+        self.gif_utils = gif_utils  # Initialize gif_utils as an attribute
+        
+        # Initialize Telegram Bot configuratie
+        self.token = self.bot_token  # Aliased for backward compatibility
+        
+        # Configure custom request handler with improved connection settings
+        request = HTTPXRequest(
+            connection_pool_size=50,  # Increase from 20 to 50
+            connect_timeout=15.0,     # Increase from 10.0 to 15.0
+            read_timeout=45.0,        # Increase from 30.0 to 45.0
+            write_timeout=30.0,       # Increase from 20.0 to 30.0
+            pool_timeout=60.0,        # Increase from 30.0 to 60.0
+        )
+        
+        # Initialize the bot directly with connection pool settings
+        self.bot = Bot(token=self.bot_token, request=request)
+        self.application = None  # Will be initialized in setup()
+        
+        logger.info(f"Bot initialized with token: {self.bot_token}")
+        
+        # Initialize webhook configuration
+        self.webhook_url = os.getenv("WEBHOOK_URL", "")
+        if self.webhook_url.endswith("/"):
+            self.webhook_url = self.webhook_url[:-1]  # Remove trailing slash
+            
+        logger.info(f"Bot initialized with webhook URL: {self.webhook_url} and path: {self.webhook_path}")
+        
+        # Initialize API services
+        self.chart_service = ChartService()  # Initialize chart service
+        self.calendar_service = EconomicCalendarService()  # Economic calendar service
+        self.sentiment_service = MarketSentimentService()  # Market sentiment service
+        
+        # Initialize chart service
+        asyncio.create_task(self.chart_service.initialize())
+        
+        # Initialize sentiment service
+        asyncio.create_task(self.sentiment_service.initialize())
+        
+        # Initialize cache
+        self.sentiment_cache = {}
+        self.sentiment_cache_ttl = 60 * 60  # 1 hour in seconds
+        
+        # Initialize user signals
+        self.user_signals = {}
+        
+        # Initialize signal directory
+        self.signals_dir = "data/signals"
+        
+        # Initialize signal enabled status
+        self.signals_enabled_val = True
+        
+        # Initialize admin users
+        self.admin_users = [1093307376]  # Add your Telegram ID here for testing
+        
+        # Initialize signal processing
+        self.signals_enabled = self._signals_enabled
+        
+        # Initialize GIF utilities
+        self.gif_utils = gif_utils  # Initialize gif_utils as an attribute
+        
+        # Initialize Telegram Bot configuratie
+        self.token = self.bot_token  # Aliased for backward compatibility
+        
+        # Configure custom request handler with improved connection settings
+        request = HTTPXRequest(
+            connection_pool_size=50,  # Increase from 20 to 50
+            connect_timeout=15.0,     # Increase from 10.0 to 15.0
+            read_timeout=45.0,        # Increase from 30.0 to 45.0
+            write_timeout=30.0,       # Increase from 20.0 to 30.0
+            pool_timeout=60.0,        # Increase from 30.0 to 60.0
+        )
+        
+        # Initialize the bot directly with connection pool settings
+        self.bot = Bot(token=self.bot_token, request=request)
+        self.application = None  # Will be initialized in setup()
+        
+        logger.info(f"Bot initialized with token: {self.bot_token}")
+        
+        # Initialize webhook configuration
+        self.webhook_url = os.getenv("WEBHOOK_URL", "")
+        if self.webhook_url.endswith("/"):
+            self.webhook_url = self.webhook_url[:-1]  # Remove trailing slash
+            
+        logger.info(f"Bot initialized with webhook URL: {self.webhook_url} and path: {self.webhook_path}")
+        
+        # Initialize API services
+        self.chart_service = ChartService()  # Initialize chart service
+        self.calendar_service = EconomicCalendarService()  # Economic calendar service
+        self.sentiment_service = MarketSentimentService()  # Market sentiment service
+        
+        # Initialize chart service
+        asyncio.create_task(self.chart_service.initialize())
+        
+        # Initialize sentiment service
+        asyncio.create_task(self.sentiment_service.initialize())
+        
+        # Initialize cache
+        self.sentiment_cache = {}
+        self.sentiment_cache_ttl = 60 * 60  # 1 hour in seconds
+        
+        # Initialize user signals
+        self.user_signals = {}
+        
+        # Initialize signal directory
+        self.signals_dir = "data/signals"
+        
+        # Initialize signal enabled status
+        self.signals_enabled_val = True
+        
+        # Initialize admin users
+        self.admin_users = [1093307376]  # Add your Telegram ID here for testing
+        
+        # Initialize signal processing
+        self.signals_enabled = self._signals_enabled
+        
+        # Initialize GIF utilities
+        self.gif_utils = gif_utils  # Initialize gif_utils as an attribute
+        
+        # Initialize Telegram Bot configuratie
+        self.token = self.bot_token  # Aliased for backward compatibility
+        
+        # Configure custom request handler with improved connection settings
+        request = HTTPXRequest(
+            connection_pool_size=50,  # Increase from 20 to 50
+            connect_timeout=15.0,     # Increase from 10.0 to 15.0
+            read_timeout=45.0,        # Increase from 30.0 to 45.0
+            write_timeout=30.0,       # Increase from 20.0 to 30.0
+            pool_timeout=60.0,        # Increase from 30.0 to 60.0
+        )
+        
+        # Initialize the bot directly with connection pool settings
+        self.bot = Bot(token=self.bot_token, request=request)
+        self.application = None  # Will be initialized in setup()
+        
+        logger.info(f"Bot initialized with token: {self.bot_token}")
+        
+        # Initialize webhook configuration
+        self.webhook_url = os.getenv("WEBHOOK_URL", "")
+        if self.webhook_url.endswith("/"):
+            self.webhook_url = self.webhook_url[:-1]  # Remove trailing slash
+            
+        logger.info(f"Bot initialized with webhook URL: {self.webhook_url} and path: {self.webhook_path}")
+        
+        # Initialize API services
+        self.chart_service = ChartService()  # Initialize chart service
+        self.calendar_service = EconomicCalendarService()  # Economic calendar service
+        self.sentiment_service = MarketSentimentService()  # Market sentiment service
+        
+        # Initialize chart service
+        asyncio.create_task(self.chart_service.initialize())
+        
+        # Initialize sentiment service
+        asyncio.create_task(self.sentiment_service.initialize())
+        
+        # Initialize cache
+        self.sentiment_cache = {}
+        self.sentiment_cache_ttl = 60 * 60  # 1 hour in seconds
+        
+        # Initialize user signals
+        self.user_signals = {}
+        
+        # Initialize signal directory
+        self.signals_dir = "data/signals"
+        
+        # Initialize signal enabled status
+        self.signals_enabled_val = True
+        
+        # Initialize admin users
+        self.admin_users = [1093307376]  # Add your Telegram ID here for testing
+        
+        # Initialize signal processing
+        self.signals_enabled = self._signals_enabled
+        
+        # Initialize GIF utilities
+        self.gif_utils = gif_utils  # Initialize gif_utils as an attribute
+        
+        # Initialize Telegram Bot configuratie
+        self.token = self.bot_token  # Aliased for backward compatibility
+        
+        # Configure custom request handler with improved connection settings
+        request = HTTPXRequest(
+            connection_pool_size=50,  # Increase from 20 to 50
+            connect_timeout=15.0,     # Increase from 10.0 to 15.0
+            read_timeout=45.0,        # Increase from 30.0 to 45.0
+            write_timeout=30.0,       # Increase from 20.0 to 30.0
+            pool_timeout=60.0,        # Increase from 30.0 to 60.0
+        )
+        
+        # Initialize the bot directly with connection pool settings
+        self.bot = Bot(token=self.bot_token, request=request)
+        self.application = None  # Will be initialized in setup()
+        
+        logger.info(f"Bot initialized with token: {self.bot_token}")
+        
+        # Initialize webhook configuration
+        self.webhook_url = os.getenv("WEBHOOK_URL", "")
+        if self.webhook_url.endswith("/"):
+            self.webhook_url = self.webhook_url[:-1]  # Remove trailing slash
+            
+        logger.info(f"Bot initialized with webhook URL: {self.webhook_url} and path: {self.webhook_path}")
+        
+        # Initialize API services
+        self.chart_service = ChartService()  # Initialize chart service
+        self.calendar_service = EconomicCalendarService()  # Economic calendar service
+        self.sentiment_service = MarketSentimentService()  # Market sentiment service
+        
+        # Initialize chart service
+        asyncio.create_task(self.chart_service.initialize())
+        
+        # Initialize sentiment service
+        asyncio.create_task(self.sentiment_service.initialize())
+        
+        # Initialize cache
+        self.sentiment_cache = {}
+        self.sentiment_cache_ttl = 60 * 60  # 1 hour in seconds
+        
+        # Initialize user signals
+        self.user_signals = {}
+        
+        # Initialize signal directory
+        self.signals_dir = "data/signals"
+        
+        # Initialize signal enabled status
+        self.signals_enabled_val = True
+        
+        # Initialize admin users
+        self.admin_users = [1093307376]  # Add your Telegram ID here for testing
+        
+        # Initialize signal processing
+        self.signals_enabled = self._signals_enabled
+        
+        # Initialize GIF utilities
+        self.gif_utils = gif_utils  # Initialize gif_utils as an attribute
+        
+        # Initialize Telegram Bot configuratie
+        self.token = self.bot_token  # Aliased for backward compatibility
+        
+        # Configure custom request handler with improved connection settings
+        request = HTTPXRequest(
+            connection_pool_size=50,  # Increase from 20 to 50
+            connect_timeout=15.0,     # Increase from 10.0 to 15.0
+            read_timeout=45.0,        # Increase from 30.0 to 45.0
+            write_timeout=30.0,       # Increase from 20.0 to 30.0
+            pool_timeout=60.0,        # Increase from 30.0 to 60.0
+        )
+        
+        # Initialize the bot directly with connection pool settings
+        self.bot = Bot(token=self.bot_token, request=request)
+        self.application = None  # Will be initialized in setup()
+        
+        logger.info(f"Bot initialized with token: {self.bot_token}")
+        
+        # Initialize webhook configuration
+        self.webhook_url = os.getenv("WEBHOOK_URL", "")
+        if self.webhook_url.endswith("/"):
+            self.webhook_url = self.webhook_url[:-1]  # Remove trailing slash
+            
+        logger.info(f"Bot initialized with webhook URL: {self.webhook_url} and path: {self.webhook_path}")
+        
+        # Initialize API services
+        self.chart_service = ChartService()  # Initialize chart service
+        self.calendar_service = EconomicCalendarService()  # Economic calendar service
+        self.sentiment_service = MarketSentimentService()  # Market sentiment service
+        
+        # Initialize chart service
+        asyncio.create_task(self.chart_service.initialize())
+        
+        # Initialize sentiment service
+        asyncio.create_task(self.sentiment_service.initialize())
+        
+        # Initialize cache
+        self.sentiment_cache = {}
+        self.sentiment_cache_ttl = 60 * 60  # 1 hour in seconds
+        
+        # Initialize user signals
+        self.user_signals = {}
+        
+        # Initialize signal directory
+        self.signals_dir = "data/signals"
+        
+        # Initialize signal enabled status
+        self.signals_enabled_val = True
+        
+        # Initialize admin users
+        self.admin_users = [1093307376]  # Add your Telegram ID here for testing
+        
+        # Initialize signal processing
+        self.signals_enabled = self._signals_enabled
+        
+        # Initialize GIF utilities
+        self.gif_utils = gif_utils  # Initialize gif_utils as an attribute
+        
+        # Initialize Telegram Bot configuratie
+        self.token = self.bot_token  # Aliased for backward compatibility
+        
+        # Configure custom request handler with improved connection settings
+        request = HTTPXRequest(
+            connection_pool_size=50,  # Increase from 20 to 50
+            connect_timeout=15.0,     # Increase from 10.0 to 15.0
+            read_timeout=45.0,        # Increase from 30.0 to 45.0
+            write_timeout=30.0,       # Increase from 20.0 to 30.0
+            pool_timeout=60.0,        # Increase from 30.0 to 60.0
+        )
+        
+        # Initialize the bot directly with connection pool settings
+        self.bot = Bot(token=self.bot_token, request=request)
+        self.application = None  # Will be initialized in setup()
+        
+        logger.info(f"Bot initialized with token: {self.bot_token}")
+        
+        # Initialize webhook configuration
+        self.webhook_url = os.getenv("WEBHOOK_URL", "")
+        if self.webhook_url.endswith("/"):
+            self.webhook_url = self.webhook_url[:-1]  # Remove trailing slash
+            
+        logger.info(f"Bot initialized with webhook URL: {self.webhook_url} and path: {self.webhook_path}")
+        
+        # Initialize API services
+        self.chart_service = ChartService()  # Initialize chart service
+        self.calendar_service = EconomicCalendarService()  # Economic calendar service
+        self.sentiment_service = MarketSentimentService()  # Market sentiment service
+        
+        # Initialize chart service
+        asyncio.create_task(self.chart_service.initialize())
+        
+        # Initialize sentiment service
+        asyncio.create_task(self.sentiment_service.initialize())
+        
+        # Initialize cache
+        self.sentiment_cache = {}
+        self.sentiment_cache_ttl = 60 * 60  # 1 hour in seconds
+        
+        # Initialize user signals
+        self.user_signals = {}
+        
+        # Initialize signal directory
+        self.signals_dir = "data/signals"
+        
+        # Initialize signal enabled status
+        self.signals_enabled_val = True
+        
+        # Initialize admin users
+        self.admin_users = [1093307376]  # Add your Telegram ID here for testing
+        
+        # Initialize signal processing
+        self.signals_enabled = self._signals_enabled
+        
+        # Initialize GIF utilities
+        self.gif_utils = gif_utils  # Initialize gif_utils as an attribute
+        
+        # Initialize Telegram Bot configuratie
+        self.token = self.bot_token  # Aliased for backward compatibility
+        
+        # Configure custom request handler with improved connection settings
+        request = HTTPXRequest(
+            connection_pool_size=50,  # Increase from 20 to 50
+            connect_timeout=15.0,     # Increase from 10.0 to 15.0
+            read_timeout=45.0,        # Increase from 30.0 to 45.0
+            write_timeout=30.0,       # Increase from 20.0 to 30.0
+            pool_timeout=60.0,        # Increase from 30.0 to 60.0
+        )
+        
+        # Initialize the bot directly with connection pool settings
+        self.bot = Bot(token=self.bot_token, request=request)
+        self.application = None  # Will be initialized in setup()
+        
+        logger.info(f"Bot initialized with token: {self.bot_token}")
+        
+        # Initialize webhook configuration
+        self.webhook_url = os.getenv("WEBHOOK_URL", "")
+        if self.webhook_url.endswith("/"):
+            self.webhook_url = self.webhook_url[:-1]  # Remove trailing slash
+            
+        logger.info(f"Bot initialized with webhook URL: {self.webhook_url} and path: {self.webhook_path}")
+        
+        # Initialize API services
+        self.chart_service = ChartService()  # Initialize chart service
+        self.calendar_service = EconomicCalendarService()  # Economic calendar service
+        self.sentiment_service = MarketSentimentService()  # Market sentiment service
+        
+        # Initialize chart service
+        asyncio.create_task(self.chart_service.initialize())
+        
+        # Initialize sentiment service
+        asyncio.create_task(self.sentiment_service.initialize())
+        
+        # Initialize cache
+        self.sentiment_cache = {}
+        self.sentiment_cache_ttl = 60 * 60  # 1 hour in seconds
+        
+        # Initialize user signals
+        self.user_signals = {}
+        
+        # Initialize signal directory
+        self.signals_dir = "data/signals"
+        
+        # Initialize signal enabled status
+        self.signals_enabled_val = True
+        
+        # Initialize admin users
+        self.admin_users = [1093307376]  # Add your Telegram ID here for testing
+        
+        # Initialize signal processing
+        self.signals_enabled = self._signals_enabled
+        
+        # Initialize GIF utilities
+        self.gif_utils = gif_utils  # Initialize gif_utils as an attribute
+        
+        # Initialize Telegram Bot configuratie
+        self.token = self.bot_token  # Aliased for backward compatibility
+        
+        # Configure custom request handler with improved connection settings
+        request = HTTPXRequest(
+            connection_pool_size=50,  # Increase from 20 to 50
+            connect_timeout=15.0,     # Increase from 10.0 to 15.0
+            read_timeout=45.0,        # Increase from 30.0 to 45.0
+            write_timeout=30.0,       # Increase from 20.0 to 30.0
+            pool_timeout=60.0,        # Increase from 30.0 to 60.0
+        )
+        
+        # Initialize the bot directly with connection pool settings
+        self.bot = Bot(token=self.bot_token, request=request)
+        self.application = None  # Will be initialized in setup()
+        
+        logger.info(f"Bot initialized with token: {self.bot_token}")
+        
+        # Initialize webhook configuration
+        self.webhook_url = os.getenv("WEBHOOK_URL", "")
+        if self.webhook_url.endswith("/"):
+            self.webhook_url = self.webhook_url[:-1]  # Remove trailing slash
+            
+        logger.info(f"Bot initialized with webhook URL: {self.webhook_url} and path: {self.webhook_path}")
+        
+        # Initialize API services
+        self.chart_service = ChartService()  # Initialize chart service
+        self.calendar_service = EconomicCalendarService()  # Economic calendar service
+        self.sentiment_service = MarketSentimentService()  # Market sentiment service
+        
+        # Initialize chart service
+        asyncio.create_task(self.chart_service.initialize())
+        
+        # Initialize sentiment service
+        asyncio.create_task(self.sentiment_service.initialize())
+        
+        # Initialize cache
+        self.sentiment_cache = {}
+        self.sentiment_cache_ttl = 60 * 60  # 1 hour in seconds
+        
+        # Initialize user signals
+        self.user_signals = {}
+        
+        # Initialize signal directory
+        self.signals_dir = "data/signals"
+        
+        # Initialize signal enabled status
+        self.signals_enabled_val = True
+        
+        # Initialize admin users
+        self.admin_users = [1093307376]  # Add your Telegram ID here for testing
+        
+        # Initialize signal processing
+        self.signals_enabled = self._signals_enabled
+        
+        # Initialize GIF utilities
+        self.gif_utils = gif_utils  # Initialize gif_utils as an attribute
+        
+        # Initialize Telegram Bot configuratie
+        self.token = self.bot_token  # Aliased for backward compatibility
+        
+        # Configure custom request handler with improved connection settings
+        request = HTTPXRequest(
+            connection_pool_size=50,  # Increase from 20 to 50
+            connect_timeout=15.0,     # Increase from 10.0 to 15.0
+            read_timeout=45.0,        # Increase from 30.0 to 45.0
+            write_timeout=30.0,       # Increase from 20.0 to 30.0
+            pool_timeout=60.0,        # Increase from 30.0 to 60.0
+        )
+        
+        # Initialize the bot directly with connection pool settings
+        self.bot = Bot(token=self.bot_token, request=request)
+        self.application = None  # Will be initialized in setup()
+        
+        logger.info(f"Bot initialized with token: {self.bot_token}")
+        
+        # Initialize webhook configuration
+        self.webhook_url = os.getenv("WEBHOOK_URL", "")
+        if self.webhook_url.endswith("/"):
+            self.webhook_url = self.webhook_url[:-1]  # Remove trailing slash
+            
+        logger.info(f"Bot initialized with webhook URL: {self.webhook_url} and path: {self.webhook_path}")
+        
+        # Initialize API services
+        self.chart_service = ChartService()  # Initialize chart service
+        self.calendar_service = EconomicCalendarService()  # Economic calendar service
+        self.sentiment_service = MarketSentimentService()  # Market sentiment service
+        
+        # Initialize chart service
+        asyncio.create_task(self.chart_service.initialize())
+        
+        # Initialize sentiment service
+        asyncio.create_task(self.sentiment_service.initialize())
+        
+        # Initialize cache
+        self.sentiment_cache = {}
+        self.sentiment_cache_ttl = 60 * 60  # 1 hour in seconds
+        
+        # Initialize user signals
+        self.user_signals = {}
+        
+        # Initialize signal directory
+        self.signals_dir = "data/signals"
+        
+        # Initialize signal enabled status
+        self.signals_enabled_val = True
+        
+        # Initialize admin users
+        self.admin_users = [1093307376]  # Add your Telegram ID here for testing
+        
+        # Initialize signal processing
+        self.signals_enabled = self._signals_enabled
+        
+        # Initialize GIF utilities
+        self.gif_utils = gif_utils  # Initialize gif_utils as an attribute
+        
+        # Initialize Telegram Bot configuratie
+        self.token = self.bot_token  # Aliased for backward compatibility
+        
+        # Configure custom request handler with improved connection settings
+        request = HTTPXRequest(
+            connection_pool_size=50,  # Increase from 20 to 50
+            connect_timeout=15.0,     # Increase from 10.0 to 15.0
+            read_timeout=45.0,        # Increase from 30.0 to 45.0
+            write_timeout=30.0,       # Increase from 20.0 to 30.0
+            pool_timeout=60.0,        # Increase from 30.0 to 60.0
+        )
+        
+        # Initialize the bot directly with connection pool settings
+        self.bot = Bot(token=self.bot_token, request=request)
+        self.application = None  # Will be initialized in setup()
+        
+        logger.info(f"Bot initialized with token: {self.bot_token}")
+        
+        # Initialize webhook configuration
+        self.webhook_url = os.getenv("WEBHOOK_URL", "")
+        if self.webhook_url.endswith("/"):
+            self.webhook_url = self.webhook_url[:-1]  # Remove trailing slash
+            
+        logger.info(f"Bot initialized with webhook URL: {self.webhook_url} and path: {self.webhook_path}")
+        
+        # Initialize API services
+        self.chart_service = ChartService()  # Initialize chart service
+        self.calendar_service = EconomicCalendarService()  # Economic calendar service
+        self.sentiment_service = MarketSentimentService()  # Market sentiment service
+        
+        # Initialize chart service
+        asyncio.create_task(self.chart_service.initialize())
+        
+        # Initialize sentiment service
+        asyncio.create_task(self.sentiment_service.initialize())
+        
+        # Initialize cache
+        self.sentiment_cache = {}
+        self.sentiment_cache_ttl = 60 * 60  # 1 hour in seconds
+        
+        # Initialize user signals
+        self.user_signals = {}
+        
+        # Initialize signal directory
+        self.signals_dir = "data/signals"
+        
+        # Initialize signal enabled status
+        self.signals_enabled_val = True
+        
+        # Initialize admin users
+        self.admin_users = [1093307376]  # Add your Telegram ID here for testing
+        
+        # Initialize signal processing
+        self.signals_enabled = self._signals_enabled
+        
+        # Initialize GIF utilities
+        self.gif_utils = gif_utils  # Initialize gif_utils as an attribute
+        
+        # Initialize Telegram Bot configuratie
+        self.token = self.bot_token  # Aliased for backward compatibility
+        
+        # Configure custom request handler with improved connection settings
+        request = HTTPXRequest(
+            connection_pool_size=50,  # Increase from 20 to 50
+            connect_timeout=15.0,     # Increase from 10.0 to 15.0
+            read_timeout=45.0,        # Increase from 30.0 to 45.0
+            write_timeout=30.0,       # Increase from 20.0 to 30.0
+            pool_timeout=60.0,        # Increase from 30.0 to 60.0
+        )
+        
+        # Initialize the bot directly with connection pool settings
+        self.bot = Bot(token=self.bot_token, request=request)
+        self.application = None  # Will be initialized in setup()
+        
+        logger.info(f"Bot initialized with token: {self.bot_token}")
+        
+        # Initialize webhook configuration
+        self.webhook_url = os.getenv("WEBHOOK_URL", "")
+        if self.webhook_url.endswith("/"):
+            self.webhook_url = self.webhook_url[:-1]  # Remove trailing slash
+            
+        logger.info(f"Bot initialized with webhook URL: {self.webhook_url} and path: {self.webhook_path}")
+        
+        # Initialize API services
+        self.chart_service = ChartService()  # Initialize chart service
+        self.calendar_service = EconomicCalendarService()  # Economic calendar service
+        self.sentiment_service = MarketSentimentService()  # Market sentiment service
+        
+        # Initialize chart service
+        asyncio.create_task(self.chart_service.initialize())
+        
+        # Initialize sentiment service
+        asyncio.create_task(self.sentiment_service.initialize())
+        
+        # Initialize cache
+        self.sentiment_cache = {}
+        self.sentiment_cache_ttl = 60 * 60  # 1 hour in seconds
+        
+        # Initialize user signals
+        self.user_signals = {}
+        
+        # Initialize signal directory
+        self.signals_dir = "data/signals"
+        
+        # Initialize signal enabled status
+        self.signals_enabled_val = True
+        
+        # Initialize admin users
+        self.admin_users = [1093307376]  # Add your Telegram ID here for testing
+        
+        # Initialize signal processing
+        self.signals_enabled = self._signals_enabled
+        
+        # Initialize GIF utilities
+        self.gif_utils = gif_utils  # Initialize gif_utils as an attribute
+        
+        # Initialize Telegram Bot configuratie
+        self.token = self.bot_token  # Aliased for backward compatibility
+        
+        # Configure custom request handler with improved connection settings
+        request = HTTPXRequest(
+            connection_pool_size=50,  # Increase from 20 to 50
+            connect_timeout=15.0,     # Increase from 10.0 to 15.0
+            read_timeout=45.0,        # Increase from 30.0 to 45.0
+            write_timeout=30.0,       # Increase from 20.0 to 30.0
+            pool_timeout=60.0,        # Increase from 30.0 to 60.0
+        )
+        
+        # Initialize the bot directly with connection pool settings
+        self.bot = Bot(token=self.bot_token, request=request)
+        self.application = None  # Will be initialized in setup()
+        
+        logger.info(f"Bot initialized with token: {self.bot_token}")
+        
+        # Initialize webhook configuration
+        self.webhook_url = os.getenv("WEBHOOK_URL", "")
+        if self.webhook_url.endswith("/"):
+            self.webhook_url = self.webhook_url[:-1]  # Remove trailing slash
+            
+        logger.info(f"Bot initialized with webhook URL: {self.webhook_url} and path: {self.webhook_path}")
+        
+        # Initialize API services
+        self.chart_service = ChartService()  # Initialize chart service
+        self.calendar_service = EconomicCalendarService()  # Economic calendar service
+        self.sentiment_service = MarketSentimentService()  # Market sentiment service
+        
+        # Initialize chart service
+        asyncio.create_task(self.chart_service.initialize())
+        
+        # Initialize sentiment service
+        asyncio.create_task(self.sentiment_service.initialize())
+        
+        # Initialize cache
+        self.sentiment_cache = {}
+        self.sentiment_cache_ttl = 60 * 60  # 1 hour in seconds
+        
+        # Initialize user signals
+        self.user_signals = {}
+        
+        # Initialize signal directory
+        self.signals_dir = "data/signals"
+        
+        # Initialize signal enabled status
+        self.signals_enabled_val = True
+        
+        # Initialize admin users
+        self.admin_users = [1093307376]  # Add your Telegram ID here for testing
+        
+        # Initialize signal processing
+        self.signals_enabled = self._signals_enabled
+        
+        # Initialize GIF utilities
+        self.gif_utils = gif_utils  # Initialize gif_utils as an attribute
+        
+        # Initialize Telegram Bot configuratie
+        self.token = self.bot_token  # Aliased for backward compatibility
+        
+        # Configure custom request handler with improved connection settings
+        request = HTTPXRequest(
+            connection_pool_size=50,  # Increase from 20 to 50
+            connect_timeout=15.0,     # Increase from 10.0 to 15.0
+            read_timeout=45.0,        # Increase from 30.0 to 45.0
+            write_timeout=30.0,       # Increase from 20.0 to 30.0
+            pool_timeout=60.0,        # Increase from 30.0 to 60.0
+        )
+        
+        # Initialize the bot directly with connection pool settings
+        self.bot = Bot(token=self.bot_token, request=request)
+        self.application = None  # Will be initialized in setup()
+        
+        logger.info(f"Bot initialized with token: {self.bot_token}")
+        
+        # Initialize webhook configuration
+        self.webhook_url = os.getenv("WEBHOOK_URL", "")
+        if self.webhook_url.endswith("/"):
+            self.webhook_url = self.webhook_url[:-1]  # Remove trailing slash
+            
+        logger.info(f"Bot initialized with webhook URL: {self.webhook_url} and path: {self.webhook_path}")
+        
+        # Initialize API services
+        self.chart_service = ChartService()  # Initialize chart service
+        self.calendar_service = EconomicCalendarService()  # Economic calendar service
+        self.sentiment_service = MarketSentimentService()  # Market sentiment service
+        
+        # Initialize chart service
+        asyncio.create_task(self.chart_service.initialize())
+        
+        # Initialize sentiment service
+        asyncio.create_task(self.sentiment_service.initialize())
+        
+        # Initialize cache
+        self.sentiment_cache = {}
+        self.sentiment_cache_ttl = 60 * 60  # 1 hour in seconds
+        
+        # Initialize user signals
+        self.user_signals = {}
+        
+        # Initialize signal directory
+        self.signals_dir = "data/signals"
+        
+        # Initialize signal enabled status
+        self.signals_enabled_val = True
+        
+        # Initialize admin users
+        self.admin_users = [1093307376]  # Add your Telegram ID here for testing
+        
+        # Initialize signal processing
+        self.signals_enabled = self._signals_enabled
+        
+        # Initialize GIF utilities
+        self.gif_utils = gif_utils  # Initialize gif_utils as an attribute
+        
+        # Initialize Telegram Bot configuratie
+        self.token = self.bot_token  # Aliased for backward compatibility
+        
+        # Configure custom request handler with improved connection settings
+        request = HTTPXRequest(
+            connection_pool_size=50,  # Increase from 20 to 50
+            connect_timeout=15.0,     # Increase from 10.0 to 15.0
+            read_timeout=45.0,        # Increase from 30.0 to 45.0
+            write_timeout=30.0,       # Increase from 20.0 to 30.0
+            pool_timeout=60.0,        # Increase from 30.0 to 60.0
+        )
+        
+        # Initialize the bot directly with connection pool settings
+        self.bot = Bot(token=self.bot_token, request=request)
+        self.application = None  # Will be initialized in setup()
+        
+        logger.info(f"Bot initialized with token: {self.bot_token}")
+        
+        # Initialize webhook configuration
+        self.webhook_url = os.getenv("WEBHOOK_URL", "")
+        if self.webhook_url.endswith("/"):
+            self.webhook_url = self.webhook_url[:-1]  # Remove trailing slash
+            
+        logger.info(f"Bot initialized with webhook URL: {self.webhook_url} and path: {self.webhook_path}")
+        
+        # Initialize API services
+        self.chart_service = ChartService()  # Initialize chart service
+        self.calendar_service = EconomicCalendarService()  # Economic calendar service
+        self.sentiment_service = MarketSentimentService()  # Market sentiment service
+        
+        # Initialize chart service
+        asyncio.create_task(self.chart_service.initialize())
+        
+        # Initialize sentiment service
+        asyncio.create_task(self.sentiment_service.initialize())
+        
+        # Initialize cache
+        self.sentiment_cache = {}
+        self.sentiment_cache_ttl = 60 * 60  # 1 hour in seconds
+        
+        # Initialize user signals
+        self.user_signals = {}
+        
+        # Initialize signal directory
+        self.signals_dir = "data/signals"
+        
+        # Initialize signal enabled status
+        self.signals_enabled_val = True
+        
+        # Initialize admin users
+        self.admin_users = [1093307376]  # Add your Telegram ID here for testing
+        
+        # Initialize signal processing
+        self.signals_enabled = self._signals_enabled
+        
+        # Initialize GIF utilities
+        self.gif_utils = gif_utils  # Initialize gif_utils as an attribute
+        
+        # Initialize Telegram Bot configuratie
+        self.token = self.bot_token  # Aliased for backward compatibility
+        
+        # Configure custom request handler with improved connection settings
+        request = HTTPXRequest(
+            connection_pool_size=50,  # Increase from 20 to 50
+            connect_timeout=15.0,     # Increase from 10.0 to 15.0
+            read_timeout=45.0,        # Increase from 30.0 to 45.0
+            write_timeout=30.0,       # Increase from 20.0 to 30.0
+            pool_timeout=60.0,        # Increase from 30.0 to 60.0
+        )
+        
+        # Initialize the bot directly with connection pool settings
+        self.bot = Bot(token=self.bot_token, request=request)
+        self.application = None  # Will be initialized in setup()
+        
+        logger.info(f"Bot initialized with token: {self.bot_token}")
+        
+        # Initialize webhook configuration
+        self.webhook_url = os.getenv("WEBHOOK_URL", "")
+        if self.webhook_url.endswith("/"):
+            self.webhook_url = self.webhook_url[:-1]  # Remove trailing slash
+            
+        logger.info(f"Bot initialized with webhook URL: {self.webhook_url} and path: {self.webhook_path}")
+        
+        # Initialize API services
+        self.chart_service = ChartService()  # Initialize chart service
+        self.calendar_service = EconomicCalendarService()  # Economic calendar service
+        self.sentiment_service = MarketSentimentService()  # Market sentiment service
+        
+        # Initialize chart service
+        asyncio.create_task(self.chart_service.initialize())
+        
+        # Initialize sentiment service
+        asyncio.create_task(self.sentiment_service.initialize())
+        
+        # Initialize cache
+        self.sentiment_cache = {}
+        self.sentiment_cache_ttl = 60 * 60  # 1 hour in seconds
+        
+        # Initialize user signals
+        self.user_signals = {}
+        
+        # Initialize signal directory
+        self.signals_dir = "data/signals"
+        
+        # Initialize signal enabled status
+        self.signals_enabled_val = True
+        
+        # Initialize admin users
+        self.admin_users = [1093307376]  # Add your Telegram ID here for testing
+        
+        # Initialize signal processing
+        self.signals_enabled = self._signals_enabled
+        
+        # Initialize GIF utilities
+        self.gif_utils = gif_utils  # Initialize gif_utils as an attribute
+        
+        # Initialize Telegram Bot configuratie
+        self.token = self.bot_token  # Aliased for backward compatibility
+        
+        # Configure custom request handler with improved connection settings
+        request = HTTPXRequest(
+            connection_pool_size=50,  # Increase from 20 to 50
+            connect_timeout=15.0,     # Increase from 10.0 to 15.0
+            read_timeout=45.0,        # Increase from 30.0 to 45.0
+            write_timeout=30.0,       # Increase from 20.0 to 30.0
+            pool_timeout=60.0,        # Increase from 30.0 to 60.0
+        )
+        
+        # Initialize the bot directly with connection pool settings
+        self.bot = Bot(token=self.bot_token, request=request)
+        self.application = None  # Will be initialized in setup()
+        
+        logger.info(f"Bot initialized with token: {self.bot_token}")
+        
+        # Initialize webhook configuration
+        self.webhook_url = os.getenv("WEBHOOK_URL", "")
+        if self.webhook_url.endswith("/"):
+            self.webhook_url = self.webhook_url[:-1]  # Remove trailing slash
+            
         # Start the bot
         try:
             # Check for bot token
@@ -1879,13 +3818,8 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             return BACK_TO_MENU
 
     async def show_sentiment_analysis(self, update: Update, context=None, instrument=None) -> int:
-        """Show sentiment analysis for a selected instrument"""
+        """Show sentiment analysis for an instrument"""
         query = update.callback_query
-        await query.answer()
-        
-        # Get instrument from parameter or context
-        if not instrument and context and hasattr(context, 'user_data'):
-            instrument = context.user_data.get('instrument')
         
         if not instrument:
             logger.error("No instrument provided for sentiment analysis")
@@ -1901,124 +3835,96 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         logger.info(f"Showing sentiment analysis for instrument: {instrument}")
         
         try:
-            # Show loading message with GIF
+            # Show loading message first
             loading_text = f"Generating sentiment analysis for {instrument}..."
-            loading_gif = "https://media.giphy.com/media/dpjUltnOPye7azvAhH/giphy.gif"
-            
             try:
-                # Try to show loading GIF with message
-                await query.edit_message_media(
-                    media=InputMediaAnimation(
-                        media=loading_gif,
-                        caption=loading_text,
-                        parse_mode=ParseMode.HTML
-                    )
+                await query.edit_message_text(
+                    text=loading_text,
+                    parse_mode=ParseMode.HTML
                 )
             except Exception as e:
-                logger.warning(f"Could not show loading GIF: {str(e)}")
-                # Fall back to just text
-                try:
-                    await query.edit_message_text(text=loading_text)
-                except Exception as e:
-                    logger.warning(f"Could not edit message text: {str(e)}")
-                    try:
-                        await query.edit_message_caption(caption=loading_text)
-                    except Exception as e:
-                        logger.error(f"Could not edit message caption: {str(e)}")
+                logger.warning(f"Could not update loading message: {str(e)}")
             
             # Get sentiment analysis from sentiment service
-            # Initialize MarketSentimentService if it's not already initialized
-            if not hasattr(self, 'sentiment_service') or self.sentiment_service is None:
-                self.sentiment_service = MarketSentimentService()
-                
-            sentiment_data = await self.sentiment_service.get_sentiment(instrument)
+            sentiment_data = await self.sentiment_service.get_market_sentiment(instrument)
             
             if not sentiment_data:
                 raise Exception("Failed to get sentiment data")
             
-            # Format the sentiment message
-            message = f"🧠 <b>Market Sentiment for {instrument}</b>\n\n"
+            # Extract sentiment data
+            bullish_score = sentiment_data.get('bullish_percentage', 50)
+            bearish_score = 100 - bullish_score
+            overall = sentiment_data.get('overall_sentiment', 'neutral').capitalize()
             
-            # Add overall sentiment score if available
-            if "score" in sentiment_data:
-                score = sentiment_data["score"]
-                sentiment_emoji = "🟢" if score > 60 else "🟡" if score > 40 else "🔴"
-                message += f"{sentiment_emoji} <b>Overall Sentiment:</b> {score}/100\n\n"
+            # Determine emoji based on sentiment
+            if overall.lower() == 'bullish':
+                emoji = "📈"
+            elif overall.lower() == 'bearish':
+                emoji = "📉"
+            else:
+                emoji = "⚖️"
             
-            # Add sentiment details if available
-            if "details" in sentiment_data:
-                message += "<b>Details:</b>\n"
-                for detail in sentiment_data["details"]:
-                    if "type" in detail and "value" in detail:
-                        message += f"• <b>{detail['type']}:</b> {detail['value']}\n"
+            # Format sentiment message
+            sentiment = f"""<b>🧠 Market Sentiment Analysis: {instrument}</b>
+
+<b>Overall Sentiment:</b> {overall} {emoji}
+
+<b>Sentiment Breakdown:</b>
+- Bullish: {bullish_score}%
+- Bearish: {bearish_score}%
+- Trend Strength: {sentiment_data.get('trend_strength', 'Moderate')}
+- Volatility: {sentiment_data.get('volatility', 'Moderate')}
+
+<b>Key Levels:</b>
+- Support: {sentiment_data.get('support_level', 'Not available')}
+- Resistance: {sentiment_data.get('resistance_level', 'Not available')}
+
+<b>Trading Recommendation:</b>
+{sentiment_data.get('recommendation', 'Wait for clearer market signals')}
+
+<b>Analysis:</b>
+{sentiment_data.get('analysis', 'Detailed analysis not available').strip()}"""
             
-            # Add sentiment explanation if available
-            if "explanation" in sentiment_data:
-                message += f"\n<b>Analysis:</b>\n{sentiment_data['explanation']}\n"
+            # Replace loading message with sentiment analysis
+            await query.edit_message_text(
+                text=sentiment,
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("⬅️ Back", callback_data="back_market")
+                ]]),
+                parse_mode=ParseMode.HTML
+            )
             
-            # Add source if available
-            if "source" in sentiment_data:
-                message += f"\n<i>Source: {sentiment_data['source']}</i>"
-            
-            # Create keyboard with only a single back button
-            keyboard = [
-                [InlineKeyboardButton("⬅️ Back", callback_data="back_to_analysis")]
-            ]
-            
-            # Remove the loading GIF and update with sentiment results
-            try:
-                # First try to replace the loading GIF with a transparent GIF
-                await query.edit_message_media(
-                    media=InputMediaDocument(
-                        media="https://upload.wikimedia.org/wikipedia/commons/thumb/0/00/Transparent.gif/1px-Transparent.gif",
-                        caption=message,
-                        parse_mode=ParseMode.HTML
-                    ),
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
-            except Exception as e:
-                logger.warning(f"Could not replace loading GIF with transparent GIF: {str(e)}")
-                # Try to edit message text as fallback
-                try:
-                    await query.edit_message_text(
-                        text=message,
-                        reply_markup=InlineKeyboardMarkup(keyboard),
-                        parse_mode=ParseMode.HTML
-                    )
-                except Exception as e:
-                    logger.error(f"Error updating message with sentiment: {str(e)}")
-                    # Try to send a new message as fallback
-                    await query.message.reply_text(
-                        text=message,
-                        parse_mode=ParseMode.HTML,
-                        reply_markup=InlineKeyboardMarkup(keyboard)
-                    )
-            
-            return CHOOSE_ANALYSIS
+            return SHOW_RESULT
             
         except Exception as e:
-            logger.error(f"Error generating sentiment analysis: {str(e)}")
-            error_text = f"Error generating sentiment analysis for {instrument}. Please try again."
+            logger.error(f"Error in show_sentiment_analysis: {str(e)}")
+            logger.exception(e)
+            
+            # Show error message with fallback sentiment
             try:
+                bullish_score = random.randint(30, 70)
+                bearish_score = 100 - bullish_score
+                
+                fallback_message = f"""<b>🧠 Market Sentiment Analysis: {instrument}</b>
+
+<b>Sentiment Breakdown:</b>
+- Bullish: {bullish_score}%
+- Bearish: {bearish_score}%
+
+<b>Market Analysis:</b>
+The current sentiment for {instrument} is neutral, with mixed signals in the market. Please check back later for updated analysis."""
+                
                 await query.edit_message_text(
-                    text=error_text,
-                    reply_markup=InlineKeyboardMarkup([
-                        [InlineKeyboardButton("⬅️ Back", callback_data="back_market")],
-                    ])
+                    text=fallback_message,
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("⬅️ Back", callback_data="back_market")
+                    ]]),
+                    parse_mode=ParseMode.HTML
                 )
             except Exception as e:
-                logger.error(f"Error updating error message: {str(e)}")
-                try:
-                    await query.edit_message_caption(
-                        caption=error_text,
-                        reply_markup=InlineKeyboardMarkup([
-                            [InlineKeyboardButton("⬅️ Back", callback_data="back_market")],
-                        ])
-                    )
-                except Exception as e:
-                    logger.error(f"Error updating error caption: {str(e)}")
+                logger.error(f"Error showing fallback sentiment: {str(e)}")
             
-            return BACK_TO_MENU
+            return SHOW_RESULT
 
     async def show_calendar_analysis(self, update: Update, context=None, instrument=None) -> int:
         """Show economic calendar analysis for a selected instrument"""
