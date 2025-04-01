@@ -11,7 +11,8 @@ import time
 import random
 
 from fastapi import FastAPI, Request, HTTPException, status
-from telegram import Bot, Update, BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery, InputMediaPhoto, ParseMode
+from telegram import Bot, Update, BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery, InputMediaPhoto
+from telegram.constants import ParseMode
 from telegram.ext import (
     Application,
     CommandHandler,
