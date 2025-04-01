@@ -917,10 +917,10 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         
         try:
             # Get an analysis GIF URL
-            gif_url = await get_analyse_gif()
+            gif_url = await gif_utils.get_analyse_gif()
             
             # Update the message with the GIF using the helper function
-            success = await update_message_with_gif(
+            success = await gif_utils.update_message_with_gif(
                 query=query,
                 gif_url=gif_url,
                 text="Select your analysis type:",
@@ -1000,7 +1000,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             if not skip_gif:
                 try:
                     # Get the menu GIF URL
-                    gif_url = await get_menu_gif()
+                    gif_url = await gif_utils.get_menu_gif()
                     
                     # For message commands we can use reply_animation
                     if hasattr(update, 'message') and update.message:
@@ -1639,7 +1639,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         gif_url = await get_signals_gif()
         
         # Update the message with the GIF and keyboard
-        success = await update_message_with_gif(
+        success = await gif_utils.update_message_with_gif(
             query=query,
             gif_url=gif_url,
             text="Select a market for trading signals:",
@@ -2269,7 +2269,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             gif_url = await get_signals_gif()
             
             # Update the message with the GIF using the helper function
-            success = await update_message_with_gif(
+            success = await gif_utils.update_message_with_gif(
                 query=query,
                 gif_url=gif_url,
                 text="Trading Signals Options:",
@@ -2642,10 +2642,10 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         await query.answer()
         
         # Get an analysis GIF URL
-        gif_url = await get_analyse_gif()
+        gif_url = await gif_utils.get_analyse_gif()
         
         # Update the message with the GIF using the helper function
-        success = await update_message_with_gif(
+        success = await gif_utils.update_message_with_gif(
             query=query,
             gif_url=gif_url,
             text="Select your analysis type:",
@@ -2690,10 +2690,10 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         await query.answer()
         
         # Get a menu GIF URL
-        gif_url = await get_menu_gif()
+        gif_url = await gif_utils.get_menu_gif()
         
         # Update the message with the GIF using the helper function
-        success = await update_message_with_gif(
+        success = await gif_utils.update_message_with_gif(
             query=query,
             gif_url=gif_url,
             text=WELCOME_MESSAGE,
@@ -2860,7 +2860,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             gif_url = await get_welcome_gif()
             
             # Update the message with the GIF using the helper function
-            success = await update_message_with_gif(
+            success = await gif_utils.update_message_with_gif(
                 query=query,
                 gif_url=gif_url,
                 text=message,
