@@ -7,6 +7,8 @@ from dotenv import load_dotenv
 import stripe
 import time
 import asyncio
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler
+from telegram import BotCommand
 
 # Configureer logging
 logging.basicConfig(level=logging.INFO)
@@ -113,23 +115,47 @@ async def startup_event():
         await chart_service.initialize()
         logger.info("Chart service initialized")
         
-        # First try in polling mode (safer option)
-        force_polling = os.getenv("FORCE_POLLING", "true").lower() == "true"  # Default to polling mode to be safe
-        
         # Log environment variables
         webhook_url = os.getenv("WEBHOOK_URL", "")
         logger.info(f"WEBHOOK_URL from environment: '{webhook_url}'")
         
-        # Initialize telegram service with polling mode
-        # Always use polling mode to avoid the event loop issue
-        await telegram_service.initialize(use_webhook=False)
-        logger.info("Telegram service initialized")
+        # Don't use the telegram_service.initialize method since it has issues
+        # Instead, set up the bot manually
+        logger.info("Setting up Telegram bot manually")
         
-        # Skip webhook setup - we're using polling mode for stability
-        logger.info("Using polling mode for Telegram bot - no webhook setup required")
+        # Create application instance
+        telegram_service.application = Application.builder().bot(telegram_service.bot).build()
         
-        # Manually register signal endpoints - even though we're in polling mode
-        # Use the FastAPI endpoints at app level to avoid webhook issues
+        # Register command handlers manually
+        telegram_service.application.add_handler(CommandHandler("start", telegram_service.start_command))
+        telegram_service.application.add_handler(CommandHandler("menu", telegram_service.show_main_menu))
+        telegram_service.application.add_handler(CommandHandler("help", telegram_service.help_command))
+        telegram_service.application.add_handler(CommandHandler("set_subscription", telegram_service.set_subscription_command))
+        telegram_service.application.add_handler(CommandHandler("set_payment_failed", telegram_service.set_payment_failed_command))
+        telegram_service.application.add_handler(CallbackQueryHandler(telegram_service.button_callback))
+        
+        # Load signals
+        telegram_service._load_signals()
+        
+        # Set bot commands
+        commands = [
+            BotCommand("start", "Start the bot and get the welcome message"),
+            BotCommand("menu", "Show the main menu"),
+            BotCommand("help", "Show available commands and how to use the bot")
+        ]
+        
+        # Initialize the application and start in polling mode
+        await telegram_service.application.initialize()
+        await telegram_service.application.start()
+        await telegram_service.application.updater.start_polling()
+        telegram_service.polling_started = True
+        
+        # Set the commands
+        await telegram_service.bot.set_my_commands(commands)
+        
+        logger.info("Telegram bot initialized successfully in polling mode")
+        
+        # Manually register signal endpoints
         @app.post("/signal")
         async def process_tradingview_signal(request: Request):
             """Process TradingView webhook signal"""
@@ -155,6 +181,7 @@ async def startup_event():
         
     except Exception as e:
         logger.error(f"Error initializing services: {str(e)}")
+        logger.exception(e)
         raise
 
 # Define webhook routes
