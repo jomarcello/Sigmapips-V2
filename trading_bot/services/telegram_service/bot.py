@@ -1,19 +1,17 @@
 import os
-import ssl
-import asyncio
-import logging
-import aiohttp
 import json
-import time
-import random
+import asyncio
 import traceback
-import threading
-import re
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
+import logging
 import copy
+import re
+import time
+import random
 
-from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery, InputMediaPhoto, BotCommand
+from fastapi import FastAPI, Request, HTTPException, status
+from telegram import Bot, Update, BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery, InputMediaPhoto, ParseMode
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -23,10 +21,9 @@ from telegram.ext import (
     CallbackContext,
     MessageHandler,
     filters,
-    PicklePersistence
+    PicklePersistence,
+    HTTPXRequest,
 )
-from telegram.constants import ParseMode
-from telegram.request import HTTPXRequest
 from telegram.error import TelegramError, BadRequest
 import httpx
 
@@ -36,12 +33,11 @@ from trading_bot.services.sentiment_service.sentiment import MarketSentimentServ
 from trading_bot.services.calendar_service.calendar import EconomicCalendarService
 from trading_bot.services.payment_service.stripe_service import StripeService
 from trading_bot.services.payment_service.stripe_config import get_subscription_features
-from fastapi import Request, HTTPException, status
-
-# Import from local modules
-from trading_bot.services.telegram_service.logger import get_logger
 from trading_bot.services.telegram_service.states import *
 import trading_bot.services.telegram_service.gif_utils as gif_utils
+
+# Initialize logger
+logger = logging.getLogger(__name__)
 
 # Initialize logger for this module
 logger = get_logger(__name__)
@@ -470,9 +466,13 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
 
 <b>Features:</b>
 ✅ Real-time trading signals
+
 ✅ Multi-timeframe analysis (1m, 15m, 1h, 4h)
+
 ✅ Advanced chart analysis
+
 ✅ Sentiment indicators
+
 ✅ Economic calendar integration
 
 <b>Start today with a FREE 14-day trial!</b>
