@@ -657,6 +657,17 @@ class TelegramService:
             logger.exception(e)
             raise
 
+    @property
+    def signals_enabled(self):
+        """Get whether signals processing is enabled"""
+        return self._signals_enabled
+    
+    @signals_enabled.setter
+    def signals_enabled(self, value):
+        """Set whether signals processing is enabled"""
+        self._signals_enabled = bool(value)
+        logger.info(f"Signal processing is now {'enabled' if value else 'disabled'}")
+
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> None:
         """Send a welcome message when the bot is started."""
         user = update.effective_user
@@ -1163,50 +1174,86 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         if context and hasattr(context, 'user_data'):
             context.user_data['analysis_type'] = 'calendar'
         
-        # Check if signal-specific data is present in callback data
-        callback_data = query.data
-        
-        # Set the instrument if it was passed in the callback data
-        if callback_data.startswith("analysis_calendar_signal_"):
-            # Extract instrument from the callback data
-            instrument = callback_data.replace("analysis_calendar_signal_", "")
-            if context and hasattr(context, 'user_data'):
-                context.user_data['instrument'] = instrument
-            
-            logger.info(f"Calendar analysis for specific instrument: {instrument}")
-            
-            # Show analysis directly for this instrument
-            return await self.show_calendar_analysis(update, context, instrument=instrument)
-        
-        # Show the market selection menu
+        # Show loading message
         try:
-            # First try to edit message text
             await query.edit_message_text(
-                text="Select market for economic calendar analysis:",
-                reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
+                text="Loading economic calendar for today...",
+                parse_mode=ParseMode.HTML
             )
-        except Exception as text_error:
-            # If that fails due to caption, try editing caption
-            if "There is no text in the message to edit" in str(text_error):
-                try:
-                    await query.edit_message_caption(
-                        caption="Select market for economic calendar analysis:",
-                        reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD),
-                        parse_mode=ParseMode.HTML
-                    )
-                except Exception as e:
-                    logger.error(f"Failed to update caption for calendar analysis: {str(e)}")
-                    # Try to send a new message as last resort
-                    await query.message.reply_text(
-                        text="Select market for economic calendar analysis:",
-                        reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD),
-                        parse_mode=ParseMode.HTML
-                    )
-            else:
-                # Re-raise for other errors
-                raise
+        except Exception as e:
+            logger.error(f"Error displaying loading message: {str(e)}")
+            try:
+                await query.edit_message_caption(
+                    caption="Loading economic calendar for today...",
+                    parse_mode=ParseMode.HTML
+                )
+            except Exception:
+                pass
         
-        return CHOOSE_MARKET
+        try:
+            # Get calendar data for today without requiring an instrument
+            calendar_data = await self.calendar_service.get_events()
+            
+            if not calendar_data:
+                raise Exception("Failed to get calendar data")
+            
+            # Format the calendar message
+            message = f"📅 <b>Economic Calendar for Today</b>\n\n"
+            
+            # Add events if available
+            if "events" in calendar_data and calendar_data["events"]:
+                events = calendar_data["events"]
+                for event in events[:10]:  # Limit to first 10 events to avoid message too long
+                    impact = "🔴" if event.get("impact") == "high" else "🟡" if event.get("impact") == "medium" else "🟢"
+                    message += f"{impact} <b>{event.get('date', 'Unknown date')}:</b> {event.get('title', 'Unknown event')}\n"
+                    if "forecast" in event and event["forecast"]:
+                        message += f"   Forecast: {event['forecast']}\n"
+                    if "previous" in event and event["previous"]:
+                        message += f"   Previous: {event['previous']}\n"
+                    message += "\n"
+                
+                if len(events) > 10:
+                    message += f"<i>+{len(events) - 10} more events...</i>\n"
+            else:
+                message += "No upcoming economic events found for today.\n"
+            
+            # Create simplified keyboard with only one back button
+            keyboard = [
+                [InlineKeyboardButton("⬅️ Back", callback_data="back_to_analysis")]
+            ]
+            
+            # Update message with calendar
+            try:
+                await query.edit_message_text(
+                    text=message,
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.HTML
+                )
+            except Exception as e:
+                logger.error(f"Error updating message with calendar: {str(e)}")
+                # Try to send a new message as fallback
+                await query.message.reply_text(
+                    text=message,
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            
+            return CHOOSE_ANALYSIS
+            
+        except Exception as e:
+            logger.error(f"Error generating calendar: {str(e)}")
+            error_text = f"Error loading economic calendar. Please try again."
+            try:
+                await query.edit_message_text(
+                    text=error_text,
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("⬅️ Back", callback_data="back_to_analysis")]
+                    ])
+                )
+            except Exception as e:
+                logger.error(f"Error updating error message: {str(e)}")
+            
+            return CHOOSE_ANALYSIS
 
     async def signal_technical_callback(self, update: Update, context=None) -> int:
         """Handle signal_technical button press"""
@@ -1863,11 +1910,9 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             if "source" in sentiment_data:
                 message += f"\n<i>Source: {sentiment_data['source']}</i>"
             
-            # Create keyboard for navigation and refresh
+            # Create keyboard for navigation with only a single back button
             keyboard = [
-                [InlineKeyboardButton("🔄 Refresh Analysis", callback_data=f"instrument_{instrument}_sentiment")],
-                [InlineKeyboardButton("⬅️ Back", callback_data="back_instrument_sentiment")],
-                [InlineKeyboardButton("🏠 Main Menu", callback_data="back_menu")]
+                [InlineKeyboardButton("⬅️ Back", callback_data="back_to_analysis")]
             ]
             
             # Update message with sentiment analysis
