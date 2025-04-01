@@ -70,7 +70,7 @@ async def send_welcome_gif(bot, chat_id, caption=None):
     """Send a welcome GIF to the user."""
     try:
         # Use the new welcome GIF URL
-        gif_url = "https://media1.giphy.com/media/v1.Y2lkPTc5MGI3NjExaWVkdzcxZHMydm8ybnBjYW9rNjd3b2gzeng2b3BhMjA0d3p5dDV1ZSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/gSzIKNrqtotEYrZv7i/giphy.gif"
+        gif_url = "https://media.giphy.com/media/gSzIKNrqtotEYrZv7i/giphy.gif"
         
         # Send the GIF animation
         await bot.send_animation(
@@ -88,7 +88,7 @@ async def send_menu_gif(bot, chat_id, caption=None):
     """Send a menu GIF to the user."""
     try:
         # Use the welcome GIF URL for menu as well
-        gif_url = "https://media1.giphy.com/media/v1.Y2lkPTc5MGI3NjExaWVkdzcxZHMydm8ybnBjYW9rNjd3b2gzeng2b3BhMjA0d3p5dDV1ZSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/gSzIKNrqtotEYrZv7i/giphy.gif"
+        gif_url = "https://media.giphy.com/media/gSzIKNrqtotEYrZv7i/giphy.gif"
         
         # Send the GIF animation
         await bot.send_animation(
