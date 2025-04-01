@@ -35,10 +35,12 @@ db = Database()
 # Initialiseer de services in de juiste volgorde
 stripe_service = StripeService(db)
 telegram_service = TelegramService(db)
+chart_service = ChartService()
 
 # Voeg de services aan elkaar toe na initialisatie
 telegram_service.stripe_service = stripe_service
 stripe_service.telegram_service = telegram_service
+telegram_service.chart_service = chart_service
 
 # Voeg deze functie toe bovenaan het bestand, na de imports
 def convert_interval_to_timeframe(interval):
@@ -106,6 +108,10 @@ async def startup_event():
         # No need to manually connect the database - it's done automatically in the constructor
         # The log shows "Successfully connected to Supabase" already
         logger.info("Database initialized")
+        
+        # Initialize chart service first
+        await chart_service.initialize()
+        logger.info("Chart service initialized")
         
         # First try in polling mode (safer option)
         force_polling = os.getenv("FORCE_POLLING", "false").lower() == "true"
