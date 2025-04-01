@@ -3122,3 +3122,31 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 return {"status": "error", "message": str(e)}
                 
         logger.info(f"API endpoints registered at /api/signals, /signal, and {self.webhook_path}")
+
+    async def initialize(self, use_webhook=False):
+        """Initialize the bot and set up handlers"""
+        try:
+            # Create application instance
+            self.application = Application.builder().bot(self.bot).build()
+            
+            # Register handlers
+            self._register_handlers(self.application)
+            
+            # Initialize in polling mode if not using webhook
+            if not use_webhook:
+                logger.info("Starting bot in polling mode")
+                await self.application.initialize()
+                await self.application.start()
+                await self.application.updater.start_polling()
+                self.polling_started = True
+            else:
+                logger.info("Bot will be initialized in webhook mode")
+                await self.application.initialize()
+                
+            logger.info("Bot initialization completed successfully")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error initializing bot: {str(e)}")
+            logger.exception(e)
+            return False
