@@ -190,6 +190,94 @@ class EconomicCalendarService:
         self.cache_time = {}
         self.cache_expiry = 3600  # 1 hour in seconds
         
+    async def get_calendar(self) -> List[Dict]:
+        """Get economic calendar events for all major currencies"""
+        try:
+            self.logger.info(f"Getting economic calendar for all major currencies")
+            
+            # Check cache first for "all" key
+            now = time.time()
+            if "all" in self.cache and (now - self.cache_time.get("all", 0)) < self.cache_expiry:
+                self.logger.info(f"Using cached calendar data for all currencies")
+                return self.cache["all"]
+            
+            # Get calendar data for all major currencies
+            calendar_data = await self._get_economic_calendar_data(MAJOR_CURRENCIES)
+            
+            # Flatten the data into a single list of events with currency info
+            flattened_events = []
+            for currency, events in calendar_data.items():
+                for event in events:
+                    flattened_events.append({
+                        "time": event.get("time", ""),
+                        "country": currency,
+                        "title": event.get("event", ""),
+                        "impact": event.get("impact", "Low")
+                    })
+            
+            # Cache the result
+            self.cache["all"] = flattened_events
+            self.cache_time["all"] = now
+            
+            return flattened_events
+            
+        except Exception as e:
+            self.logger.error(f"Error getting global economic calendar: {str(e)}")
+            self.logger.exception(e)
+            return []
+            
+    async def get_events(self, instrument: str) -> Dict:
+        """Get economic calendar events and explanations for a specific instrument"""
+        try:
+            self.logger.info(f"Getting economic calendar events for {instrument}")
+            
+            # Get currencies related to this instrument
+            currencies = INSTRUMENT_CURRENCY_MAP.get(instrument, [])
+            
+            # If no currencies found, use USD as default
+            if not currencies:
+                currencies = ["USD"]
+                
+            # Filter to only include major currencies
+            currencies = [c for c in currencies if c in MAJOR_CURRENCIES]
+            
+            # Get calendar data for these currencies
+            calendar_data = await self._get_economic_calendar_data(currencies)
+            
+            # Flatten the data into a list of events with the event information
+            events = []
+            for currency, currency_events in calendar_data.items():
+                for event in currency_events:
+                    events.append({
+                        "date": f"{event.get('time', 'TBD')} ({currency})",
+                        "title": event.get("event", "Unknown Event"),
+                        "impact": event.get("impact", "low").lower(),
+                        "forecast": "",  # Could be expanded in the future
+                        "previous": ""   # Could be expanded in the future
+                    })
+            
+            # Sort events by time
+            events = sorted(events, key=lambda x: x.get("date", ""))
+            
+            # Create a simple explanation of the impact
+            explanation = f"These economic events may impact {instrument} as they affect "
+            explanation += ", ".join([f"{CURRENCY_FLAG.get(c, '')} {c}" for c in currencies])
+            explanation += " which are the base currencies for this instrument."
+            
+            return {
+                "events": events,
+                "explanation": explanation
+            }
+            
+        except Exception as e:
+            self.logger.error(f"Error getting events for {instrument}: {str(e)}")
+            self.logger.exception(e)
+            # Return empty data structure
+            return {
+                "events": [],
+                "explanation": f"No economic events found for {instrument}."
+            }
+            
     async def get_instrument_calendar(self, instrument: str) -> str:
         """Get economic calendar events relevant to an instrument"""
         try:
