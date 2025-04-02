@@ -915,7 +915,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         query = update.callback_query
         await query.answer()
         
-        # Gebruik vaste GIF URL in plaats van dynamische URL
+        # Gebruik de juiste analyse GIF URL
         gif_url = "https://media.giphy.com/media/gSzIKNrqtotEYrZv7i/giphy.gif"
         
         # Probeer eerst het huidige bericht te verwijderen en een nieuw bericht te sturen met de analyse GIF
@@ -2873,7 +2873,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         keyboard = ANALYSIS_KEYBOARD
         text = "Select your analysis type:"
         
-        # Gebruik de analyse GIF URL
+        # Gebruik de juiste analyse GIF URL
         gif_url = "https://media.giphy.com/media/gSzIKNrqtotEYrZv7i/giphy.gif"
         
         # Check if the message has a photo or animation that needs to be removed
