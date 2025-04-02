@@ -211,6 +211,7 @@ class EconomicCalendarService:
                     flattened_events.append({
                         "time": event.get("time", ""),
                         "country": currency,
+                        "country_flag": CURRENCY_FLAG.get(currency, ""),
                         "title": event.get("event", ""),
                         "impact": event.get("impact", "Low")
                     })
@@ -249,7 +250,7 @@ class EconomicCalendarService:
             for currency, currency_events in calendar_data.items():
                 for event in currency_events:
                     events.append({
-                        "date": f"{event.get('time', 'TBD')} ({currency})",
+                        "date": f"{event.get('time', 'TBD')} - {CURRENCY_FLAG.get(currency, '')} {currency}",
                         "title": event.get("event", "Unknown Event"),
                         "impact": event.get("impact", "low").lower(),
                         "forecast": "",  # Could be expanded in the future
@@ -633,13 +634,13 @@ Here is the search data from economic calendar sources:
             currency = event.get("currency", "")
             event_name = event.get("event", "")
             impact = event.get("impact", "Low")
-            impact_emoji = IMPACT_EMOJI.get(impact, "⚪")
+            impact_emoji = IMPACT_EMOJI.get(impact, "🟢")
             
-            # Format with currency flag
-            response += f"{time} - {CURRENCY_FLAG.get(currency, '')} {currency} - {event_name} {impact_emoji}\n\n"
+            # Format with currency flag - no extra newline after each event
+            response += f"{time} - {CURRENCY_FLAG.get(currency, '')} {currency} - {event_name} {impact_emoji}\n"
         
-        # Add legend at the bottom
-        response += "-------------------\n"
+        # Add empty line before legend
+        response += "\n-------------------\n"
         response += "🔴 High Impact\n"
         response += "🟠 Medium Impact\n"
         response += "🟢 Low Impact"
@@ -725,11 +726,11 @@ Here is the search data from economic calendar sources:
             impact = event.get("impact", "Low")
             impact_emoji = IMPACT_EMOJI.get(impact, "🟢")
             
-            # Format with currency flag
-            response += f"{time} - {CURRENCY_FLAG.get(currency, '')} {currency} - {event_name} {impact_emoji}\n\n"
+            # Format with currency flag - no extra newline after each event
+            response += f"{time} - {CURRENCY_FLAG.get(currency, '')} {currency} - {event_name} {impact_emoji}\n"
         
-        # Add legend at the bottom
-        response += "-------------------\n"
+        # Add empty line before legend
+        response += "\n-------------------\n"
         response += "🔴 High Impact\n"
         response += "🟠 Medium Impact\n"
         response += "🟢 Low Impact"
