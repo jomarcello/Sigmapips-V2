@@ -1004,7 +1004,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             reply_markup = InlineKeyboardMarkup(START_KEYBOARD)
             
             # Forceer altijd de welkomst GIF
-            gif_url = "https://media.giphy.com/media/dpjUltnOPye7azvAhH/giphy.gif"
+            gif_url = "https://media.giphy.com/media/gSzIKNrqtotEYrZv7i/giphy.gif"
             
             # If we should show the GIF
             if not skip_gif:
