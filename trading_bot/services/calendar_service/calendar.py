@@ -161,8 +161,8 @@ INSTRUMENT_CURRENCY_MAP = {
 # Impact levels and their emoji representations
 IMPACT_EMOJI = {
     "High": "🔴",
-    "Medium": "🟡",
-    "Low": "⚪"
+    "Medium": "🟠",
+    "Low": "🟢"
 }
 
 # Currency to flag emoji mapping
@@ -611,53 +611,38 @@ Here is the search data from economic calendar sources:
         currencies = sorted(calendar_data.keys(), 
                           key=lambda x: (0 if x in MAJOR_CURRENCIES else 1, MAJOR_CURRENCIES.index(x) if x in MAJOR_CURRENCIES else 999))
         
-        # Add calendar events for each currency
+        # Collect all events across currencies to sort by time
+        all_events = []
         for currency in currencies:
             if currency not in MAJOR_CURRENCIES:
                 continue
                 
             events = calendar_data.get(currency, [])
-            
-            # Skip if no events
-            if not events:
-                response += f"{CURRENCY_FLAG.get(currency, '')} {currency}:\n"
-                response += "No confirmed events scheduled.\n\n"
-                continue
-                
-            # Add currency header
-            currency_name = {
-                "USD": "United States",
-                "EUR": "Eurozone",
-                "GBP": "United Kingdom",
-                "JPY": "Japan",
-                "CHF": "Switzerland",
-                "AUD": "Australia",
-                "NZD": "New Zealand",
-                "CAD": "Canada"
-            }.get(currency, currency)
-            
-            response += f"{CURRENCY_FLAG.get(currency, '')} {currency_name} ({currency}):\n"
-            
-            # Sort events by time
-            events = sorted(events, key=lambda x: x.get("time", "00:00"))
-            
-            # Add events
             for event in events:
-                time = event.get("time", "")
-                event_name = event.get("event", "")
-                impact = event.get("impact", "Low")
-                impact_emoji = IMPACT_EMOJI.get(impact, "⚪")
-                
-                response += f"⏰ {time} - {event_name}\n"
-                response += f"{impact_emoji} {impact} Impact\n"
+                # Add currency to event for display
+                event_with_currency = event.copy()
+                event_with_currency['currency'] = currency
+                all_events.append(event_with_currency)
+        
+        # Sort all events by time
+        all_events = sorted(all_events, key=lambda x: x.get("time", "00:00"))
+        
+        # Display events in chronological order
+        for event in all_events:
+            time = event.get("time", "")
+            currency = event.get("currency", "")
+            event_name = event.get("event", "")
+            impact = event.get("impact", "Low")
+            impact_emoji = IMPACT_EMOJI.get(impact, "⚪")
             
-            response += "\n"
-            
+            # Format with currency flag
+            response += f"{time} - {CURRENCY_FLAG.get(currency, '')} {currency} - {event_name} {impact_emoji}\n\n"
+        
         # Add legend at the bottom
         response += "-------------------\n"
         response += "🔴 High Impact\n"
-        response += "🟡 Medium Impact\n"
-        response += "⚪ Low Impact"
+        response += "🟠 Medium Impact\n"
+        response += "🟢 Low Impact"
         
         return response
         
@@ -688,47 +673,66 @@ Here is the search data from economic calendar sources:
         elif today.weekday() == 4:  # Friday
             active_currencies = ["USD", "CAD", "JPY"]
             
+        # Collect all events
+        all_events = []
+            
         for currency in MAJOR_CURRENCIES:
-            # Add currency header with flag
-            currency_name = {
-                "USD": "United States",
-                "EUR": "Eurozone",
-                "GBP": "United Kingdom",
-                "JPY": "Japan",
-                "CHF": "Switzerland",
-                "AUD": "Australia",
-                "NZD": "New Zealand",
-                "CAD": "Canada"
-            }.get(currency, currency)
-            
-            response += f"{CURRENCY_FLAG.get(currency, '')} {currency_name} ({currency}):\n"
-            
             # Add mock events if this is an active currency
             if currency in active_currencies:
                 if currency == "USD":
-                    response += f"⏰ {(today.hour % 12 + 1):02d}:30 EST - Retail Sales\n"
-                    response += f"{IMPACT_EMOJI['Medium']} Medium Impact\n"
-                    response += f"⏰ {(today.hour % 12 + 3):02d}:00 EST - Fed Chair Speech\n"
-                    response += f"{IMPACT_EMOJI['High']} High Impact\n"
+                    all_events.append({
+                        "time": f"{(today.hour % 12 + 1):02d}:30 EST",
+                        "currency": currency,
+                        "event": "Retail Sales",
+                        "impact": "Medium"
+                    })
+                    all_events.append({
+                        "time": f"{(today.hour % 12 + 3):02d}:00 EST",
+                        "currency": currency,
+                        "event": "Fed Chair Speech",
+                        "impact": "High"
+                    })
                 elif currency == "EUR":
-                    response += f"⏰ {(today.hour % 12):02d}:45 EST - Inflation Data\n"
-                    response += f"{IMPACT_EMOJI['High']} High Impact\n"
+                    all_events.append({
+                        "time": f"{(today.hour % 12):02d}:45 EST",
+                        "currency": currency,
+                        "event": "Inflation Data",
+                        "impact": "High"
+                    })
                 elif currency == "GBP":
-                    response += f"⏰ {(today.hour % 12 + 2):02d}:00 EST - Employment Change\n"
-                    response += f"{IMPACT_EMOJI['Medium']} Medium Impact\n"
+                    all_events.append({
+                        "time": f"{(today.hour % 12 + 2):02d}:00 EST",
+                        "currency": currency,
+                        "event": "Employment Change",
+                        "impact": "Medium"
+                    })
                 else:
-                    response += f"⏰ {(today.hour % 12 + 1):02d}:15 EST - GDP Data\n"
-                    response += f"{IMPACT_EMOJI['Medium']} Medium Impact\n"
-            else:
-                response += "No confirmed events scheduled.\n"
-                
-            response += "\n"
+                    all_events.append({
+                        "time": f"{(today.hour % 12 + 1):02d}:15 EST",
+                        "currency": currency,
+                        "event": "GDP Data",
+                        "impact": "Medium"
+                    })
+        
+        # Sort events by time
+        all_events = sorted(all_events, key=lambda x: x.get("time", "00:00"))
+        
+        # Display events in chronological order
+        for event in all_events:
+            time = event.get("time", "")
+            currency = event.get("currency", "")
+            event_name = event.get("event", "")
+            impact = event.get("impact", "Low")
+            impact_emoji = IMPACT_EMOJI.get(impact, "🟢")
             
+            # Format with currency flag
+            response += f"{time} - {CURRENCY_FLAG.get(currency, '')} {currency} - {event_name} {impact_emoji}\n\n"
+        
         # Add legend at the bottom
         response += "-------------------\n"
         response += "🔴 High Impact\n"
-        response += "🟡 Medium Impact\n"
-        response += "⚪ Low Impact"
+        response += "🟠 Medium Impact\n"
+        response += "🟢 Low Impact"
         
         return response
 
