@@ -190,10 +190,34 @@ class EconomicCalendarService:
         self.cache_time = {}
         self.cache_expiry = 3600  # 1 hour in seconds
         
+        # Define loading GIF URLs
+        self.loading_gif = "https://media.giphy.com/media/3oEjI6SIIHBdRxXI40/giphy.gif"  # Default loading GIF
+        
+        # Try to load API keys from environment on initialization
+        api_key = os.environ.get("TAVILY_API_KEY", "")
+        if api_key:
+            masked_key = api_key[:5] + "..." if len(api_key) > 5 else "[masked]"
+            self.logger.info(f"Found Tavily API key in environment: {masked_key}")
+            # Refresh the Tavily service with the key
+            self.tavily_service = TavilyService(api_key=api_key)
+        
+    def get_loading_gif(self) -> str:
+        """Get the URL for the loading GIF"""
+        return self.loading_gif
+        
     async def get_calendar(self) -> List[Dict]:
         """Get economic calendar events for all major currencies"""
         try:
             self.logger.info(f"Getting economic calendar for all major currencies")
+            
+            # Check for API key again in case it was added after initialization
+            api_key = os.environ.get("TAVILY_API_KEY", "")
+            if api_key and (not hasattr(self.tavily_service, 'api_key') or self.tavily_service.api_key != api_key):
+                self.logger.info("Updating Tavily service with new API key")
+                self.tavily_service = TavilyService(api_key=api_key)
+                # Invalidate cache when API key changes
+                self.cache = {}
+                self.cache_time = {}
             
             # Check cache first for "all" key
             now = time.time()
@@ -320,6 +344,13 @@ class EconomicCalendarService:
     async def _get_economic_calendar_data(self, currencies: List[str]) -> Dict:
         """Use Tavily to get economic calendar data and Deepseek to parse it"""
         try:
+            # Check environment for API key again 
+            env_tavily_key = os.environ.get("TAVILY_API_KEY", "")
+            if env_tavily_key and (not hasattr(self.tavily_service, 'api_key') or 
+                                  self.tavily_service.api_key != env_tavily_key):
+                self.logger.info("Refreshing Tavily service with API key from environment")
+                self.tavily_service = TavilyService(api_key=env_tavily_key)
+            
             # Form the search query for Tavily
             today = datetime.now().strftime("%B %d, %Y")
             query = f"economic calendar events today {today} for {', '.join(currencies)} currencies with EST time format event times impact level high medium low"
@@ -329,165 +360,31 @@ class EconomicCalendarService:
             search_results = None
             
             try:
-                # Check if Tavily is reachable with a simple socket test
-                tavily_reachable = False
-                try:
-                    # Simple socket connection test to api.tavily.com on port 443
-                    tavily_host = "api.tavily.com"
-                    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                    sock.settimeout(3)  # Quick 3-second timeout
-                    result = sock.connect_ex((tavily_host, 443))
-                    sock.close()
-                    
-                    if result == 0:  # Port is open, connection successful
-                        self.logger.info("Tavily API connectivity test successful")
-                        tavily_reachable = True
-                    else:
-                        self.logger.warning(f"Tavily API connectivity test failed with result: {result}")
-                except socket.error as e:
-                    self.logger.warning(f"Tavily API socket connection failed: {str(e)}")
-                
-                if tavily_reachable:
+                # Check if Tavily API key is available
+                if hasattr(self.tavily_service, 'api_key') and self.tavily_service.api_key:
+                    self.logger.info("Tavily API key is available, proceeding with search")
                     search_results = await self.tavily_service.search(query)
+                    
+                    # Check if we got meaningful results
+                    if search_results:
+                        self.logger.info(f"Received {len(search_results)} search results from Tavily")
+                        
+                        # Extract relevant content from search results for better processing
+                        calendar_data_content = ""
+                        for result in search_results:
+                            if result.get("content"):
+                                calendar_data_content += result.get("content") + "\n\n"
+                                
+                        # If we have content, try to extract event data directly
+                        if calendar_data_content:
+                            calendar_data = self._extract_calendar_data_from_text(calendar_data_content, currencies)
+                            if calendar_data and any(len(events) > 0 for _, events in calendar_data.items()):
+                                self.logger.info("Successfully extracted calendar data from Tavily results")
+                                return calendar_data
+                else:
+                    self.logger.warning("No Tavily API key available")
             except Exception as e:
                 self.logger.error(f"Error fetching data from Tavily: {str(e)}")
-                self.logger.exception(e)
-            
-            if not search_results:
-                self.logger.warning("Tavily search failed or returned no results. Using mock data.")
-                # Generate mock search results for economic calendar
-                search_results = [
-                    {
-                        "title": "Economic Calendar - Today's Economic Events",
-                        "url": "https://www.example.com/calendar",
-                        "content": f"Economic calendar for {today} shows several events for {', '.join(currencies)}. "
-                                   f"Notable events include regular economic releases and central bank announcements."
-                    }
-                ]
-                
-            # Next, try to use DeepSeek to process the results
-            calendar_json = None
-            
-            try:
-                # Check DeepSeek API connectivity first
-                deepseek_available = False
-                try:
-                    # Try to connect directly to DeepSeek API
-                    deepseek_hosts = ["api.deepseek.com", "api.deepseek.ai"]
-                    
-                    for host in deepseek_hosts:
-                        # Simple socket connection test
-                        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                        sock.settimeout(3)  # Quick 3-second timeout
-                        result = sock.connect_ex((host, 443))
-                        sock.close()
-                        
-                        if result == 0:  # Port is open, connection successful
-                            self.logger.info(f"DeepSeek API connectivity test successful for {host}")
-                            deepseek_available = True
-                            break
-                        else:
-                            self.logger.warning(f"DeepSeek API connectivity test failed for {host}: {result}")
-                except socket.error as e:
-                    self.logger.warning(f"DeepSeek API socket connection failed: {str(e)}")
-                
-                if deepseek_available:
-                    # Prepare the prompt for DeepSeek
-                    prompt = f"""
-Extract today's ({today}) economic calendar events for the following major currencies: {', '.join(MAJOR_CURRENCIES)}.
-Format the data as a structured JSON with the following format:
-{{
-    "EUR": [
-        {{
-            "time": "07:45 EST",
-            "event": "ECB Interest Rate Decision",
-            "impact": "High"
-        }},
-        ...
-    ],
-    "USD": [
-        {{
-            "time": "08:30 EST",
-            "event": "Initial Jobless Claims",
-            "impact": "Medium"
-        }},
-        ...
-    ],
-    ...
-}}
-
-IMPORTANT INSTRUCTIONS:
-1. All times MUST be in EST (Eastern Standard Time) format and use the 24-hour format (HH:MM EST).
-2. If times are in different time zones, convert them to EST.
-3. The "impact" field must be one of: "High", "Medium", or "Low".
-4. For each currency, include all relevant events sorted by time.
-5. If there are no events for a currency, include an empty array.
-6. Only include confirmed events for today.
-7. Make sure all events have consistent time formats.
-
-Here is the search data from economic calendar sources:
-{json.dumps(search_results, indent=2)}
-"""
-                    
-                    # Use SSL context that doesn't verify certificates if needed
-                    ssl_context = ssl.create_default_context()
-                    ssl_context.check_hostname = False
-                    ssl_context.verify_mode = ssl.CERT_NONE
-                    
-                    # Set timeout to avoid long waits
-                    timeout = aiohttp.ClientTimeout(total=10)
-                    
-                    # Get calendar data with SSL context
-                    try:
-                        # First try normal API call through DeepseekService
-                        calendar_json = await self.deepseek_service.generate_completion(prompt)
-                    except Exception as e:
-                        self.logger.error(f"Error with DeepseekService API call: {str(e)}")
-                        self.logger.exception(e)
-                        
-                        # If that fails, try direct HTTP call with custom SSL handling
-                        deepseek_api_key = os.getenv("DEEPSEEK_API_KEY", "")
-                        if deepseek_api_key:
-                            try:
-                                self.logger.info("Attempting direct DeepSeek API call with custom SSL handling")
-                                connector = aiohttp.TCPConnector(ssl=ssl_context)
-                                
-                                deepseek_headers = {
-                                    "Authorization": f"Bearer {deepseek_api_key.strip()}",
-                                    "Content-Type": "application/json"
-                                }
-                                
-                                deepseek_url = "https://api.deepseek.com/v1/chat/completions"
-                                
-                                payload = {
-                                    "model": "deepseek-chat",
-                                    "messages": [
-                                        {"role": "user", "content": prompt}
-                                    ],
-                                    "temperature": 0.3,
-                                    "max_tokens": 1024
-                                }
-                                
-                                async with aiohttp.ClientSession(connector=connector) as session:
-                                    async with session.post(
-                                        deepseek_url, 
-                                        headers=deepseek_headers, 
-                                        json=payload, 
-                                        timeout=timeout
-                                    ) as response:
-                                        response_text = await response.text()
-                                        self.logger.info(f"DeepSeek direct API response status: {response.status}")
-                                        
-                                        if response.status == 200:
-                                            data = json.loads(response_text)
-                                            calendar_json = data['choices'][0]['message']['content']
-                                        else:
-                                            self.logger.error(f"DeepSeek direct API error: {response.status}, details: {response_text[:200]}...")
-                            except Exception as e:
-                                self.logger.error(f"Error with direct DeepSeek API call: {str(e)}")
-                                self.logger.exception(e)
-            except Exception as e:
-                self.logger.error(f"Error processing with DeepSeek: {str(e)}")
                 self.logger.exception(e)
             
             # If we got a response from DeepSeek, try to parse it
