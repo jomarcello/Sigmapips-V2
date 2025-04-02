@@ -1973,22 +1973,33 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     rest_text = analysis_text.replace(title, "").strip()
                     
                     # Create message with title first, then sentiment, then rest of analysis
-                    full_message = f"{title}\n\n<b>Overall Sentiment:</b> {overall} {emoji}\n\n{rest_text}"
+                    full_message = f"{title}\n\n<b>Overall Sentiment:</b> {overall} {emoji}\n"
+                    
+                    # Remove any excessive newlines from the beginning of rest_text
+                    rest_text = re.sub(r'^\n+', '', rest_text)
+                    # Ensure only one newline between sections
+                    rest_text = re.sub(r'\n{3,}', '\n\n', rest_text)
+                    
+                    full_message += f"\n{rest_text}"
                 else:
                     # Fallback if regex match fails
                     full_message = f"<b>🎯 {instrument} Market Analysis</b>\n\n<b>Overall Sentiment:</b> {overall} {emoji}\n\n{analysis_text}"
             else:
                 # No title in analysis, create default format
-                full_message = f"<b>🎯 {instrument} Market Analysis</b>\n\n<b>Overall Sentiment:</b> {overall} {emoji}\n\n"
+                full_message = f"<b>🎯 {instrument} Market Analysis</b>\n\n<b>Overall Sentiment:</b> {overall} {emoji}\n"
                 
                 # Add sentiment breakdown manually if no analysis text
                 if not analysis_text:
-                    full_message += f"""<b>Sentiment Breakdown:</b>
+                    full_message += f"""\n<b>Sentiment Breakdown:</b>
 - Bullish: {bullish}%
 - Bearish: {bearish}%
 - Neutral: {neutral}%"""
                 else:
-                    full_message += analysis_text
+                    # Remove excessive newlines from the beginning of analysis_text
+                    analysis_text = re.sub(r'^\n+', '', analysis_text)
+                    # Ensure only one newline between sections
+                    analysis_text = re.sub(r'\n{3,}', '\n\n', analysis_text)
+                    full_message += f"\n{analysis_text}"
             
             # Create reply markup with back button
             reply_markup = InlineKeyboardMarkup([[
@@ -2687,75 +2698,76 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         keyboard = ANALYSIS_KEYBOARD
         text = "Select your analysis type:"
         
-        if has_photo:
-            try:
-                # Delete the current message with GIF
-                await query.message.delete()
-                # Send a new message with just the text and keyboard
-                sent_message = await query.message.reply_text(
-                    text=text,
-                    reply_markup=InlineKeyboardMarkup(keyboard),
-                    parse_mode=ParseMode.HTML
-                )
-            except Exception as delete_error:
-                logger.warning(f"Could not delete message: {str(delete_error)}")
+        # Always delete the current message and send a new one to ensure clean display
+        try:
+            # Try to delete the current message (especially important for GIFs)
+            await query.message.delete()
+            # Send a new message with just the text and keyboard
+            await query.message.reply_text(
+                text=text,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode=ParseMode.HTML
+            )
+            return CHOOSE_ANALYSIS
+        except Exception as delete_error:
+            logger.warning(f"Could not delete message: {str(delete_error)}")
+            
+            # If deletion fails, try different approaches to update the message
+            if has_photo:
                 try:
-                    # Try to edit the message text directly
+                    # For messages with media, try to edit media to text
                     await query.edit_message_text(
                         text=text,
                         reply_markup=InlineKeyboardMarkup(keyboard),
                         parse_mode=ParseMode.HTML
                     )
-                except Exception as edit_error:
-                    # If editing text fails, try caption
+                except Exception as edit_text_error:
                     try:
-                        await query.message.edit_caption(
+                        # If editing text fails, try updating caption
+                        await query.edit_message_caption(
                             caption=text,
                             reply_markup=InlineKeyboardMarkup(keyboard)
                         )
                     except Exception as caption_error:
                         logger.error(f"Could not edit caption: {str(caption_error)}")
-                        # Last resort - send a new message
-                        sent_message = await query.message.reply_text(
-                            text=text,
-                            reply_markup=InlineKeyboardMarkup(keyboard),
-                            parse_mode=ParseMode.HTML
-                        )
-        else:
-            # No photo or animation to remove, just update the text and keyboard
-            try:
-                # Direct text edit without GIF
-                await query.edit_message_text(
-                    text=text,
-                    reply_markup=InlineKeyboardMarkup(keyboard),
-                    parse_mode=ParseMode.HTML
-                )
-            except Exception as text_error:
-                # If that fails due to caption, try editing caption
-                if "There is no text in the message to edit" in str(text_error):
-                    try:
-                        await query.edit_message_caption(
-                            caption=text,
-                            reply_markup=InlineKeyboardMarkup(keyboard),
-                            parse_mode=ParseMode.HTML
-                        )
-                    except Exception as e:
-                        logger.error(f"Failed to update caption: {str(e)}")
-                        # Try to send a new message as last resort
+                        # Last resort - send a completely new message
                         await query.message.reply_text(
                             text=text,
                             reply_markup=InlineKeyboardMarkup(keyboard),
                             parse_mode=ParseMode.HTML
                         )
-                else:
-                    # Re-raise for other errors
-                    logger.error(f"Error updating message: {str(text_error)}")
-                    # Send a new message as last resort
-                    await query.message.reply_text(
+            else:
+                # No photo/animation - simple text update
+                try:
+                    await query.edit_message_text(
                         text=text,
                         reply_markup=InlineKeyboardMarkup(keyboard),
                         parse_mode=ParseMode.HTML
                     )
+                except Exception as text_error:
+                    if "There is no text in the message to edit" in str(text_error):
+                        try:
+                            # Try caption update if no text
+                            await query.edit_message_caption(
+                                caption=text,
+                                reply_markup=InlineKeyboardMarkup(keyboard)
+                            )
+                        except Exception as caption_error:
+                            logger.error(f"Failed to update caption: {str(caption_error)}")
+                            # Last resort - new message
+                            await query.message.reply_text(
+                                text=text,
+                                reply_markup=InlineKeyboardMarkup(keyboard),
+                                parse_mode=ParseMode.HTML
+                            )
+                    else:
+                        logger.error(f"Error updating message: {str(text_error)}")
+                        # Last resort - new message
+                        await query.message.reply_text(
+                            text=text,
+                            reply_markup=InlineKeyboardMarkup(keyboard),
+                            parse_mode=ParseMode.HTML
+                        )
         
         return CHOOSE_ANALYSIS
 
