@@ -1900,60 +1900,52 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         
         logger.info(f"Showing sentiment analysis for instrument: {instrument}")
         
+        # Toon loading message met GIF
+        loading_text = f"Generating sentiment analysis for {instrument}..."
+        loading_gif = "https://media.giphy.com/media/dpjUltnOPye7azvAhH/giphy.gif"
+        
         try:
-            # Show simple loading text instead of GIF to avoid mixed content issues
-            loading_text = f"Generating sentiment analysis for {instrument}..."
-            
-            # Detecteer of het bericht media bevat
-            has_photo = False
-            if hasattr(query.message, 'photo') and query.message.photo:
-                has_photo = True
-            elif hasattr(query.message, 'animation') and query.message.animation:
-                has_photo = True
-                
+            # Probeer de loading GIF te tonen
+            await query.edit_message_media(
+                media=InputMediaAnimation(
+                    media=loading_gif,
+                    caption=loading_text
+                )
+            )
+        except Exception as e:
+            logger.warning(f"Could not show loading GIF: {str(e)}")
+            # Fallback naar tekstupdate
             try:
-                # Probeer eerst de caption te updaten (als het een media bericht is)
-                if has_photo:
-                    await query.edit_message_caption(
-                        caption=loading_text,
-                        parse_mode=ParseMode.HTML
-                    )
-                else:
-                    await query.edit_message_text(
-                        text=loading_text,
-                        parse_mode=ParseMode.HTML
-                    )
-            except Exception as e:
-                logger.warning(f"Could not update loading message: {str(e)}")
-            
-            # Get sentiment analysis from sentiment service
-            # Initialize MarketSentimentService if it's not already initialized
+                await query.edit_message_text(text=loading_text)
+            except Exception as inner_e:
+                try:
+                    await query.edit_message_caption(caption=loading_text)
+                except Exception as inner_e2:
+                    logger.error(f"Could not update loading message: {str(inner_e2)}")
+        
+        try:
+            # Initialize sentiment service if needed
             if not hasattr(self, 'sentiment_service') or self.sentiment_service is None:
                 self.sentiment_service = MarketSentimentService()
             
-            # Get sentiment data with error handling
-            try:
-                sentiment_data = await self.sentiment_service.get_sentiment(instrument)
-                if not sentiment_data:
-                    raise ValueError("Sentiment service returned empty data")
-            except Exception as e:
-                logger.error(f"Error getting sentiment data: {str(e)}")
-                raise ValueError(f"Failed to get sentiment data: {str(e)}")
+            # Get sentiment data
+            sentiment_data = await self.sentiment_service.get_sentiment(instrument)
             
-            # Extract sentiment data
+            if not sentiment_data:
+                await query.message.reply_text(
+                    text=f"Failed to get sentiment data for {instrument}.",
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("⬅️ Back", callback_data="back_to_analysis")
+                    ]])
+                )
+                return CHOOSE_ANALYSIS
+            
+            # Extract data
             bullish = sentiment_data.get('bullish', 50)
             bearish = sentiment_data.get('bearish', 30)
             neutral = sentiment_data.get('neutral', 20)
             
-            # Ensure percentages add up to 100%
-            total = bullish + bearish + neutral
-            if total != 100:
-                factor = 100 / total if total > 0 else 1
-                bullish = round(bullish * factor)
-                bearish = round(bearish * factor)
-                neutral = 100 - bullish - bearish
-            
-            # Determine overall sentiment
+            # Determine sentiment
             if bullish > bearish + neutral:
                 overall = "Bullish"
                 emoji = "📈"
@@ -1963,117 +1955,65 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             else:
                 overall = "Neutral"
                 emoji = "⚖️"
-                
+            
             # Get analysis text
             analysis_text = ""
             if isinstance(sentiment_data.get('analysis'), str):
                 analysis_text = sentiment_data['analysis']
-            elif isinstance(sentiment_data.get('analysis'), dict) and 'content' in sentiment_data['analysis']:
-                analysis_text = sentiment_data['analysis']['content']
             
-            # Limit analysis length
-            if len(analysis_text) > 2000:
-                analysis_text = analysis_text[:2000] + "..."
+            # Prepare the message format
+            title_pattern = re.compile(r'<b>🎯 [A-Z/]+ Market Analysis</b>')
             
-            # Bepaal of we de eerste sentiment breakdown moeten verwijderen of niet
-            sentiment_header = f"""<b>Overall Sentiment:</b> {overall} {emoji}
-
-"""
-            
-            if analysis_text and "<b>Market Sentiment Breakdown:</b>" in analysis_text:
-                # We voegen de overall sentiment toe en behouden de rest van de analyse
-                message = sentiment_header + analysis_text
+            if analysis_text and title_pattern.search(analysis_text):
+                # Extract title from the analysis text
+                match = title_pattern.search(analysis_text)
+                if match:
+                    title = match.group(0)
+                    # Remove title from analysis text
+                    rest_text = analysis_text.replace(title, "").strip()
+                    
+                    # Create message with title first, then sentiment, then rest of analysis
+                    full_message = f"{title}\n\n<b>Overall Sentiment:</b> {overall} {emoji}\n\n{rest_text}"
+                else:
+                    # Fallback if regex match fails
+                    full_message = f"<b>🎯 {instrument} Market Analysis</b>\n\n<b>Overall Sentiment:</b> {overall} {emoji}\n\n{analysis_text}"
             else:
-                # We voegen zowel overall sentiment als onze eigen breakdown toe
-                message = f"""{sentiment_header}<b>Sentiment Breakdown:</b>
+                # No title in analysis, create default format
+                full_message = f"<b>🎯 {instrument} Market Analysis</b>\n\n<b>Overall Sentiment:</b> {overall} {emoji}\n\n"
+                
+                # Add sentiment breakdown manually if no analysis text
+                if not analysis_text:
+                    full_message += f"""<b>Sentiment Breakdown:</b>
 - Bullish: {bullish}%
 - Bearish: {bearish}%
-- Neutral: {neutral}%
-
-{analysis_text}"""
+- Neutral: {neutral}%"""
+                else:
+                    full_message += analysis_text
             
-            # Create keyboard with back button
-            keyboard = [
-                [InlineKeyboardButton("⬅️ Back", callback_data="back_to_analysis")]
-            ]
+            # Create reply markup with back button
+            reply_markup = InlineKeyboardMarkup([[
+                InlineKeyboardButton("⬅️ Back", callback_data="back_to_analysis")
+            ]])
             
-            # Multi-stap aanpak voor het verwijderen van media en tonen van resultaten
-            if has_photo:
-                try:
-                    # Stap 1: Probeer het bericht te verwijderen (werkt alleen in privéchats)
-                    await query.message.delete()
-                    # Stuur een nieuw bericht als verwijderen succesvol was
-                    await query.message.reply_text(
-                        text=message,
-                        parse_mode=ParseMode.HTML,
-                        reply_markup=InlineKeyboardMarkup(keyboard)
-                    )
-                    return CHOOSE_ANALYSIS
-                except Exception as delete_error:
-                    logger.warning(f"Could not delete message: {str(delete_error)}")
-                    
-                    try:
-                        # Stap 2: Vervang met transparante GIF als verwijderen niet lukt
-                        await query.edit_message_media(
-                            media=InputMediaDocument(
-                                media="https://upload.wikimedia.org/wikipedia/commons/thumb/0/00/Transparent.gif/1px-Transparent.gif",
-                                caption=message,
-                                parse_mode=ParseMode.HTML
-                            ),
-                            reply_markup=InlineKeyboardMarkup(keyboard)
-                        )
-                        return CHOOSE_ANALYSIS
-                    except Exception as media_error:
-                        logger.warning(f"Could not replace media: {str(media_error)}")
-                        
-                        try:
-                            # Stap 3: Als laatste optie, bewerk alleen het bijschrift
-                            await query.edit_message_caption(
-                                caption=message,
-                                parse_mode=ParseMode.HTML,
-                                reply_markup=InlineKeyboardMarkup(keyboard)
-                            )
-                            return CHOOSE_ANALYSIS
-                        except Exception as caption_error:
-                            logger.error(f"Could not update caption: {str(caption_error)}")
-                            # Fallback naar het sturen van een nieuw bericht
-                            await query.message.reply_text(
-                                text=message,
-                                parse_mode=ParseMode.HTML,
-                                reply_markup=InlineKeyboardMarkup(keyboard)
-                            )
-            else:
-                # Geen media aanwezig, gewoon tekst bijwerken
-                try:
-                    await query.edit_message_text(
-                        text=message,
-                        parse_mode=ParseMode.HTML,
-                        reply_markup=InlineKeyboardMarkup(keyboard)
-                    )
-                except Exception as e:
-                    logger.error(f"Could not update text message: {str(e)}")
-                    # Fallback naar het sturen van een nieuw bericht
-                    await query.message.reply_text(
-                        text=message,
-                        parse_mode=ParseMode.HTML,
-                        reply_markup=InlineKeyboardMarkup(keyboard)
-                    )
+            # Send a completely new message to avoid issues with previous message
+            await query.message.reply_text(
+                text=full_message,
+                parse_mode=ParseMode.HTML,
+                reply_markup=reply_markup
+            )
             
             return CHOOSE_ANALYSIS
             
         except Exception as e:
-            logger.error(f"Error generating sentiment analysis: {str(e)}")
+            logger.error(f"Error in show_sentiment_analysis: {str(e)}")
             logger.exception(e)
             
-            error_text = f"Error generating sentiment analysis for {instrument}. Please try again."
-            
-            # Altijd een nieuw bericht sturen bij een fout
+            # Send error message as new message
             await query.message.reply_text(
-                text=error_text,
-                parse_mode=ParseMode.HTML,
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("⬅️ Back", callback_data="back_market")],
-                ])
+                text=f"Error generating sentiment analysis for {instrument}. Please try again.",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("⬅️ Back", callback_data="back_market")
+                ]])
             )
             
             return BACK_TO_MENU
@@ -2743,19 +2683,16 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         # Check if the message has a photo or animation that needs to be removed
         has_photo = bool(query.message.photo) or query.message.animation is not None
         
-        # Get an analysis GIF URL for the menu
-        gif_url = await gif_utils.get_analyse_gif()
-        
         # Prepare keyboard for analysis menu
         keyboard = ANALYSIS_KEYBOARD
         text = "Select your analysis type:"
         
         if has_photo:
             try:
-                # Try to delete the message first (cleanest approach)
+                # Delete the current message with GIF
                 await query.message.delete()
-                # Send a new message with the analysis selection
-                await query.message.reply_text(
+                # Send a new message with just the text and keyboard
+                sent_message = await query.message.reply_text(
                     text=text,
                     reply_markup=InlineKeyboardMarkup(keyboard),
                     parse_mode=ParseMode.HTML
@@ -2763,18 +2700,14 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             except Exception as delete_error:
                 logger.warning(f"Could not delete message: {str(delete_error)}")
                 try:
-                    # Try to replace media with transparent GIF
-                    await query.message.edit_media(
-                        media=InputMediaDocument(
-                            media="https://upload.wikimedia.org/wikipedia/commons/thumb/0/00/Transparent.gif/1px-Transparent.gif",
-                            caption=text,
-                            parse_mode=ParseMode.HTML
-                        ),
-                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    # Try to edit the message text directly
+                    await query.edit_message_text(
+                        text=text,
+                        reply_markup=InlineKeyboardMarkup(keyboard),
+                        parse_mode=ParseMode.HTML
                     )
                 except Exception as edit_error:
-                    logger.warning(f"Could not edit media with transparent GIF: {str(edit_error)}")
-                    # If all else fails, just try to edit the caption
+                    # If editing text fails, try caption
                     try:
                         await query.message.edit_caption(
                             caption=text,
@@ -2783,55 +2716,46 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     except Exception as caption_error:
                         logger.error(f"Could not edit caption: {str(caption_error)}")
                         # Last resort - send a new message
-                        await query.message.reply_text(
+                        sent_message = await query.message.reply_text(
                             text=text,
                             reply_markup=InlineKeyboardMarkup(keyboard),
                             parse_mode=ParseMode.HTML
                         )
         else:
             # No photo or animation to remove, just update the text and keyboard
-            success = await gif_utils.update_message_with_gif(
-                query=query,
-                gif_url=gif_url,
-                text=text,
-                reply_markup=InlineKeyboardMarkup(keyboard)
-            )
-            
-            if not success:
-                # If the helper function failed, try a direct approach as fallback
-                try:
-                    # First try to edit message text
-                    await query.edit_message_text(
-                        text=text,
-                        reply_markup=InlineKeyboardMarkup(keyboard),
-                        parse_mode=ParseMode.HTML
-                    )
-                except Exception as text_error:
-                    # If that fails due to caption, try editing caption
-                    if "There is no text in the message to edit" in str(text_error):
-                        try:
-                            await query.edit_message_caption(
-                                caption=text,
-                                reply_markup=InlineKeyboardMarkup(keyboard),
-                                parse_mode=ParseMode.HTML
-                            )
-                        except Exception as e:
-                            logger.error(f"Failed to update caption: {str(e)}")
-                            # Try to send a new message as last resort
-                            await query.message.reply_text(
-                                text=text,
-                                reply_markup=InlineKeyboardMarkup(keyboard),
-                                parse_mode=ParseMode.HTML
-                            )
-                    else:
-                        # Re-raise for other errors
-                        logger.error(f"Error updating message: {str(text_error)}")
-                        # Send a new message as last resort
+            try:
+                # Direct text edit without GIF
+                await query.edit_message_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.HTML
+                )
+            except Exception as text_error:
+                # If that fails due to caption, try editing caption
+                if "There is no text in the message to edit" in str(text_error):
+                    try:
+                        await query.edit_message_caption(
+                            caption=text,
+                            reply_markup=InlineKeyboardMarkup(keyboard),
+                            parse_mode=ParseMode.HTML
+                        )
+                    except Exception as e:
+                        logger.error(f"Failed to update caption: {str(e)}")
+                        # Try to send a new message as last resort
                         await query.message.reply_text(
                             text=text,
                             reply_markup=InlineKeyboardMarkup(keyboard),
                             parse_mode=ParseMode.HTML
                         )
+                else:
+                    # Re-raise for other errors
+                    logger.error(f"Error updating message: {str(text_error)}")
+                    # Send a new message as last resort
+                    await query.message.reply_text(
+                        text=text,
+                        reply_markup=InlineKeyboardMarkup(keyboard),
+                        parse_mode=ParseMode.HTML
+                    )
         
         return CHOOSE_ANALYSIS
 
