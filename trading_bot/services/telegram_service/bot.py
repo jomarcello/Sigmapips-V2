@@ -1961,63 +1961,98 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             if isinstance(sentiment_data.get('analysis'), str):
                 analysis_text = sentiment_data['analysis']
             
-            # Prepare the message format
-            title_pattern = re.compile(r'<b>🎯 [A-Z/]+ Market Analysis</b>')
+            # Prepare the message format without relying on regex
+            # This will help avoid HTML parsing errors
+            title = f"<b>🎯 {instrument} Market Analysis</b>"
+            overall_sentiment = f"<b>Overall Sentiment:</b> {overall} {emoji}"
             
-            if analysis_text and title_pattern.search(analysis_text):
-                # Extract title from the analysis text
-                match = title_pattern.search(analysis_text)
-                if match:
-                    title = match.group(0)
-                    # Remove title from analysis text
-                    rest_text = analysis_text.replace(title, "").strip()
-                    
-                    # Clean up excessive whitespace
-                    rest_text = re.sub(r'\n{3,}', '\n\n', rest_text)  # Replace 3+ newlines with 2
-                    rest_text = re.sub(r'^\n+', '', rest_text)  # Remove leading newlines
-                    
-                    # Look for Market Sentiment Breakdown section
-                    breakdown_match = re.search(r'Market Sentiment Breakdown:', rest_text)
-                    if breakdown_match:
-                        # Split text at the breakdown section
-                        parts = rest_text.split('Market Sentiment Breakdown:')
-                        if len(parts) >= 2:
-                            # Format message with compact spacing
-                            full_message = f"{title}\n\n<b>Overall Sentiment:</b> {overall} {emoji}\n\n<b>Market Sentiment Breakdown:</b>{parts[1]}"
-                        else:
-                            full_message = f"{title}\n\n<b>Overall Sentiment:</b> {overall} {emoji}\n\n{rest_text}"
-                    else:
-                        full_message = f"{title}\n\n<b>Overall Sentiment:</b> {overall} {emoji}\n\n{rest_text}"
-                else:
-                    # Fallback if regex match fails
-                    full_message = f"<b>🎯 {instrument} Market Analysis</b>\n\n<b>Overall Sentiment:</b> {overall} {emoji}\n\n{analysis_text}"
-            else:
-                # No title in analysis, create default format
-                full_message = f"<b>🎯 {instrument} Market Analysis</b>\n\n<b>Overall Sentiment:</b> {overall} {emoji}\n\n"
+            # Check if the provided analysis already has a title
+            if analysis_text and "<b>🎯" in analysis_text and "Market Analysis</b>" in analysis_text:
+                # Extract the title from the analysis
+                title_start = analysis_text.find("<b>🎯")
+                title_end = analysis_text.find("</b>", title_start) + 4
+                title = analysis_text[title_start:title_end]
                 
-                # Add sentiment breakdown manually if no analysis text
-                if not analysis_text:
-                    full_message += f"""<b>Market Sentiment Breakdown:</b>
+                # Remove the title from the analysis
+                analysis_text = analysis_text[:title_start] + analysis_text[title_end:]
+                analysis_text = analysis_text.strip()
+            
+            # Clean up the analysis text
+            analysis_text = analysis_text.replace("</b><b>", "</b> <b>")  # Fix malformed tags
+            analysis_text = re.sub(r'\n{3,}', '\n\n', analysis_text)  # Replace 3+ newlines with 2
+            analysis_text = re.sub(r'^\n+', '', analysis_text)  # Remove leading newlines
+            
+            # Construct message with proper HTML tags
+            full_message = f"{title}\n\n{overall_sentiment}\n"
+            
+            # If there's analysis text, add it
+            if analysis_text:
+                if "Market Sentiment Breakdown:" in analysis_text:
+                    parts = analysis_text.split("Market Sentiment Breakdown:")
+                    full_message += f"\n<b>Market Sentiment Breakdown:</b>{parts[1]}"
+                else:
+                    full_message += f"\n{analysis_text}"
+            else:
+                # No analysis text, add a manual breakdown
+                full_message += f"""
+<b>Market Sentiment Breakdown:</b>
 🟢 Bullish: {bullish}%
 🔴 Bearish: {bearish}%
 ⚪️ Neutral: {neutral}%"""
-                else:
-                    # Remove excessive newlines and clean up formatting
-                    analysis_text = re.sub(r'^\n+', '', analysis_text)  # Remove leading newlines
-                    analysis_text = re.sub(r'\n{3,}', '\n\n', analysis_text)  # Replace 3+ newlines with 2
-                    full_message += analysis_text
             
             # Create reply markup with back button
             reply_markup = InlineKeyboardMarkup([[
                 InlineKeyboardButton("⬅️ Back", callback_data="back_to_analysis")
             ]])
             
+            # Validate HTML formatting
+            try:
+                # Test if HTML parsing works by creating a re-sanitized version
+                from html.parser import HTMLParser
+                
+                class HTMLValidator(HTMLParser):
+                    def __init__(self):
+                        super().__init__()
+                        self.errors = []
+                        self.open_tags = []
+                    
+                    def handle_starttag(self, tag, attrs):
+                        self.open_tags.append(tag)
+                    
+                    def handle_endtag(self, tag):
+                        if self.open_tags and self.open_tags[-1] == tag:
+                            self.open_tags.pop()
+                        else:
+                            self.errors.append(f"Unexpected end tag: {tag}")
+                
+                validator = HTMLValidator()
+                validator.feed(full_message)
+                
+                if validator.errors:
+                    logger.warning(f"HTML validation errors: {validator.errors}")
+                    # Fallback to plaintext if HTML is invalid
+                    full_message = re.sub(r'<[^>]+>', '', full_message)
+            except Exception as html_error:
+                logger.warning(f"HTML validation failed: {str(html_error)}")
+            
             # Send a completely new message to avoid issues with previous message
-            await query.message.reply_text(
-                text=full_message,
-                parse_mode=ParseMode.HTML,
-                reply_markup=reply_markup
-            )
+            try:
+                await query.message.delete()
+                await context.bot.send_message(
+                    chat_id=update.effective_chat.id,
+                    text=full_message,
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=reply_markup
+                )
+            except Exception as msg_error:
+                logger.error(f"Error sending message: {str(msg_error)}")
+                # Try without HTML parsing if that's the issue
+                if "Can't parse entities" in str(msg_error):
+                    await context.bot.send_message(
+                        chat_id=update.effective_chat.id,
+                        text=re.sub(r'<[^>]+>', '', full_message),  # Strip HTML tags
+                        reply_markup=reply_markup
+                    )
             
             return CHOOSE_ANALYSIS
             
@@ -2029,11 +2064,11 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             await query.message.reply_text(
                 text=f"Error generating sentiment analysis for {instrument}. Please try again.",
                 reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("⬅️ Back", callback_data="back_market")
+                    InlineKeyboardButton("⬅️ Back", callback_data="back_to_analysis")
                 ]])
             )
             
-            return BACK_TO_MENU
+            return CHOOSE_ANALYSIS
 
     async def show_calendar_analysis(self, update: Update, context=None, instrument=None) -> int:
         """Show economic calendar analysis for a selected instrument"""
@@ -2283,10 +2318,47 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             else:
                 text = f"Select a {market} instrument for analysis:"
             
-            back_data = "back_analysis"
+            back_data = "back_to_analysis"  # Changed to back_to_analysis voor consistentie
+        
+        # Toevoegen van Back-knop aan het einde van alle keyboards
+        if isinstance(keyboard, list):
+            # Voeg terug-knop toe als laatste rij
+            keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data=back_data)])
         
         # Update message with appropriate keyboard
         try:
+            # Check of bericht een foto of animatie bevat
+            has_media = bool(query.message.photo) or query.message.animation is not None
+            
+            if has_media:
+                # Verwijder het bericht en maak een nieuw tekstbericht
+                try:
+                    await query.message.delete()
+                    await context.bot.send_message(
+                        chat_id=update.effective_chat.id,
+                        text=text,
+                        reply_markup=InlineKeyboardMarkup(keyboard),
+                        parse_mode=ParseMode.HTML
+                    )
+                    return CHOOSE_INSTRUMENT
+                except Exception as delete_error:
+                    logger.warning(f"Could not delete message: {str(delete_error)}")
+                    
+                    # Probeer een transparante GIF te gebruiken als fallback
+                    try:
+                        transparent_gif = "https://upload.wikimedia.org/wikipedia/commons/thumb/0/00/Transparent.gif/1px-Transparent.gif"
+                        await query.edit_message_media(
+                            media=InputMediaDocument(
+                                media=transparent_gif,
+                                caption=text
+                            ),
+                            reply_markup=InlineKeyboardMarkup(keyboard)
+                        )
+                    except Exception as media_error:
+                        logger.warning(f"Could not update media: {str(media_error)}")
+                        # Verdere fallbacks volgen hieronder
+            
+            # Probeer tekst te updaten (als media aanpak mislukte of er geen media was)
             await query.edit_message_text(
                 text=text,
                 reply_markup=InlineKeyboardMarkup(keyboard),
@@ -2311,7 +2383,13 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     )
             else:
                 # Re-raise for other errors
-                raise
+                logger.error(f"Error updating message in market_callback: {str(text_error)}")
+                # Try to send a new message as last resort
+                await query.message.reply_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.HTML
+                )
         
         return CHOOSE_INSTRUMENT
 
@@ -2697,61 +2775,79 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         query = update.callback_query
         await query.answer()
         
-        # Get an analysis GIF URL
-        gif_url = "https://media.giphy.com/media/gSzIKNrqtotEYrZv7i/giphy.gif"
-        
         # Prepare keyboard for analysis menu
         keyboard = ANALYSIS_KEYBOARD
         text = "Select your analysis type:"
         
-        # Try to send a completely new message with GIF
-        try:
-            # Try to delete the current message first
-            await query.message.delete()
-            
-            # Then send a new message with the GIF
-            await context.bot.send_animation(
-                chat_id=update.effective_chat.id,
-                animation=gif_url,
-                caption=text,
-                reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode=ParseMode.HTML
-            )
-            return CHOOSE_ANALYSIS
-        except Exception as e:
-            logger.warning(f"Could not delete/send message: {str(e)}")
-            
-            # If deletion or sending fails, try to edit the existing message
+        # Check if the message has a photo or animation that needs to be removed
+        has_media = bool(query.message.photo) or query.message.animation is not None
+        
+        # Multi-step aanpak voor het verwijderen van media
+        if has_media:
+            # Stap 1: Probeer het bericht volledig te verwijderen en een nieuw bericht te sturen
             try:
-                # Try to edit the message with animation
-                await query.edit_message_media(
-                    media=InputMediaAnimation(
-                        media=gif_url,
-                        caption=text
-                    ),
-                    reply_markup=InlineKeyboardMarkup(keyboard)
+                await query.message.delete()
+                await context.bot.send_message(
+                    chat_id=update.effective_chat.id,
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.HTML
                 )
                 return CHOOSE_ANALYSIS
-            except Exception as edit_error:
-                logger.warning(f"Could not edit message media: {str(edit_error)}")
+            except Exception as delete_error:
+                logger.warning(f"Could not delete message: {str(delete_error)}")
                 
-                # Last resort: try to just edit the text
+                # Stap 2: Als verwijderen niet lukt, vervang met transparante GIF
                 try:
-                    await query.edit_message_text(
-                        text=text,
-                        reply_markup=InlineKeyboardMarkup(keyboard),
-                        parse_mode=ParseMode.HTML
+                    # Gebruik een 1x1 transparante GIF om de media te vervangen
+                    transparent_gif = "https://upload.wikimedia.org/wikipedia/commons/thumb/0/00/Transparent.gif/1px-Transparent.gif"
+                    
+                    # Gebruik InputMediaDocument om het mediabestand te vervangen
+                    await query.edit_message_media(
+                        media=InputMediaDocument(
+                            media=transparent_gif,
+                            caption=text
+                        ),
+                        reply_markup=InlineKeyboardMarkup(keyboard)
                     )
-                except Exception as text_error:
-                    logger.error(f"Failed to update message: {str(text_error)}")
-                    # Final fallback: send a new message without deleting the old one
-                    await context.bot.send_animation(
-                        chat_id=update.effective_chat.id,
-                        animation=gif_url,
-                        caption=text,
-                        reply_markup=InlineKeyboardMarkup(keyboard),
-                        parse_mode=ParseMode.HTML
-                    )
+                    return CHOOSE_ANALYSIS
+                except Exception as media_error:
+                    logger.warning(f"Could not replace media: {str(media_error)}")
+                    
+                    # Stap 3: Als laatste optie, probeer alleen het bijschrift te bewerken
+                    try:
+                        await query.edit_message_caption(
+                            caption=text,
+                            reply_markup=InlineKeyboardMarkup(keyboard)
+                        )
+                        return CHOOSE_ANALYSIS
+                    except Exception as caption_error:
+                        logger.error(f"Could not edit caption: {str(caption_error)}")
+                        
+                        # Laatste redmiddel: stuur gewoon een nieuw bericht zonder het oude te verwijderen
+                        await context.bot.send_message(
+                            chat_id=update.effective_chat.id,
+                            text=text,
+                            reply_markup=InlineKeyboardMarkup(keyboard),
+                            parse_mode=ParseMode.HTML
+                        )
+        else:
+            # Geen media, gewoon tekstupdate
+            try:
+                await query.edit_message_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.HTML
+                )
+            except Exception as text_error:
+                logger.error(f"Could not edit message text: {str(text_error)}")
+                # Fallback naar nieuw bericht
+                await context.bot.send_message(
+                    chat_id=update.effective_chat.id,
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.HTML
+                )
         
         return CHOOSE_ANALYSIS
 
@@ -2760,76 +2856,97 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         query = update.callback_query
         await query.answer()
         
-        # Get a menu GIF URL
-        gif_url = "https://media.giphy.com/media/dpjUltnOPye7azvAhH/giphy.gif"  # Gebruik een vaste URL voor de welkomst GIF
+        # Welkomstbericht en keyboard
+        text = WELCOME_MESSAGE
+        keyboard = START_KEYBOARD
         
-        # Probeer eerst het huidige bericht te verwijderen en een nieuw bericht te sturen
-        try:
-            # Verwijder het huidige bericht
-            await query.message.delete()
-            
-            # Stuur een nieuw bericht met de welkomst GIF
-            await context.bot.send_animation(
-                chat_id=update.effective_chat.id,
-                animation=gif_url,
-                caption=WELCOME_MESSAGE,
-                reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
-                parse_mode=ParseMode.HTML
-            )
-            return MENU
-        except Exception as e:
-            logger.warning(f"Could not delete message: {str(e)}")
-            
-            # Als verwijderen mislukt, probeer het bericht direct te bewerken
+        # Check of het bericht een foto of animatie bevat die verwijderd moet worden
+        has_media = bool(query.message.photo) or query.message.animation is not None
+        
+        # Multi-step aanpak voor het verwijderen van media en terugkeren naar menu
+        if has_media:
+            # Stap 1: Probeer het bericht volledig te verwijderen en een nieuw bericht te sturen
             try:
-                # Probeer de media te updaten met de GIF
-                await query.edit_message_media(
-                    media=InputMediaAnimation(
-                        media=gif_url,
-                        caption=WELCOME_MESSAGE
-                    ),
-                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
+                await query.message.delete()
+                # Stuur een nieuw bericht met welkomst-GIF
+                gif_url = "https://media.giphy.com/media/dpjUltnOPye7azvAhH/giphy.gif"
+                await context.bot.send_animation(
+                    chat_id=update.effective_chat.id,
+                    animation=gif_url,
+                    caption=text,
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.HTML
                 )
                 return MENU
-            except Exception as media_error:
-                logger.warning(f"Could not update message media: {str(media_error)}")
+            except Exception as delete_error:
+                logger.warning(f"Could not delete message: {str(delete_error)}")
                 
-                # Als dat ook mislukt, probeer gewoon de tekst te updaten
+                # Stap 2: Als verwijderen niet lukt, vervang met welkomst-GIF
                 try:
-                    await query.edit_message_text(
-                        text=WELCOME_MESSAGE,
-                        reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
-                        parse_mode=ParseMode.HTML
+                    # Gebruik een welkomst-GIF om de huidige media te vervangen
+                    gif_url = "https://media.giphy.com/media/dpjUltnOPye7azvAhH/giphy.gif"
+                    await query.edit_message_media(
+                        media=InputMediaAnimation(
+                            media=gif_url,
+                            caption=text
+                        ),
+                        reply_markup=InlineKeyboardMarkup(keyboard)
                     )
-                except Exception as text_error:
-                    # Als ook dat mislukt bij een caption, probeer de caption te updaten
-                    if "There is no text in the message to edit" in str(text_error):
-                        try:
-                            await query.edit_message_caption(
-                                caption=WELCOME_MESSAGE,
-                                reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
-                                parse_mode=ParseMode.HTML
-                            )
-                        except Exception as caption_error:
-                            logger.error(f"Failed to update caption: {str(caption_error)}")
-                            # Laatste redmiddel: stuur een nieuw bericht
-                            await context.bot.send_animation(
-                                chat_id=update.effective_chat.id,
-                                animation=gif_url,
-                                caption=WELCOME_MESSAGE,
-                                reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
-                                parse_mode=ParseMode.HTML
-                            )
-                    else:
-                        logger.error(f"Failed to update text: {str(text_error)}")
-                        # Laatste redmiddel: stuur een nieuw bericht
+                    return MENU
+                except Exception as media_error:
+                    logger.warning(f"Could not replace media: {str(media_error)}")
+                    
+                    # Stap 3: Als laatste optie, probeer alleen het bijschrift te bewerken
+                    try:
+                        await query.edit_message_caption(
+                            caption=text,
+                            reply_markup=InlineKeyboardMarkup(keyboard)
+                        )
+                        return MENU
+                    except Exception as caption_error:
+                        logger.error(f"Could not edit caption: {str(caption_error)}")
+                        
+                        # Laatste redmiddel: stuur gewoon een nieuw bericht
                         await context.bot.send_animation(
                             chat_id=update.effective_chat.id,
                             animation=gif_url,
-                            caption=WELCOME_MESSAGE,
-                            reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
+                            caption=text,
+                            reply_markup=InlineKeyboardMarkup(keyboard),
                             parse_mode=ParseMode.HTML
                         )
+        else:
+            # Geen media, gewoon tekstupdate met welkomst-GIF
+            try:
+                # Verwijder huidige bericht en stuur nieuw bericht met GIF
+                await query.message.delete()
+                gif_url = "https://media.giphy.com/media/dpjUltnOPye7azvAhH/giphy.gif"
+                await context.bot.send_animation(
+                    chat_id=update.effective_chat.id,
+                    animation=gif_url,
+                    caption=text,
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.HTML
+                )
+            except Exception as e:
+                logger.warning(f"Could not handle text message update: {str(e)}")
+                # Fallback: probeer tekst direct te updaten
+                try:
+                    await query.edit_message_text(
+                        text=text,
+                        reply_markup=InlineKeyboardMarkup(keyboard),
+                        parse_mode=ParseMode.HTML
+                    )
+                except Exception as text_error:
+                    logger.error(f"Could not edit message text: {str(text_error)}")
+                    # Laatste redmiddel: stuur een nieuw bericht zonder het oude te verwijderen
+                    gif_url = "https://media.giphy.com/media/dpjUltnOPye7azvAhH/giphy.gif"
+                    await context.bot.send_animation(
+                        chat_id=update.effective_chat.id,
+                        animation=gif_url,
+                        caption=text,
+                        reply_markup=InlineKeyboardMarkup(keyboard),
+                        parse_mode=ParseMode.HTML
+                    )
         
         return MENU
     
