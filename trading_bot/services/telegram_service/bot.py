@@ -768,7 +768,7 @@ Start today with a FREE 14-day trial!
             ]
             
             # Gebruik de juiste welkomst-GIF URL
-            welcome_gif_url = "https://media.giphy.com/media/dpjUltnOPye7azvAhH/giphy.gif"
+            welcome_gif_url = "https://media.giphy.com/media/gSzIKNrqtotEYrZv7i/giphy.gif"
             
             try:
                 # Send the GIF with caption containing the welcome message
@@ -2974,7 +2974,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         await query.answer()
         
         # Gebruik ALTIJD de correcte welkomst-GIF URL, nooit een dynamische URL
-        welkomst_gif = "https://media.giphy.com/media/dpjUltnOPye7azvAhH/giphy.gif"
+        welkomst_gif = "https://media.giphy.com/media/gSzIKNrqtotEYrZv7i/giphy.gif"
         
         # Simpelere benadering: altijd bericht verwijderen en nieuw bericht sturen
         try:
