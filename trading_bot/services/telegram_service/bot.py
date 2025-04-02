@@ -1269,8 +1269,8 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             if not calendar_data:
                 raise Exception("Failed to get calendar data")
             
-            # Format the calendar message
-            message = f"📅 <b>Economic Calendar for Today</b>\n\n"
+            # Format the calendar message with improved formatting
+            message = f"<b>📅 Economic Calendar for Today</b>\n\n"
             
             # Add calendar events
             if calendar_data and len(calendar_data) > 0:
@@ -1281,16 +1281,23 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     # Extract event details
                     time = event.get('time', 'N/A')
                     country = event.get('country', 'N/A')
+                    country_flag = event.get('country_flag', '')
                     title = event.get('title', 'N/A')
                     impact = event.get('impact', 'N/A')
                     
                     # Format impact with emoji
                     impact_emoji = "🔴" if impact.lower() == "high" else "🟠" if impact.lower() == "medium" else "🟢"
                     
-                    # Add event to message
-                    message += f"{time} - {country} - {title} {impact_emoji}\n"
+                    # Add event to message with improved formatting - no double newlines
+                    message += f"{time} - {country_flag} {country} - {title} {impact_emoji}\n"
             else:
                 message += "No economic events scheduled for today.\n"
+            
+            # Add legend at the bottom with a single newline before
+            message += "\n-------------------\n"
+            message += "🔴 High Impact\n"
+            message += "🟠 Medium Impact\n"
+            message += "🟢 Low Impact"
             
             # Create keyboard with only a back button
             keyboard = [
@@ -2259,19 +2266,19 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 events = calendar_data["events"]
                 for event in events[:10]:  # Limit to first 10 events to avoid message too long
                     impact = "🔴" if event.get("impact") == "high" else "🟠" if event.get("impact") == "medium" else "🟢"
-                    message += f"{event.get('date', 'Unknown date')} - {event.get('title', 'Unknown event')} {impact}\n\n"
+                    message += f"{event.get('date', 'Unknown date')} - {event.get('title', 'Unknown event')} {impact}\n"
                 
                 if len(events) > 10:
-                    message += f"<i>+{len(events) - 10} more events...</i>\n\n"
+                    message += f"\n<i>+{len(events) - 10} more events...</i>\n"
             else:
-                message += "No upcoming economic events found for this instrument.\n\n"
+                message += "No upcoming economic events found for this instrument.\n"
             
             # Add impact explanation if available
             if "explanation" in calendar_data:
-                message += f"<b>Potential Market Impact:</b>\n{calendar_data['explanation']}\n\n"
+                message += f"\n<b>Potential Market Impact:</b>\n{calendar_data['explanation']}\n"
                 
             # Add legend at the bottom
-            message += "-------------------\n"
+            message += "\n-------------------\n"
             message += "🔴 High Impact\n"
             message += "🟠 Medium Impact\n"
             message += "🟢 Low Impact"
