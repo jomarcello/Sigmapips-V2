@@ -15,15 +15,20 @@ class TavilyService:
     
     def __init__(self, api_key: Optional[str] = None):
         """Initialize the Tavily service"""
-        self.api_key = api_key or os.getenv("TAVILY_API_KEY", "")
+        # Always try to get a fresh API key from environment
+        self.api_key = api_key or os.environ.get("TAVILY_API_KEY", "")
         self.api_url = "https://api.tavily.com/search"
         
         if not self.api_key:
             logger.warning("No Tavily API key found, searches will return mock data")
+        else:
+            masked_key = self.api_key[:5] + "..." if len(self.api_key) > 5 else "[masked]"
+            logger.info(f"Tavily API key found: {masked_key}")
             
+        # Correct way to format headers for Tavily API - use x-api-key instead of Authorization
         self.headers = {
             "Content-Type": "application/json",
-            "Authorization": f"Bearer {self.api_key}"
+            "x-api-key": self.api_key.strip() if self.api_key else ""
         }
         
         # Check connectivity at initialization
@@ -47,103 +52,134 @@ class TavilyService:
             logger.warning(f"Tavily API socket connection failed: {str(e)}")
         
     async def search(self, query: str, max_results: int = 5) -> List[Dict[str, Any]]:
-        """
-        Perform a web search using Tavily
-        
-        Args:
-            query: The search query
-            max_results: Maximum number of results to return
-            
-        Returns:
-            List of search results
-        """
+        """Search the web using Tavily API and return the results"""
         try:
             logger.info(f"Searching Tavily for: {query}")
             
+            # Always reload API key from environment for better testing
+            env_api_key = os.environ.get("TAVILY_API_KEY", "")
+            if env_api_key and env_api_key != self.api_key:
+                logger.info("Updating Tavily API key from environment")
+                self.api_key = env_api_key
+                self.headers["x-api-key"] = self.api_key.strip()
+            
+            # Check API key availability
             if not self.api_key:
-                return self._get_mock_search_results(query)
+                logger.warning("No Tavily API key found - using mock data")
+                return self._generate_mock_results(query)
                 
-            # Create the request payload
+            # Create a more optimized payload for economic calendar searches
             payload = {
                 "query": query,
-                "search_depth": "advanced",
                 "max_results": max_results,
-                "include_answer": True,  # Include an answer summary
-                "include_sources": True,
-                "include_images": False
+                "search_depth": "basic",  # Use basic depth as required by Tavily API
+                "include_answer": True,      # Get a summarized answer
+                "include_domains": [],       # Initialize empty 
+                "include_raw_content": True, # Get full raw content
             }
             
-            # For economic calendar searches, provide more specific instructions
+            # For economic calendar queries, add specific parameters
             if "economic calendar" in query.lower():
-                payload["search_depth"] = "comprehensive"
-                payload["include_domains"] = ["investing.com", "forexfactory.com", "dailyfx.com", "fxstreet.com", "tradingeconomics.com"]
-                payload["query_context"] = """
-                Find today's economic calendar events for major currencies with specific focus on time in EST format, 
-                event description, and impact level (high, medium, low). We need structured information about times and
-                events for each currency mentioned in the query.
+                # Add specific domains that have economic calendar data
+                payload["include_domains"] = [
+                    "forexfactory.com", 
+                    "investing.com", 
+                    "dailyfx.com", 
+                    "fxstreet.com",
+                    "tradingeconomics.com",
+                    "bloomberg.com",
+                    "marketwatch.com",
+                    "reuters.com"
+                ]
+                
+                # Add context to help tavily find the right data
+                payload["search_context"] = """
+                Find today's economic calendar events showing exact times (preferably in EST format), 
+                event descriptions, and impact levels (high, medium, low) for major currencies.
+                Focus on structured data about economic releases, central bank announcements, 
+                and other market-moving events. Include specific times, currencies affected, 
+                and importance/impact levels.
                 """
+                
+                # Modify the query to be more specific
+                today = query.split("today")[1].split("for")[0] if "today" in query and "for" in query else ""
+                improved_query = f"economic calendar events schedule times impact levels today {today} forex EST format"
+                payload["query"] = improved_query
             
-            # First try using httpx with standard connection
+            # Log the payload for debugging
+            logger.info(f"Tavily API payload: {payload}")
+            
             try:
-                # Make the API call with httpx
-                async with httpx.AsyncClient() as client:
+                # First try with httpx
+                logger.info(f"Sending request to Tavily API at {self.api_url} using httpx")
+                logger.info(f"Headers: Content-Type: application/json, x-api-key: [API KEY MASKED]")
+                
+                async with httpx.AsyncClient(timeout=30.0) as client:  # Increased timeout
                     response = await client.post(
                         self.api_url,
                         headers=self.headers,
-                        json=payload,
-                        timeout=20.0
+                        json=payload
                     )
                     
+                    logger.info(f"Tavily API response status: {response.status_code}")
+                    
                     if response.status_code == 200:
-                        data = response.json()
-                        return data.get("results", [])
+                        result = response.json()
+                        logger.info("Successfully retrieved data from Tavily API")
+                        
+                        # For debugging, log some of the content
+                        if "economic calendar" in query.lower() and result.get("results"):
+                            logger.info(f"Retrieved {len(result.get('results', []))} results")
+                            for idx, item in enumerate(result.get("results", [])[:2]):
+                                logger.info(f"Result {idx+1} title: {item.get('title')}")
+                                content_preview = item.get('content', '')[:100] + "..." if item.get('content') else ""
+                                logger.info(f"Content preview: {content_preview}")
+                        
+                        return result.get("results", [])
                     else:
                         logger.error(f"Tavily API error: {response.status_code} - {response.text}")
-                        # Continue to try alternative method
-            except (httpx.ConnectError, httpx.ConnectTimeout) as e:
-                logger.warning(f"Could not connect to Tavily API using httpx: {str(e)}")
-                # Continue to alternative method
-            
-            # If httpx fails, try with aiohttp and custom SSL context
-            try:
-                logger.info("Trying alternative connection method with aiohttp")
-                
-                # Create SSL context that doesn't verify certificates
-                ssl_context = ssl.create_default_context()
-                ssl_context.check_hostname = False
-                ssl_context.verify_mode = ssl.CERT_NONE
-                
-                connector = aiohttp.TCPConnector(ssl=ssl_context)
-                timeout = aiohttp.ClientTimeout(total=10)
-                
-                async with aiohttp.ClientSession(connector=connector) as session:
-                    async with session.post(
-                        self.api_url,
-                        headers=self.headers,
-                        json=payload,
-                        timeout=timeout
-                    ) as response:
-                        response_text = await response.text()
-                        logger.info(f"Tavily API response status: {response.status}")
                         
-                        if response.status == 200:
-                            data = json.loads(response_text)
-                            return data.get("results", [])
-                        else:
-                            logger.error(f"Tavily API error: {response.status}, {response_text[:200]}...")
-                            return self._get_mock_search_results(query)
+                        # Try alternative method if the first fails
+                        logger.info("Trying alternative connection method with aiohttp")
+                        
+                        # Create a custom SSL context that's more permissive
+                        ssl_context = ssl.create_default_context()
+                        ssl_context.check_hostname = False
+                        ssl_context.verify_mode = ssl.CERT_NONE
+                        
+                        connector = aiohttp.TCPConnector(ssl=ssl_context)
+                        timeout = aiohttp.ClientTimeout(total=30.0)  # Increased timeout
+                        
+                        async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
+                            logger.info(f"Sending aiohttp request to Tavily API")
+                            async with session.post(
+                                self.api_url, 
+                                headers=self.headers, 
+                                json=payload
+                            ) as aio_response:
+                                logger.info(f"Tavily API aiohttp response status: {aio_response.status}")
+                                
+                                if aio_response.status == 200:
+                                    response_text = await aio_response.text()
+                                    response_json = json.loads(response_text)
+                                    logger.info("Successfully retrieved data from Tavily API using aiohttp")
+                                    return response_json.get("results", [])
+                                else:
+                                    response_text = await aio_response.text()
+                                    logger.error(f"Tavily API error with aiohttp: {aio_response.status}, {response_text[:200]}...")
+                                    return self._generate_mock_results(query)
             except Exception as e:
-                logger.error(f"Error with aiohttp connection to Tavily: {str(e)}")
-                # Fall through to mock data
-                    
+                logger.error(f"Error connecting to Tavily API: {str(e)}")
+                logger.exception(e)
+                logger.info(f"Generating mock search results for: {query}")
+                return self._generate_mock_results(query)
+                
         except Exception as e:
-            logger.error(f"Error searching Tavily: {str(e)}")
+            logger.error(f"Error in Tavily search: {str(e)}")
             logger.exception(e)
+            return self._generate_mock_results(query)
             
-        # If all connection methods fail, return mock data
-        return self._get_mock_search_results(query)
-            
-    def _get_mock_search_results(self, query: str) -> List[Dict[str, Any]]:
+    def _generate_mock_results(self, query: str) -> List[Dict[str, Any]]:
         """Generate mock search results when the API is unavailable"""
         logger.info(f"Generating mock search results for: {query}")
         
