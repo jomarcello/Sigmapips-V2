@@ -2211,17 +2211,39 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         
         logger.info(f"Showing economic calendar analysis for instrument: {instrument}")
         
+        # Show loading message with GIF
+        loading_gif_url = "https://i.imgur.com/EYZJ8Kv.gif"  # Loading GIF URL
+        has_photo = bool(query.message.photo) or query.message.animation is not None
+            
         try:
             # Show loading message
             loading_text = f"Generating economic calendar for {instrument}..."
-            try:
-                await query.edit_message_text(text=loading_text)
-            except Exception as e:
-                logger.warning(f"Could not edit message text: {str(e)}")
+            
+            if has_photo:
+                # If message has photo, edit the caption to show loading
                 try:
-                    await query.edit_message_caption(caption=loading_text)
+                    await query.edit_message_caption(
+                        caption=loading_text,
+                        parse_mode=ParseMode.HTML
+                    )
                 except Exception as e:
                     logger.error(f"Could not edit message caption: {str(e)}")
+            else:
+                # If no photo, use a loading GIF
+                try:
+                    await query.edit_message_media(
+                        media=InputMediaPhoto(
+                            media=loading_gif_url,
+                            caption=loading_text,
+                            parse_mode=ParseMode.HTML
+                        )
+                    )
+                except Exception as e:
+                    logger.error(f"Could not edit message media: {str(e)}")
+                    try:
+                        await query.edit_message_text(text=loading_text, parse_mode=ParseMode.HTML)
+                    except Exception as text_error:
+                        logger.error(f"Could not edit message text: {str(text_error)}")
             
             # Get calendar data from calendar service
             calendar_data = await self.calendar_service.get_events(instrument)
@@ -2230,28 +2252,29 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 raise Exception("Failed to get calendar data")
             
             # Format the calendar message
-            message = f"📅 <b>Economic Calendar for {instrument}</b>\n\n"
+            message = f"<b>📅 Economic Calendar for {instrument}</b>\n\n"
             
             # Add events if available
             if "events" in calendar_data and calendar_data["events"]:
                 events = calendar_data["events"]
                 for event in events[:10]:  # Limit to first 10 events to avoid message too long
-                    impact = "🔴" if event.get("impact") == "high" else "🟡" if event.get("impact") == "medium" else "🟢"
-                    message += f"{impact} <b>{event.get('date', 'Unknown date')}:</b> {event.get('title', 'Unknown event')}\n"
-                    if "forecast" in event and event["forecast"]:
-                        message += f"   Forecast: {event['forecast']}\n"
-                    if "previous" in event and event["previous"]:
-                        message += f"   Previous: {event['previous']}\n"
-                    message += "\n"
+                    impact = "🔴" if event.get("impact") == "high" else "🟠" if event.get("impact") == "medium" else "🟢"
+                    message += f"{event.get('date', 'Unknown date')} - {event.get('title', 'Unknown event')} {impact}\n\n"
                 
                 if len(events) > 10:
-                    message += f"<i>+{len(events) - 10} more events...</i>\n"
+                    message += f"<i>+{len(events) - 10} more events...</i>\n\n"
             else:
-                message += "No upcoming economic events found for this instrument.\n"
+                message += "No upcoming economic events found for this instrument.\n\n"
             
             # Add impact explanation if available
             if "explanation" in calendar_data:
-                message += f"\n<b>Potential Market Impact:</b>\n{calendar_data['explanation']}\n"
+                message += f"<b>Potential Market Impact:</b>\n{calendar_data['explanation']}\n\n"
+                
+            # Add legend at the bottom
+            message += "-------------------\n"
+            message += "🔴 High Impact\n"
+            message += "🟠 Medium Impact\n"
+            message += "🟢 Low Impact"
             
             # Create keyboard for navigation and refresh
             keyboard = [
@@ -2260,13 +2283,48 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 [InlineKeyboardButton("🏠 Main Menu", callback_data="back_menu")]
             ]
             
-            # Update message with calendar
+            # Remove loading GIF and update message with calendar data
             try:
-                await query.edit_message_text(
-                    text=message,
-                    reply_markup=InlineKeyboardMarkup(keyboard),
-                    parse_mode=ParseMode.HTML
-                )
+                # Multi-step approach to remove media
+                try:
+                    # Step 1: Try to completely replace the message
+                    await query.edit_message_text(
+                        text=message,
+                        reply_markup=InlineKeyboardMarkup(keyboard),
+                        parse_mode=ParseMode.HTML
+                    )
+                except Exception as text_error:
+                    logger.warning(f"Could not edit message text: {str(text_error)}")
+                    
+                    # Step 2: If message has media, try to replace with transparent gif
+                    if "Message to edit not found" not in str(text_error) and has_photo:
+                        try:
+                            # Use transparent 1x1 gif to replace media
+                            transparent_gif = "https://upload.wikimedia.org/wikipedia/commons/thumb/0/00/Transparent.gif/1px-Transparent.gif"
+                            await query.edit_message_media(
+                                media=InputMediaDocument(
+                                    media=transparent_gif,
+                                    caption=message,
+                                    parse_mode=ParseMode.HTML
+                                ),
+                                reply_markup=InlineKeyboardMarkup(keyboard)
+                            )
+                        except Exception as media_error:
+                            logger.warning(f"Could not replace media: {str(media_error)}")
+                            
+                            # Step 3: Last resort - just edit the caption
+                            await query.edit_message_caption(
+                                caption=message,
+                                reply_markup=InlineKeyboardMarkup(keyboard),
+                                parse_mode=ParseMode.HTML
+                            )
+                    else:
+                        # If no photo or message not found, send new message
+                        await query.message.reply_text(
+                            text=message,
+                            parse_mode=ParseMode.HTML,
+                            reply_markup=InlineKeyboardMarkup(keyboard)
+                        )
             except Exception as e:
                 logger.error(f"Error updating message with calendar: {str(e)}")
                 # Try to send a new message as fallback
@@ -2279,30 +2337,67 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             return CHOOSE_ANALYSIS
             
         except Exception as e:
-            logger.error(f"Error generating calendar analysis: {str(e)}")
-            error_text = f"Error generating economic calendar for {instrument}. Please try again."
+            logger.error(f"Error showing calendar analysis: {str(e)}")
+            error_text = f"Error generating calendar data for {instrument}. Please try again."
+            
+            # Try to remove the loading GIF first
             try:
-                await query.edit_message_text(
-                    text=error_text,
-                    reply_markup=InlineKeyboardMarkup([
-                        [InlineKeyboardButton("⬅️ Back", callback_data="back_market")],
-                        [InlineKeyboardButton("🏠 Main Menu", callback_data="back_menu")]
-                    ])
-                )
-            except Exception as e:
-                logger.error(f"Error updating error message: {str(e)}")
+                # Multi-step approach to remove media
                 try:
-                    await query.edit_message_caption(
-                        caption=error_text,
+                    # Step 1: Try to edit message text
+                    await query.edit_message_text(
+                        text=error_text,
                         reply_markup=InlineKeyboardMarkup([
                             [InlineKeyboardButton("⬅️ Back", callback_data="back_market")],
                             [InlineKeyboardButton("🏠 Main Menu", callback_data="back_menu")]
-                        ])
+                        ]),
+                        parse_mode=ParseMode.HTML
                     )
-                except Exception as e:
-                    logger.error(f"Error updating error caption: {str(e)}")
-            
-            return BACK_TO_MENU
+                except Exception as text_error:
+                    logger.warning(f"Could not edit message text: {str(text_error)}")
+                    
+                    # Step 2: If message has media, try to replace with transparent gif
+                    if "Message to edit not found" not in str(text_error) and has_photo:
+                        try:
+                            # Use transparent 1x1 gif to replace media
+                            transparent_gif = "https://upload.wikimedia.org/wikipedia/commons/thumb/0/00/Transparent.gif/1px-Transparent.gif"
+                            await query.edit_message_media(
+                                media=InputMediaDocument(
+                                    media=transparent_gif,
+                                    caption=error_text,
+                                    parse_mode=ParseMode.HTML
+                                ),
+                                reply_markup=InlineKeyboardMarkup([
+                                    [InlineKeyboardButton("⬅️ Back", callback_data="back_market")],
+                                    [InlineKeyboardButton("🏠 Main Menu", callback_data="back_menu")]
+                                ])
+                            )
+                        except Exception as media_error:
+                            logger.warning(f"Could not replace media: {str(media_error)}")
+                            
+                            # Step 3: Last resort - just edit the caption
+                            await query.edit_message_caption(
+                                caption=error_text,
+                                reply_markup=InlineKeyboardMarkup([
+                                    [InlineKeyboardButton("⬅️ Back", callback_data="back_market")],
+                                    [InlineKeyboardButton("🏠 Main Menu", callback_data="back_menu")]
+                                ]),
+                                parse_mode=ParseMode.HTML
+                            )
+                    else:
+                        # If no photo or message not found, send new message
+                        await query.message.reply_text(
+                            text=error_text,
+                            parse_mode=ParseMode.HTML,
+                            reply_markup=InlineKeyboardMarkup([
+                                [InlineKeyboardButton("⬅️ Back", callback_data="back_market")],
+                                [InlineKeyboardButton("🏠 Main Menu", callback_data="back_menu")]
+                            ])
+                        )
+            except Exception as final_e:
+                logger.error(f"Final error in error handling: {str(final_e)}")
+                
+            return CHOOSE_MARKET
 
     async def back_to_signal_analysis_callback(self, update: Update, context=None) -> int:
         """Handle back_to_signal_analysis button press"""
