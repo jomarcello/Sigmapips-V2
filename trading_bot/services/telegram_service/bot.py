@@ -2018,8 +2018,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Clean up the analysis text
             analysis_text = analysis_text.replace("</b><b>", "</b> <b>")  # Fix malformed tags
             
-            # Maak alle kopjes in de analyse bold
-            # Zoek naar kopjes zoals "Market Sentiment Breakdown:", "Market Direction:", etc.
+            # Zorgen dat ALLE kopjes in de analyse direct in bold staan
             headers = [
                 "Market Sentiment Breakdown:",
                 "Market Direction:",
@@ -2032,9 +2031,15 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 "Sentiment Breakdown:"
             ]
             
+            # Eerst verwijderen we bestaande bold tags bij headers om dubbele tags te voorkomen
             for header in headers:
-                if header in analysis_text:
-                    analysis_text = analysis_text.replace(header, f"<b>{header}</b>")
+                if f"<b>{header}</b>" in analysis_text:
+                    # Als header al bold is, niet opnieuw toepassen
+                    continue
+                
+                # Vervang normale tekst door bold tekst, met regex om exacte match te garanderen
+                pattern = re.compile(r'(\n|^)(' + re.escape(header) + r')')
+                analysis_text = pattern.sub(r'\1<b>\2</b>', analysis_text)
             
             # Verwijder extra witruimte tussen secties
             analysis_text = re.sub(r'\n{3,}', '\n\n', analysis_text)  # Replace 3+ newlines with 2
@@ -2046,24 +2051,38 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             
             # If there's analysis text, add it with compact formatting
             if analysis_text:
+                found_header = False
+                
+                # Controleer specifiek op Market Sentiment Breakdown header
                 if "<b>Market Sentiment Breakdown:</b>" in analysis_text:
-                    parts = analysis_text.split("<b>Market Sentiment Breakdown:</b>")
-                    # Voeg breakdown direct toe zonder extra witruimte
+                    parts = analysis_text.split("<b>Market Sentiment Breakdown:</b>", 1)
                     full_message += f"\n\n<b>Market Sentiment Breakdown:</b>{parts[1]}"
-                else:
-                    # Controleer of er ergens een kop is om witruimte te minimaliseren
-                    found_header = False
+                    found_header = True
+                elif "Market Sentiment Breakdown:" in analysis_text:
+                    # Als de header er wel is maar niet bold, fix het
+                    parts = analysis_text.split("Market Sentiment Breakdown:", 1)
+                    full_message += f"\n\n<b>Market Sentiment Breakdown:</b>{parts[1]}"
+                    found_header = True
+                
+                # Als de Market Sentiment header niet gevonden is, zoek andere headers
+                if not found_header:
                     for header in headers:
                         header_bold = f"<b>{header}</b>"
                         if header_bold in analysis_text:
-                            found_header = True
                             parts = analysis_text.split(header_bold, 1)
                             full_message += f"\n\n{header_bold}{parts[1]}"
+                            found_header = True
                             break
-                    
-                    # Als geen kopjes gevonden zijn, voeg de volledige analyse toe
-                    if not found_header:
-                        full_message += f"\n\n{analysis_text}"
+                        elif header in analysis_text:
+                            # Als de header er wel is maar niet bold, fix het
+                            parts = analysis_text.split(header, 1)
+                            full_message += f"\n\n<b>{header}</b>{parts[1]}"
+                            found_header = True
+                            break
+                
+                # Als geen headers gevonden, voeg de volledige analyse toe
+                if not found_header:
+                    full_message += f"\n\n{analysis_text}"
             else:
                 # No analysis text, add a manual breakdown without extra spacing
                 full_message += f"""
@@ -2071,6 +2090,9 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
 🟢 Bullish: {bullish}%
 🔴 Bearish: {bearish}%
 ⚪️ Neutral: {neutral}%"""
+
+            # Verwijder alle dubbele newlines om nog meer witruimte te voorkomen
+            full_message = re.sub(r'\n{3,}', '\n\n', full_message)
             
             # Create reply markup with back button
             reply_markup = InlineKeyboardMarkup([[
@@ -2946,74 +2968,60 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         query = update.callback_query
         await query.answer()
         
-        # Welkomstbericht en keyboard
-        text = WELCOME_MESSAGE
-        keyboard = START_KEYBOARD
+        # Gebruik ALTIJD de correcte welkomst-GIF URL, nooit een dynamische URL
+        welkomst_gif = "https://media.giphy.com/media/dpjUltnOPye7azvAhH/giphy.gif"
         
-        # Gebruik een vaste welkomst-GIF URL om zeker te zijn dat de juiste GIF wordt getoond
-        gif_url = "https://media.giphy.com/media/dpjUltnOPye7azvAhH/giphy.gif"
-        
-        # Check of het bericht een foto of animatie bevat die verwijderd moet worden
-        has_media = bool(query.message.photo) or query.message.animation is not None
-        
-        # Effectieve aanpak: verwijder altijd het bestaande bericht en maak een nieuw bericht
+        # Simpelere benadering: altijd bericht verwijderen en nieuw bericht sturen
         try:
             # Verwijder het huidige bericht
             await query.message.delete()
             
-            # Stuur een nieuw bericht met welkomst-GIF
+            # Stuur een nieuw bericht met de welkomst-GIF
             await context.bot.send_animation(
                 chat_id=update.effective_chat.id,
-                animation=gif_url,
-                caption=text,
-                reply_markup=InlineKeyboardMarkup(keyboard),
+                animation=welkomst_gif,
+                caption=WELCOME_MESSAGE,
+                reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
                 parse_mode=ParseMode.HTML
             )
             return MENU
-        except Exception as delete_error:
-            logger.warning(f"Could not delete message: {str(delete_error)}")
+        except Exception as e:
+            logger.error(f"Fout bij terugkeer naar menu: {str(e)}")
             
-            # Als verwijderen mislukt, probeer de bestaande media direct te vervangen
+            # Als verwijderen niet lukt, stuur toch een nieuw bericht
             try:
-                await query.edit_message_media(
-                    media=InputMediaAnimation(
-                        media=gif_url,
-                        caption=text
-                    ),
-                    reply_markup=InlineKeyboardMarkup(keyboard)
+                await context.bot.send_animation(
+                    chat_id=update.effective_chat.id,
+                    animation=welkomst_gif,
+                    caption=WELCOME_MESSAGE,
+                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
+                    parse_mode=ParseMode.HTML
                 )
                 return MENU
-            except Exception as media_error:
-                logger.warning(f"Could not update media with GIF: {str(media_error)}")
+            except Exception as send_error:
+                logger.error(f"Kon geen nieuw bericht sturen: {str(send_error)}")
                 
-                # Als media updaten mislukt, probeer tenminste het bijschrift te updaten
+                # Als laatste poging, probeer het bestaande bericht aan te passen
                 try:
-                    await query.edit_message_caption(
-                        caption=text,
-                        reply_markup=InlineKeyboardMarkup(keyboard),
-                        parse_mode=ParseMode.HTML
+                    await query.edit_message_media(
+                        media=InputMediaAnimation(
+                            media=welkomst_gif,
+                            caption=WELCOME_MESSAGE
+                        ),
+                        reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
                     )
-                except Exception as caption_error:
-                    logger.error(f"Could not update caption: {str(caption_error)}")
+                except Exception as media_error:
+                    logger.error(f"Kon media niet updaten: {str(media_error)}")
                     
-                    # Als laatste optie, probeer de tekst te updaten
+                    # Als helemaal niets lukt, probeer tenminste de tekst te updaten
                     try:
                         await query.edit_message_text(
-                            text=text,
-                            reply_markup=InlineKeyboardMarkup(keyboard),
+                            text=WELCOME_MESSAGE,
+                            reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
                             parse_mode=ParseMode.HTML
                         )
                     except Exception as text_error:
-                        logger.error(f"Could not update text: {str(text_error)}")
-                        
-                        # Allerlaatste optie: stuur een compleet nieuw bericht
-                        await context.bot.send_animation(
-                            chat_id=update.effective_chat.id,
-                            animation=gif_url,
-                            caption=text,
-                            reply_markup=InlineKeyboardMarkup(keyboard),
-                            parse_mode=ParseMode.HTML
-                        )
+                        logger.error(f"Kon tekst niet updaten: {str(text_error)}")
         
         return MENU
     
