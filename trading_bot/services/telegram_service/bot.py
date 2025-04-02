@@ -1939,30 +1939,6 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 logger.error(f"Error getting sentiment data: {str(e)}")
                 raise ValueError(f"Failed to get sentiment data: {str(e)}")
             
-            # Extract sentiment data
-            bullish = sentiment_data.get('bullish', 50)
-            bearish = sentiment_data.get('bearish', 30)
-            neutral = sentiment_data.get('neutral', 20)
-            
-            # Ensure percentages add up to 100%
-            total = bullish + bearish + neutral
-            if total != 100:
-                factor = 100 / total if total > 0 else 1
-                bullish = round(bullish * factor)
-                bearish = round(bearish * factor)
-                neutral = 100 - bullish - bearish
-            
-            # Determine overall sentiment
-            if bullish > bearish + neutral:
-                overall = "Bullish"
-                emoji = "📈"
-            elif bearish > bullish + neutral:
-                overall = "Bearish"
-                emoji = "📉"
-            else:
-                overall = "Neutral"
-                emoji = "⚖️"
-            
             # Get analysis text
             analysis_text = ""
             if isinstance(sentiment_data.get('analysis'), str):
@@ -1973,22 +1949,44 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Limit analysis length
             if len(analysis_text) > 2000:
                 analysis_text = analysis_text[:2000] + "..."
+            
+            # Bepaal of we de eerste sentiment breakdown moeten verwijderen of niet
+            if analysis_text and "<b>Market Sentiment Breakdown:</b>" in analysis_text:
+                # We verwijderen de eigen sentiment breakdown sectie omdat deze in de analysis text al voorkomt
+                message = analysis_text
+            else:
+                # Extract sentiment data voor eigen weergave
+                bullish = sentiment_data.get('bullish', 50)
+                bearish = sentiment_data.get('bearish', 30)
+                neutral = sentiment_data.get('neutral', 20)
                 
-            # Format the sentiment message
-            message = f"""<b>🧠 Market Sentiment Analysis: {instrument}</b>
-
-<b>Overall Sentiment:</b> {overall} {emoji}
+                # Ensure percentages add up to 100%
+                total = bullish + bearish + neutral
+                if total != 100:
+                    factor = 100 / total if total > 0 else 1
+                    bullish = round(bullish * factor)
+                    bearish = round(bearish * factor)
+                    neutral = 100 - bullish - bearish
+                
+                # Determine overall sentiment
+                if bullish > bearish + neutral:
+                    overall = "Bullish"
+                    emoji = "📈"
+                elif bearish > bullish + neutral:
+                    overall = "Bearish"
+                    emoji = "📉"
+                else:
+                    overall = "Neutral"
+                    emoji = "⚖️"
+                    
+                message = f"""<b>Overall Sentiment:</b> {overall} {emoji}
 
 <b>Sentiment Breakdown:</b>
 - Bullish: {bullish}%
 - Bearish: {bearish}%
 - Neutral: {neutral}%
 
-"""
-            
-            # Add analysis if available
-            if analysis_text:
-                message += f"{analysis_text}\n"
+{analysis_text}"""
             
             # Create keyboard with back button
             keyboard = [
