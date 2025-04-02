@@ -1972,34 +1972,40 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     # Remove title from analysis text
                     rest_text = analysis_text.replace(title, "").strip()
                     
-                    # Create message with title first, then sentiment, then rest of analysis
-                    full_message = f"{title}\n\n<b>Overall Sentiment:</b> {overall} {emoji}\n"
+                    # Clean up excessive whitespace
+                    rest_text = re.sub(r'\n{3,}', '\n\n', rest_text)  # Replace 3+ newlines with 2
+                    rest_text = re.sub(r'^\n+', '', rest_text)  # Remove leading newlines
                     
-                    # Remove any excessive newlines from the beginning of rest_text
-                    rest_text = re.sub(r'^\n+', '', rest_text)
-                    # Ensure only one newline between sections
-                    rest_text = re.sub(r'\n{3,}', '\n\n', rest_text)
-                    
-                    full_message += f"\n{rest_text}"
+                    # Look for Market Sentiment Breakdown section
+                    breakdown_match = re.search(r'Market Sentiment Breakdown:', rest_text)
+                    if breakdown_match:
+                        # Split text at the breakdown section
+                        parts = rest_text.split('Market Sentiment Breakdown:')
+                        if len(parts) >= 2:
+                            # Format message with compact spacing
+                            full_message = f"{title}\n\n<b>Overall Sentiment:</b> {overall} {emoji}\n\n<b>Market Sentiment Breakdown:</b>{parts[1]}"
+                        else:
+                            full_message = f"{title}\n\n<b>Overall Sentiment:</b> {overall} {emoji}\n\n{rest_text}"
+                    else:
+                        full_message = f"{title}\n\n<b>Overall Sentiment:</b> {overall} {emoji}\n\n{rest_text}"
                 else:
                     # Fallback if regex match fails
                     full_message = f"<b>🎯 {instrument} Market Analysis</b>\n\n<b>Overall Sentiment:</b> {overall} {emoji}\n\n{analysis_text}"
             else:
                 # No title in analysis, create default format
-                full_message = f"<b>🎯 {instrument} Market Analysis</b>\n\n<b>Overall Sentiment:</b> {overall} {emoji}\n"
+                full_message = f"<b>🎯 {instrument} Market Analysis</b>\n\n<b>Overall Sentiment:</b> {overall} {emoji}\n\n"
                 
                 # Add sentiment breakdown manually if no analysis text
                 if not analysis_text:
-                    full_message += f"""\n<b>Sentiment Breakdown:</b>
-- Bullish: {bullish}%
-- Bearish: {bearish}%
-- Neutral: {neutral}%"""
+                    full_message += f"""<b>Market Sentiment Breakdown:</b>
+🟢 Bullish: {bullish}%
+🔴 Bearish: {bearish}%
+⚪️ Neutral: {neutral}%"""
                 else:
-                    # Remove excessive newlines from the beginning of analysis_text
-                    analysis_text = re.sub(r'^\n+', '', analysis_text)
-                    # Ensure only one newline between sections
-                    analysis_text = re.sub(r'\n{3,}', '\n\n', analysis_text)
-                    full_message += f"\n{analysis_text}"
+                    # Remove excessive newlines and clean up formatting
+                    analysis_text = re.sub(r'^\n+', '', analysis_text)  # Remove leading newlines
+                    analysis_text = re.sub(r'\n{3,}', '\n\n', analysis_text)  # Replace 3+ newlines with 2
+                    full_message += analysis_text
             
             # Create reply markup with back button
             reply_markup = InlineKeyboardMarkup([[
@@ -2691,83 +2697,51 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         query = update.callback_query
         await query.answer()
         
-        # Check if the message has a photo or animation that needs to be removed
-        has_photo = bool(query.message.photo) or query.message.animation is not None
-        
         # Prepare keyboard for analysis menu
         keyboard = ANALYSIS_KEYBOARD
         text = "Select your analysis type:"
         
-        # Always delete the current message and send a new one to ensure clean display
+        # First delete the current message which might have a GIF
         try:
-            # Try to delete the current message (especially important for GIFs)
+            # Try to delete the message completely
             await query.message.delete()
-            # Send a new message with just the text and keyboard
-            await query.message.reply_text(
+            # Then send a completely new message
+            new_message = await context.bot.send_message(
+                chat_id=update.effective_chat.id,
                 text=text,
                 reply_markup=InlineKeyboardMarkup(keyboard),
                 parse_mode=ParseMode.HTML
             )
             return CHOOSE_ANALYSIS
-        except Exception as delete_error:
-            logger.warning(f"Could not delete message: {str(delete_error)}")
+        except Exception as e:
+            logger.warning(f"Could not delete message: {str(e)}")
             
-            # If deletion fails, try different approaches to update the message
-            if has_photo:
+            # If deletion fails, try to edit the message directly
+            try:
+                # Direct text edit to replace any GIF or media
+                await query.edit_message_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.HTML
+                )
+            except Exception as text_error:
+                logger.warning(f"Could not edit message text: {str(text_error)}")
                 try:
-                    # For messages with media, try to edit media to text
-                    await query.edit_message_text(
+                    # Try to edit the caption if it's a media message
+                    await query.edit_message_caption(
+                        caption=text,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+                except Exception as caption_error:
+                    logger.error(f"Could not edit caption: {str(caption_error)}")
+                    
+                    # Final fallback: send a completely new message
+                    await context.bot.send_message(
+                        chat_id=update.effective_chat.id,
                         text=text,
                         reply_markup=InlineKeyboardMarkup(keyboard),
                         parse_mode=ParseMode.HTML
                     )
-                except Exception as edit_text_error:
-                    try:
-                        # If editing text fails, try updating caption
-                        await query.edit_message_caption(
-                            caption=text,
-                            reply_markup=InlineKeyboardMarkup(keyboard)
-                        )
-                    except Exception as caption_error:
-                        logger.error(f"Could not edit caption: {str(caption_error)}")
-                        # Last resort - send a completely new message
-                        await query.message.reply_text(
-                            text=text,
-                            reply_markup=InlineKeyboardMarkup(keyboard),
-                            parse_mode=ParseMode.HTML
-                        )
-            else:
-                # No photo/animation - simple text update
-                try:
-                    await query.edit_message_text(
-                        text=text,
-                        reply_markup=InlineKeyboardMarkup(keyboard),
-                        parse_mode=ParseMode.HTML
-                    )
-                except Exception as text_error:
-                    if "There is no text in the message to edit" in str(text_error):
-                        try:
-                            # Try caption update if no text
-                            await query.edit_message_caption(
-                                caption=text,
-                                reply_markup=InlineKeyboardMarkup(keyboard)
-                            )
-                        except Exception as caption_error:
-                            logger.error(f"Failed to update caption: {str(caption_error)}")
-                            # Last resort - new message
-                            await query.message.reply_text(
-                                text=text,
-                                reply_markup=InlineKeyboardMarkup(keyboard),
-                                parse_mode=ParseMode.HTML
-                            )
-                    else:
-                        logger.error(f"Error updating message: {str(text_error)}")
-                        # Last resort - new message
-                        await query.message.reply_text(
-                            text=text,
-                            reply_markup=InlineKeyboardMarkup(keyboard),
-                            parse_mode=ParseMode.HTML
-                        )
         
         return CHOOSE_ANALYSIS
 
