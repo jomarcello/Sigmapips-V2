@@ -1904,20 +1904,21 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Show simple loading text instead of GIF to avoid mixed content issues
             loading_text = f"Generating sentiment analysis for {instrument}..."
             
+            # Detecteer of het bericht media bevat
+            has_photo = False
+            if hasattr(query.message, 'photo') and query.message.photo:
+                has_photo = True
+            elif hasattr(query.message, 'animation') and query.message.animation:
+                has_photo = True
+                
             try:
                 # Probeer eerst de caption te updaten (als het een media bericht is)
-                try:
+                if has_photo:
                     await query.edit_message_caption(
                         caption=loading_text,
                         parse_mode=ParseMode.HTML
                     )
-                    is_media_message = True
-                except Exception as caption_error:
-                    logger.info(f"Message doesn't have caption or is not media: {str(caption_error)}")
-                    is_media_message = False
-                    
-                # Als caption update faalt, probeer tekst te updaten
-                if not is_media_message:
+                else:
                     await query.edit_message_text(
                         text=loading_text,
                         parse_mode=ParseMode.HTML
@@ -1939,6 +1940,30 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 logger.error(f"Error getting sentiment data: {str(e)}")
                 raise ValueError(f"Failed to get sentiment data: {str(e)}")
             
+            # Extract sentiment data
+            bullish = sentiment_data.get('bullish', 50)
+            bearish = sentiment_data.get('bearish', 30)
+            neutral = sentiment_data.get('neutral', 20)
+            
+            # Ensure percentages add up to 100%
+            total = bullish + bearish + neutral
+            if total != 100:
+                factor = 100 / total if total > 0 else 1
+                bullish = round(bullish * factor)
+                bearish = round(bearish * factor)
+                neutral = 100 - bullish - bearish
+            
+            # Determine overall sentiment
+            if bullish > bearish + neutral:
+                overall = "Bullish"
+                emoji = "📈"
+            elif bearish > bullish + neutral:
+                overall = "Bearish"
+                emoji = "📉"
+            else:
+                overall = "Neutral"
+                emoji = "⚖️"
+                
             # Get analysis text
             analysis_text = ""
             if isinstance(sentiment_data.get('analysis'), str):
@@ -1951,37 +1976,16 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 analysis_text = analysis_text[:2000] + "..."
             
             # Bepaal of we de eerste sentiment breakdown moeten verwijderen of niet
-            if analysis_text and "<b>Market Sentiment Breakdown:</b>" in analysis_text:
-                # We verwijderen de eigen sentiment breakdown sectie omdat deze in de analysis text al voorkomt
-                message = analysis_text
-            else:
-                # Extract sentiment data voor eigen weergave
-                bullish = sentiment_data.get('bullish', 50)
-                bearish = sentiment_data.get('bearish', 30)
-                neutral = sentiment_data.get('neutral', 20)
-                
-                # Ensure percentages add up to 100%
-                total = bullish + bearish + neutral
-                if total != 100:
-                    factor = 100 / total if total > 0 else 1
-                    bullish = round(bullish * factor)
-                    bearish = round(bearish * factor)
-                    neutral = 100 - bullish - bearish
-                
-                # Determine overall sentiment
-                if bullish > bearish + neutral:
-                    overall = "Bullish"
-                    emoji = "📈"
-                elif bearish > bullish + neutral:
-                    overall = "Bearish"
-                    emoji = "📉"
-                else:
-                    overall = "Neutral"
-                    emoji = "⚖️"
-                    
-                message = f"""<b>Overall Sentiment:</b> {overall} {emoji}
+            sentiment_header = f"""<b>Overall Sentiment:</b> {overall} {emoji}
 
-<b>Sentiment Breakdown:</b>
+"""
+            
+            if analysis_text and "<b>Market Sentiment Breakdown:</b>" in analysis_text:
+                # We voegen de overall sentiment toe en behouden de rest van de analyse
+                message = sentiment_header + analysis_text
+            else:
+                # We voegen zowel overall sentiment als onze eigen breakdown toe
+                message = f"""{sentiment_header}<b>Sentiment Breakdown:</b>
 - Bullish: {bullish}%
 - Bearish: {bearish}%
 - Neutral: {neutral}%
@@ -1993,12 +1997,67 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 [InlineKeyboardButton("⬅️ Back", callback_data="back_to_analysis")]
             ]
             
-            # Show sentiment results - GEBRUIK ALTIJD EEN NIEUWE MESSAGE OM FOUTEN TE VOORKOMEN
-            await query.message.reply_text(
-                text=message,
-                parse_mode=ParseMode.HTML,
-                reply_markup=InlineKeyboardMarkup(keyboard)
-            )
+            # Multi-stap aanpak voor het verwijderen van media en tonen van resultaten
+            if has_photo:
+                try:
+                    # Stap 1: Probeer het bericht te verwijderen (werkt alleen in privéchats)
+                    await query.message.delete()
+                    # Stuur een nieuw bericht als verwijderen succesvol was
+                    await query.message.reply_text(
+                        text=message,
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+                    return CHOOSE_ANALYSIS
+                except Exception as delete_error:
+                    logger.warning(f"Could not delete message: {str(delete_error)}")
+                    
+                    try:
+                        # Stap 2: Vervang met transparante GIF als verwijderen niet lukt
+                        await query.edit_message_media(
+                            media=InputMediaDocument(
+                                media="https://upload.wikimedia.org/wikipedia/commons/thumb/0/00/Transparent.gif/1px-Transparent.gif",
+                                caption=message,
+                                parse_mode=ParseMode.HTML
+                            ),
+                            reply_markup=InlineKeyboardMarkup(keyboard)
+                        )
+                        return CHOOSE_ANALYSIS
+                    except Exception as media_error:
+                        logger.warning(f"Could not replace media: {str(media_error)}")
+                        
+                        try:
+                            # Stap 3: Als laatste optie, bewerk alleen het bijschrift
+                            await query.edit_message_caption(
+                                caption=message,
+                                parse_mode=ParseMode.HTML,
+                                reply_markup=InlineKeyboardMarkup(keyboard)
+                            )
+                            return CHOOSE_ANALYSIS
+                        except Exception as caption_error:
+                            logger.error(f"Could not update caption: {str(caption_error)}")
+                            # Fallback naar het sturen van een nieuw bericht
+                            await query.message.reply_text(
+                                text=message,
+                                parse_mode=ParseMode.HTML,
+                                reply_markup=InlineKeyboardMarkup(keyboard)
+                            )
+            else:
+                # Geen media aanwezig, gewoon tekst bijwerken
+                try:
+                    await query.edit_message_text(
+                        text=message,
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+                except Exception as e:
+                    logger.error(f"Could not update text message: {str(e)}")
+                    # Fallback naar het sturen van een nieuw bericht
+                    await query.message.reply_text(
+                        text=message,
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
             
             return CHOOSE_ANALYSIS
             
