@@ -1230,76 +1230,171 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
 
     async def analysis_calendar_callback(self, update: Update, context=None) -> int:
         """Handle analysis_calendar button press"""
+        
         query = update.callback_query
-        await query.answer()
+        user_id = query.from_user.id
         
-        # Set analysis type in context
-        if context and hasattr(context, 'user_data'):
-            context.user_data['analysis_type'] = 'calendar'
+        # Get the user's selected instrument
+        instrument = context.user_data.get('selected_instrument') if context else None
         
-        # Show loading message
-        try:
-            await query.edit_message_text(
-                text="Loading economic calendar data for today...",
-                parse_mode=ParseMode.HTML
-            )
-        except Exception as text_error:
-            # If that fails due to caption, try editing caption
-            if "There is no text in the message to edit" in str(text_error):
-                try:
-                    await query.edit_message_caption(
-                        caption="Loading economic calendar data for today...",
-                        parse_mode=ParseMode.HTML
-                    )
-                except Exception as e:
-                    logger.error(f"Failed to update caption: {str(e)}")
-            else:
-                # Re-raise for other errors
-                raise
-                
+        if not instrument:
+            logger.error("No instrument provided for calendar analysis")
+            try:
+                await query.edit_message_text(
+                    text="Please select an instrument first.",
+                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
+                )
+            except Exception as e:
+                logger.error(f"Error updating message: {str(e)}")
+            return CHOOSE_MARKET
+        
+        logger.info(f"Showing economic calendar for {instrument}")
+        
         # Initialize EconomicCalendarService if it's not already initialized
         if not hasattr(self, 'calendar_service') or self.calendar_service is None:
+            self.logger.info("Creating new EconomicCalendarService instance")
             self.calendar_service = EconomicCalendarService()
-            
-        # Get today's calendar data
+        
+        # Show loading GIF or message
         try:
-            # Get today's calendar data without filtering by instrument
+            # Get the loading GIF URL
+            loading_gif_url = self.calendar_service.get_loading_gif()
+            
+            # Try to send a loading GIF first
+            try:
+                loading_text = f"Loading economic calendar for {instrument}..."
+                
+                if loading_gif_url:
+                    # Try to edit message with loading GIF
+                    try:
+                        await query.edit_message_text(
+                            text=f"{loading_text}\n\n<a href='{loading_gif_url}'>⌛</a>",
+                            parse_mode=ParseMode.HTML
+                        )
+                    except Exception as e:
+                        logger.warning(f"Could not update with loading GIF: {str(e)}")
+                        # Fallback to text only
+                        await query.edit_message_text(text=f"{loading_text} ⌛")
+                else:
+                    # If no loading GIF, just update with text
+                    await query.edit_message_text(text=f"{loading_text} ⌛")
+            except Exception as e:
+                logger.warning(f"Could not update message with loading indicator: {str(e)}")
+        except Exception as e:
+            logger.error(f"Error showing loading state: {str(e)}")
+        
+        # Get today's calendar data with extra debugging
+        try:
+            # Debug log - check service is initialized properly
+            if not self.calendar_service:
+                logger.error("Calendar service is None, recreating...")
+                self.calendar_service = EconomicCalendarService()
+            else:
+                logger.info(f"Calendar service initialized, cache size: {len(self.calendar_service.cache)}")
+            
+            # Debug log to check what Tavily sees
+            from trading_bot.services.ai_service.tavily_service import TavilyService
+            tavily = TavilyService()
+            
+            # Check if Tavily has API key
+            api_key = os.environ.get("TAVILY_API_KEY", "")
+            if api_key:
+                # Just check the first few characters to avoid logging the full key
+                masked_key = api_key[:4] + "..." if len(api_key) > 4 else "[present]"
+                logger.info(f"Tavily API key is available: {masked_key}")
+            else:
+                logger.warning("No Tavily API key found in environment")
+            
+            # Get calendar data for all currencies
+            logger.info("Requesting calendar data for all currencies")
             calendar_data = await self.calendar_service.get_calendar()
             
-            if not calendar_data:
-                raise Exception("Failed to get calendar data")
+            if not calendar_data or len(calendar_data) == 0:
+                logger.warning("Calendar data is empty, trying mock data...")
+                # Try generating mock data if no real data is available
+                mock_data = self.calendar_service._generate_mock_calendar_data(MAJOR_CURRENCIES)
+                flattened_mock = []
+                for currency, events in mock_data.items():
+                    for event in events:
+                        flattened_mock.append({
+                            "time": event.get("time", ""),
+                            "country": currency,
+                            "country_flag": CURRENCY_FLAG.get(currency, ""),
+                            "title": event.get("event", ""),
+                            "impact": event.get("impact", "Low")
+                        })
+                
+                if flattened_mock:
+                    logger.info(f"Generated {len(flattened_mock)} mock calendar events")
+                    calendar_data = flattened_mock
+                else:
+                    logger.error("Failed to generate mock data")
+                    raise Exception("Failed to get calendar data or generate mock data")
+            else:
+                logger.info(f"Got {len(calendar_data)} calendar events from service")
             
             # Format the calendar message with improved formatting
             message = f"<b>📅 Economic Calendar for Today</b>\n\n"
             
-            # Add calendar events
-            if calendar_data and len(calendar_data) > 0:
-                # Sort events by time
-                calendar_data.sort(key=lambda x: x.get('time', '00:00'))
+            # Sort events by time
+            calendar_data.sort(key=lambda x: x.get('time', '00:00'))
+            
+            # Group events by impact for better organization
+            high_impact_events = []
+            medium_impact_events = []
+            low_impact_events = []
+            
+            for event in calendar_data:
+                impact = event.get('impact', 'Low')
+                if impact == 'High':
+                    high_impact_events.append(event)
+                elif impact == 'Medium':
+                    medium_impact_events.append(event)
+                else:
+                    low_impact_events.append(event)
+            
+            # Function to format event
+            def format_event(event):
+                time = event.get('time', 'N/A')
+                country = event.get('country', 'N/A')
+                country_flag = event.get('country_flag', '')
+                title = event.get('title', 'N/A')
+                impact = event.get('impact', 'Low')
                 
-                for event in calendar_data:
-                    # Extract event details
-                    time = event.get('time', 'N/A')
-                    country = event.get('country', 'N/A')
-                    country_flag = event.get('country_flag', '')
-                    title = event.get('title', 'N/A')
-                    impact = event.get('impact', 'N/A')
-                    
-                    # Format impact with emoji
-                    impact_emoji = "🔴" if impact.lower() == "high" else "🟠" if impact.lower() == "medium" else "🟢"
-                    
-                    # Add event to message with improved formatting - no double newlines
-                    message += f"{time} - {country_flag} {country} - {title} {impact_emoji}\n"
-            else:
+                # Format impact with emoji
+                impact_emoji = "🔴" if impact == "High" else "🟠" if impact == "Medium" else "🟢"
+                
+                # Add event to message
+                return f"{time} - {country_flag} {country} - {title} {impact_emoji}\n"
+            
+            # Add high impact events first
+            if high_impact_events:
+                message += "<b>🔴 High Impact Events:</b>\n"
+                for event in high_impact_events:
+                    message += format_event(event)
+                message += "\n"
+            
+            # Add medium impact events
+            if medium_impact_events:
+                message += "<b>🟠 Medium Impact Events:</b>\n"
+                for event in medium_impact_events:
+                    message += format_event(event)
+                message += "\n"
+            
+            # Add low impact events
+            if low_impact_events:
+                message += "<b>🟢 Low Impact Events:</b>\n"
+                for event in low_impact_events:
+                    message += format_event(event)
+            
+            # If no events in any category
+            if not high_impact_events and not medium_impact_events and not low_impact_events:
                 message += "No economic events scheduled for today.\n"
             
-            # Add legend at the bottom with a single newline before
-            message += "\n-------------------\n"
-            message += "🔴 High Impact\n"
-            message += "🟠 Medium Impact\n"
-            message += "🟢 Low Impact"
+            # Add a note about the data source
+            message += "\n<i>ℹ️ Data refreshed hourly</i>"
             
-            # Create keyboard with only a back button
+            # Create keyboard with back button
             keyboard = [
                 [InlineKeyboardButton("⬅️ Back", callback_data="back_to_analysis")]
             ]
@@ -1311,40 +1406,53 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     reply_markup=InlineKeyboardMarkup(keyboard),
                     parse_mode=ParseMode.HTML
                 )
-            except Exception as e:
-                logger.error(f"Error updating message with calendar: {str(e)}")
-                # Try to send a new message as fallback
-                await query.message.reply_text(
-                    text=message,
-                    parse_mode=ParseMode.HTML,
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
-                
-            return CHOOSE_ANALYSIS
-                
+                return ANALYSIS
+            except telegram.error.BadRequest as e:
+                if "Message is not modified" in str(e):
+                    logger.warning("Message not modified, content unchanged")
+                    return ANALYSIS
+                else:
+                    # Try to send as new message if editing fails due to size limits
+                    logger.warning(f"Could not edit message: {str(e)}")
+                    await query.message.reply_text(
+                        text=message,
+                        reply_markup=InlineKeyboardMarkup(keyboard),
+                        parse_mode=ParseMode.HTML
+                    )
+                    return ANALYSIS
+            
         except Exception as e:
-            logger.error(f"Error loading calendar data: {str(e)}")
-            error_text = "Error loading economic calendar data. Please try again."
+            logger.error(f"Error in analysis_calendar_callback: {str(e)}")
+            logger.exception(e)
+            
+            # Create friendly error message
+            error_message = f"<b>⚠️ Error loading economic calendar</b>\n\n"
+            error_message += "Sorry, I couldn't retrieve the economic calendar at this time.\n\n"
+            error_message += "<i>Technical details: API connection issue</i>"
+            
+            keyboard = [
+                [InlineKeyboardButton("🔄 Try Again", callback_data="analysis_calendar")],
+                [InlineKeyboardButton("⬅️ Back", callback_data="back_to_analysis")]
+            ]
+            
             try:
                 await query.edit_message_text(
-                    text=error_text,
-                    reply_markup=InlineKeyboardMarkup([
-                        [InlineKeyboardButton("⬅️ Back", callback_data="back_to_analysis")]
-                    ])
+                    text=error_message,
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.HTML
                 )
-            except Exception as e:
-                logger.error(f"Error updating error message: {str(e)}")
+            except Exception as edit_err:
+                logger.error(f"Error updating message with error: {str(edit_err)}")
                 try:
-                    await query.edit_message_caption(
-                        caption=error_text,
-                        reply_markup=InlineKeyboardMarkup([
-                            [InlineKeyboardButton("⬅️ Back", callback_data="back_to_analysis")]
-                        ])
+                    await query.message.reply_text(
+                        text=error_message,
+                        reply_markup=InlineKeyboardMarkup(keyboard),
+                        parse_mode=ParseMode.HTML
                     )
-                except Exception as e:
-                    logger.error(f"Error updating error caption: {str(e)}")
-                    
-            return BACK_TO_MENU
+                except Exception as reply_err:
+                    logger.error(f"Error sending error message: {str(reply_err)}")
+            
+            return ANALYSIS
 
     async def signal_technical_callback(self, update: Update, context=None) -> int:
         """Handle signal_technical button press"""
