@@ -647,6 +647,11 @@ class TelegramService:
             except Exception as cmd_e:
                 logger.error(f"Error setting bot commands: {str(cmd_e)}")
             
+            # Register command handlers
+            application.add_handler(CommandHandler("start", self.start_command))
+            application.add_handler(CommandHandler("menu", self.menu_command))
+            application.add_handler(CommandHandler("help", self.help_command))
+            
             # Load signals
             self._load_signals()
             
@@ -762,8 +767,8 @@ Start today with a FREE 14-day trial!
                 [InlineKeyboardButton("🔥 Start 14-day FREE Trial", url=checkout_url)]
             ]
             
-            # Welcome GIF URL
-            welcome_gif_url = "https://media1.giphy.com/media/v1.Y2lkPTc5MGI3NjExaWVkdzcxZHMydm8ybnBjYW9rNjd3b2gzeng2b3BhMjA0d3p5dDV1ZSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/gSzIKNrqtotEYrZv7i/giphy.gif"
+            # Gebruik de juiste welkomst-GIF URL
+            welcome_gif_url = "https://media.giphy.com/media/dpjUltnOPye7azvAhH/giphy.gif"
             
             try:
                 # Send the GIF with caption containing the welcome message
@@ -3513,3 +3518,8 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             logger.error(f"Error initializing bot: {str(e)}")
             logger.exception(e)
             return False
+
+    async def menu_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> None:
+        """Show the main menu when /menu command is used"""
+        # Directly call the show_main_menu method
+        await self.show_main_menu(update, context)
