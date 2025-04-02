@@ -911,76 +911,78 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             await update.message.reply_text(error_msg)
 
     async def menu_analyse_callback(self, update: Update, context=None) -> int:
-        """Handle menu_analyse callback"""
+        """Handle menu_analyse button press"""
         query = update.callback_query
-        await query.answer()  # Respond to prevent loading icon
+        await query.answer()
         
+        # Gebruik vaste GIF URL in plaats van dynamische URL
+        gif_url = "https://media.giphy.com/media/gSzIKNrqtotEYrZv7i/giphy.gif"
+        
+        # Probeer eerst het huidige bericht te verwijderen en een nieuw bericht te sturen met de analyse GIF
         try:
-            # Get an analysis GIF URL
-            gif_url = await gif_utils.get_analyse_gif()
-            
-            # Update the message with the GIF using the helper function
-            success = await gif_utils.update_message_with_gif(
-                query=query,
-                gif_url=gif_url,
-                text="Select your analysis type:",
-                reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
+            await query.message.delete()
+            await context.bot.send_animation(
+                chat_id=update.effective_chat.id,
+                animation=gif_url,
+                caption="Select your analysis type:",
+                reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
+                parse_mode=ParseMode.HTML
             )
+            return CHOOSE_ANALYSIS
+        except Exception as delete_error:
+            logger.warning(f"Could not delete message: {str(delete_error)}")
             
-            if not success:
-                # If the helper function failed, try a direct approach as fallback
+            # Als verwijderen mislukt, probeer de media te updaten
+            try:
+                await query.edit_message_media(
+                    media=InputMediaAnimation(
+                        media=gif_url,
+                        caption="Select your analysis type:"
+                    ),
+                    reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
+                )
+                return CHOOSE_ANALYSIS
+            except Exception as media_error:
+                logger.warning(f"Could not update media: {str(media_error)}")
+                
+                # Als media update mislukt, probeer tekst te updaten
                 try:
-                    # First try to edit message text
                     await query.edit_message_text(
                         text="Select your analysis type:",
                         reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
                         parse_mode=ParseMode.HTML
                     )
                 except Exception as text_error:
-                    # If that fails due to caption, try editing caption
+                    # Als tekst updaten mislukt, probeer bijschrift te updaten
                     if "There is no text in the message to edit" in str(text_error):
-                        await query.edit_message_caption(
+                        try:
+                            await query.edit_message_caption(
+                                caption="Select your analysis type:",
+                                reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
+                                parse_mode=ParseMode.HTML
+                            )
+                        except Exception as caption_error:
+                            logger.error(f"Failed to update caption: {str(caption_error)}")
+                            # Laatste redmiddel: stuur een nieuw bericht
+                            await context.bot.send_animation(
+                                chat_id=update.effective_chat.id,
+                                animation=gif_url,
+                                caption="Select your analysis type:",
+                                reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
+                                parse_mode=ParseMode.HTML
+                            )
+                    else:
+                        logger.error(f"Failed to update message: {str(text_error)}")
+                        # Laatste redmiddel: stuur een nieuw bericht
+                        await context.bot.send_animation(
+                            chat_id=update.effective_chat.id,
+                            animation=gif_url,
                             caption="Select your analysis type:",
                             reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
                             parse_mode=ParseMode.HTML
                         )
-            
-            return CHOOSE_ANALYSIS
-        except Exception as e:
-            logger.error(f"Error in menu_analyse_callback: {str(e)}")
-            
-            # If we can't edit the message, try again with a simpler approach as fallback
-            try:
-                # First try editing the caption
-                try:
-                    await query.edit_message_caption(
-                        caption="Select your analysis type:",
-                        reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
-                        parse_mode=ParseMode.HTML
-                    )
-                except Exception as caption_error:
-                    # If that fails, try editing text
-                    await query.edit_message_text(
-                        text="Select your analysis type:",
-                        reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
-                        parse_mode=ParseMode.HTML
-                    )
-                return CHOOSE_ANALYSIS
-            except Exception as inner_e:
-                logger.error(f"Failed to recover from error: {str(inner_e)}")
-                
-                # Last resort: send a new message
-                try:
-                    await query.message.reply_text(
-                        text="Select your analysis type:",
-                        reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
-                        parse_mode=ParseMode.HTML
-                    )
-                    logger.warning("Fallback to sending new message - ideally this should be avoided")
-                except Exception:
-                    pass
-                    
-                return MENU
+        
+        return CHOOSE_ANALYSIS
 
     async def show_main_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None, skip_gif=False) -> None:
         """Show the main menu when /menu command is used"""
@@ -996,14 +998,21 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Show the main menu for subscribed users
             reply_markup = InlineKeyboardMarkup(START_KEYBOARD)
             
+            # Forceer altijd de welkomst GIF
+            gif_url = "https://media.giphy.com/media/dpjUltnOPye7azvAhH/giphy.gif"
+            
             # If we should show the GIF
             if not skip_gif:
                 try:
-                    # Get the menu GIF URL
-                    gif_url = await gif_utils.get_menu_gif()
-                    
                     # For message commands we can use reply_animation
                     if hasattr(update, 'message') and update.message:
+                        # Verwijder eventuele vorige berichten met callback query
+                        if hasattr(update, 'callback_query') and update.callback_query:
+                            try:
+                                await update.callback_query.message.delete()
+                            except Exception:
+                                pass
+                        
                         # Send the GIF using regular animation method
                         await update.message.reply_animation(
                             animation=gif_url,
@@ -1012,39 +1021,68 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                             reply_markup=reply_markup
                         )
                     else:
-                        # For callback queries or other updates where we don't have a direct message
-                        # Use the invisible character trick with HTML
-                        text = f'<a href="{gif_url}">&#8205;</a>\n{WELCOME_MESSAGE}'
-                        
+                        # Voor callback_query, verwijder huidige bericht en stuur nieuw bericht
                         if hasattr(update, 'callback_query') and update.callback_query:
-                            # Edit the existing message
-                            await update.callback_query.edit_message_text(
-                                text=text,
-                                parse_mode=ParseMode.HTML,
-                                reply_markup=reply_markup
-                            )
+                            try:
+                                # Verwijder het huidige bericht
+                                await update.callback_query.message.delete()
+                                
+                                # Stuur nieuw bericht met de welkomst GIF
+                                await bot.send_animation(
+                                    chat_id=update.effective_chat.id,
+                                    animation=gif_url,
+                                    caption=WELCOME_MESSAGE,
+                                    parse_mode=ParseMode.HTML,
+                                    reply_markup=reply_markup
+                                )
+                            except Exception as e:
+                                logger.error(f"Failed to handle callback query: {str(e)}")
+                                # Valt terug op tekstwijziging als verwijderen niet lukt
+                                await update.callback_query.edit_message_text(
+                                    text=WELCOME_MESSAGE,
+                                    parse_mode=ParseMode.HTML,
+                                    reply_markup=reply_markup
+                                )
                         else:
                             # Final fallback - try to send a new message
-                            await update.message.reply_text(
-                                text=text,
+                            await bot.send_animation(
+                                chat_id=update.effective_chat.id,
+                                animation=gif_url,
+                                caption=WELCOME_MESSAGE,
                                 parse_mode=ParseMode.HTML,
                                 reply_markup=reply_markup
                             )
                 except Exception as e:
                     logger.error(f"Failed to send menu GIF: {str(e)}")
                     # Fallback to text-only approach
+                    if hasattr(update, 'message') and update.message:
+                        await update.message.reply_text(
+                            text=WELCOME_MESSAGE,
+                            parse_mode=ParseMode.HTML,
+                            reply_markup=reply_markup
+                        )
+                    else:
+                        await bot.send_message(
+                            chat_id=update.effective_chat.id,
+                            text=WELCOME_MESSAGE,
+                            parse_mode=ParseMode.HTML,
+                            reply_markup=reply_markup
+                        )
+            else:
+                # Skip GIF mode - just send text
+                if hasattr(update, 'message') and update.message:
                     await update.message.reply_text(
                         text=WELCOME_MESSAGE,
                         parse_mode=ParseMode.HTML,
                         reply_markup=reply_markup
                     )
-            else:
-                # Skip GIF mode - just send text
-                await update.message.reply_text(
-                    text=WELCOME_MESSAGE,
-                    parse_mode=ParseMode.HTML,
-                    reply_markup=reply_markup
-                )
+                else:
+                    await bot.send_message(
+                        chat_id=update.effective_chat.id,
+                        text=WELCOME_MESSAGE,
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=reply_markup
+                    )
         else:
             # Handle non-subscribed users similar to start command
             await self.start_command(update, context)
@@ -1998,21 +2036,36 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 if header in analysis_text:
                     analysis_text = analysis_text.replace(header, f"<b>{header}</b>")
             
+            # Verwijder extra witruimte tussen secties
             analysis_text = re.sub(r'\n{3,}', '\n\n', analysis_text)  # Replace 3+ newlines with 2
             analysis_text = re.sub(r'^\n+', '', analysis_text)  # Remove leading newlines
             
-            # Construct message with proper HTML tags
-            full_message = f"{title}\n\n{overall_sentiment}\n"
+            # Verbeter de layout van het bericht
+            # Specifiek verwijder witruimte tussen Overall Sentiment en Market Sentiment Breakdown
+            full_message = f"{title}\n\n{overall_sentiment}"
             
-            # If there's analysis text, add it
+            # If there's analysis text, add it with compact formatting
             if analysis_text:
                 if "<b>Market Sentiment Breakdown:</b>" in analysis_text:
                     parts = analysis_text.split("<b>Market Sentiment Breakdown:</b>")
-                    full_message += f"\n<b>Market Sentiment Breakdown:</b>{parts[1]}"
+                    # Voeg breakdown direct toe zonder extra witruimte
+                    full_message += f"\n\n<b>Market Sentiment Breakdown:</b>{parts[1]}"
                 else:
-                    full_message += f"\n{analysis_text}"
+                    # Controleer of er ergens een kop is om witruimte te minimaliseren
+                    found_header = False
+                    for header in headers:
+                        header_bold = f"<b>{header}</b>"
+                        if header_bold in analysis_text:
+                            found_header = True
+                            parts = analysis_text.split(header_bold, 1)
+                            full_message += f"\n\n{header_bold}{parts[1]}"
+                            break
+                    
+                    # Als geen kopjes gevonden zijn, voeg de volledige analyse toe
+                    if not found_header:
+                        full_message += f"\n\n{analysis_text}"
             else:
-                # No analysis text, add a manual breakdown
+                # No analysis text, add a manual breakdown without extra spacing
                 full_message += f"""
 <b>Market Sentiment Breakdown:</b>
 🟢 Bullish: {bullish}%
