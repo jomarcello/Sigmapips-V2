@@ -70,7 +70,7 @@ BACK_TO_MENU = 11  # Add this line
 
 # Messages
 WELCOME_MESSAGE = """
-🚀 Sigmapips AI - Main Menu 🚀
+🚀 <b>Sigmapips AI - Main Menu</b> 🚀
 
 Choose an option to access advanced trading support:
 
