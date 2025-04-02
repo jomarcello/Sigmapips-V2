@@ -245,11 +245,11 @@ CRYPTO_SENTIMENT_KEYBOARD = [
 # Indices keyboard voor analyse
 INDICES_KEYBOARD = [
     [
-        InlineKeyboardButton("US30", callback_data="instrument_US30"),
-        InlineKeyboardButton("US500", callback_data="instrument_US500"),
-        InlineKeyboardButton("US100", callback_data="instrument_US100")
+        InlineKeyboardButton("US30", callback_data="instrument_US30_chart"),
+        InlineKeyboardButton("US500", callback_data="instrument_US500_chart"),
+        InlineKeyboardButton("US100", callback_data="instrument_US100_chart")
     ],
-    [InlineKeyboardButton("⬅️ Terug", callback_data="back_market")]
+    [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
 ]
 
 # Indices keyboard voor signals - Fix de "Terug" knop naar "Back"
@@ -265,9 +265,9 @@ INDICES_KEYBOARD_SIGNALS = [
 # Commodities keyboard voor analyse
 COMMODITIES_KEYBOARD = [
     [
-        InlineKeyboardButton("GOLD", callback_data="instrument_XAUUSD"),
-        InlineKeyboardButton("SILVER", callback_data="instrument_XAGUSD"),
-        InlineKeyboardButton("OIL", callback_data="instrument_USOIL")
+        InlineKeyboardButton("GOLD", callback_data="instrument_XAUUSD_chart"),
+        InlineKeyboardButton("SILVER", callback_data="instrument_XAGUSD_chart"),
+        InlineKeyboardButton("OIL", callback_data="instrument_USOIL_chart")
     ],
     [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
 ]
@@ -303,6 +303,26 @@ CRYPTO_KEYBOARD_SIGNALS = [
         InlineKeyboardButton("BTCUSD", callback_data="instrument_BTCUSD_signals"),
         InlineKeyboardButton("ETHUSD", callback_data="instrument_ETHUSD_signals"),
         InlineKeyboardButton("XRPUSD", callback_data="instrument_XRPUSD_signals")
+    ],
+    [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
+]
+
+# Indices keyboard voor sentiment analyse
+INDICES_SENTIMENT_KEYBOARD = [
+    [
+        InlineKeyboardButton("US30", callback_data="instrument_US30_sentiment"),
+        InlineKeyboardButton("US500", callback_data="instrument_US500_sentiment"),
+        InlineKeyboardButton("US100", callback_data="instrument_US100_sentiment")
+    ],
+    [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
+]
+
+# Commodities keyboard voor sentiment analyse
+COMMODITIES_SENTIMENT_KEYBOARD = [
+    [
+        InlineKeyboardButton("GOLD", callback_data="instrument_XAUUSD_sentiment"),
+        InlineKeyboardButton("SILVER", callback_data="instrument_XAGUSD_sentiment"),
+        InlineKeyboardButton("OIL", callback_data="instrument_USOIL_sentiment")
     ],
     [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
 ]
@@ -1782,9 +1802,9 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 elif market == "crypto":
                     keyboard = CRYPTO_SENTIMENT_KEYBOARD
                 elif market == "indices":
-                    keyboard = INDICES_KEYBOARD
+                    keyboard = INDICES_SENTIMENT_KEYBOARD
                 elif market == "commodities":
-                    keyboard = COMMODITIES_KEYBOARD
+                    keyboard = COMMODITIES_SENTIMENT_KEYBOARD
                 else:
                     keyboard = MARKET_SENTIMENT_KEYBOARD
                 
@@ -2409,8 +2429,17 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 if context and hasattr(context, 'user_data'):
                     context.user_data['analysis_type'] = analysis_type
             
-            # Specific text for different analysis types
+            # Specifieke keyboards voor verschillende analyse types
             if analysis_type == "sentiment":
+                if market == "forex":
+                    keyboard = FOREX_SENTIMENT_KEYBOARD
+                elif market == "crypto":
+                    keyboard = CRYPTO_SENTIMENT_KEYBOARD
+                elif market == "indices":
+                    keyboard = INDICES_SENTIMENT_KEYBOARD
+                elif market == "commodities":
+                    keyboard = COMMODITIES_SENTIMENT_KEYBOARD
+                
                 text = f"Select a {market} instrument for sentiment analysis:"
             elif analysis_type == "calendar":
                 text = f"Select a {market} instrument for economic calendar:"
