@@ -2697,48 +2697,58 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         query = update.callback_query
         await query.answer()
         
+        # Get an analysis GIF URL
+        gif_url = "https://media.giphy.com/media/gSzIKNrqtotEYrZv7i/giphy.gif"
+        
         # Prepare keyboard for analysis menu
         keyboard = ANALYSIS_KEYBOARD
         text = "Select your analysis type:"
         
-        # First delete the current message which might have a GIF
+        # Try to send a completely new message with GIF
         try:
-            # Try to delete the message completely
+            # Try to delete the current message first
             await query.message.delete()
-            # Then send a completely new message
-            new_message = await context.bot.send_message(
+            
+            # Then send a new message with the GIF
+            await context.bot.send_animation(
                 chat_id=update.effective_chat.id,
-                text=text,
+                animation=gif_url,
+                caption=text,
                 reply_markup=InlineKeyboardMarkup(keyboard),
                 parse_mode=ParseMode.HTML
             )
             return CHOOSE_ANALYSIS
         except Exception as e:
-            logger.warning(f"Could not delete message: {str(e)}")
+            logger.warning(f"Could not delete/send message: {str(e)}")
             
-            # If deletion fails, try to edit the message directly
+            # If deletion or sending fails, try to edit the existing message
             try:
-                # Direct text edit to replace any GIF or media
-                await query.edit_message_text(
-                    text=text,
-                    reply_markup=InlineKeyboardMarkup(keyboard),
-                    parse_mode=ParseMode.HTML
+                # Try to edit the message with animation
+                await query.edit_message_media(
+                    media=InputMediaAnimation(
+                        media=gif_url,
+                        caption=text
+                    ),
+                    reply_markup=InlineKeyboardMarkup(keyboard)
                 )
-            except Exception as text_error:
-                logger.warning(f"Could not edit message text: {str(text_error)}")
+                return CHOOSE_ANALYSIS
+            except Exception as edit_error:
+                logger.warning(f"Could not edit message media: {str(edit_error)}")
+                
+                # Last resort: try to just edit the text
                 try:
-                    # Try to edit the caption if it's a media message
-                    await query.edit_message_caption(
-                        caption=text,
-                        reply_markup=InlineKeyboardMarkup(keyboard)
-                    )
-                except Exception as caption_error:
-                    logger.error(f"Could not edit caption: {str(caption_error)}")
-                    
-                    # Final fallback: send a completely new message
-                    await context.bot.send_message(
-                        chat_id=update.effective_chat.id,
+                    await query.edit_message_text(
                         text=text,
+                        reply_markup=InlineKeyboardMarkup(keyboard),
+                        parse_mode=ParseMode.HTML
+                    )
+                except Exception as text_error:
+                    logger.error(f"Failed to update message: {str(text_error)}")
+                    # Final fallback: send a new message without deleting the old one
+                    await context.bot.send_animation(
+                        chat_id=update.effective_chat.id,
+                        animation=gif_url,
+                        caption=text,
                         reply_markup=InlineKeyboardMarkup(keyboard),
                         parse_mode=ParseMode.HTML
                     )
@@ -2751,45 +2761,75 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         await query.answer()
         
         # Get a menu GIF URL
-        gif_url = await gif_utils.get_menu_gif()
+        gif_url = "https://media.giphy.com/media/dpjUltnOPye7azvAhH/giphy.gif"  # Gebruik een vaste URL voor de welkomst GIF
         
-        # Update the message with the GIF using the helper function
-        success = await gif_utils.update_message_with_gif(
-            query=query,
-            gif_url=gif_url,
-            text=WELCOME_MESSAGE,
-            reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
-        )
-        
-        if not success:
-            # If the helper function failed, try a direct approach as fallback
+        # Probeer eerst het huidige bericht te verwijderen en een nieuw bericht te sturen
+        try:
+            # Verwijder het huidige bericht
+            await query.message.delete()
+            
+            # Stuur een nieuw bericht met de welkomst GIF
+            await context.bot.send_animation(
+                chat_id=update.effective_chat.id,
+                animation=gif_url,
+                caption=WELCOME_MESSAGE,
+                reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
+                parse_mode=ParseMode.HTML
+            )
+            return MENU
+        except Exception as e:
+            logger.warning(f"Could not delete message: {str(e)}")
+            
+            # Als verwijderen mislukt, probeer het bericht direct te bewerken
             try:
-                # First try to edit message text
-                await query.edit_message_text(
-                    text=WELCOME_MESSAGE,
-                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
-                    parse_mode=ParseMode.HTML
+                # Probeer de media te updaten met de GIF
+                await query.edit_message_media(
+                    media=InputMediaAnimation(
+                        media=gif_url,
+                        caption=WELCOME_MESSAGE
+                    ),
+                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
                 )
-            except Exception as text_error:
-                # If that fails due to caption, try editing caption
-                if "There is no text in the message to edit" in str(text_error):
-                    try:
-                        await query.edit_message_caption(
+                return MENU
+            except Exception as media_error:
+                logger.warning(f"Could not update message media: {str(media_error)}")
+                
+                # Als dat ook mislukt, probeer gewoon de tekst te updaten
+                try:
+                    await query.edit_message_text(
+                        text=WELCOME_MESSAGE,
+                        reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
+                        parse_mode=ParseMode.HTML
+                    )
+                except Exception as text_error:
+                    # Als ook dat mislukt bij een caption, probeer de caption te updaten
+                    if "There is no text in the message to edit" in str(text_error):
+                        try:
+                            await query.edit_message_caption(
+                                caption=WELCOME_MESSAGE,
+                                reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
+                                parse_mode=ParseMode.HTML
+                            )
+                        except Exception as caption_error:
+                            logger.error(f"Failed to update caption: {str(caption_error)}")
+                            # Laatste redmiddel: stuur een nieuw bericht
+                            await context.bot.send_animation(
+                                chat_id=update.effective_chat.id,
+                                animation=gif_url,
+                                caption=WELCOME_MESSAGE,
+                                reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
+                                parse_mode=ParseMode.HTML
+                            )
+                    else:
+                        logger.error(f"Failed to update text: {str(text_error)}")
+                        # Laatste redmiddel: stuur een nieuw bericht
+                        await context.bot.send_animation(
+                            chat_id=update.effective_chat.id,
+                            animation=gif_url,
                             caption=WELCOME_MESSAGE,
                             reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
                             parse_mode=ParseMode.HTML
                         )
-                    except Exception as e:
-                        logger.error(f"Failed to update caption in back_menu_callback: {str(e)}")
-                        # Try to send a new message as last resort
-                        await query.message.reply_text(
-                            text=WELCOME_MESSAGE,
-                            reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
-                            parse_mode=ParseMode.HTML
-                        )
-                else:
-                    # Re-raise for other errors
-                    raise
         
         return MENU
     
