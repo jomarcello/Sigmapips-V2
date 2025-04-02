@@ -1901,30 +1901,29 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         logger.info(f"Showing sentiment analysis for instrument: {instrument}")
         
         try:
-            # Show loading message with GIF
+            # Show simple loading text instead of GIF to avoid mixed content issues
             loading_text = f"Generating sentiment analysis for {instrument}..."
-            loading_gif = "https://media.giphy.com/media/dpjUltnOPye7azvAhH/giphy.gif"
             
             try:
-                # Try to show loading GIF with message
-                await query.edit_message_media(
-                    media=InputMediaAnimation(
-                        media=loading_gif,
+                # Probeer eerst de caption te updaten (als het een media bericht is)
+                try:
+                    await query.edit_message_caption(
                         caption=loading_text,
                         parse_mode=ParseMode.HTML
                     )
-                )
+                    is_media_message = True
+                except Exception as caption_error:
+                    logger.info(f"Message doesn't have caption or is not media: {str(caption_error)}")
+                    is_media_message = False
+                    
+                # Als caption update faalt, probeer tekst te updaten
+                if not is_media_message:
+                    await query.edit_message_text(
+                        text=loading_text,
+                        parse_mode=ParseMode.HTML
+                    )
             except Exception as e:
-                logger.warning(f"Could not show loading GIF: {str(e)}")
-                # Fall back to just text
-                try:
-                    await query.edit_message_text(text=loading_text)
-                except Exception as e:
-                    logger.warning(f"Could not edit message text: {str(e)}")
-                    try:
-                        await query.edit_message_caption(caption=loading_text)
-                    except Exception as e:
-                        logger.error(f"Could not edit message caption: {str(e)}")
+                logger.warning(f"Could not update loading message: {str(e)}")
             
             # Get sentiment analysis from sentiment service
             # Initialize MarketSentimentService if it's not already initialized
@@ -1936,87 +1935,71 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             if not sentiment_data:
                 raise Exception("Failed to get sentiment data")
             
+            # Extract sentiment data
+            bullish = sentiment_data.get('bullish', 50)
+            bearish = sentiment_data.get('bearish', 100 - bullish) if bullish <= 100 else 0
+            neutral = sentiment_data.get('neutral', 0)
+            
+            # Determine overall sentiment
+            if bullish > bearish + neutral:
+                overall = "Bullish"
+                emoji = "📈"
+            elif bearish > bullish + neutral:
+                overall = "Bearish"
+                emoji = "📉"
+            else:
+                overall = "Neutral"
+                emoji = "⚖️"
+                
             # Format the sentiment message
-            message = f"🧠 <b>Market Sentiment for {instrument}</b>\n\n"
+            message = f"""<b>🧠 Market Sentiment Analysis: {instrument}</b>
+
+<b>Overall Sentiment:</b> {overall} {emoji}
+
+<b>Sentiment Breakdown:</b>
+- Bullish: {bullish}%
+- Bearish: {bearish}%
+- Neutral: {neutral}%
+
+"""
             
-            # Add overall sentiment score if available
-            if "score" in sentiment_data:
-                score = sentiment_data["score"]
-                sentiment_emoji = "🟢" if score > 60 else "🟡" if score > 40 else "🔴"
-                message += f"{sentiment_emoji} <b>Overall Sentiment:</b> {score}/100\n\n"
+            # Add analysis if available
+            if "analysis" in sentiment_data and sentiment_data["analysis"]:
+                # Add just the first part of the analysis to avoid too long messages
+                analysis_text = sentiment_data["analysis"]
+                if len(analysis_text) > 500:  # Limit analysis length
+                    analysis_text = analysis_text[:500] + "..."
+                
+                message += f"<b>Analysis:</b>\n{analysis_text}\n"
             
-            # Add sentiment details if available
-            if "details" in sentiment_data:
-                message += "<b>Details:</b>\n"
-                for detail in sentiment_data["details"]:
-                    if "type" in detail and "value" in detail:
-                        message += f"• <b>{detail['type']}:</b> {detail['value']}\n"
-            
-            # Add sentiment explanation if available
-            if "explanation" in sentiment_data:
-                message += f"\n<b>Analysis:</b>\n{sentiment_data['explanation']}\n"
-            
-            # Add source if available
-            if "source" in sentiment_data:
-                message += f"\n<i>Source: {sentiment_data['source']}</i>"
-            
-            # Create keyboard with only a single back button
+            # Create keyboard with back button
             keyboard = [
                 [InlineKeyboardButton("⬅️ Back", callback_data="back_to_analysis")]
             ]
             
-            # Remove the loading GIF and update with sentiment results
-            try:
-                # First try to replace the loading GIF with a transparent GIF
-                await query.edit_message_media(
-                    media=InputMediaDocument(
-                        media="https://upload.wikimedia.org/wikipedia/commons/thumb/0/00/Transparent.gif/1px-Transparent.gif",
-                        caption=message,
-                        parse_mode=ParseMode.HTML
-                    ),
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
-            except Exception as e:
-                logger.warning(f"Could not replace loading GIF with transparent GIF: {str(e)}")
-                # Try to edit message text as fallback
-                try:
-                    await query.edit_message_text(
-                        text=message,
-                        reply_markup=InlineKeyboardMarkup(keyboard),
-                        parse_mode=ParseMode.HTML
-                    )
-                except Exception as e:
-                    logger.error(f"Error updating message with sentiment: {str(e)}")
-                    # Try to send a new message as fallback
-                    await query.message.reply_text(
-                        text=message,
-                        parse_mode=ParseMode.HTML,
-                        reply_markup=InlineKeyboardMarkup(keyboard)
-                    )
+            # Show sentiment results - GEBRUIK ALTIJD EEN NIEUWE MESSAGE OM FOUTEN TE VOORKOMEN
+            await query.message.reply_text(
+                text=message,
+                parse_mode=ParseMode.HTML,
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
             
             return CHOOSE_ANALYSIS
             
         except Exception as e:
             logger.error(f"Error generating sentiment analysis: {str(e)}")
+            logger.exception(e)
+            
             error_text = f"Error generating sentiment analysis for {instrument}. Please try again."
-            try:
-                await query.edit_message_text(
-                    text=error_text,
-                    reply_markup=InlineKeyboardMarkup([
-                        [InlineKeyboardButton("⬅️ Back", callback_data="back_market")],
-                    ])
-                )
-            except Exception as e:
-                logger.error(f"Error updating error message: {str(e)}")
-                try:
-                    await query.edit_message_caption(
-                        caption=error_text,
-                        reply_markup=InlineKeyboardMarkup([
-                            [InlineKeyboardButton("⬅️ Back", callback_data="back_market")],
-                        ])
-                    )
-                except Exception as e:
-                    logger.error(f"Error updating error caption: {str(e)}")
+            
+            # Altijd een nieuw bericht sturen bij een fout
+            await query.message.reply_text(
+                text=error_text,
+                parse_mode=ParseMode.HTML,
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("⬅️ Back", callback_data="back_market")],
+                ])
+            )
             
             return BACK_TO_MENU
 
