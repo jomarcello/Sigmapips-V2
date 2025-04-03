@@ -353,23 +353,27 @@ class EconomicCalendarService:
             # Get Tavily API key from environment - expliciete refresh
             env_tavily_key = os.getenv("TAVILY_API_KEY", "").strip()
             
-            # Zorg ervoor dat de API key ook zonder prefix werkt voor compatibiliteit met sentiment service
+            # Zorg ervoor dat de API key het tvly- prefix heeft voor Bearer authenticatie
             if env_tavily_key:
-                # Verwijder 'tvly-' prefix als die aanwezig is, voor compatibiliteit
-                if env_tavily_key.startswith("tvly-"):
-                    env_tavily_key = env_tavily_key[5:]
-                    logger.info(f"Removed 'tvly-' prefix from API key for compatibility")
+                # Voeg 'tvly-' prefix toe als dat niet aanwezig is, voor Bearer authenticatie
+                if not env_tavily_key.startswith("tvly-"):
+                    env_tavily_key = f"tvly-{env_tavily_key}"
+                    logger.info(f"Added 'tvly-' prefix to API key for Bearer authentication")
                 
                 # Update environment variable met het correcte formaat
                 os.environ["TAVILY_API_KEY"] = env_tavily_key
-                logger.info(f"Set TAVILY_API_KEY in environment: {env_tavily_key[:5]}...{env_tavily_key[-4:] if len(env_tavily_key) > 9 else ''}")
+                masked_key = f"{env_tavily_key[:8]}...{env_tavily_key[-4:]}" if len(env_tavily_key) > 12 else f"{env_tavily_key[:4]}..."
+                logger.info(f"Set TAVILY_API_KEY in environment: {masked_key}")
             else:
-                logger.error("Tavily API key not found in environment. Cannot retrieve economic calendar data.")
-                return self._generate_mock_calendar_data(currency_list, start_date)
+                # Gebruik de default API key als geen API key is ingesteld
+                default_key = "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"
+                env_tavily_key = default_key
+                os.environ["TAVILY_API_KEY"] = default_key
+                logger.info(f"Using default Tavily API key: {default_key[:8]}...{default_key[-4:]}")
                 
             # Voeg debug info toe
-            logger.info(f"Tavily API key from env_tavily_key: {env_tavily_key[:5]}...{env_tavily_key[-4:] if len(env_tavily_key) > 9 else ''}")
-            logger.info(f"Tavily API key from os.environ: {os.environ.get('TAVILY_API_KEY', 'Not set')[:5]}...{os.environ.get('TAVILY_API_KEY', '')[-4:] if len(os.environ.get('TAVILY_API_KEY', '')) > 9 else ''}")
+            logger.info(f"Tavily API key from env_tavily_key: {env_tavily_key[:8]}...{env_tavily_key[-4:] if len(env_tavily_key) > 12 else ''}")
+            logger.info(f"Tavily API key from os.environ: {os.environ.get('TAVILY_API_KEY', 'Not set')[:8]}...{os.environ.get('TAVILY_API_KEY', '')[-4:] if len(os.environ.get('TAVILY_API_KEY', '')) > 12 else ''}")
             
             # Form search query
             query = f"Economic calendar for {', '.join(currency_list)} from {start_date} to {end_date}"
