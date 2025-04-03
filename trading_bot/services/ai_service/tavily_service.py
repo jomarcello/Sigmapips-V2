@@ -73,11 +73,23 @@ class TavilyService:
         if not self.api_key:
             self.logger.warning("No API key available for Tavily API request")
             return {}
+        
+        # Probeer beide headers voor maximale compatibiliteit
+        api_key = self.api_key
+        
+        # Verwijder 'tvly-' prefix voor Bearer token als dat aanwezig is
+        bearer_key = api_key
+        if bearer_key.startswith("tvly-"):
+            bearer_key = bearer_key[5:]
             
-        return {
+        headers = {
             "Content-Type": "application/json",
-            "x-api-key": self.api_key
+            "x-api-key": api_key,
+            "Authorization": f"Bearer {bearer_key}"
         }
+        
+        self.logger.info(f"Using both x-api-key and Authorization:Bearer headers for maximum compatibility")
+        return headers
         
     def _handle_response(self, response, return_raw=False):
         """Handle the API response"""
