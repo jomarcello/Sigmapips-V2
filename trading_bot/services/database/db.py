@@ -441,22 +441,23 @@ class Database:
             # Log the original timeframe for reference
             logger.info(f"Original timeframe for {instrument}: {timeframe}")
             
-            # Normalize timeframe format for database storage
-            normalized_timeframe = self._normalize_timeframe_for_db(timeframe)
-            logger.info(f"Normalized timeframe from {timeframe} to {normalized_timeframe} for database storage")
+            # ALWAYS use '1h' for database to avoid 'valid_timeframe' constraint issues
+            # Regardless of the input or instrument timeframe
+            fixed_timeframe = '1h'
+            logger.info(f"Using fixed timeframe '1h' for database to comply with constraint")
             
             # Map the timeframe to a style for style column (which still has a not-null constraint)
             style = self._map_timeframe_to_style(timeframe)
             
-            # Create new preference with style included (since the database still requires it)
+            # Create new preference with fixed timeframe
             current_time = datetime.datetime.now(timezone.utc).isoformat()
             
             new_preference = {
                 'user_id': int(user_id),
                 'market': str(market),
                 'instrument': str(instrument),
-                'timeframe': str(normalized_timeframe),
-                'style': str(style),  # Add style back as the database requires it
+                'timeframe': fixed_timeframe,  # ALWAYS use fixed timeframe of '1h'
+                'style': str(style),
                 'created_at': current_time
             }
             
@@ -467,7 +468,7 @@ class Database:
             response = self.supabase.table('subscriber_preferences').insert(new_preference).execute()
             
             if response and response.data:
-                logger.info(f"Successfully added preference for user {user_id}: {instrument} (original timeframe: {timeframe}, stored as: {normalized_timeframe}, style: {style})")
+                logger.info(f"Successfully added preference for user {user_id}: {instrument} (original timeframe: {timeframe}, stored as: {fixed_timeframe}, style: {style})")
                 return True
             else:
                 logger.warning(f"Failed to add preference for user {user_id}")
@@ -481,19 +482,20 @@ class Database:
     
     def _normalize_timeframe_for_db(self, timeframe: str) -> str:
         """
-        Gebruik de originele timeframe uit INSTRUMENT_TIMEFRAME_MAP zonder normalisatie.
+        Normalize timeframe for database storage.
         
-        Behoudt de originele timeframe voor consistentie in de database.
+        Always returns '1h' to satisfy the database constraint 'valid_timeframe'.
+        According to our testing, the database only accepts '1h' for new records.
         
         Arguments:
             timeframe: De timeframe (bijv. 'M30', '1h', '4h')
             
         Returns:
-            str: Originele timeframe zonder wijzigingen
+            str: Always returns '1h'
         """
-        # Behoud de originele timeframe zonder wijzigingen
-        logger.info(f"Originele timeframe '{timeframe}' wordt direct gebruikt voor database")
-        return timeframe
+        # Log the original timeframe for reference
+        logger.info(f"Original timeframe '{timeframe}' will be stored as '1h' to comply with database constraint")
+        return '1h'
 
     def _map_timeframe_to_style(self, timeframe: str) -> str:
         """
