@@ -1240,1337 +1240,149 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         """Handle analysis_calendar button press"""
         try:
             query = update.callback_query
+            chat_id = update.effective_chat.id
             
             # Set callback answer
             try:
                 await query.answer()
             except Exception as e:
-                logger.error(f"Could not answer callback: {str(e)}")
+                self.logger.error(f"Could not answer callback: {str(e)}")
             
-            # Check if it's an instrument-specific calendar request
-            if query.data.startswith("analysis_calendar_signal_"):
-                instrument = query.data.replace("analysis_calendar_signal_", "")
-                logger.info(f"Showing economic calendar for instrument: {instrument}")
-                await self.show_economic_calendar(update, context, instrument)
-            else:
-                # Show calendar for all currencies
-                logger.info("Showing economic calendar for all currencies")
-                await self.show_economic_calendar(update, context)
+            # BELANGRIJK: Eerst een loading animatie tonen
+            animation_url = "https://media.giphy.com/media/dpjUltnOPye7azvAhH/giphy.gif"
+            
+            # Verstuur de animatie
+            try:
+                loading_message = await context.bot.sendAnimation(
+                    chat_id=chat_id,
+                    animation=animation_url,
+                    caption="<b>📅 Fetching economic calendar data...</b>",
+                    parse_mode=ParseMode.HTML
+                )
+                self.logger.info("Successfully sent loading animation")
+                
+                # Check if it's an instrument-specific calendar request
+                if query.data.startswith("analysis_calendar_signal_"):
+                    instrument = query.data.replace("analysis_calendar_signal_", "")
+                    self.logger.info(f"Showing economic calendar for instrument: {instrument}")
+                    await self.show_economic_calendar(update, context, instrument)
+                else:
+                    # Show calendar for all currencies
+                    self.logger.info("Showing economic calendar for all currencies")
+                    await self.show_economic_calendar(update, context)
+                
+            except Exception as e:
+                self.logger.error(f"Failed to send loading animation: {str(e)}")
+                # Als de animatie mislukt, stuur een tekst bericht als fallback
+                try:
+                    loading_message = await context.bot.sendMessage(
+                        chat_id=chat_id,
+                        text="<b>📅 Loading economic calendar...</b>",
+                        parse_mode=ParseMode.HTML
+                    )
+                    self.logger.info("Sent text loading message as fallback")
+                    
+                    # Check if it's an instrument-specific calendar request
+                    if query.data.startswith("analysis_calendar_signal_"):
+                        instrument = query.data.replace("analysis_calendar_signal_", "")
+                        self.logger.info(f"Showing economic calendar for instrument: {instrument}")
+                        await self.show_economic_calendar(update, context, instrument)
+                    else:
+                        # Show calendar for all currencies
+                        self.logger.info("Showing economic calendar for all currencies")
+                        await self.show_economic_calendar(update, context)
+                except Exception as text_error:
+                    self.logger.error(f"Failed to send text loading message: {str(text_error)}")
+                    # Direct call to show_economic_calendar as last resort
+                    if query.data.startswith("analysis_calendar_signal_"):
+                        instrument = query.data.replace("analysis_calendar_signal_", "")
+                        await self.show_economic_calendar(update, context, instrument)
+                    else:
+                        await self.show_economic_calendar(update, context)
             
             return ANALYSIS
         except Exception as e:
-            logger.error(f"Error in analysis_calendar_callback: {str(e)}")
-import os
-import json
-import asyncio
-import traceback
-from typing import Dict, Any, List, Optional
-from datetime import datetime, timedelta
-import logging
-import copy
-import re
-import time
-import random
-
-from fastapi import FastAPI, Request, HTTPException, status
-from telegram import Bot, Update, BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery, InputMediaPhoto, InputMediaAnimation, InputMediaDocument
-from telegram.constants import ParseMode
-from telegram.request import HTTPXRequest
-from telegram.ext import (
-    Application,
-    CommandHandler,
-    CallbackQueryHandler,
-    ConversationHandler,
-    ContextTypes,
-    CallbackContext,
-    MessageHandler,
-    filters,
-    PicklePersistence
-)
-from telegram.error import TelegramError, BadRequest
-import httpx
-import telegram.error  # Add this import for BadRequest error handling
-
-from trading_bot.services.database.db import Database
-from trading_bot.services.chart_service.chart import ChartService
-from trading_bot.services.sentiment_service.sentiment import MarketSentimentService
-from trading_bot.services.calendar_service.calendar import EconomicCalendarService, MAJOR_CURRENCIES, CURRENCY_FLAG
-from trading_bot.services.payment_service.stripe_service import StripeService
-from trading_bot.services.payment_service.stripe_config import get_subscription_features
-from trading_bot.services.telegram_service.states import (
-    MENU, ANALYSIS, SIGNALS, CHOOSE_MARKET, CHOOSE_INSTRUMENT, CHOOSE_STYLE,
-    CHOOSE_ANALYSIS, SIGNAL_DETAILS,
-    CALLBACK_MENU_ANALYSE, CALLBACK_MENU_SIGNALS, CALLBACK_ANALYSIS_TECHNICAL,
-    CALLBACK_ANALYSIS_SENTIMENT, CALLBACK_ANALYSIS_CALENDAR, CALLBACK_SIGNALS_ADD,
-    CALLBACK_SIGNALS_MANAGE, CALLBACK_BACK_MENU
-)
-import trading_bot.services.telegram_service.gif_utils as gif_utils
-
-# Initialize logger
-logger = logging.getLogger(__name__)
-
-# Callback data constants
-CALLBACK_ANALYSIS_TECHNICAL = "analysis_technical"
-CALLBACK_ANALYSIS_SENTIMENT = "analysis_sentiment"
-CALLBACK_ANALYSIS_CALENDAR = "analysis_calendar"
-CALLBACK_BACK_MENU = "back_menu"
-CALLBACK_BACK_ANALYSIS = "back_to_analysis"
-CALLBACK_BACK_MARKET = "back_market"
-CALLBACK_BACK_INSTRUMENT = "back_instrument"
-CALLBACK_BACK_SIGNALS = "back_signals"
-CALLBACK_SIGNALS_ADD = "signals_add"
-CALLBACK_SIGNALS_MANAGE = "signals_manage"
-CALLBACK_MENU_ANALYSE = "menu_analyse"
-CALLBACK_MENU_SIGNALS = "menu_signals"
-
-# States
-MENU = 0
-CHOOSE_ANALYSIS = 1
-CHOOSE_SIGNALS = 2
-CHOOSE_MARKET = 3
-CHOOSE_INSTRUMENT = 4
-CHOOSE_STYLE = 5
-SHOW_RESULT = 6
-CHOOSE_TIMEFRAME = 7
-SIGNAL_DETAILS = 8
-SIGNAL = 9
-SUBSCRIBE = 10
-BACK_TO_MENU = 11  # Add this line
-
-# Messages
-WELCOME_MESSAGE = """
-🚀 <b>Sigmapips AI - Main Menu</b> 🚀
-
-Choose an option to access advanced trading support:
-
-📊 Services:
-• <b>Technical Analysis</b> – Real-time chart analysis and key levels
-
-• <b>Market Sentiment</b> – Understand market trends and sentiment
-
-• <b>Economic Calendar</b> – Stay updated on market-moving events
-
-• <b>Trading Signals</b> – Get precise entry/exit points for your favorite pairs
-
-Select your option to continue:
-"""
-
-# Abonnementsbericht voor nieuwe gebruikers
-SUBSCRIPTION_WELCOME_MESSAGE = """
-🚀 <b>Welcome to Sigmapips AI!</b> 🚀
-
-To access all features, you need a subscription:
-
-📊 <b>Trading Signals Subscription - $29.99/month</b>
-• Access to all trading signals (Forex, Crypto, Commodities, Indices)
-• Advanced timeframe analysis (1m, 15m, 1h, 4h)
-• Detailed chart analysis for each signal
-
-Click the button below to subscribe:
-"""
-
-MENU_MESSAGE = """
-Welcome to Sigmapips AI!
-
-Choose a command:
-
-/start - Set up new trading pairs
-Add new market/instrument/timeframe combinations to receive signals
-
-/manage - Manage your preferences
-View, edit or delete your saved trading pairs
-
-Need help? Use /help to see all available commands.
-"""
-
-HELP_MESSAGE = """
-Available commands:
-/menu - Show main menu
-/start - Set up new trading pairs
-/help - Show this help message
-"""
-
-# Start menu keyboard
-START_KEYBOARD = [
-    [InlineKeyboardButton("🔍 Analyze Market", callback_data=CALLBACK_MENU_ANALYSE)],
-    [InlineKeyboardButton("📊 Trading Signals", callback_data=CALLBACK_MENU_SIGNALS)]
-]
-
-# Analysis menu keyboard
-ANALYSIS_KEYBOARD = [
-    [InlineKeyboardButton("📈 Technical Analysis", callback_data=CALLBACK_ANALYSIS_TECHNICAL)],
-    [InlineKeyboardButton("🧠 Market Sentiment", callback_data=CALLBACK_ANALYSIS_SENTIMENT)],
-    [InlineKeyboardButton("📅 Economic Calendar", callback_data=CALLBACK_ANALYSIS_CALENDAR)],
-    [InlineKeyboardButton("⬅️ Back", callback_data=CALLBACK_BACK_MENU)]
-]
-
-# Signals menu keyboard
-SIGNALS_KEYBOARD = [
-    [InlineKeyboardButton("➕ Add New Pairs", callback_data=CALLBACK_SIGNALS_ADD)],
-    [InlineKeyboardButton("⚙️ Manage Preferences", callback_data=CALLBACK_SIGNALS_MANAGE)],
-    [InlineKeyboardButton("⬅️ Back", callback_data=CALLBACK_BACK_MENU)]
-]
-
-# Market keyboard voor signals
-MARKET_KEYBOARD_SIGNALS = [
-    [InlineKeyboardButton("Forex", callback_data="market_forex_signals")],
-    [InlineKeyboardButton("Crypto", callback_data="market_crypto_signals")],
-    [InlineKeyboardButton("Commodities", callback_data="market_commodities_signals")],
-    [InlineKeyboardButton("Indices", callback_data="market_indices_signals")],
-    [InlineKeyboardButton("⬅️ Back", callback_data="back_signals")]
-]
-
-# Market keyboard voor analyse
-MARKET_KEYBOARD = [
-    [InlineKeyboardButton("Forex", callback_data="market_forex")],
-    [InlineKeyboardButton("Crypto", callback_data="market_crypto")],
-    [InlineKeyboardButton("Commodities", callback_data="market_commodities")],
-    [InlineKeyboardButton("Indices", callback_data="market_indices")],
-    [InlineKeyboardButton("⬅️ Back", callback_data="back_analysis")]
-]
-
-# Market keyboard specifiek voor sentiment analyse
-MARKET_SENTIMENT_KEYBOARD = [
-    [InlineKeyboardButton("Forex", callback_data="market_forex_sentiment")],
-    [InlineKeyboardButton("Crypto", callback_data="market_crypto_sentiment")],
-    [InlineKeyboardButton("Commodities", callback_data="market_commodities_sentiment")],
-    [InlineKeyboardButton("Indices", callback_data="market_indices_sentiment")],
-    [InlineKeyboardButton("⬅️ Back", callback_data="back_analysis")]
-]
-
-# Forex keyboard voor technical analyse
-FOREX_KEYBOARD = [
-    [
-        InlineKeyboardButton("EURUSD", callback_data="instrument_EURUSD_chart"),
-        InlineKeyboardButton("GBPUSD", callback_data="instrument_GBPUSD_chart"),
-        InlineKeyboardButton("USDJPY", callback_data="instrument_USDJPY_chart")
-    ],
-    [
-        InlineKeyboardButton("AUDUSD", callback_data="instrument_AUDUSD_chart"),
-        InlineKeyboardButton("USDCAD", callback_data="instrument_USDCAD_chart"),
-        InlineKeyboardButton("EURGBP", callback_data="instrument_EURGBP_chart")
-    ],
-    [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
-]
-
-# Forex keyboard voor sentiment analyse
-FOREX_SENTIMENT_KEYBOARD = [
-    [
-        InlineKeyboardButton("EURUSD", callback_data="instrument_EURUSD_sentiment"),
-        InlineKeyboardButton("GBPUSD", callback_data="instrument_GBPUSD_sentiment"),
-        InlineKeyboardButton("USDJPY", callback_data="instrument_USDJPY_sentiment")
-    ],
-    [
-        InlineKeyboardButton("AUDUSD", callback_data="instrument_AUDUSD_sentiment"),
-        InlineKeyboardButton("USDCAD", callback_data="instrument_USDCAD_sentiment"),
-        InlineKeyboardButton("EURGBP", callback_data="instrument_EURGBP_sentiment")
-    ],
-    [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
-]
-
-# Forex keyboard voor kalender analyse
-FOREX_CALENDAR_KEYBOARD = [
-    [
-        InlineKeyboardButton("EURUSD", callback_data="instrument_EURUSD_calendar"),
-        InlineKeyboardButton("GBPUSD", callback_data="instrument_GBPUSD_calendar"),
-        InlineKeyboardButton("USDJPY", callback_data="instrument_USDJPY_calendar")
-    ],
-    [
-        InlineKeyboardButton("AUDUSD", callback_data="instrument_AUDUSD_calendar"),
-        InlineKeyboardButton("USDCAD", callback_data="instrument_USDCAD_calendar"),
-        InlineKeyboardButton("EURGBP", callback_data="instrument_EURGBP_calendar")
-    ],
-    [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
-]
-
-# Crypto keyboard voor analyse
-CRYPTO_KEYBOARD = [
-    [
-        InlineKeyboardButton("BTCUSD", callback_data="instrument_BTCUSD_chart"),
-        InlineKeyboardButton("ETHUSD", callback_data="instrument_ETHUSD_chart"),
-        InlineKeyboardButton("XRPUSD", callback_data="instrument_XRPUSD_chart")
-    ],
-    [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
-]
-
-# Keyboard for signal-specific analysis options
-SIGNAL_ANALYSIS_KEYBOARD = [
-    [InlineKeyboardButton("📈 Technical Analysis", callback_data="signal_technical")],
-    [InlineKeyboardButton("🧠 Market Sentiment", callback_data="signal_sentiment")],
-    [InlineKeyboardButton("📅 Economic Calendar", callback_data="signal_calendar")],
-    [InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal")]
-]
-
-# Crypto keyboard voor sentiment analyse
-CRYPTO_SENTIMENT_KEYBOARD = [
-    [
-        InlineKeyboardButton("BTCUSD", callback_data="instrument_BTCUSD_sentiment"),
-        InlineKeyboardButton("ETHUSD", callback_data="instrument_ETHUSD_sentiment"),
-        InlineKeyboardButton("XRPUSD", callback_data="instrument_XRPUSD_sentiment")
-    ],
-    [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
-]
-
-# Indices keyboard voor analyse
-INDICES_KEYBOARD = [
-    [
-        InlineKeyboardButton("US30", callback_data="instrument_US30_chart"),
-        InlineKeyboardButton("US500", callback_data="instrument_US500_chart"),
-        InlineKeyboardButton("US100", callback_data="instrument_US100_chart")
-    ],
-    [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
-]
-
-# Indices keyboard voor signals - Fix de "Terug" knop naar "Back"
-INDICES_KEYBOARD_SIGNALS = [
-    [
-        InlineKeyboardButton("US30", callback_data="instrument_US30_signals"),
-        InlineKeyboardButton("US500", callback_data="instrument_US500_signals"),
-        InlineKeyboardButton("US100", callback_data="instrument_US100_signals")
-    ],
-    [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
-]
-
-# Commodities keyboard voor analyse
-COMMODITIES_KEYBOARD = [
-    [
-        InlineKeyboardButton("GOLD", callback_data="instrument_XAUUSD_chart"),
-        InlineKeyboardButton("SILVER", callback_data="instrument_XAGUSD_chart"),
-        InlineKeyboardButton("OIL", callback_data="instrument_USOIL_chart")
-    ],
-    [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
-]
-
-# Commodities keyboard voor signals - Fix de "Terug" knop naar "Back"
-COMMODITIES_KEYBOARD_SIGNALS = [
-    [
-        InlineKeyboardButton("XAUUSD", callback_data="instrument_XAUUSD_signals"),
-        InlineKeyboardButton("XAGUSD", callback_data="instrument_XAGUSD_signals"),
-        InlineKeyboardButton("USOIL", callback_data="instrument_USOIL_signals")
-    ],
-    [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
-]
-
-# Forex keyboard for signals
-FOREX_KEYBOARD_SIGNALS = [
-    [
-        InlineKeyboardButton("EURUSD", callback_data="instrument_EURUSD_signals"),
-        InlineKeyboardButton("GBPUSD", callback_data="instrument_GBPUSD_signals"),
-        InlineKeyboardButton("USDJPY", callback_data="instrument_USDJPY_signals")
-    ],
-    [
-        InlineKeyboardButton("AUDUSD", callback_data="instrument_AUDUSD_signals"),
-        InlineKeyboardButton("USDCAD", callback_data="instrument_USDCAD_signals"),
-        InlineKeyboardButton("EURGBP", callback_data="instrument_EURGBP_signals")
-    ],
-    [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
-]
-
-# Crypto keyboard for signals
-CRYPTO_KEYBOARD_SIGNALS = [
-    [
-        InlineKeyboardButton("BTCUSD", callback_data="instrument_BTCUSD_signals"),
-        InlineKeyboardButton("ETHUSD", callback_data="instrument_ETHUSD_signals"),
-        InlineKeyboardButton("XRPUSD", callback_data="instrument_XRPUSD_signals")
-    ],
-    [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
-]
-
-# Indices keyboard voor sentiment analyse
-INDICES_SENTIMENT_KEYBOARD = [
-    [
-        InlineKeyboardButton("US30", callback_data="instrument_US30_sentiment"),
-        InlineKeyboardButton("US500", callback_data="instrument_US500_sentiment"),
-        InlineKeyboardButton("US100", callback_data="instrument_US100_sentiment")
-    ],
-    [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
-]
-
-# Commodities keyboard voor sentiment analyse
-COMMODITIES_SENTIMENT_KEYBOARD = [
-    [
-        InlineKeyboardButton("GOLD", callback_data="instrument_XAUUSD_sentiment"),
-        InlineKeyboardButton("SILVER", callback_data="instrument_XAGUSD_sentiment"),
-        InlineKeyboardButton("OIL", callback_data="instrument_USOIL_sentiment")
-    ],
-    [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
-]
-
-# Style keyboard
-STYLE_KEYBOARD = [
-    [InlineKeyboardButton("⚡ Test (1m)", callback_data="style_test")],
-    [InlineKeyboardButton("🏃 Scalp (15m)", callback_data="style_scalp")],
-    [InlineKeyboardButton("📊 Intraday (1h)", callback_data="style_intraday")],
-    [InlineKeyboardButton("🌊 Swing (4h)", callback_data="style_swing")],
-    [InlineKeyboardButton("⬅️ Back", callback_data="back_instrument")]
-]
-
-# Timeframe mapping
-STYLE_TIMEFRAME_MAP = {
-    "test": "1m",
-    "scalp": "15m",
-    "intraday": "1h",
-    "swing": "4h"
-}
-
-# Mapping of instruments to their allowed timeframes - updated 2023-03-23
-INSTRUMENT_TIMEFRAME_MAP = {
-    # H1 timeframe only
-    "AUDJPY": "H1", 
-    "AUDCHF": "H1",
-    "EURCAD": "H1",
-    "EURGBP": "H1",
-    "GBPCHF": "H1",
-    "HK50": "H1",
-    "NZDJPY": "H1",
-    "USDCHF": "H1",
-    "XRPUSD": "H1",
-    
-    # H4 timeframe only
-    "AUDCAD": "H4",
-    "AU200": "H4", 
-    "CADCHF": "H4",
-    "EURCHF": "H4",
-    "EURUSD": "H4",
-    "GBPCAD": "H4",
-    "LINKUSD": "H4",
-    "NZDCHF": "H4",
-    
-    # M15 timeframe only
-    "DOGEUSD": "M15",
-    "GBPNZD": "M15",
-    "NZDUSD": "M15",
-    "SOLUSD": "M15",
-    "UK100": "M15",
-    "XAUUSD": "M15",
-    
-    # M30 timeframe only
-    "BNBUSD": "M30",
-    "DOTUSD": "M30",
-    "ETHUSD": "M30",
-    "EURAUD": "M30",
-    "EURJPY": "M30",
-    "GBPAUD": "M30",
-    "GBPUSD": "M30",
-    "NZDCAD": "M30",
-    "US30": "M30",
-    "US500": "M30",
-    "USDCAD": "M30",
-    "XLMUSD": "M30",
-    "XTIUSD": "M30",
-    "DE40": "M30"
-    
-    # Removed as requested: EU50, FR40, LTCUSD
-}
-
-# Map common timeframe notations
-TIMEFRAME_DISPLAY_MAP = {
-    "M15": "15 Minutes",
-    "M30": "30 Minutes", 
-    "H1": "1 Hour",
-    "H4": "4 Hours"
-}
-
-# Voeg deze functie toe aan het begin van bot.py, na de imports
-def _detect_market(instrument: str) -> str:
-    """Detecteer market type gebaseerd op instrument"""
-    instrument = instrument.upper()
-    
-    # Commodities eerst checken
-    commodities = [
-        "XAUUSD",  # Gold
-        "XAGUSD",  # Silver
-        "WTIUSD",  # Oil WTI
-        "BCOUSD",  # Oil Brent
-    ]
-    if instrument in commodities:
-        logger.info(f"Detected {instrument} as commodity")
-        return "commodities"
-    
-    # Crypto pairs
-    crypto_base = ["BTC", "ETH", "XRP", "SOL", "BNB", "ADA", "DOT", "LINK"]
-    if any(c in instrument for c in crypto_base):
-        logger.info(f"Detected {instrument} as crypto")
-        return "crypto"
-    
-    # Major indices
-    indices = [
-        "US30", "US500", "US100",  # US indices
-        "UK100", "DE40", "FR40",   # European indices
-        "JP225", "AU200", "HK50"   # Asian indices
-    ]
-    if instrument in indices:
-        logger.info(f"Detected {instrument} as index")
-        return "indices"
-    
-    # Forex pairs als default
-    logger.info(f"Detected {instrument} as forex")
-    return "forex"
-
-# Voeg dit toe als decorator functie bovenaan het bestand na de imports
-def require_subscription(func):
-    """Check if user has an active subscription"""
-    async def wrapper(self, update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
-        user_id = update.effective_user.id
-        
-        # Check subscription status
-        is_subscribed = await self.db.is_user_subscribed(user_id)
-        
-        # Check if payment has failed
-        payment_failed = await self.db.has_payment_failed(user_id)
-        
-        if is_subscribed and not payment_failed:
-            # User has subscription, proceed with function
-            return await func(self, update, context, *args, **kwargs)
-        else:
-            if payment_failed:
-                # Show payment failure message
-                failed_payment_text = f"""
-❗ <b>Subscription Payment Failed</b> ❗
-
-Your subscription payment could not be processed and your service has been deactivated.
-
-To continue using Sigmapips AI and receive trading signals, please reactivate your subscription by clicking the button below.
-                """
-                
-                # Use direct URL link for reactivation
-                reactivation_url = "https://buy.stripe.com/9AQcPf3j63HL5JS145"
-                
-                # Create button for reactivation
-                keyboard = [
-                    [InlineKeyboardButton("🔄 Reactivate Subscription", url=reactivation_url)]
-                ]
-            else:
-                # Show subscription screen with the welcome message from the screenshot
-                failed_payment_text = f"""
-🚀 <b>Welcome to Sigmapips AI!</b> 🚀
-
-<b>Discover powerful trading signals for various markets:</b>
-• <b>Forex</b> - Major and minor currency pairs
-• <b>Crypto</b> - Bitcoin, Ethereum and other top cryptocurrencies
-• <b>Indices</b> - Global market indices
-• <b>Commodities</b> - Gold, silver and oil
-
-<b>Features:</b>
-✅ Real-time trading signals
-
-✅ Multi-timeframe analysis (1m, 15m, 1h, 4h)
-
-✅ Advanced chart analysis
-
-✅ Sentiment indicators
-
-✅ Economic calendar integration
-
-<b>Start today with a FREE 14-day trial!</b>
-                """
-                
-                # Use direct URL link instead of callback for the trial button
-                reactivation_url = "https://buy.stripe.com/3cs3eF9Hu9256NW9AA"
-                
-                # Create button for trial
-                keyboard = [
-                    [InlineKeyboardButton("🔥 Start 14-day FREE Trial", url=reactivation_url)]
-                ]
+            self.logger.error(f"Error in analysis_calendar_callback: {str(e)}")
+            self.logger.exception(e)
             
-            # Handle both message and callback query updates
-            if update.callback_query:
-                await update.callback_query.answer()
-                await update.callback_query.edit_message_text(
-                    text=failed_payment_text,
-                    reply_markup=InlineKeyboardMarkup(keyboard),
-                    parse_mode=ParseMode.HTML
-                )
-            else:
-                await update.message.reply_text(
-                    text=failed_payment_text,
-                    reply_markup=InlineKeyboardMarkup(keyboard),
-                    parse_mode=ParseMode.HTML
-                )
-            return MENU
-    
-    return wrapper
-
-# API keys with robust sanitization
-PERPLEXITY_API_KEY = os.getenv("PERPLEXITY_API_KEY", "").strip()
-DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "72df8ae1c5dd4d95b6a54c09bcf1b39e").strip()
-
-# Ensure the Tavily API key is properly formatted with 'tvly-' prefix and sanitized
-raw_tavily_key = os.getenv("TAVILY_API_KEY", "KbIKVL3UfDfnxRx3Ruw6XhL3OB9qSF9l").strip()
-TAVILY_API_KEY = raw_tavily_key.replace('\n', '').replace('\r', '')  # Remove any newlines/carriage returns
-
-# If the key doesn't start with "tvly-", add the prefix
-if TAVILY_API_KEY and not TAVILY_API_KEY.startswith("tvly-"):
-    TAVILY_API_KEY = f"tvly-{TAVILY_API_KEY}"
-    logger.info("Added 'tvly-' prefix to Tavily API key")
-    
-# Log API key (partially masked)
-if TAVILY_API_KEY:
-    masked_key = f"{TAVILY_API_KEY[:7]}...{TAVILY_API_KEY[-4:]}" if len(TAVILY_API_KEY) > 11 else f"{TAVILY_API_KEY[:4]}..."
-    logger.info(f"Using Tavily API key: {masked_key}")
-else:
-    logger.warning("No Tavily API key configured")
-    
-# Set environment variables for the API keys with sanitization
-os.environ["PERPLEXITY_API_KEY"] = PERPLEXITY_API_KEY
-os.environ["DEEPSEEK_API_KEY"] = DEEPSEEK_API_KEY
-os.environ["TAVILY_API_KEY"] = TAVILY_API_KEY
-
-class TelegramService:
-    def __init__(self, db: Database, stripe_service=None, bot_token: Optional[str] = None, proxy_url: Optional[str] = None):
-        """Initialize the bot with given database and config."""
-        # Database connection
-        self.db = db
-        
-        # Setup configuration 
-        self.stripe_service = stripe_service
-        self.user_signals = {}
-        self.signals_dir = "data/signals"
-        self.signals_enabled_val = True
-        self.polling_started = False
-        self.admin_users = [1093307376]  # Add your Telegram ID here for testing
-        self._signals_enabled = True  # Enable signals by default
-        
-        # GIF utilities for UI
-        self.gif_utils = gif_utils  # Initialize gif_utils as an attribute
-        
-        # Setup the bot and application
-        self.bot = None
-        self.application = None
-        
-        # Telegram Bot configuratie
-        self.bot_token = bot_token or os.getenv("TELEGRAM_BOT_TOKEN", "")
-        self.token = self.bot_token  # Aliased for backward compatibility
-        self.proxy_url = proxy_url or os.getenv("TELEGRAM_PROXY_URL", "")
-        
-        # Configure custom request handler with improved connection settings
-        request = HTTPXRequest(
-            connection_pool_size=50,  # Increase from 20 to 50
-            connect_timeout=15.0,     # Increase from 10.0 to 15.0
-            read_timeout=45.0,        # Increase from 30.0 to 45.0
-            write_timeout=30.0,       # Increase from 20.0 to 30.0
-            pool_timeout=60.0,        # Increase from 30.0 to 60.0
-        )
-        
-        # Initialize the bot directly with connection pool settings
-        self.bot = Bot(token=self.bot_token, request=request)
-        self.application = None  # Will be initialized in setup()
-        
-        # Webhook configuration
-        self.webhook_url = os.getenv("WEBHOOK_URL", "")
-        self.webhook_path = "/webhook"  # Always use this path
-        if self.webhook_url.endswith("/"):
-            self.webhook_url = self.webhook_url[:-1]  # Remove trailing slash
+            chat_id = update.effective_chat.id
             
-        logger.info(f"Bot initialized with webhook URL: {self.webhook_url} and path: {self.webhook_path}")
-        
-        # Initialize API services
-        self.chart_service = ChartService()  # Initialize chart service
-        self.calendar_service = EconomicCalendarService()  # Economic calendar service
-        self.sentiment_service = MarketSentimentService()  # Market sentiment service
-        
-        # Initialize chart service
-        asyncio.create_task(self.chart_service.initialize())
-        
-        # Bot application initialization
-        self.persistence = None
-        self.bot_started = False
-        
-        # Cache for sentiment analysis
-        self.sentiment_cache = {}
-        self.sentiment_cache_ttl = 60 * 60  # 1 hour in seconds
-        
-        # Start the bot
-        try:
-            # Check for bot token
-            if not self.bot_token:
-                raise ValueError("Missing Telegram bot token")
-            
-            # Initialize the bot
-            self.bot = Bot(token=self.bot_token)
-        
-            # Initialize the application
-            self.application = Application.builder().bot(self.bot).build()
-        
-            # Register the handlers
-            self._register_handlers(self.application)
-            
-            # Load stored signals
-            self._load_signals()
-        
-            logger.info("Telegram service initialized")
-            
-            # Keep track of processed updates
-            self.processed_updates = set()
-            
-        except Exception as e:
-            logger.error(f"Error initializing Telegram service: {str(e)}")
-            raise
-
-    def _register_handlers(self, application):
-        """Register event handlers for bot commands and callback queries"""
-        try:
-            logger.info("Registering command handlers")
-            
-            # Initialize the application without using run_until_complete
-            try:
-                # Instead of using loop.run_until_complete, directly call initialize 
-                # which will be properly awaited by the caller
-                asyncio.create_task(application.initialize())
-                logger.info("Telegram application initialization task created")
-            except Exception as init_e:
-                logger.error(f"Error during application initialization: {str(init_e)}")
-                logger.exception(init_e)
-                
-            # Set bot commands for menu
-            commands = [
-                BotCommand("start", "Start the bot and get the welcome message"),
-                BotCommand("menu", "Show the main menu"),
-                BotCommand("help", "Show available commands and how to use the bot")
-            ]
-            
-            # Set the commands asynchronously
-            try:
-                # Create a task instead of blocking with run_until_complete
-                asyncio.create_task(self.bot.set_my_commands(commands))
-                logger.info("Bot commands set task created")
-            except Exception as cmd_e:
-                logger.error(f"Error setting bot commands: {str(cmd_e)}")
-            
-            # Register command handlers
-            application.add_handler(CommandHandler("start", self.start_command))
-            application.add_handler(CommandHandler("menu", self.menu_command))
-            application.add_handler(CommandHandler("help", self.help_command))
-            
-            # Load signals
-            self._load_signals()
-            
-            logger.info("Bot setup completed successfully")
-            
-        except Exception as e:
-            logger.error(f"Error setting up bot: {str(e)}")
-            logger.exception(e)
-            raise
-
-    @property
-    def signals_enabled(self):
-        """Get whether signals processing is enabled"""
-        return self._signals_enabled
-    
-    @signals_enabled.setter
-    def signals_enabled(self, value):
-        """Set whether signals processing is enabled"""
-        self._signals_enabled = bool(value)
-        logger.info(f"Signal processing is now {'enabled' if value else 'disabled'}")
-
-    async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> None:
-        """Send a welcome message when the bot is started."""
-        user = update.effective_user
-        user_id = user.id
-        first_name = user.first_name
-        
-        # Try to add the user to the database if they don't exist yet
-        try:
-            # Get user subscription since we can't check if user exists directly
-            existing_subscription = await self.db.get_user_subscription(user_id)
-            
-            if not existing_subscription:
-                # Add new user
-                logger.info(f"New user started: {user_id}, {first_name}")
-                await self.db.save_user(user_id, first_name, None, user.username)
-            else:
-                logger.info(f"Existing user started: {user_id}, {first_name}")
-                
-        except Exception as e:
-            logger.error(f"Error registering user: {str(e)}")
-        
-        # Check if the user has a subscription 
-        is_subscribed = await self.db.is_user_subscribed(user_id)
-        
-        # Check if payment has failed
-        payment_failed = await self.db.has_payment_failed(user_id)
-        
-        if is_subscribed and not payment_failed:
-            # For subscribed users, direct them to use the /menu command instead
-            await update.message.reply_text(
-                text="Welcome back! Please use the /menu command to access all features.",
-                parse_mode=ParseMode.HTML
-            )
-            return
-        elif payment_failed:
-            # Show payment failure message
-            failed_payment_text = f"""
-❗ <b>Subscription Payment Failed</b> ❗
-
-Your subscription payment could not be processed and your service has been deactivated.
-
-To continue using Sigmapips AI and receive trading signals, please reactivate your subscription by clicking the button below.
-            """
-            
-            # Use direct URL link for reactivation
-            reactivation_url = "https://buy.stripe.com/9AQcPf3j63HL5JS145"
-            
-            # Create button for reactivation
+            # Create keyboard with retry button
             keyboard = [
-                [InlineKeyboardButton("🔄 Reactivate Subscription", url=reactivation_url)]
+                [InlineKeyboardButton("🔄 Try Again", callback_data="analysis_calendar")],
+                [InlineKeyboardButton("⬅️ Back", callback_data="menu_analyse")]
             ]
             
-            await update.message.reply_text(
-                text=failed_payment_text,
+            # Send error message
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text="<b>⚠️ Error showing economic calendar</b>\n\nSorry, there was an error retrieving the calendar data. Please try again later.",
                 reply_markup=InlineKeyboardMarkup(keyboard),
                 parse_mode=ParseMode.HTML
             )
-        else:
-            # Show the welcome message with trial option from the screenshot
-            welcome_text = """
-🚀 Welcome to Sigmapips AI! 🚀
-
-Discover powerful trading signals for various markets:
-• Forex - Major and minor currency pairs
-
-• Crypto - Bitcoin, Ethereum and other top
- cryptocurrencies
-
-• Indices - Global market indices
-
-• Commodities - Gold, silver and oil
-
-Features:
-✅ Real-time trading signals
-
-✅ Multi-timeframe analysis (1m, 15m, 1h, 4h)
-
-✅ Advanced chart analysis
-
-✅ Sentiment indicators
-
-✅ Economic calendar integration
-
-Start today with a FREE 14-day trial!
-            """
             
-            # Use direct URL link instead of callback for the trial button
-            checkout_url = "https://buy.stripe.com/3cs3eF9Hu9256NW9AA"
-            
-            # Create buttons - Trial button goes straight to Stripe checkout
-            keyboard = [
-                [InlineKeyboardButton("🔥 Start 14-day FREE Trial", url=checkout_url)]
-            ]
-            
-            # Gebruik de juiste welkomst-GIF URL
-            welcome_gif_url = "https://media.giphy.com/media/gSzIKNrqtotEYrZv7i/giphy.gif"
-            
-            try:
-                # Send the GIF with caption containing the welcome message
-                await update.message.reply_animation(
-                    animation=welcome_gif_url,
-                    caption=welcome_text,
-                    parse_mode=ParseMode.HTML,
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
-            except Exception as e:
-                logger.error(f"Error sending welcome GIF with caption: {str(e)}")
-                # Fallback to text-only message if GIF fails
-                await update.message.reply_text(
-                    text=welcome_text,
-                    parse_mode=ParseMode.HTML,
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
-            
-    async def set_subscription_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> None:
-        """Secret command to manually set subscription status for a user"""
-        # Check if the command has correct arguments
-        if not context.args or len(context.args) < 3:
-            await update.message.reply_text("Usage: /set_subscription [chatid] [status] [days]")
-            return
-            
+            return ANALYSIS
+
+    async def show_economic_calendar(self, update: Update, context: CallbackContext, currency=None):
+        """Show the economic calendar for a specific currency"""
         try:
-            # Parse arguments
-            chat_id = int(context.args[0])
-            status = context.args[1].lower()
-            days = int(context.args[2])
+            chat_id = update.effective_chat.id
+            query = update.callback_query
             
-            # Validate status
-            if status not in ["active", "inactive"]:
-                await update.message.reply_text("Status must be 'active' or 'inactive'")
-                return
-                
-            # Calculate dates
-            now = datetime.now()
+            # Log that we're showing the calendar
+            self.logger.info(f"Showing economic calendar for {currency if currency else 'all currencies'}")
             
-            if status == "active":
-                # Set active subscription
-                start_date = now
-                end_date = now + timedelta(days=days)
-                
-                # Save subscription to database
-                await self.db.save_user_subscription(
-                    chat_id, 
-                    "monthly", 
-                    start_date, 
-                    end_date
-                )
-                await update.message.reply_text(f"✅ Subscription set to ACTIVE for user {chat_id} for {days} days")
-                
+            # Initialize the calendar service
+            calendar_service = self._get_calendar_service()
+            cache_size = len(getattr(calendar_service, 'cache', {}))
+            self.logger.info(f"Calendar service initialized, cache size: {cache_size}")
+            
+            # Check if API key is available
+            tavily_api_key = os.environ.get("TAVILY_API_KEY", "")
+            if tavily_api_key:
+                masked_key = f"{tavily_api_key[:4]}..." if len(tavily_api_key) > 7 else "***"
+                self.logger.info(f"Tavily API key is available: {masked_key}")
             else:
-                # Set inactive subscription by setting end date in the past
-                start_date = now - timedelta(days=30)
-                end_date = now - timedelta(days=1)
-                
-                # Save expired subscription to database
-                await self.db.save_user_subscription(
-                    chat_id, 
-                    "monthly", 
-                    start_date, 
-                    end_date
-                )
-                await update.message.reply_text(f"✅ Subscription set to INACTIVE for user {chat_id}")
-                
-            logger.info(f"Manually set subscription status to {status} for user {chat_id}")
+                self.logger.warning("No Tavily API key found, will use mock data")
             
-        except ValueError:
-            await update.message.reply_text("Invalid arguments. Chat ID and days must be numbers.")
-        except Exception as e:
-            logger.error(f"Error setting subscription: {str(e)}")
-            await update.message.reply_text(f"Error: {str(e)}")
+            # Get the calendar data based on currency
+            self.logger.info(f"Requesting calendar data for {currency if currency else 'all currencies'}")
             
-    async def set_payment_failed_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> None:
-        """Secret command to set a user's subscription to the payment failed state"""
-        logger.info(f"set_payment_failed command received: {update.message.text}")
-        
-        try:
-            # Extract chat_id directly from the message text if present
-            command_parts = update.message.text.split()
-            if len(command_parts) > 1:
+            calendar_data = []
+            
+            # Get calendar data
+            if currency and currency in MAJOR_CURRENCIES:
+                # Get instrument-specific calendar
+                instrument_calendar = await calendar_service.get_instrument_calendar(currency)
+                
+                # Extract the raw data for formatting
                 try:
-                    chat_id = int(command_parts[1])
-                    logger.info(f"Extracted chat ID from message: {chat_id}")
-                except ValueError:
-                    logger.error(f"Invalid chat ID format in message: {command_parts[1]}")
-                    await update.message.reply_text(f"Invalid chat ID format: {command_parts[1]}")
-                    return
-            # Fallback to context args if needed
-            elif context and context.args and len(context.args) > 0:
-                chat_id = int(context.args[0])
-                logger.info(f"Using chat ID from context args: {chat_id}")
-            else:
-                # Default to the user's own ID
-                chat_id = update.effective_user.id
-                logger.info(f"No chat ID provided, using sender's ID: {chat_id}")
-            
-            # Set payment failed status in database
-            success = await self.db.set_payment_failed(chat_id)
-            
-            if success:
-                message = f"✅ Payment status set to FAILED for user {chat_id}"
-                logger.info(f"Manually set payment failed status for user {chat_id}")
-                
-                # Show the payment failed interface immediately
-                failed_payment_text = f"""
-❗ <b>Subscription Payment Failed</b> ❗
-
-Your subscription payment could not be processed and your service has been deactivated.
-
-To continue using Sigmapips AI and receive trading signals, please reactivate your subscription by clicking the button below.
-                """
-                
-                # Use direct URL link for reactivation
-                reactivation_url = "https://buy.stripe.com/9AQcPf3j63HL5JS145"
-                
-                # Create button for reactivation
-                keyboard = [
-                    [InlineKeyboardButton("🔄 Reactivate Subscription", url=reactivation_url)]
-                ]
-                
-                # First send success message
-                await update.message.reply_text(message)
-                
-                # Then show payment failed interface
-                await update.message.reply_text(
-                    text=failed_payment_text,
-                    reply_markup=InlineKeyboardMarkup(keyboard),
-                    parse_mode=ParseMode.HTML
-                )
-            else:
-                message = f"❌ Could not set payment failed status for user {chat_id}"
-                logger.error("Database returned failure")
-                await update.message.reply_text(message)
-                
-        except ValueError as e:
-            error_msg = f"Invalid argument. Chat ID must be a number. Error: {str(e)}"
-            logger.error(error_msg)
-            await update.message.reply_text(error_msg)
-        except Exception as e:
-            error_msg = f"Error setting payment failed status: {str(e)}"
-            logger.error(error_msg)
-            await update.message.reply_text(error_msg)
-
-    async def menu_analyse_callback(self, update: Update, context=None) -> int:
-        """Handle menu_analyse button press"""
-        query = update.callback_query
-        await query.answer()
-        
-        # Gebruik de juiste analyse GIF URL
-        gif_url = "https://media.giphy.com/media/gSzIKNrqtotEYrZv7i/giphy.gif"
-        
-        # Probeer eerst het huidige bericht te verwijderen en een nieuw bericht te sturen met de analyse GIF
-        try:
-            await query.message.delete()
-            await context.bot.send_animation(
-                chat_id=update.effective_chat.id,
-                animation=gif_url,
-                caption="Select your analysis type:",
-                reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
-                parse_mode=ParseMode.HTML
-            )
-            return CHOOSE_ANALYSIS
-        except Exception as delete_error:
-            logger.warning(f"Could not delete message: {str(delete_error)}")
-            
-            # Als verwijderen mislukt, probeer de media te updaten
-            try:
-                await query.edit_message_media(
-                    media=InputMediaAnimation(
-                        media=gif_url,
-                        caption="Select your analysis type:"
-                    ),
-                    reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
-                )
-                return CHOOSE_ANALYSIS
-            except Exception as media_error:
-                logger.warning(f"Could not update media: {str(media_error)}")
-                
-                # Als media update mislukt, probeer tekst te updaten
-                try:
-                    await query.edit_message_text(
-                        text="Select your analysis type:",
-                        reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
-                        parse_mode=ParseMode.HTML
-                    )
-                except Exception as text_error:
-                    # Als tekst updaten mislukt, probeer bijschrift te updaten
-                    if "There is no text in the message to edit" in str(text_error):
-                        try:
-                            await query.edit_message_caption(
-                                caption="Select your analysis type:",
-                                reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
-                                parse_mode=ParseMode.HTML
-                            )
-                        except Exception as caption_error:
-                            logger.error(f"Failed to update caption: {str(caption_error)}")
-                            # Laatste redmiddel: stuur een nieuw bericht
-                            await context.bot.send_animation(
-                                chat_id=update.effective_chat.id,
-                                animation=gif_url,
-                                caption="Select your analysis type:",
-                                reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
-                                parse_mode=ParseMode.HTML
-                            )
-                    else:
-                        logger.error(f"Failed to update message: {str(text_error)}")
-                        # Laatste redmiddel: stuur een nieuw bericht
-                        await context.bot.send_animation(
-                            chat_id=update.effective_chat.id,
-                            animation=gif_url,
-                            caption="Select your analysis type:",
-                            reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
-                            parse_mode=ParseMode.HTML
-                        )
-        
-        return CHOOSE_ANALYSIS
-
-    async def show_main_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None, skip_gif=False) -> None:
-        """Show the main menu when /menu command is used"""
-        # Use context.bot if available, otherwise use self.bot
-        bot = context.bot if context is not None else self.bot
-        
-        # Check if the user has a subscription
-        user_id = update.effective_user.id
-        is_subscribed = await self.db.is_user_subscribed(user_id)
-        payment_failed = await self.db.has_payment_failed(user_id)
-        
-        if is_subscribed and not payment_failed:
-            # Show the main menu for subscribed users
-            reply_markup = InlineKeyboardMarkup(START_KEYBOARD)
-            
-            # Forceer altijd de welkomst GIF
-            gif_url = "https://media.giphy.com/media/gSzIKNrqtotEYrZv7i/giphy.gif"
-            
-            # If we should show the GIF
-            if not skip_gif:
-                try:
-                    # For message commands we can use reply_animation
-                    if hasattr(update, 'message') and update.message:
-                        # Verwijder eventuele vorige berichten met callback query
-                        if hasattr(update, 'callback_query') and update.callback_query:
-                            try:
-                                await update.callback_query.message.delete()
-                            except Exception:
-                                pass
-                        
-                        # Send the GIF using regular animation method
-                        await update.message.reply_animation(
-                            animation=gif_url,
-                            caption=WELCOME_MESSAGE,
-                            parse_mode=ParseMode.HTML,
-                            reply_markup=reply_markup
-                        )
-                    else:
-                        # Voor callback_query, verwijder huidige bericht en stuur nieuw bericht
-                        if hasattr(update, 'callback_query') and update.callback_query:
-                            try:
-                                # Verwijder het huidige bericht
-                                await update.callback_query.message.delete()
-                                
-                                # Stuur nieuw bericht met de welkomst GIF
-                                await bot.send_animation(
-                                    chat_id=update.effective_chat.id,
-                                    animation=gif_url,
-                                    caption=WELCOME_MESSAGE,
-                                    parse_mode=ParseMode.HTML,
-                                    reply_markup=reply_markup
-                                )
-                            except Exception as e:
-                                logger.error(f"Failed to handle callback query: {str(e)}")
-                                # Valt terug op tekstwijziging als verwijderen niet lukt
-                                await update.callback_query.edit_message_text(
-                                    text=WELCOME_MESSAGE,
-                                    parse_mode=ParseMode.HTML,
-                                    reply_markup=reply_markup
-                                )
-                        else:
-                            # Final fallback - try to send a new message
-                            await bot.send_animation(
-                                chat_id=update.effective_chat.id,
-                                animation=gif_url,
-                                caption=WELCOME_MESSAGE,
-                                parse_mode=ParseMode.HTML,
-                                reply_markup=reply_markup
-                            )
+                    # Check if we can get the flattened data directly
+                    calendar_data = await calendar_service.get_calendar()
+                    # Filter for specified currency
+                    calendar_data = [event for event in calendar_data if event.get('country') == currency]
                 except Exception as e:
-                    logger.error(f"Failed to send menu GIF: {str(e)}")
-                    # Fallback to text-only approach
-                    if hasattr(update, 'message') and update.message:
-                        await update.message.reply_text(
-                            text=WELCOME_MESSAGE,
-                            parse_mode=ParseMode.HTML,
-                            reply_markup=reply_markup
-                        )
-                    else:
-                        await bot.send_message(
-                            chat_id=update.effective_chat.id,
-                            text=WELCOME_MESSAGE,
-                            parse_mode=ParseMode.HTML,
-                            reply_markup=reply_markup
-                        )
+                    # If no flattened data available, use the formatted text
+                    self.logger.warning(f"Could not get raw calendar data, using text data: {str(e)}")
+                    # Send the formatted text directly
+                    message = instrument_calendar
+                    calendar_data = []
             else:
-                # Skip GIF mode - just send text
-                if hasattr(update, 'message') and update.message:
-                    await update.message.reply_text(
-                        text=WELCOME_MESSAGE,
-                        parse_mode=ParseMode.HTML,
-                        reply_markup=reply_markup
-                    )
-                else:
-                    await bot.send_message(
-                        chat_id=update.effective_chat.id,
-                        text=WELCOME_MESSAGE,
-                        parse_mode=ParseMode.HTML,
-                        reply_markup=reply_markup
-                    )
-        else:
-            # Handle non-subscribed users similar to start command
-            await self.start_command(update, context)
-            
-    async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> None:
-        """Show help information when /help command is used"""
-        await update.message.reply_text(
-            text=HELP_MESSAGE,
-            parse_mode=ParseMode.HTML
-        )
-
-    async def analysis_technical_callback(self, update: Update, context=None) -> int:
-        """Handle analysis_technical button press"""
-        query = update.callback_query
-        await query.answer()
-        
-        # Check if signal-specific data is present in callback data
-        signal_data = None
-        if context and hasattr(context, 'user_data'):
-            context.user_data['analysis_type'] = 'technical'
-        
-        # Set the callback data
-        callback_data = query.data
-        
-        # Set the instrument if it was passed in the callback data
-        if callback_data.startswith("analysis_technical_signal_"):
-            # Extract instrument from the callback data
-            instrument = callback_data.replace("analysis_technical_signal_", "")
-            if context and hasattr(context, 'user_data'):
-                context.user_data['instrument'] = instrument
-            
-            logger.info(f"Technical analysis for specific instrument: {instrument}")
-            
-            # Show analysis directly for this instrument
-            return await self.show_technical_analysis(update, context, instrument=instrument)
-        
-        # Show the market selection menu
-        try:
-            # First try to edit message text
-            await query.edit_message_text(
-                text="Select market for technical analysis:",
-                reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
-            )
-        except Exception as text_error:
-            # If that fails due to caption, try editing caption
-            if "There is no text in the message to edit" in str(text_error):
+                # Get all currencies data
                 try:
-                    await query.edit_message_caption(
-                        caption="Select market for technical analysis:",
-                        reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD),
-                        parse_mode=ParseMode.HTML
-                    )
+                    calendar_data = await calendar_service.get_calendar()
                 except Exception as e:
-                    logger.error(f"Failed to update caption for technical analysis: {str(e)}")
-                    # Try to send a new message as last resort
-                    await query.message.reply_text(
-                        text="Select market for technical analysis:",
-                        reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD),
-                        parse_mode=ParseMode.HTML
-                    )
-            else:
-                # Re-raise for other errors
-                raise
-        
-        return CHOOSE_MARKET
-
-    async def analysis_sentiment_callback(self, update: Update, context=None) -> int:
-        """Handle analysis_sentiment button press"""
-        query = update.callback_query
-        await query.answer()
-        
-        # Set analysis type in context
-        if context and hasattr(context, 'user_data'):
-            context.user_data['analysis_type'] = 'sentiment'
-        
-        # Check if signal-specific data is present in callback data
-        callback_data = query.data
-        
-        # Set the instrument if it was passed in the callback data
-        if callback_data.startswith("analysis_sentiment_signal_"):
-            # Extract instrument from the callback data
-            instrument = callback_data.replace("analysis_sentiment_signal_", "")
-            if context and hasattr(context, 'user_data'):
-                context.user_data['instrument'] = instrument
+                    self.logger.warning(f"Error getting calendar data: {str(e)}")
+                    calendar_data = []
             
-            logger.info(f"Sentiment analysis for specific instrument: {instrument}")
-            
-            # Show analysis directly for this instrument
-            return await self.show_sentiment_analysis(update, context, instrument=instrument)
-        
-        # Show the market selection menu
-        try:
-            # First try to edit message text
-            await query.edit_message_text(
-                text="Select market for sentiment analysis:",
-                reply_markup=InlineKeyboardMarkup(MARKET_SENTIMENT_KEYBOARD)
-            )
-        except Exception as text_error:
-            # If that fails due to caption, try editing caption
-            if "There is no text in the message to edit" in str(text_error):
-                try:
-                    await query.edit_message_caption(
-                        caption="Select market for sentiment analysis:",
-                        reply_markup=InlineKeyboardMarkup(MARKET_SENTIMENT_KEYBOARD),
-                        parse_mode=ParseMode.HTML
-                    )
-                except Exception as e:
-                    logger.error(f"Failed to update caption for sentiment analysis: {str(e)}")
-                    # Try to send a new message as last resort
-                    await query.message.reply_text(
-                        text="Select market for sentiment analysis:",
-                        reply_markup=InlineKeyboardMarkup(MARKET_SENTIMENT_KEYBOARD),
-                        parse_mode=ParseMode.HTML
-                    )
-            else:
-                # Re-raise for other errors
-                raise
-        
-        return CHOOSE_MARKET
-
-    async def analysis_calendar_callback(self, update: Update, context=None) -> int:
-        """Handle analysis_calendar button press"""
-        
-        query = update.callback_query
-        user_id = query.from_user.id
-        
-        # Remove the instrument requirement - calendar data should be global
-        logger.info(f"Showing economic calendar for all currencies")
-        
-        # Initialize EconomicCalendarService if it's not already initialized
-        if not hasattr(self, 'calendar_service') or self.calendar_service is None:
-            self.logger.info("Creating new EconomicCalendarService instance")
-            self.calendar_service = EconomicCalendarService()
-        
-        # Show loading GIF or message
-        try:
-            # Get the loading GIF URL
-            loading_gif_url = self.calendar_service.get_loading_gif()
-            
-            # Try to send a loading GIF first
-            try:
-                loading_text = f"Loading economic calendar for all major currencies..."
-                
-                if loading_gif_url:
-                    # Try to edit message with loading GIF
-                    try:
-                        await query.edit_message_text(
-                            text=f"{loading_text}\n\n<a href='{loading_gif_url}'>⌛</a>",
-                            parse_mode=ParseMode.HTML
-                        )
-                    except Exception as e:
-                        logger.warning(f"Could not update with loading GIF: {str(e)}")
-                        # Fallback to text only
-                        await query.edit_message_text(text=f"{loading_text} ⌛")
-                else:
-                    # If no loading GIF, just update with text
-                    await query.edit_message_text(text=f"{loading_text} ⌛")
-            except Exception as e:
-                logger.warning(f"Could not update message with loading indicator: {str(e)}")
-        except Exception as e:
-            logger.error(f"Error showing loading state: {str(e)}")
-        
-        # Get today's calendar data with extra debugging
-        try:
-            # Debug log - check service is initialized properly
-            if not self.calendar_service:
-                logger.error("Calendar service is None, recreating...")
-                self.calendar_service = EconomicCalendarService()
-            else:
-                logger.info(f"Calendar service initialized, cache size: {len(self.calendar_service.cache)}")
-            
-            # Debug log to check what Tavily sees
-            from trading_bot.services.ai_service.tavily_service import TavilyService
-            tavily = TavilyService()
-            
-            # Check if Tavily has API key
-            api_key = os.environ.get("TAVILY_API_KEY", "")
-            if api_key:
-                # Just check the first few characters to avoid logging the full key
-                masked_key = api_key[:4] + "..." if len(api_key) > 4 else "[present]"
-                logger.info(f"Tavily API key is available: {masked_key}")
-            else:
-                logger.warning("No Tavily API key found in environment")
-            
-            # Get calendar data for all currencies
-            logger.info("Requesting calendar data for all currencies")
-            calendar_data = await self.calendar_service.get_calendar()
-            
+            # Check if data is empty
             if not calendar_data or len(calendar_data) == 0:
-                logger.warning("Calendar data is empty, trying mock data...")
-                # Try generating mock data if no real data is available
+                self.logger.warning("Calendar data is empty, trying mock data...")
+                # Generate mock data
                 today_date = datetime.now().strftime("%B %d, %Y")
-                mock_data = self.calendar_service._generate_mock_calendar_data(MAJOR_CURRENCIES, today_date)
+                mock_data = calendar_service._generate_mock_calendar_data(MAJOR_CURRENCIES, today_date)
+                
+                # Flatten the mock data
                 flattened_mock = []
                 for currency, events in mock_data.items():
                     for event in events:
@@ -2582,135 +1394,37 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                             "impact": event.get("impact", "Low")
                         })
                 
-                if flattened_mock:
-                    logger.info(f"Generated {len(flattened_mock)} mock calendar events")
-                    calendar_data = flattened_mock
-                else:
-                    logger.error("Failed to generate mock data")
-                    raise Exception("Failed to get calendar data or generate mock data")
-            else:
-                logger.info(f"Got {len(calendar_data)} calendar events from service")
+                calendar_data = flattened_mock
+                self.logger.info(f"Generated {len(flattened_mock)} mock calendar events")
             
-            # Format the calendar message with improved formatting
-            message = f"<b>📅 Economic Calendar for Today</b>\n\n"
-            
-            # Sort events by time
-            calendar_data.sort(key=lambda x: x.get('time', '00:00'))
-            
-            # Group events by impact for better organization
-            high_impact_events = []
-            medium_impact_events = []
-            low_impact_events = []
-            
-            for event in calendar_data:
-                impact = event.get('impact', 'Low')
-                if impact == 'High':
-                    high_impact_events.append(event)
-                elif impact == 'Medium':
-                    medium_impact_events.append(event)
-                else:
-                    low_impact_events.append(event)
-            
-            # Function to format event
-            def format_event(event):
-                time = event.get('time', 'N/A')
-                country = event.get('country', 'N/A')
-                country_flag = event.get('country_flag', '')
-                title = event.get('title', 'N/A')
-                impact = event.get('impact', 'Low')
-                
-                # Format impact with emoji
-                impact_emoji = "🔴" if impact == "High" else "🟠" if impact == "Medium" else "🟢"
-                
-                # Add event to message
-                return f"{time} - {country_flag} {country} - {title} {impact_emoji}\n"
-            
-            # Add high impact events first
-            if high_impact_events:
-                message += "<b>🔴 High Impact Events:</b>\n"
-                for event in high_impact_events:
-                    message += format_event(event)
-                message += "\n"
-            
-            # Add medium impact events
-            if medium_impact_events:
-                message += "<b>🟠 Medium Impact Events:</b>\n"
-                for event in medium_impact_events:
-                    message += format_event(event)
-                message += "\n"
-            
-            # Add low impact events
-            if low_impact_events:
-                message += "<b>🟢 Low Impact Events:</b>\n"
-                for event in low_impact_events:
-                    message += format_event(event)
-            
-            # If no events in any category
-            if not high_impact_events and not medium_impact_events and not low_impact_events:
-                message += "No economic events scheduled for today.\n"
-            
-            # Add a note about the data source
-            message += "\n<i>ℹ️ Data refreshed hourly</i>"
+            # Format the calendar data in chronological order
+            message = await self._format_calendar_events(calendar_data)
             
             # Create keyboard with back button
             keyboard = [
-                [InlineKeyboardButton("⬅️ Back", callback_data="back_to_analysis")]
+                [InlineKeyboardButton("⬅️ Back to Analysis Menu", callback_data="menu_analyse")]
             ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
             
-            # Update message with calendar data
-            try:
-                await query.edit_message_text(
-                    text=message,
-                    reply_markup=InlineKeyboardMarkup(keyboard),
-                    parse_mode=ParseMode.HTML
-                )
-                return ANALYSIS
-            except BadRequest as e:
-                if "Message is not modified" in str(e):
-                    logger.warning("Message not modified, content unchanged")
-                    return ANALYSIS
-                else:
-                    # Try to send as new message if editing fails due to size limits
-                    logger.warning(f"Could not edit message: {str(e)}")
-                    await query.message.reply_text(
-                        text=message,
-                        reply_markup=InlineKeyboardMarkup(keyboard),
-                        parse_mode=ParseMode.HTML
-                    )
-                    return ANALYSIS
-            
+            # Send the message
+            await context.bot.sendMessage(
+                chat_id=chat_id,
+                text=message,
+                parse_mode=ParseMode.HTML,
+                reply_markup=reply_markup
+            )
+        
         except Exception as e:
-            logger.error(f"Error in analysis_calendar_callback: {str(e)}")
-            logger.exception(e)
+            self.logger.error(f"Error showing economic calendar: {str(e)}")
+            self.logger.exception(e)
             
-            # Create friendly error message
-            error_message = f"<b>⚠️ Error loading economic calendar</b>\n\n"
-            error_message += "Sorry, I couldn't retrieve the economic calendar at this time.\n\n"
-            error_message += "<i>Technical details: API connection issue</i>"
-            
-            keyboard = [
-                [InlineKeyboardButton("🔄 Try Again", callback_data="analysis_calendar")],
-                [InlineKeyboardButton("⬅️ Back", callback_data="back_to_analysis")]
-            ]
-            
-            try:
-                await query.edit_message_text(
-                    text=error_message,
-                    reply_markup=InlineKeyboardMarkup(keyboard),
-                    parse_mode=ParseMode.HTML
-                )
-            except Exception as edit_err:
-                logger.error(f"Error updating message with error: {str(edit_err)}")
-                try:
-                    await query.message.reply_text(
-                        text=error_message,
-                        reply_markup=InlineKeyboardMarkup(keyboard),
-                        parse_mode=ParseMode.HTML
-                    )
-                except Exception as reply_err:
-                    logger.error(f"Error sending error message: {str(reply_err)}")
-            
-            return ANALYSIS
+            # Send error message
+            chat_id = update.effective_chat.id
+            await context.bot.sendMessage(
+                chat_id=chat_id,
+                text="<b>⚠️ Error showing economic calendar</b>\n\nSorry, there was an error retrieving the economic calendar data. Please try again later.",
+                parse_mode=ParseMode.HTML
+            )
 
     async def signal_technical_callback(self, update: Update, context=None) -> int:
         """Handle signal_technical button press"""
@@ -5052,46 +3766,6 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Log that we're showing the calendar
             self.logger.info(f"Showing economic calendar for {currency if currency else 'all currencies'}")
             
-            # Send a loading indicator animation
-            animation_url = "https://media.giphy.com/media/dpjUltnOPye7azvAhH/giphy.gif"
-            
-            # First try to update the current message with loading GIF
-            try:
-                if query:
-                    await context.bot.editMessageText(
-                        chat_id=chat_id,
-                        message_id=query.message.message_id,
-                        text="<b>📅 Loading Economic Calendar...</b>",
-                        parse_mode=ParseMode.HTML
-                    )
-                    
-                    # Now send the loading GIF
-                    loading_message = await context.bot.sendAnimation(
-                        chat_id=chat_id,
-                        animation=animation_url,
-                        caption="<b>📅 Fetching economic data...</b>",
-                        parse_mode=ParseMode.HTML
-                    )
-                    loading_message_id = loading_message.message_id
-                else:
-                    # Send as new message with animation
-                    loading_message = await context.bot.sendAnimation(
-                        chat_id=chat_id,
-                        animation=animation_url,
-                        caption="<b>📅 Fetching economic data...</b>",
-                        parse_mode=ParseMode.HTML
-                    )
-                    loading_message_id = loading_message.message_id
-            except Exception as e:
-                self.logger.warning(f"Could not update with loading GIF: {str(e)}")
-                # Send a simple message as fallback
-                loading_message = await context.bot.sendMessage(
-                    chat_id=chat_id,
-                    text="<b>📅 Loading Economic Calendar...</b>",
-                    parse_mode=ParseMode.HTML
-                )
-                loading_message_id = loading_message.message_id
-            
             # Initialize the calendar service
             calendar_service = self._get_calendar_service()
             cache_size = len(getattr(calendar_service, 'cache', {}))
@@ -5108,53 +3782,71 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Get the calendar data based on currency
             self.logger.info(f"Requesting calendar data for {currency if currency else 'all currencies'}")
             
+            calendar_data = []
+            
+            # Get calendar data
             if currency and currency in MAJOR_CURRENCIES:
-                calendar_data = await calendar_service.get_instrument_calendar(currency)
+                # Get instrument-specific calendar
+                instrument_calendar = await calendar_service.get_instrument_calendar(currency)
+                
+                # Extract the raw data for formatting
+                try:
+                    # Check if we can get the flattened data directly
+                    calendar_data = await calendar_service.get_calendar()
+                    # Filter for specified currency
+                    calendar_data = [event for event in calendar_data if event.get('country') == currency]
+                except Exception as e:
+                    # If no flattened data available, use the formatted text
+                    self.logger.warning(f"Could not get raw calendar data, using text data: {str(e)}")
+                    # Send the formatted text directly
+                    message = instrument_calendar
+                    calendar_data = []
             else:
-                calendar_data = await calendar_service.get_instrument_calendar("GLOBAL")
+                # Get all currencies data
+                try:
+                    calendar_data = await calendar_service.get_calendar()
+                except Exception as e:
+                    self.logger.warning(f"Error getting calendar data: {str(e)}")
+                    calendar_data = []
             
             # Check if data is empty
-            if not calendar_data or calendar_data.count("\n") < 3:
+            if not calendar_data or len(calendar_data) == 0:
                 self.logger.warning("Calendar data is empty, trying mock data...")
                 # Generate mock data
-                calendar_data = calendar_service._get_fallback_calendar("GLOBAL")
+                today_date = datetime.now().strftime("%B %d, %Y")
+                mock_data = calendar_service._generate_mock_calendar_data(MAJOR_CURRENCIES, today_date)
                 
-                # Count the events for logging
-                event_count = calendar_data.count("\n") - calendar_data.count("---") - calendar_data.count("Impact")
-                self.logger.info(f"Generated {event_count} mock calendar events")
+                # Flatten the mock data
+                flattened_mock = []
+                for currency, events in mock_data.items():
+                    for event in events:
+                        flattened_mock.append({
+                            "time": event.get("time", ""),
+                            "country": currency,
+                            "country_flag": CURRENCY_FLAG.get(currency, ""),
+                            "title": event.get("event", ""),
+                            "impact": event.get("impact", "Low")
+                        })
+                
+                calendar_data = flattened_mock
+                self.logger.info(f"Generated {len(flattened_mock)} mock calendar events")
             
-            # Try to edit the loading message
-            try:
-                await context.bot.editMessageText(
-                    chat_id=chat_id,
-                    message_id=loading_message_id,
-                    text=calendar_data,
-                    parse_mode=ParseMode.HTML
-                )
-            except Exception as e:
-                self.logger.warning(f"Could not edit message: {str(e)}")
-                # Send a new message if editing fails
-                await context.bot.sendMessage(
-                    chat_id=chat_id,
-                    text=calendar_data,
-                    parse_mode=ParseMode.HTML
-                )
+            # Format the calendar data in chronological order
+            message = await self._format_calendar_events(calendar_data)
             
-            # Add back button for better UX
+            # Create keyboard with back button
             keyboard = [
                 [InlineKeyboardButton("⬅️ Back to Analysis Menu", callback_data="menu_analyse")]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
-            # Update the message with back button
-            try:
-                await context.bot.editMessageReplyMarkup(
-                    chat_id=chat_id,
-                    message_id=loading_message_id,
-                    reply_markup=reply_markup
-                )
-            except Exception as e:
-                self.logger.warning(f"Could not add back button: {str(e)}")
+            # Send the message
+            await context.bot.sendMessage(
+                chat_id=chat_id,
+                text=message,
+                parse_mode=ParseMode.HTML,
+                reply_markup=reply_markup
+            )
         
         except Exception as e:
             self.logger.error(f"Error showing economic calendar: {str(e)}")
@@ -5167,3 +3859,76 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 text="<b>⚠️ Error showing economic calendar</b>\n\nSorry, there was an error retrieving the economic calendar data. Please try again later.",
                 parse_mode=ParseMode.HTML
             )
+
+    async def _format_calendar_events(self, calendar_data):
+        """Format calendar events in chronological order"""
+        # Format the calendar message
+        message = f"<b>📅 Economic Calendar for Today</b>\n\n"
+        
+        if not calendar_data or len(calendar_data) == 0:
+            return message + "No economic events scheduled for today.\n"
+        
+        # Sort events by time
+        calendar_data.sort(key=lambda x: self._parse_time_for_sorting(x.get('time', '00:00')))
+        
+        # Format each event in chronological order
+        for event in calendar_data:
+            time = event.get('time', 'N/A')
+            country = event.get('country', 'N/A')
+            country_flag = event.get('country_flag', '')
+            title = event.get('title', 'N/A')
+            impact = event.get('impact', 'Low')
+            
+            # Format impact with emoji
+            impact_emoji = "🔴" if impact == "High" else "🟠" if impact == "Medium" else "🟢"
+            
+            # Add event to message
+            message += f"{time} - {country_flag} {country} - {title} {impact_emoji}\n"
+        
+        # Add impact legend at the bottom
+        message += "\n-------------------\n"
+        message += "🔴 High Impact\n"
+        message += "🟠 Medium Impact\n"
+        message += "🟢 Low Impact"
+        
+        return message
+    
+    def _parse_time_for_sorting(self, time_str: str) -> int:
+        """Parse time string to minutes for sorting"""
+        # Default value
+        minutes = 0
+        
+        try:
+            # Extract only time part if it contains timezone
+            if " " in time_str:
+                time_parts = time_str.split(" ")
+                time_str = time_parts[0]
+                
+            # Handle AM/PM format
+            if "AM" in time_str.upper() or "PM" in time_str.upper():
+                # Parse 12h format
+                time_only = time_str.upper().replace("AM", "").replace("PM", "").strip()
+                parts = time_only.split(":")
+                hours = int(parts[0])
+                minutes_part = int(parts[1]) if len(parts) > 1 else 0
+                
+                # Add 12 hours for PM times (except 12 PM)
+                if "PM" in time_str.upper() and hours < 12:
+                    hours += 12
+                # 12 AM should be 0
+                if "AM" in time_str.upper() and hours == 12:
+                    hours = 0
+                
+                minutes = hours * 60 + minutes_part
+            else:
+                # Handle 24h format
+                parts = time_str.split(":")
+                if len(parts) >= 2:
+                    hours = int(parts[0])
+                    minutes_part = int(parts[1])
+                    minutes = hours * 60 + minutes_part
+        except Exception:
+            # In case of parsing error, default to 0
+            minutes = 0
+            
+        return minutes
