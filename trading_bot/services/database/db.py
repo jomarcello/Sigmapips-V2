@@ -837,3 +837,62 @@ class Database:
         
         # Forex pairs als default
         return "forex" 
+
+    async def subscribe_to_instrument(self, user_id: int, instrument: str, timeframe: str = None) -> bool:
+        """Subscribe a user to receive signals for a specific instrument
+        
+        This is an alias for add_subscriber_preference with market auto-detection
+        
+        Arguments:
+            user_id: Telegram user ID
+            instrument: Trading instrument/symbol (e.g., EURUSD, BTCUSD)
+            timeframe: Timeframe (optional, will use the instrument's default if not provided)
+        
+        Returns:
+            bool: Success indicator
+        """
+        try:
+            # Detect market from instrument
+            market = self._detect_market(instrument)
+            
+            # Use the add_subscriber_preference method with the detected market
+            return await self.add_subscriber_preference(user_id, market, instrument, timeframe)
+                
+        except Exception as e:
+            logger.error(f"Error subscribing to instrument: {str(e)}")
+            return False
+            
+    async def _detect_market(self, instrument: str) -> str:
+        """Detect market type from instrument name"""
+        instrument = instrument.upper()
+        
+        # Common forex pairs
+        forex_pairs = ["EUR", "USD", "GBP", "JPY", "AUD", "NZD", "CAD", "CHF"]
+        
+        # Check if it's a forex pair (contains two currency codes)
+        for base in forex_pairs:
+            if instrument.startswith(base):
+                for quote in forex_pairs:
+                    if instrument == base + quote:
+                        return "forex"
+        
+        # Check if it's a crypto pair
+        crypto_pairs = ["BTC", "ETH", "XRP", "LTC", "BCH", "EOS", "BNB", "XLM", "ADA", "TRX"]
+        for crypto in crypto_pairs:
+            if crypto in instrument:
+                return "crypto"
+        
+        # Check if it's an index
+        indices = ["SPX", "NDX", "DJI", "FTSE", "DAX", "CAC", "NIKKEI", "HSI"]
+        for index in indices:
+            if index in instrument:
+                return "indices"
+        
+        # Check if it's a commodity
+        commodities = ["GOLD", "SILVER", "OIL", "GAS", "XAU", "XAG"]
+        for commodity in commodities:
+            if commodity in instrument:
+                return "commodities"
+        
+        # Default to forex if we can't determine
+        return "forex" 
