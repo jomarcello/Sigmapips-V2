@@ -569,6 +569,9 @@ class TelegramService:
         self.admin_users = [1093307376]  # Add your Telegram ID here for testing
         self._signals_enabled = True  # Enable signals by default
         
+        # Setup logger
+        self.logger = logging.getLogger(__name__)
+        
         # GIF utilities for UI
         self.gif_utils = gif_utils  # Initialize gif_utils as an attribute
         
@@ -1248,7 +1251,42 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             except Exception as e:
                 self.logger.error(f"Could not answer callback: {str(e)}")
             
-            # BELANGRIJK: Eerst een loading animatie tonen
+            # Verwijder het huidige bericht/media voordat we de loading animatie tonen
+            try:
+                # Stap 1: Probeer het bericht te verwijderen
+                await query.message.delete()
+                self.logger.info("Successfully deleted previous message")
+            except Exception as delete_error:
+                self.logger.warning(f"Could not delete message: {str(delete_error)}")
+                
+                # Stap 2: Als verwijderen niet lukt, vervang met transparante GIF
+                has_photo = bool(query.message.photo) or query.message.animation is not None
+                
+                if has_photo:
+                    try:
+                        # Gebruik een transparante GIF om de huidige afbeelding te vervangen
+                        transparent_gif_url = "https://upload.wikimedia.org/wikipedia/commons/thumb/0/00/Transparent.gif/1px-Transparent.gif"
+                        
+                        await query.edit_message_media(
+                            media=InputMediaDocument(
+                                media=transparent_gif_url,
+                                caption="Loading calendar..."
+                            )
+                        )
+                        self.logger.info("Replaced media with transparent GIF")
+                    except Exception as media_error:
+                        self.logger.warning(f"Could not replace media: {str(media_error)}")
+                        
+                        # Stap 3: Als laatste optie, pas alleen het bijschrift aan
+                        try:
+                            await query.edit_message_caption(
+                                caption="Loading calendar...",
+                            )
+                            self.logger.info("Updated caption only")
+                        except Exception as caption_error:
+                            self.logger.warning(f"Could not update caption: {str(caption_error)}")
+            
+            # BELANGRIJK: Toon de loading animatie
             animation_url = "https://media.giphy.com/media/dpjUltnOPye7azvAhH/giphy.gif"
             
             # Verstuur de animatie
@@ -1265,11 +1303,11 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 if query.data.startswith("analysis_calendar_signal_"):
                     instrument = query.data.replace("analysis_calendar_signal_", "")
                     self.logger.info(f"Showing economic calendar for instrument: {instrument}")
-                    await self.show_economic_calendar(update, context, instrument)
+                    await self.show_economic_calendar(update, context, instrument, loading_message)
                 else:
                     # Show calendar for all currencies
                     self.logger.info("Showing economic calendar for all currencies")
-                    await self.show_economic_calendar(update, context)
+                    await self.show_economic_calendar(update, context, None, loading_message)
                 
             except Exception as e:
                 self.logger.error(f"Failed to send loading animation: {str(e)}")
@@ -1286,11 +1324,11 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     if query.data.startswith("analysis_calendar_signal_"):
                         instrument = query.data.replace("analysis_calendar_signal_", "")
                         self.logger.info(f"Showing economic calendar for instrument: {instrument}")
-                        await self.show_economic_calendar(update, context, instrument)
+                        await self.show_economic_calendar(update, context, instrument, loading_message)
                     else:
                         # Show calendar for all currencies
                         self.logger.info("Showing economic calendar for all currencies")
-                        await self.show_economic_calendar(update, context)
+                        await self.show_economic_calendar(update, context, None, loading_message)
                 except Exception as text_error:
                     self.logger.error(f"Failed to send text loading message: {str(text_error)}")
                     # Direct call to show_economic_calendar as last resort
@@ -1323,7 +1361,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             
             return ANALYSIS
 
-    async def show_economic_calendar(self, update: Update, context: CallbackContext, currency=None):
+    async def show_economic_calendar(self, update: Update, context: CallbackContext, currency=None, loading_message=None):
         """Show the economic calendar for a specific currency"""
         try:
             chat_id = update.effective_chat.id
@@ -1406,13 +1444,37 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
-            # Send the message
+            # Probeer eerst het loading bericht te verwijderen
+            if loading_message:
+                try:
+                    # Verwijder het loading bericht
+                    await loading_message.delete()
+                    self.logger.info("Successfully deleted loading message")
+                except Exception as delete_error:
+                    self.logger.warning(f"Could not delete loading message: {str(delete_error)}")
+                    
+                    # Als verwijderen niet lukt, probeer het te bewerken
+                    try:
+                        await context.bot.editMessageText(
+                            chat_id=chat_id,
+                            message_id=loading_message.message_id,
+                            text=message,
+                            parse_mode=ParseMode.HTML,
+                            reply_markup=reply_markup
+                        )
+                        self.logger.info("Edited loading message with calendar data")
+                        return  # Skip sending a new message
+                    except Exception as edit_error:
+                        self.logger.warning(f"Could not edit loading message: {str(edit_error)}")
+            
+            # Send the message as a new message
             await context.bot.sendMessage(
                 chat_id=chat_id,
                 text=message,
                 parse_mode=ParseMode.HTML,
                 reply_markup=reply_markup
             )
+            self.logger.info("Sent calendar data as new message")
         
         except Exception as e:
             self.logger.error(f"Error showing economic calendar: {str(e)}")
@@ -3757,109 +3819,6 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         # Directly call the show_main_menu method
         await self.show_main_menu(update, context)
 
-    async def show_economic_calendar(self, update: Update, context: CallbackContext, currency=None):
-        """Show the economic calendar for a specific currency"""
-        try:
-            chat_id = update.effective_chat.id
-            query = update.callback_query
-            
-            # Log that we're showing the calendar
-            self.logger.info(f"Showing economic calendar for {currency if currency else 'all currencies'}")
-            
-            # Initialize the calendar service
-            calendar_service = self._get_calendar_service()
-            cache_size = len(getattr(calendar_service, 'cache', {}))
-            self.logger.info(f"Calendar service initialized, cache size: {cache_size}")
-            
-            # Check if API key is available
-            tavily_api_key = os.environ.get("TAVILY_API_KEY", "")
-            if tavily_api_key:
-                masked_key = f"{tavily_api_key[:4]}..." if len(tavily_api_key) > 7 else "***"
-                self.logger.info(f"Tavily API key is available: {masked_key}")
-            else:
-                self.logger.warning("No Tavily API key found, will use mock data")
-            
-            # Get the calendar data based on currency
-            self.logger.info(f"Requesting calendar data for {currency if currency else 'all currencies'}")
-            
-            calendar_data = []
-            
-            # Get calendar data
-            if currency and currency in MAJOR_CURRENCIES:
-                # Get instrument-specific calendar
-                instrument_calendar = await calendar_service.get_instrument_calendar(currency)
-                
-                # Extract the raw data for formatting
-                try:
-                    # Check if we can get the flattened data directly
-                    calendar_data = await calendar_service.get_calendar()
-                    # Filter for specified currency
-                    calendar_data = [event for event in calendar_data if event.get('country') == currency]
-                except Exception as e:
-                    # If no flattened data available, use the formatted text
-                    self.logger.warning(f"Could not get raw calendar data, using text data: {str(e)}")
-                    # Send the formatted text directly
-                    message = instrument_calendar
-                    calendar_data = []
-            else:
-                # Get all currencies data
-                try:
-                    calendar_data = await calendar_service.get_calendar()
-                except Exception as e:
-                    self.logger.warning(f"Error getting calendar data: {str(e)}")
-                    calendar_data = []
-            
-            # Check if data is empty
-            if not calendar_data or len(calendar_data) == 0:
-                self.logger.warning("Calendar data is empty, trying mock data...")
-                # Generate mock data
-                today_date = datetime.now().strftime("%B %d, %Y")
-                mock_data = calendar_service._generate_mock_calendar_data(MAJOR_CURRENCIES, today_date)
-                
-                # Flatten the mock data
-                flattened_mock = []
-                for currency, events in mock_data.items():
-                    for event in events:
-                        flattened_mock.append({
-                            "time": event.get("time", ""),
-                            "country": currency,
-                            "country_flag": CURRENCY_FLAG.get(currency, ""),
-                            "title": event.get("event", ""),
-                            "impact": event.get("impact", "Low")
-                        })
-                
-                calendar_data = flattened_mock
-                self.logger.info(f"Generated {len(flattened_mock)} mock calendar events")
-            
-            # Format the calendar data in chronological order
-            message = await self._format_calendar_events(calendar_data)
-            
-            # Create keyboard with back button
-            keyboard = [
-                [InlineKeyboardButton("⬅️ Back to Analysis Menu", callback_data="menu_analyse")]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            
-            # Send the message
-            await context.bot.sendMessage(
-                chat_id=chat_id,
-                text=message,
-                parse_mode=ParseMode.HTML,
-                reply_markup=reply_markup
-            )
-        
-        except Exception as e:
-            self.logger.error(f"Error showing economic calendar: {str(e)}")
-            self.logger.exception(e)
-            
-            # Send error message
-            chat_id = update.effective_chat.id
-            await context.bot.sendMessage(
-                chat_id=chat_id,
-                text="<b>⚠️ Error showing economic calendar</b>\n\nSorry, there was an error retrieving the economic calendar data. Please try again later.",
-                parse_mode=ParseMode.HTML
-            )
-
     async def _format_calendar_events(self, calendar_data):
         """Format calendar events in chronological order"""
         # Format the calendar message
@@ -3932,3 +3891,18 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             minutes = 0
             
         return minutes
+
+    def _get_calendar_service(self):
+        """Get or create an instance of the EconomicCalendarService"""
+        try:
+            if not hasattr(self, 'calendar_service') or self.calendar_service is None:
+                self.logger.info("Creating new EconomicCalendarService instance")
+                from trading_bot.services.calendar_service.calendar import EconomicCalendarService
+                self.calendar_service = EconomicCalendarService()
+            return self.calendar_service
+        except Exception as e:
+            self.logger.error(f"Error getting calendar service: {str(e)}")
+            self.logger.exception(e)
+            # If all else fails, create a new instance
+            from trading_bot.services.calendar_service.calendar import EconomicCalendarService
+            return EconomicCalendarService()
