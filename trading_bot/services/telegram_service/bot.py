@@ -43,6 +43,7 @@ from trading_bot.services.telegram_service.states import (
     CALLBACK_SIGNALS_MANAGE, CALLBACK_BACK_MENU
 )
 import trading_bot.services.telegram_service.gif_utils as gif_utils
+from trading_bot.services.telegram_service.gif_utils import get_signals_gif
 
 # Initialize logger
 logger = logging.getLogger(__name__)
@@ -145,7 +146,7 @@ ANALYSIS_KEYBOARD = [
 # Signals menu keyboard
 SIGNALS_KEYBOARD = [
     [InlineKeyboardButton("➕ Add New Pairs", callback_data=CALLBACK_SIGNALS_ADD)],
-    [InlineKeyboardButton("⚙️ Manage Preferences", callback_data=CALLBACK_SIGNALS_MANAGE)],
+    [InlineKeyboardButton("⚙️ Manage Signals", callback_data=CALLBACK_SIGNALS_MANAGE)],
     [InlineKeyboardButton("⬅️ Back", callback_data=CALLBACK_BACK_MENU)]
 ]
 
@@ -2923,7 +2924,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Show success message
             success_message = f"✅ Successfully subscribed to {instrument} ({timeframe_display}) signals!"
             
-            # Create keyboard with options to add more or go back
+            # Create keyboard with options to add more or go back - FIXED to avoid duplicate buttons
             keyboard = [
                 [InlineKeyboardButton("➕ Add More Pairs", callback_data="signals_add")],
                 [InlineKeyboardButton("⬅️ Back to Signals", callback_data="back_signals")]
