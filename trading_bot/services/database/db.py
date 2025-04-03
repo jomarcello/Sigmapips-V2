@@ -815,94 +815,214 @@ class Database:
             return False
 
     def _detect_market(self, instrument: str) -> str:
-        """Detecteer market type gebaseerd op instrument"""
-        if not instrument:
-            return "forex"  # Default
-        
-        instrument = str(instrument).upper()
-        
-        # Commodities eerst checken
-        commodities = [
-            "XAUUSD",  # Gold
-            "XAGUSD",  # Silver
-            "WTIUSD",  # Oil WTI
-            "BCOUSD",  # Oil Brent
-        ]
-        if instrument in commodities:
-            return "commodities"
-        
-        # Crypto pairs
-        crypto_base = ["BTC", "ETH", "XRP", "SOL", "BNB", "ADA", "DOT", "LINK"]
-        if any(c in instrument for c in crypto_base):
-            return "crypto"
-        
-        # Major indices
-        indices = [
-            "US30", "US500", "US100",  # US indices
-            "UK100", "DE40", "FR40",   # European indices
-            "JP225", "AU200", "HK50"   # Asian indices
-        ]
-        if instrument in indices:
-            return "indices"
-        
-        # Forex pairs als default
-        return "forex" 
-
-    async def subscribe_to_instrument(self, user_id: int, instrument: str, timeframe: str = None) -> bool:
-        """Subscribe a user to receive signals for a specific instrument
-        
-        This is an alias for add_subscriber_preference with market auto-detection
-        
-        Arguments:
-            user_id: Telegram user ID
-            instrument: Trading instrument/symbol (e.g., EURUSD, BTCUSD)
-            timeframe: Timeframe (optional, will use the instrument's default if not provided)
-        
-        Returns:
-            bool: Success indicator
-        """
-        try:
-            # Detect market from instrument
-            market = self._detect_market(instrument)
-            
-            # Use the add_subscriber_preference method with the detected market
-            return await self.add_subscriber_preference(user_id, market, instrument, timeframe)
-                
-        except Exception as e:
-            logger.error(f"Error subscribing to instrument: {str(e)}")
-            return False
-            
-    def _detect_market(self, instrument: str) -> str:
         """Detect market type from instrument name"""
         instrument = instrument.upper()
-        
+         
         # Common forex pairs
         forex_pairs = ["EUR", "USD", "GBP", "JPY", "AUD", "NZD", "CAD", "CHF"]
-        
+         
         # Check if it's a forex pair (contains two currency codes)
         for base in forex_pairs:
             if instrument.startswith(base):
                 for quote in forex_pairs:
                     if instrument == base + quote:
                         return "forex"
-        
+         
         # Check if it's a crypto pair
         crypto_pairs = ["BTC", "ETH", "XRP", "LTC", "BCH", "EOS", "BNB", "XLM", "ADA", "TRX"]
         for crypto in crypto_pairs:
             if crypto in instrument:
                 return "crypto"
-        
+         
         # Check if it's an index
         indices = ["SPX", "NDX", "DJI", "FTSE", "DAX", "CAC", "NIKKEI", "HSI"]
         for index in indices:
             if index in instrument:
                 return "indices"
-        
+         
         # Check if it's a commodity
         commodities = ["GOLD", "SILVER", "OIL", "GAS", "XAU", "XAG"]
         for commodity in commodities:
             if commodity in instrument:
                 return "commodities"
-        
+         
         # Default to forex if we can't determine
         return "forex" 
+
+    async def subscribe_to_instrument(self, user_id: int, instrument: str, timeframe: str = None) -> bool:
+        """Subscribe a user to receive signals for a specific instrument
+        
+        Arguments:
+            user_id: Telegram user ID
+            instrument: Trading instrument/symbol (e.g., EURUSD, BTCUSD)
+            timeframe: Timeframe (optional, if not provided will use the instrument's default from INSTRUMENT_TIMEFRAME_MAP)
+            
+        Returns:
+            bool: Success indicator
+        """
+        try:
+            # Auto-detect market type based on the instrument
+            market = self._detect_market(instrument)
+            logger.info(f"Market auto-detected as {market} for instrument {instrument}")
+            
+            # Use the new signal_subscriptions table instead of subscriber_preferences
+            return await self.add_signal_subscription(user_id, market, instrument, timeframe)
+            
+        except Exception as e:
+            logger.error(f"Error in subscribe_to_instrument: {str(e)}")
+            return False
+            
+    async def get_subscribers_for_instrument(self, instrument: str, timeframe: str = None) -> List[int]:
+        """Get all subscribers for a specific instrument and timeframe
+        
+        Arguments:
+            instrument: Trading instrument/symbol (e.g., EURUSD, BTCUSD)
+            timeframe: Timeframe (optional, if provided will filter by timeframe)
+            
+        Returns:
+            List[int]: List of subscriber user IDs
+        """
+        try:
+            # Try to get subscribers from the new signal_subscriptions table first
+            query = self.supabase.table('signal_subscriptions').select('user_id').eq('instrument', instrument)
+            
+            # Filter by timeframe if provided
+            if timeframe:
+                query = query.eq('timeframe', timeframe)
+                
+            response = query.execute()
+            
+            if response and response.data:
+                return [item['user_id'] for item in response.data]
+                
+            # Fall back to the old table if needed
+            query = self.supabase.table('subscriber_preferences').select('user_id').eq('instrument', instrument)
+            
+            # Filter by timeframe if provided
+            if timeframe:
+                normalized_timeframe = self._normalize_timeframe_for_db(timeframe)
+                query = query.eq('timeframe', normalized_timeframe)
+                
+            response = query.execute()
+            
+            if response and response.data:
+                return [item['user_id'] for item in response.data]
+                
+            # If no subscribers found in either table
+            return []
+            
+        except Exception as e:
+            logger.error(f"Error getting subscribers for instrument {instrument}: {str(e)}")
+            return []
+
+    async def add_signal_subscription(self, user_id: int, market: str, instrument: str, timeframe: str = None) -> bool:
+        """Add a new signal subscription using the new signal_subscriptions table
+        
+        Arguments:
+            user_id: Telegram user ID
+            market: Market type (forex, crypto, indices, commodities)
+            instrument: Trading instrument/symbol (e.g., EURUSD, BTCUSD)
+            timeframe: Timeframe (optional, if not provided will use the instrument's default from INSTRUMENT_TIMEFRAME_MAP)
+        
+        Returns:
+            bool: Success indicator
+        """
+        try:
+            # Check if subscription already exists
+            existing = self.supabase.table('signal_subscriptions').select('*').eq('user_id', user_id).eq('instrument', instrument).execute()
+            
+            if existing and existing.data:
+                logger.info(f"User {user_id} already has a subscription for {instrument}")
+                return True
+            
+            # Import here to avoid circular imports
+            from trading_bot.services.telegram_service.bot import INSTRUMENT_TIMEFRAME_MAP
+            
+            # Get the instrument's default timeframe from the mapping if not provided
+            if timeframe is None or timeframe.upper() == "ALL":
+                instrument_timeframe = INSTRUMENT_TIMEFRAME_MAP.get(instrument)
+                if instrument_timeframe:
+                    timeframe = instrument_timeframe
+                    logger.info(f"Using instrument's default timeframe: {timeframe} for {instrument}")
+                else:
+                    # Default to 1h if not found in the map
+                    timeframe = "1h"
+                    logger.info(f"Instrument {instrument} not found in INSTRUMENT_TIMEFRAME_MAP, using default '1h'")
+            
+            # Log the original timeframe for reference
+            logger.info(f"Using timeframe for {instrument}: {timeframe}")
+            
+            # Create new subscription entry
+            current_time = datetime.datetime.now(timezone.utc).isoformat()
+            
+            new_subscription = {
+                'user_id': int(user_id),
+                'market': str(market),
+                'instrument': str(instrument),
+                'timeframe': str(timeframe),  # Use the actual timeframe as is
+                'created_at': current_time
+            }
+            
+            # Log the data being inserted for debugging
+            logger.info(f"Inserting subscription data: {new_subscription}")
+            
+            # Insert new subscription
+            response = self.supabase.table('signal_subscriptions').insert(new_subscription).execute()
+            
+            if response and response.data:
+                logger.info(f"Successfully added subscription for user {user_id}: {instrument} with timeframe: {timeframe}")
+                return True
+            else:
+                logger.warning(f"Failed to add subscription for user {user_id}")
+                logger.warning(f"Response: {response}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Error adding signal subscription: {str(e)}")
+            traceback.print_exc()  # Print the full traceback for better debugging
+            return False
+
+    async def get_signal_subscriptions(self, instrument: str, timeframe: str = None) -> List[Dict]:
+        """Get all signal subscriptions for a specific instrument and timeframe
+        
+        Arguments:
+            instrument: Trading instrument/symbol (e.g., EURUSD, BTCUSD)
+            timeframe: Timeframe (optional, if provided will filter by timeframe)
+            
+        Returns:
+            List[Dict]: List of subscription records with user_id, instrument, timeframe, etc.
+        """
+        try:
+            result = []
+            
+            # Try to get subscriptions from the new signal_subscriptions table first
+            query = self.supabase.table('signal_subscriptions').select('*').eq('instrument', instrument)
+            
+            # Filter by timeframe if provided
+            if timeframe:
+                query = query.eq('timeframe', timeframe)
+                
+            response = query.execute()
+            
+            if response and response.data:
+                result.extend(response.data)
+                
+            # Also check the legacy table for backward compatibility
+            query = self.supabase.table('subscriber_preferences').select('*').eq('instrument', instrument)
+            
+            # For the old table, use the normalized timeframe
+            if timeframe:
+                # Always use '1h' for querying the old table due to the constraint
+                query = query.eq('timeframe', '1h')
+                
+            response = query.execute()
+            
+            if response and response.data:
+                result.extend(response.data)
+                
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error getting signal subscriptions for instrument {instrument}: {str(e)}")
+            traceback.print_exc()
+            return []
