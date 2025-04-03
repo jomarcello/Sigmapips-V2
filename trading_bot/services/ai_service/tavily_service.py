@@ -110,19 +110,22 @@ class TavilyService:
             
             # Always reload API key from environment for better testing
             env_api_key = os.environ.get("TAVILY_API_KEY", "")
-            if env_api_key and env_api_key != self.api_key:
-                self.logger.info("Updating Tavily API key from environment")
-                # Ensure the API key has the correct format
-                env_api_key = env_api_key.strip().replace('\n', '').replace('\r', '')
+            if env_api_key:
+                self.logger.info(f"Found API key in environment - Current length: {len(env_api_key)}")
                 
-                # Add the 'tvly-' prefix if not present
-                if not env_api_key.startswith("tvly-"):
-                    env_api_key = f"tvly-{env_api_key}"
-                    self.logger.info("Added 'tvly-' prefix to Tavily API key from environment")
-                
-                self.api_key = env_api_key
-                masked_key = f"{env_api_key[:7]}...{env_api_key[-4:]}" if len(env_api_key) > 11 else f"{env_api_key[:4]}..."
-                self.logger.info(f"Updated Tavily API key from environment: {masked_key}")
+                if env_api_key != self.api_key:
+                    self.logger.info("Updating Tavily API key from environment")
+                    # Ensure the API key has the correct format
+                    env_api_key = env_api_key.strip().replace('\n', '').replace('\r', '')
+                    
+                    # Add the 'tvly-' prefix if not present
+                    if not env_api_key.startswith("tvly-"):
+                        env_api_key = f"tvly-{env_api_key}"
+                        self.logger.info("Added 'tvly-' prefix to Tavily API key from environment")
+                    
+                    self.api_key = env_api_key
+                    masked_key = f"{env_api_key[:7]}...{env_api_key[-4:]}" if len(env_api_key) > 11 else f"{env_api_key[:4]}..."
+                    self.logger.info(f"Updated Tavily API key from environment: {masked_key}")
             
             # Check API key availability
             if not self.api_key:
@@ -152,18 +155,25 @@ class TavilyService:
                 "exclude_domains": exclude_domains,
                 "max_results": max_results,
                 "include_answer": True,
-                "include_raw_content": False,
+                "include_raw_content": True,  # Change to True for more data
                 "include_images": False
             }
             
             # Log the payload for debugging
-            self.logger.info(f"Tavily API payload: {payload}")
+            self.logger.info(f"Tavily API payload: {json.dumps(payload)}")
+            
+            # Log headers (masking the API key)
+            headers = self._get_headers()
+            safe_headers = headers.copy()
+            if 'x-api-key' in safe_headers:
+                key = safe_headers['x-api-key']
+                safe_headers['x-api-key'] = f"{key[:7]}...{key[-4:]}" if len(key) > 11 else f"{key[:4]}..."
+            self.logger.info(f"Request headers: {json.dumps(safe_headers)}")
             
             try:
                 # First try with httpx
                 search_url = f"{self.base_url}/search"
                 self.logger.info(f"Sending request to Tavily API at {search_url} using httpx")
-                self.logger.info(f"Headers: Content-Type: application/json, x-api-key: [API KEY MASKED]")
                 
                 async with httpx.AsyncClient(timeout=self.timeout) as client:  # Increased timeout
                     response = await client.post(
@@ -261,6 +271,22 @@ class TavilyService:
         try:
             self.logger.info(f"Searching internet with Tavily for: {query}")
             
+            # Refresh API key from environment
+            env_api_key = os.environ.get("TAVILY_API_KEY", "")
+            if env_api_key and env_api_key != self.api_key:
+                self.logger.info(f"Found new API key in environment for internet search - Current length: {len(env_api_key)}")
+                # Ensure the API key has the correct format
+                env_api_key = env_api_key.strip().replace('\n', '').replace('\r', '')
+                
+                # Add the 'tvly-' prefix if not present
+                if not env_api_key.startswith("tvly-"):
+                    env_api_key = f"tvly-{env_api_key}"
+                    self.logger.info("Added 'tvly-' prefix to Tavily API key from environment")
+                
+                self.api_key = env_api_key
+                masked_key = f"{env_api_key[:7]}...{env_api_key[-4:]}" if len(env_api_key) > 11 else f"{env_api_key[:4]}..."
+                self.logger.info(f"Updated Tavily API key from environment for internet search: {masked_key}")
+            
             # Check API key availability
             if not self.api_key:
                 self.logger.warning("No Tavily API key found - using mock data for internet search")
@@ -274,15 +300,25 @@ class TavilyService:
                 "exclude_domains": [],
                 "max_results": max_results,
                 "include_answer": True,
-                "include_raw_content": False,
+                "include_raw_content": True,  # Change to true for more data
                 "include_images": False
             }
             
             # Log the payload for debugging
-            self.logger.info(f"Tavily internet search payload: {payload}")
+            self.logger.info(f"Tavily internet search payload: {json.dumps(payload)}")
+            
+            # Log headers (masking the API key)
+            headers = self._get_headers()
+            safe_headers = headers.copy()
+            if 'x-api-key' in safe_headers:
+                key = safe_headers['x-api-key']
+                safe_headers['x-api-key'] = f"{key[:7]}...{key[-4:]}" if len(key) > 11 else f"{key[:4]}..."
+            self.logger.info(f"Internet search request headers: {json.dumps(safe_headers)}")
             
             try:
                 search_url = f"{self.base_url}/search"
+                self.logger.info(f"Sending request to Tavily API at {search_url} for internet search")
+                
                 async with httpx.AsyncClient(timeout=self.timeout) as client:
                     response = await client.post(
                         search_url,
@@ -295,10 +331,48 @@ class TavilyService:
                     if response.status_code == 200:
                         result = response.json()
                         self.logger.info(f"Successfully retrieved {len(result.get('results', []))} results from Tavily internet search")
+                        
+                        # Log example results
+                        if result and result.get('results'):
+                            for idx, item in enumerate(result.get('results', [])[:2]):
+                                self.logger.info(f"Result {idx+1} title: {item.get('title', 'No title')}")
+                                content_preview = item.get('content', '')[:100] + "..." if item.get('content') else ""
+                                self.logger.info(f"Content preview: {content_preview}")
+                                
                         return result
                     else:
-                        self.logger.error(f"Tavily internet search API error: {response.status_code} - {response.text}")
-                        return {"results": self._generate_mock_results(query)}
+                        self.logger.error(f"Tavily internet search API error: {response.status_code}")
+                        self.logger.error(f"Error response: {response.text[:300]}...")
+                        
+                        # Try alternative connection with aiohttp
+                        self.logger.info("Trying alternative connection method with aiohttp for internet search")
+                        
+                        # Create a custom SSL context that's more permissive
+                        ssl_context = ssl.create_default_context()
+                        ssl_context.check_hostname = False
+                        ssl_context.verify_mode = ssl.CERT_NONE
+                        
+                        connector = aiohttp.TCPConnector(ssl=ssl_context)
+                        timeout = aiohttp.ClientTimeout(total=self.timeout)
+                        
+                        async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
+                            self.logger.info(f"Sending aiohttp request to Tavily API for internet search")
+                            async with session.post(
+                                search_url, 
+                                headers=self._get_headers(), 
+                                json=payload
+                            ) as aio_response:
+                                self.logger.info(f"Tavily API aiohttp response status for internet search: {aio_response.status}")
+                                
+                                if aio_response.status == 200:
+                                    response_text = await aio_response.text()
+                                    response_json = json.loads(response_text)
+                                    self.logger.info("Successfully retrieved data from Tavily API using aiohttp for internet search")
+                                    return response_json
+                                else:
+                                    response_text = await aio_response.text()
+                                    self.logger.error(f"Tavily API error with aiohttp: {aio_response.status}, {response_text[:200]}...")
+                                    return {"results": self._generate_mock_results(query)}
                         
             except Exception as e:
                 self.logger.error(f"Error connecting to Tavily internet search API: {str(e)}")
