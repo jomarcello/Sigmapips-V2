@@ -27,14 +27,21 @@ from telegram.ext import (
 )
 from telegram.error import TelegramError, BadRequest
 import httpx
+import telegram.error  # Add this import for BadRequest error handling
 
 from trading_bot.services.database.db import Database
 from trading_bot.services.chart_service.chart import ChartService
 from trading_bot.services.sentiment_service.sentiment import MarketSentimentService
-from trading_bot.services.calendar_service.calendar import EconomicCalendarService
+from trading_bot.services.calendar_service.calendar import EconomicCalendarService, MAJOR_CURRENCIES, CURRENCY_FLAG
 from trading_bot.services.payment_service.stripe_service import StripeService
 from trading_bot.services.payment_service.stripe_config import get_subscription_features
-from trading_bot.services.telegram_service.states import *
+from trading_bot.services.telegram_service.states import (
+    MENU, ANALYSIS, SIGNALS, CHOOSE_MARKET, CHOOSE_INSTRUMENT, CHOOSE_STYLE,
+    CHOOSE_ANALYSIS, SIGNAL_DETAILS,
+    CALLBACK_MENU_ANALYSE, CALLBACK_MENU_SIGNALS, CALLBACK_ANALYSIS_TECHNICAL,
+    CALLBACK_ANALYSIS_SENTIMENT, CALLBACK_ANALYSIS_CALENDAR, CALLBACK_SIGNALS_ADD,
+    CALLBACK_SIGNALS_MANAGE, CALLBACK_BACK_MENU
+)
 import trading_bot.services.telegram_service.gif_utils as gif_utils
 
 # Initialize logger
@@ -1394,7 +1401,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     parse_mode=ParseMode.HTML
                 )
                 return ANALYSIS
-            except telegram.error.BadRequest as e:
+            except BadRequest as e:
                 if "Message is not modified" in str(e):
                     logger.warning("Message not modified, content unchanged")
                     return ANALYSIS
