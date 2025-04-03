@@ -1234,21 +1234,8 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         query = update.callback_query
         user_id = query.from_user.id
         
-        # Get the user's selected instrument
-        instrument = context.user_data.get('selected_instrument') if context else None
-        
-        if not instrument:
-            logger.error("No instrument provided for calendar analysis")
-            try:
-                await query.edit_message_text(
-                    text="Please select an instrument first.",
-                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
-                )
-            except Exception as e:
-                logger.error(f"Error updating message: {str(e)}")
-            return CHOOSE_MARKET
-        
-        logger.info(f"Showing economic calendar for {instrument}")
+        # Remove the instrument requirement - calendar data should be global
+        logger.info(f"Showing economic calendar for all currencies")
         
         # Initialize EconomicCalendarService if it's not already initialized
         if not hasattr(self, 'calendar_service') or self.calendar_service is None:
@@ -1262,7 +1249,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             
             # Try to send a loading GIF first
             try:
-                loading_text = f"Loading economic calendar for {instrument}..."
+                loading_text = f"Loading economic calendar for all major currencies..."
                 
                 if loading_gif_url:
                     # Try to edit message with loading GIF
