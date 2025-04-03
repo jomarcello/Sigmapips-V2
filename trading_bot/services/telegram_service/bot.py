@@ -264,8 +264,15 @@ INDICES_KEYBOARD = [
 INDICES_KEYBOARD_SIGNALS = [
     [
         InlineKeyboardButton("US30", callback_data="instrument_US30_signals"),
-        InlineKeyboardButton("US500", callback_data="instrument_US500_signals"),
-        InlineKeyboardButton("US100", callback_data="instrument_US100_signals")
+        InlineKeyboardButton("US500", callback_data="instrument_US500_signals")
+    ],
+    [
+        InlineKeyboardButton("UK100", callback_data="instrument_UK100_signals"),
+        InlineKeyboardButton("DE40", callback_data="instrument_DE40_signals")
+    ],
+    [
+        InlineKeyboardButton("AU200", callback_data="instrument_AU200_signals"),
+        InlineKeyboardButton("HK50", callback_data="instrument_HK50_signals")
     ],
     [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
 ]
@@ -284,8 +291,7 @@ COMMODITIES_KEYBOARD = [
 COMMODITIES_KEYBOARD_SIGNALS = [
     [
         InlineKeyboardButton("XAUUSD", callback_data="instrument_XAUUSD_signals"),
-        InlineKeyboardButton("XAGUSD", callback_data="instrument_XAGUSD_signals"),
-        InlineKeyboardButton("USOIL", callback_data="instrument_USOIL_signals")
+        InlineKeyboardButton("XTIUSD", callback_data="instrument_XTIUSD_signals")
     ],
     [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
 ]
@@ -294,13 +300,38 @@ COMMODITIES_KEYBOARD_SIGNALS = [
 FOREX_KEYBOARD_SIGNALS = [
     [
         InlineKeyboardButton("EURUSD", callback_data="instrument_EURUSD_signals"),
-        InlineKeyboardButton("GBPUSD", callback_data="instrument_GBPUSD_signals"),
-        InlineKeyboardButton("USDJPY", callback_data="instrument_USDJPY_signals")
+        InlineKeyboardButton("EURGBP", callback_data="instrument_EURGBP_signals"),
+        InlineKeyboardButton("EURCAD", callback_data="instrument_EURCAD_signals")
     ],
     [
-        InlineKeyboardButton("AUDUSD", callback_data="instrument_AUDUSD_signals"),
+        InlineKeyboardButton("GBPUSD", callback_data="instrument_GBPUSD_signals"),
+        InlineKeyboardButton("GBPCAD", callback_data="instrument_GBPCAD_signals"),
+        InlineKeyboardButton("GBPCHF", callback_data="instrument_GBPCHF_signals")
+    ],
+    [
         InlineKeyboardButton("USDCAD", callback_data="instrument_USDCAD_signals"),
-        InlineKeyboardButton("EURGBP", callback_data="instrument_EURGBP_signals")
+        InlineKeyboardButton("USDCHF", callback_data="instrument_USDCHF_signals"),
+        InlineKeyboardButton("GBPNZD", callback_data="instrument_GBPNZD_signals")
+    ],
+    [
+        InlineKeyboardButton("EURAUD", callback_data="instrument_EURAUD_signals"),
+        InlineKeyboardButton("EURJPY", callback_data="instrument_EURJPY_signals"),
+        InlineKeyboardButton("EURCHF", callback_data="instrument_EURCHF_signals")
+    ],
+    [
+        InlineKeyboardButton("AUDJPY", callback_data="instrument_AUDJPY_signals"),
+        InlineKeyboardButton("AUDCHF", callback_data="instrument_AUDCHF_signals"),
+        InlineKeyboardButton("AUDCAD", callback_data="instrument_AUDCAD_signals")
+    ],
+    [
+        InlineKeyboardButton("NZDJPY", callback_data="instrument_NZDJPY_signals"),
+        InlineKeyboardButton("NZDUSD", callback_data="instrument_NZDUSD_signals"),
+        InlineKeyboardButton("NZDCAD", callback_data="instrument_NZDCAD_signals")
+    ],
+    [
+        InlineKeyboardButton("NZDCHF", callback_data="instrument_NZDCHF_signals"),
+        InlineKeyboardButton("GBPAUD", callback_data="instrument_GBPAUD_signals"),
+        InlineKeyboardButton("CADCHF", callback_data="instrument_CADCHF_signals")
     ],
     [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
 ]
@@ -308,9 +339,20 @@ FOREX_KEYBOARD_SIGNALS = [
 # Crypto keyboard for signals
 CRYPTO_KEYBOARD_SIGNALS = [
     [
-        InlineKeyboardButton("BTCUSD", callback_data="instrument_BTCUSD_signals"),
         InlineKeyboardButton("ETHUSD", callback_data="instrument_ETHUSD_signals"),
         InlineKeyboardButton("XRPUSD", callback_data="instrument_XRPUSD_signals")
+    ],
+    [
+        InlineKeyboardButton("BNBUSD", callback_data="instrument_BNBUSD_signals"),
+        InlineKeyboardButton("DOTUSD", callback_data="instrument_DOTUSD_signals")
+    ],
+    [
+        InlineKeyboardButton("DOGEUSD", callback_data="instrument_DOGEUSD_signals"),
+        InlineKeyboardButton("SOLUSD", callback_data="instrument_SOLUSD_signals")
+    ],
+    [
+        InlineKeyboardButton("LINKUSD", callback_data="instrument_LINKUSD_signals"),
+        InlineKeyboardButton("XLMUSD", callback_data="instrument_XLMUSD_signals")
     ],
     [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
 ]
