@@ -399,15 +399,15 @@ class EconomicCalendarService:
                     logger.info(f"Retrieved {len(search_results)} search results from Tavily")
                     content = "\n".join([result.get('content', '') for result in search_results])
                     
-                    # Extract calendar data from the content
-                    calendar_json = self._extract_calendar_data_from_text(content, currency_list)
+                    # Extract calendar data from the content using DeepSeek
+                    calendar_json = await self._extract_calendar_data_with_deepseek(content, currency_list)
                     logger.info(f"Extracted calendar data: {len(calendar_json)} currencies")
                 elif search_results and isinstance(search_results, dict) and search_results.get('results'):
                     logger.info(f"Retrieved {len(search_results.get('results', []))} search results from Tavily (dict format)")
                     content = "\n".join([result.get('content', '') for result in search_results.get('results', [])])
                     
-                    # Extract calendar data from the content
-                    calendar_json = self._extract_calendar_data_from_text(content, currency_list)
+                    # Extract calendar data from the content using DeepSeek
+                    calendar_json = await self._extract_calendar_data_with_deepseek(content, currency_list)
                     logger.info(f"Extracted calendar data: {len(calendar_json)} currencies")
                 else:
                     logger.warning("No search results from Tavily, trying search_internet instead")
@@ -419,8 +419,8 @@ class EconomicCalendarService:
                         logger.info(f"Retrieved {len(search_results.get('results', []))} internet search results from Tavily")
                         content = "\n".join([result.get('content', '') for result in search_results.get('results', [])])
                         
-                        # Extract calendar data from the content
-                        calendar_json = self._extract_calendar_data_from_text(content, currency_list)
+                        # Extract calendar data from the content using DeepSeek
+                        calendar_json = await self._extract_calendar_data_with_deepseek(content, currency_list)
                         logger.info(f"Extracted calendar data: {len(calendar_json)} currencies")
                     else:
                         logger.error("Both Tavily search and search_internet failed, using mock data")
@@ -440,6 +440,116 @@ class EconomicCalendarService:
             logger.error(f"Unexpected error in _get_economic_calendar_data: {str(e)}")
             logger.error(traceback.format_exc())
             return self._generate_mock_calendar_data(currency_list, start_date)
+    
+    async def _extract_calendar_data_with_deepseek(self, text: str, currencies: List[str]) -> Dict[str, List[Dict[str, str]]]:
+        """Extract economic calendar data from text content using DeepSeek AI"""
+        self.logger.info("Extracting calendar data using DeepSeek AI")
+        
+        try:
+            # Initialize result dictionary with empty lists for all currencies
+            result = {currency: [] for currency in currencies}
+            
+            # Check if DeepSeek service is available
+            if not self.deepseek_service:
+                self.logger.warning("DeepSeek service not available, falling back to regex extraction")
+                return self._extract_calendar_data_from_text(text, currencies)
+            
+            # Create prompt for DeepSeek
+            prompt = f"""Extract economic calendar events from the following text. 
+Format the response as JSON with the following structure:
+
+```json
+{{
+  "USD": [
+    {{
+      "time": "08:30 EST",
+      "event": "Initial Jobless Claims",
+      "impact": "Medium"
+    }}
+  ],
+  "EUR": [
+    {{
+      "time": "07:45 EST",
+      "event": "ECB Interest Rate Decision",
+      "impact": "High"
+    }}
+  ],
+  // ... other currencies ...
+}}
+```
+
+Only include events for these currencies: {', '.join(currencies)}
+For times, include timezone (EST if not specified).
+For impact, use "High", "Medium", or "Low".
+
+Text to extract from:
+{text}
+
+Only return the JSON, nothing else."""
+
+            # Make the DeepSeek API call
+            self.logger.info("Calling DeepSeek API to extract calendar data")
+            response = await self.deepseek_service.generate_completion(prompt)
+            
+            if not response:
+                self.logger.warning("Empty response from DeepSeek, falling back to regex extraction")
+                return self._extract_calendar_data_from_text(text, currencies)
+            
+            # Extract JSON from response (it might be wrapped in ```json blocks)
+            json_match = re.search(r'```(?:json)?(.*?)```', response, re.DOTALL)
+            if json_match:
+                json_str = json_match.group(1).strip()
+            else:
+                json_str = response.strip()
+            
+            # Parse the JSON
+            try:
+                parsed_data = json.loads(json_str)
+                
+                # Validate the structure
+                if not isinstance(parsed_data, dict):
+                    self.logger.warning("DeepSeek response is not a dictionary, falling back to regex extraction")
+                    return self._extract_calendar_data_from_text(text, currencies)
+                
+                # Process the data to ensure it matches our expected structure
+                for currency in currencies:
+                    if currency in parsed_data and isinstance(parsed_data[currency], list):
+                        for event in parsed_data[currency]:
+                            if isinstance(event, dict) and "time" in event and "event" in event:
+                                # Ensure impact is one of High, Medium, Low
+                                if "impact" not in event or event["impact"] not in ["High", "Medium", "Low"]:
+                                    event["impact"] = "Medium"  # Default to Medium if missing or invalid
+                                
+                                # Ensure time format includes timezone
+                                if "time" in event and not any(tz in event["time"] for tz in ['AM', 'PM', 'EST', 'GMT', 'UTC', 'EDT']):
+                                    event["time"] += " EST"
+                                
+                                # Add to result
+                                result[currency].append({
+                                    "time": event.get("time", ""),
+                                    "event": event.get("event", ""),
+                                    "impact": event.get("impact", "Medium")
+                                })
+                
+                # Check if we found any events
+                total_events = sum(len(events) for events in result.values())
+                self.logger.info(f"DeepSeek extracted {total_events} events from calendar data")
+                
+                if total_events > 0:
+                    return result
+                else:
+                    self.logger.warning("No events found in DeepSeek response, falling back to regex extraction")
+                    return self._extract_calendar_data_from_text(text, currencies)
+                    
+            except json.JSONDecodeError as e:
+                self.logger.error(f"Failed to parse DeepSeek JSON: {str(e)}")
+                self.logger.error(f"Raw response: {response[:200]}...")
+                return self._extract_calendar_data_from_text(text, currencies)
+                
+        except Exception as e:
+            self.logger.error(f"Error using DeepSeek to extract calendar data: {str(e)}")
+            self.logger.exception(e)
+            return self._extract_calendar_data_from_text(text, currencies)
     
     def _extract_calendar_data_from_text(self, text: str, currencies: List[str]) -> Dict[str, List[Dict[str, str]]]:
         """Extract economic calendar data from text content"""
