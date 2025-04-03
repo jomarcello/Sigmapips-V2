@@ -2961,12 +2961,15 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             
             # Directly subscribe the user to this instrument with its fixed timeframe
             user_id = update.effective_user.id
-            await self.db.subscribe_to_instrument(user_id, instrument, timeframe)
+            success = await self.db.subscribe_to_instrument(user_id, instrument, timeframe)
             
-            # Show success message
-            success_message = f"✅ Successfully subscribed to {instrument} ({timeframe_display}) signals!"
+            # Prepare message based on success
+            if success:
+                success_message = f"✅ Successfully subscribed to {instrument} ({timeframe_display}) signals!"
+            else:
+                success_message = f"⚠️ Your choice of {instrument} was saved, but there was an issue with the database. Please try again later or contact support."
             
-            # Create keyboard with options to add more or go back - FIXED to avoid duplicate buttons
+            # Create a clean keyboard with only one "Add More Pairs" and one "Back to Signals" button
             keyboard = [
                 [InlineKeyboardButton("➕ Add More Pairs", callback_data="signals_add")],
                 [InlineKeyboardButton("⬅️ Back to Signals", callback_data="back_signals")]
