@@ -1307,7 +1307,8 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             if not calendar_data or len(calendar_data) == 0:
                 logger.warning("Calendar data is empty, trying mock data...")
                 # Try generating mock data if no real data is available
-                mock_data = self.calendar_service._generate_mock_calendar_data(MAJOR_CURRENCIES)
+                today_date = datetime.now().strftime("%B %d, %Y")
+                mock_data = self.calendar_service._generate_mock_calendar_data(MAJOR_CURRENCIES, today_date)
                 flattened_mock = []
                 for currency, events in mock_data.items():
                     for event in events:
@@ -3726,32 +3727,54 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         logger.info(f"API endpoints registered at /api/signals, /signal, and {self.webhook_path}")
 
     async def initialize(self, use_webhook=False):
-        """Initialize the bot and set up handlers"""
+        """Initialize the bot"""
         try:
-            # Create application instance
-            self.application = Application.builder().bot(self.bot).build()
+            self.logger.info("Initializing bot")
             
-            # Register handlers
-            self._register_handlers(self.application)
+            # Load signals and subscribers from database
+            self._load_signals()
             
-            # Initialize in polling mode if not using webhook
-            if not use_webhook:
-                logger.info("Starting bot in polling mode")
-                await self.application.initialize()
-                await self.application.start()
-                await self.application.updater.start_polling()
-                self.polling_started = True
+            # Setup the bot's webhook
+            if use_webhook:
+                self.logger.info(f"Setting webhook to {self.webhook_url}")
+                await self.bot.set_webhook(url=self.webhook_url)
+                self.logger.info("Webhook set")
             else:
-                logger.info("Bot will be initialized in webhook mode")
-                await self.application.initialize()
+                # Remove any existing webhook and clear all pending updates
+                self.logger.info("Using polling method, removing any existing webhook")
+                await self.bot.delete_webhook(drop_pending_updates=True)
                 
-            logger.info("Bot initialization completed successfully")
-            return True
+                # Wait a short time to ensure webhook is fully removed
+                await asyncio.sleep(1)
+                
+                # Try to get updates with a high offset to clear the queue
+                try:
+                    # Forcefully clear pending updates
+                    self.logger.info("Forcefully clearing update queue")
+                    await self.bot.get_updates(offset=-1, limit=1, timeout=1)
+                    await self.bot.get_updates(offset=999999999, timeout=1)
+                    self.logger.info("Update queue cleared")
+                    
+                    # Give some time for Telegram servers to process
+                    await asyncio.sleep(2)
+                    
+                    if hasattr(self, 'application') and hasattr(self.application, 'update_queue'):
+                        # Also clear the application queue
+                        while not self.application.update_queue.empty():
+                            try:
+                                self.application.update_queue.get_nowait()
+                            except:
+                                break
+                                
+                except Exception as e:
+                    self.logger.warning(f"Error clearing update queue: {str(e)}")
+            
+            self.initialized = True
+            self.logger.info("Bot initialized successfully")
             
         except Exception as e:
-            logger.error(f"Error initializing bot: {str(e)}")
-            logger.exception(e)
-            return False
+            self.logger.error(f"Error initializing bot: {str(e)}")
+            self.logger.exception(e)
 
     async def menu_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> None:
         """Show the main menu when /menu command is used"""
