@@ -1440,7 +1440,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             
             # Create keyboard with back button
             keyboard = [
-                [InlineKeyboardButton("⬅️ Back to Analysis Menu", callback_data="menu_analyse")]
+                [InlineKeyboardButton("⬅️ Back", callback_data="menu_analyse")]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
