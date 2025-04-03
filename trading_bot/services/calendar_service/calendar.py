@@ -353,23 +353,16 @@ class EconomicCalendarService:
             # Get Tavily API key from environment - expliciete refresh
             env_tavily_key = os.getenv("TAVILY_API_KEY", "").strip()
             
-            # Zorg ervoor dat de API key ook zonder prefix werkt voor Authorization Bearer
-            if env_tavily_key and not env_tavily_key.startswith("tvly-"):
-                raw_key = env_tavily_key
-                env_tavily_key = f"tvly-{env_tavily_key}"
-                logger.info(f"Added 'tvly-' prefix to API key")
-                os.environ["TAVILY_API_KEY"] = env_tavily_key
-            
-            # Reset API key in environment to ensure it's available
+            # Zorg ervoor dat de API key ook zonder prefix werkt voor compatibiliteit met sentiment service
             if env_tavily_key:
+                # Verwijder 'tvly-' prefix als die aanwezig is, voor compatibiliteit
+                if env_tavily_key.startswith("tvly-"):
+                    env_tavily_key = env_tavily_key[5:]
+                    logger.info(f"Removed 'tvly-' prefix from API key for compatibility")
+                
+                # Update environment variable met het correcte formaat
                 os.environ["TAVILY_API_KEY"] = env_tavily_key
                 logger.info(f"Set TAVILY_API_KEY in environment: {env_tavily_key[:5]}...{env_tavily_key[-4:] if len(env_tavily_key) > 9 else ''}")
-                
-                # Ook zonder prefix proberen voor alternatieve authenticatie
-                if env_tavily_key.startswith("tvly-"):
-                    raw_key = env_tavily_key[5:]
-                    os.environ["TAVILY_RAW_KEY"] = raw_key
-                    logger.info(f"Also set raw key without prefix for alternative auth")
             else:
                 logger.error("Tavily API key not found in environment. Cannot retrieve economic calendar data.")
                 return self._generate_mock_calendar_data(currency_list, start_date)
