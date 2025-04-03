@@ -192,7 +192,7 @@ class EconomicCalendarService:
         self.cache_expiry = 3600  # 1 hour in seconds
         
         # Define loading GIF URLs
-        self.loading_gif = "https://media.giphy.com/media/3oEjI6SIIHBdRxXI40/giphy.gif"  # Default loading GIF
+        self.loading_gif = "https://media.giphy.com/media/dpjUltnOPye7azvAhH/giphy.gif"  # Update loading GIF
         
         # Try to load API keys from environment on initialization
         api_key = os.environ.get("TAVILY_API_KEY", "")
@@ -726,25 +726,20 @@ Only return the JSON, nothing else."""
         if not calendar_data:
             return response + "No major economic events scheduled for today.\n\n<i>Check back later for updates.</i>"
             
-        # Sort currencies to always show in same order
-        currencies = sorted(calendar_data.keys(), 
-                          key=lambda x: (0 if x in MAJOR_CURRENCIES else 1, MAJOR_CURRENCIES.index(x) if x in MAJOR_CURRENCIES else 999))
-        
         # Collect all events across currencies to sort by time
         all_events = []
-        for currency in currencies:
+        for currency, events in calendar_data.items():
             if currency not in MAJOR_CURRENCIES:
                 continue
                 
-            events = calendar_data.get(currency, [])
             for event in events:
                 # Add currency to event for display
                 event_with_currency = event.copy()
                 event_with_currency['currency'] = currency
                 all_events.append(event_with_currency)
         
-        # Sort all events by time
-        all_events = sorted(all_events, key=lambda x: x.get("time", "00:00"))
+        # Sort all events purely by time
+        all_events = sorted(all_events, key=lambda x: self._parse_time_for_sorting(x.get("time", "00:00")))
         
         # Display events in chronological order
         for event in all_events:
@@ -754,7 +749,7 @@ Only return the JSON, nothing else."""
             impact = event.get("impact", "Low")
             impact_emoji = IMPACT_EMOJI.get(impact, "🟢")
             
-            # Format with currency flag - no extra newline after each event
+            # Format with currency flag
             response += f"{time} - {CURRENCY_FLAG.get(currency, '')} {currency} - {event_name} {impact_emoji}\n"
         
         # Add empty line before legend
@@ -764,6 +759,46 @@ Only return the JSON, nothing else."""
         response += "🟢 Low Impact"
         
         return response
+        
+    def _parse_time_for_sorting(self, time_str: str) -> int:
+        """Parse time string to minutes for sorting"""
+        # Default value
+        minutes = 0
+        
+        try:
+            # Extract only time part if it contains timezone
+            if " " in time_str:
+                time_parts = time_str.split(" ")
+                time_str = time_parts[0]
+                
+            # Handle AM/PM format
+            if "AM" in time_str.upper() or "PM" in time_str.upper():
+                # Parse 12h format
+                time_only = time_str.upper().replace("AM", "").replace("PM", "").strip()
+                parts = time_only.split(":")
+                hours = int(parts[0])
+                minutes_part = int(parts[1]) if len(parts) > 1 else 0
+                
+                # Add 12 hours for PM times (except 12 PM)
+                if "PM" in time_str.upper() and hours < 12:
+                    hours += 12
+                # 12 AM should be 0
+                if "AM" in time_str.upper() and hours == 12:
+                    hours = 0
+                
+                minutes = hours * 60 + minutes_part
+            else:
+                # Handle 24h format
+                parts = time_str.split(":")
+                if len(parts) >= 2:
+                    hours = int(parts[0])
+                    minutes_part = int(parts[1])
+                    minutes = hours * 60 + minutes_part
+        except Exception:
+            # In case of parsing error, default to 0
+            minutes = 0
+            
+        return minutes
         
     def _get_fallback_calendar(self, instrument: str) -> str:
         """Generate a fallback response if getting the calendar fails"""
