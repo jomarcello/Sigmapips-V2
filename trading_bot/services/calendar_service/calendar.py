@@ -15,6 +15,7 @@ import re
 import random
 from datetime import datetime, timedelta
 import socket
+import traceback
 
 from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery, InputMediaPhoto
 from telegram.ext import (
@@ -226,7 +227,7 @@ class EconomicCalendarService:
                 return self.cache["all"]
             
             # Get calendar data for all major currencies
-            calendar_data = await self._get_economic_calendar_data(MAJOR_CURRENCIES)
+            calendar_data = await self._get_economic_calendar_data(MAJOR_CURRENCIES, datetime.now().strftime("%B %d, %Y"), datetime.now().strftime("%B %d, %Y"))
             
             # Flatten the data into a single list of events with currency info
             flattened_events = []
@@ -267,7 +268,7 @@ class EconomicCalendarService:
             currencies = [c for c in currencies if c in MAJOR_CURRENCIES]
             
             # Get calendar data for these currencies
-            calendar_data = await self._get_economic_calendar_data(currencies)
+            calendar_data = await self._get_economic_calendar_data(currencies, datetime.now().strftime("%B %d, %Y"), datetime.now().strftime("%B %d, %Y"))
             
             # Flatten the data into a list of events with the event information
             events = []
@@ -325,7 +326,7 @@ class EconomicCalendarService:
             currencies = [c for c in currencies if c in MAJOR_CURRENCIES]
             
             # Get calendar data for these currencies
-            calendar_data = await self._get_economic_calendar_data(currencies)
+            calendar_data = await self._get_economic_calendar_data(currencies, datetime.now().strftime("%B %d, %Y"), datetime.now().strftime("%B %d, %Y"))
             
             # Format the response
             formatted_response = self._format_calendar_response(calendar_data, instrument)
@@ -341,78 +342,150 @@ class EconomicCalendarService:
             self.logger.exception(e)
             return self._get_fallback_calendar(instrument)
             
-    async def _get_economic_calendar_data(self, currencies: List[str]) -> Dict:
-        """Use Tavily to get economic calendar data and Deepseek to parse it"""
+    async def _get_economic_calendar_data(self, currency_list, start_date, end_date, lookback_hours = 8):
+        """
+        Retrieve economic calendar data for select currencies within a date range
+        """
         try:
-            # Check environment for API key again 
-            env_tavily_key = os.environ.get("TAVILY_API_KEY", "")
-            if env_tavily_key and (not hasattr(self.tavily_service, 'api_key') or 
-                                  self.tavily_service.api_key != env_tavily_key):
-                self.logger.info("Refreshing Tavily service with API key from environment")
-                self.tavily_service = TavilyService(api_key=env_tavily_key)
+            # Initialize calendar_json to an empty dict to avoid reference before assignment
+            calendar_json = {}
             
-            # Form the search query for Tavily
-            today = datetime.now().strftime("%B %d, %Y")
-            query = f"economic calendar events today {today} for {', '.join(currencies)} currencies with EST time format event times impact level high medium low"
-            
-            # First try Tavily
-            self.logger.info(f"Searching for economic calendar data using Tavily")
-            search_results = None
-            
-            try:
-                # Check if Tavily API key is available
-                if hasattr(self.tavily_service, 'api_key') and self.tavily_service.api_key:
-                    self.logger.info("Tavily API key is available, proceeding with search")
-                    search_results = await self.tavily_service.search(query)
-                    
-                    # Check if we got meaningful results
-                    if search_results:
-                        self.logger.info(f"Received {len(search_results)} search results from Tavily")
-                        
-                        # Extract relevant content from search results for better processing
-                        calendar_data_content = ""
-                        for result in search_results:
-                            if result.get("content"):
-                                calendar_data_content += result.get("content") + "\n\n"
-                                
-                        # If we have content, try to extract event data directly
-                        if calendar_data_content:
-                            calendar_data = self._extract_calendar_data_from_text(calendar_data_content, currencies)
-                            if calendar_data and any(len(events) > 0 for _, events in calendar_data.items()):
-                                self.logger.info("Successfully extracted calendar data from Tavily results")
-                                return calendar_data
-                else:
-                    self.logger.warning("No Tavily API key available")
-            except Exception as e:
-                self.logger.error(f"Error fetching data from Tavily: {str(e)}")
-                self.logger.exception(e)
-            
-            # If we got a response from DeepSeek, try to parse it
-            if calendar_json:
-                try:
-                    # Extract JSON from potential markdown code blocks
-                    json_match = re.search(r'```(?:json)?\s*([\s\S]*?)\s*```', calendar_json)
-                    if json_match:
-                        calendar_json = json_match.group(1)
-                        
-                    # Parse the JSON
-                    calendar_data = json.loads(calendar_json)
-                    self.logger.info(f"Successfully parsed economic calendar data with {len(calendar_data)} currencies")
-                    return calendar_data
-                except json.JSONDecodeError as e:
-                    self.logger.error(f"Failed to parse JSON from response: {e}")
-                    self.logger.error(f"Response content: {calendar_json[:200]}...")
-            
-            # If we reach here, both services failed or returned invalid data, generate mock data
-            self.logger.warning("Using mock economic calendar data as fallback")
-            return self._generate_mock_calendar_data(currencies)
+            # Get Tavily API key from environment
+            env_tavily_key = os.getenv("TAVILY_API_KEY", "").strip()
+            if not env_tavily_key:
+                logger.error("Tavily API key not found in environment. Cannot retrieve economic calendar data.")
+                return self._generate_mock_calendar_data(currency_list, start_date)
                 
+            logger.info(f"Using Tavily API key: {env_tavily_key[:5]}...{env_tavily_key[-4:] if len(env_tavily_key) > 9 else ''}")
+            
+            # Form search query
+            query = f"Economic calendar for {', '.join(currency_list)} from {start_date} to {end_date}"
+            logger.info(f"Searching Tavily with query: {query}")
+            
+            # First attempt - general search
+            try:
+                tavily_service = TavilyService(api_key=env_tavily_key)
+                search_results = await tavily_service.search(query)
+                
+                if search_results and search_results.get('results'):
+                    content = "\n".join([result.get('content', '') for result in search_results.get('results', [])])
+                    logger.info(f"Retrieved {len(search_results.get('results', []))} search results from Tavily")
+                    
+                    # Extract calendar data from the content
+                    calendar_json = self._extract_calendar_data_from_text(content, currency_list)
+                    logger.info(f"Extracted calendar data: {len(calendar_json)} currencies")
+                else:
+                    logger.warning("No search results from Tavily, trying search_internet instead")
+                    # Second attempt - internet search
+                    search_results = await tavily_service.search_internet(query)
+                    
+                    if search_results and search_results.get('results'):
+                        content = "\n".join([result.get('content', '') for result in search_results.get('results', [])])
+                        logger.info(f"Retrieved {len(search_results.get('results', []))} internet search results from Tavily")
+                        
+                        # Extract calendar data from the content
+                        calendar_json = self._extract_calendar_data_from_text(content, currency_list)
+                        logger.info(f"Extracted calendar data: {len(calendar_json)} currencies")
+                    else:
+                        logger.error("Both Tavily search and search_internet failed, using mock data")
+                        return self._generate_mock_calendar_data(currency_list, start_date)
+                        
+            except Exception as e:
+                logger.error(f"Error retrieving economic calendar data from Tavily: {str(e)}")
+                logger.error(traceback.format_exc())
+                return self._generate_mock_calendar_data(currency_list, start_date)
+                
+            # Return the calendar data
+            return calendar_json
+            
         except Exception as e:
-            self.logger.error(f"Error getting economic calendar data: {str(e)}")
-            self.logger.exception(e)
-            return self._generate_mock_calendar_data(currencies)
+            logger.error(f"Unexpected error in _get_economic_calendar_data: {str(e)}")
+            logger.error(traceback.format_exc())
+            return self._generate_mock_calendar_data(currency_list, start_date)
     
-    def _generate_mock_calendar_data(self, currencies: List[str]) -> Dict:
+    def _extract_calendar_data_from_text(self, text: str, currencies: List[str]) -> Dict[str, List[Dict[str, str]]]:
+        """Extract economic calendar data from text content"""
+        self.logger.info("Extracting calendar data from text content")
+        
+        result = {currency: [] for currency in currencies}
+        
+        try:
+            # Check for common time formats
+            time_pattern = r'(\d{1,2}:\d{2}(?:\s*(?:AM|PM|EST|GMT|UTC|EDT))?)'
+            currency_pattern = r'\b(' + '|'.join(currencies) + r')\b'
+            impact_pattern = r'\b(High|Medium|Low|high|medium|low)\b'
+            
+            # Find potential event blocks - lines containing both a time and a currency
+            lines = text.split('\n')
+            for line in lines:
+                # Skip empty lines
+                if not line.strip():
+                    continue
+                    
+                # Extract time
+                time_match = re.search(time_pattern, line)
+                if not time_match:
+                    continue
+                    
+                time_str = time_match.group(1)
+                
+                # Ensure time has EST suffix if no timezone specified
+                if not any(tz in time_str for tz in ['AM', 'PM', 'EST', 'GMT', 'UTC', 'EDT']):
+                    time_str += ' EST'
+                
+                # Extract currency
+                currency_match = re.search(currency_pattern, line, re.IGNORECASE)
+                if not currency_match:
+                    continue
+                    
+                currency = currency_match.group(1).upper()
+                
+                # Extract impact if present
+                impact = "Low"  # Default
+                impact_match = re.search(impact_pattern, line)
+                if impact_match:
+                    impact = impact_match.group(1).capitalize()
+                    
+                # Determine event name by removing time, currency and impact
+                event_name = line
+                event_name = re.sub(time_pattern, '', event_name)
+                event_name = re.sub(r'\b' + currency + r'\b', '', event_name, flags=re.IGNORECASE)
+                event_name = re.sub(impact_pattern, '', event_name, flags=re.IGNORECASE)
+                
+                # Clean up event name
+                event_name = re.sub(r'[^\w\s\-]', '', event_name)  # Remove special chars except dash
+                event_name = re.sub(r'\s+', ' ', event_name).strip()  # Remove extra whitespace
+                
+                # Skip if event name is too short or empty
+                if len(event_name) < 3:
+                    continue
+                
+                # Create event entry
+                event = {
+                    "time": time_str,
+                    "event": event_name,
+                    "impact": impact
+                }
+                
+                # Add to correct currency
+                if currency in result:
+                    result[currency].append(event)
+            
+            # If we found any events, return the result
+            if any(len(events) > 0 for currency, events in result.items()):
+                self.logger.info(f"Successfully extracted {sum(len(events) for events in result.values())} events")
+                return result
+                
+            # Otherwise return empty
+            self.logger.warning("No calendar events found in text content")
+            return {currency: [] for currency in currencies}
+            
+        except Exception as e:
+            self.logger.error(f"Error extracting calendar data from text: {str(e)}")
+            self.logger.exception(e)
+            return {currency: [] for currency in currencies}
+    
+    def _generate_mock_calendar_data(self, currencies: List[str], start_date: str) -> Dict:
         """Generate mock calendar data for testing or when APIs fail"""
         self.logger.info("Generating mock economic calendar data")
         
