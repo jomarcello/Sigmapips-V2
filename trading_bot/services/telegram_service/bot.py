@@ -540,6 +540,7 @@ TAVILY_API_KEY = raw_tavily_key.replace('\n', '').replace('\r', '')  # Remove an
 # If the key doesn't start with "tvly-", add the prefix
 if TAVILY_API_KEY and not TAVILY_API_KEY.startswith("tvly-"):
     TAVILY_API_KEY = f"tvly-{TAVILY_API_KEY}"
+    logger.info("Added 'tvly-' prefix to Tavily API key")
     
 # Log API key (partially masked)
 if TAVILY_API_KEY:
