@@ -2890,7 +2890,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             
             # Check the new table
             try:
-                signal_subs = self.supabase.table('signal_subscriptions').select('*').eq('user_id', user_id).eq('instrument', instrument).execute()
+                signal_subs = self.db.supabase.table('signal_subscriptions').select('*').eq('user_id', user_id).eq('instrument', instrument).execute()
                 if signal_subs.data:
                     has_subscription = True
             except Exception as e:
@@ -2899,7 +2899,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Check the old table
             if not has_subscription:
                 try:
-                    old_subs = self.supabase.table('subscriber_preferences').select('*').eq('user_id', user_id).eq('instrument', instrument).execute()
+                    old_subs = self.db.supabase.table('subscriber_preferences').select('*').eq('user_id', user_id).eq('instrument', instrument).execute()
                     if old_subs.data:
                         has_subscription = True
                 except Exception as e:
@@ -3924,11 +3924,11 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             user_id = update.effective_user.id
             
             # Probeer eerst van de nieuwe tabel
-            signal_subs = self.supabase.table('signal_subscriptions').select('*').eq('user_id', user_id).execute()
+            signal_subs = self.db.supabase.table('signal_subscriptions').select('*').eq('user_id', user_id).execute()
             preferences = signal_subs.data if signal_subs.data else []
             
             # En dan van de oude tabel
-            old_subs = self.supabase.table('subscriber_preferences').select('*').eq('user_id', user_id).execute()
+            old_subs = self.db.supabase.table('subscriber_preferences').select('*').eq('user_id', user_id).execute()
             if old_subs.data:
                 preferences.extend(old_subs.data)
             
@@ -3950,25 +3950,25 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             if context and hasattr(context, 'user_data'):
                 context.user_data['preferences'] = preferences
             
+            # Create keyboard with delete buttons for each preference
+            keyboard = []
+            
             for i, pref in enumerate(preferences, 1):
                 pref_id = pref.get('id', 'unknown')
                 market = pref.get('market', 'unknown')
                 instrument = pref.get('instrument', 'unknown')
                 timeframe = pref.get('timeframe', '1h')
                 
-                # Gebruik de delete_pref_{id} als callback data
-                message += f"{i}. {market.upper()} - {instrument} ({timeframe}) "
-                message += f"<a href='delete_pref_{pref_id}'>❌</a>\n"
+                # Add text to the message
+                message += f"{i}. {market.upper()} - {instrument} ({timeframe})\n"
+                
+                # Add a delete button for this preference
+                keyboard.append([InlineKeyboardButton(f"🗑️ Delete {instrument}", callback_data=f"delete_pref_{pref_id}")])
             
-            # Add a delete all option at the bottom
-            message += "\n<i>Click ❌ to remove a subscription</i>"
-            
-            # Add buttons for navigation
-            keyboard = [
-                [InlineKeyboardButton("➕ Add More", callback_data=CALLBACK_SIGNALS_ADD)],
-                [InlineKeyboardButton("🗑️ Delete All", callback_data="remove_all_subscriptions")],
-                [InlineKeyboardButton("⬅️ Back", callback_data=CALLBACK_BACK_SIGNALS)]
-            ]
+            # Add general navigation buttons
+            keyboard.append([InlineKeyboardButton("➕ Add More", callback_data=CALLBACK_SIGNALS_ADD)])
+            keyboard.append([InlineKeyboardButton("🗑️ Delete All", callback_data="remove_all_subscriptions")])
+            keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data=CALLBACK_BACK_SIGNALS)])
             
             await query.edit_message_text(
                 text=message,
@@ -4012,7 +4012,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 
                 try:
                     # Try to delete from the new table
-                    response = self.supabase.table('signal_subscriptions').delete().eq('id', pref_id).execute()
+                    response = self.db.supabase.table('signal_subscriptions').delete().eq('id', pref_id).execute()
                     if response and response.data:
                         success = True
                 except Exception as e:
@@ -4021,7 +4021,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 if not success:
                     try:
                         # Try to delete from the old table
-                        response = self.supabase.table('subscriber_preferences').delete().eq('id', pref_id).execute()
+                        response = self.db.supabase.table('subscriber_preferences').delete().eq('id', pref_id).execute()
                         if response and response.data:
                             success = True
                     except Exception as e:
@@ -4048,10 +4048,10 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 user_id = update.effective_user.id
                 
                 # Delete from the new table
-                response1 = self.supabase.table('signal_subscriptions').delete().eq('user_id', user_id).execute()
+                response1 = self.db.supabase.table('signal_subscriptions').delete().eq('user_id', user_id).execute()
                 
                 # Delete from the old table
-                response2 = self.supabase.table('subscriber_preferences').delete().eq('user_id', user_id).execute()
+                response2 = self.db.supabase.table('subscriber_preferences').delete().eq('user_id', user_id).execute()
                 
                 # Check if any rows were affected
                 success = (response1 and response1.data) or (response2 and response2.data)
@@ -4083,3 +4083,88 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             )
             
             return CHOOSE_SIGNALS
+
+    async def back_signals_callback(self, update: Update, context=None) -> int:
+        """Handle back to signals menu button press"""
+        query = update.callback_query
+        await query.answer()
+        
+        try:
+            # Get the signals GIF URL
+            from trading_bot.services.telegram_service.gif_utils import get_signals_gif
+            gif_url = await get_signals_gif()
+            
+            # Create the message with the GIF using only <a> tags
+            text = f'<a href="{gif_url}">&#8205;</a>\nWhat would you like to do with trading signals?'
+            
+            # Show the signals menu
+            await query.edit_message_text(
+                text=text,
+                parse_mode=ParseMode.HTML,
+                reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD)
+            )
+            
+            return CHOOSE_SIGNALS
+        except Exception as e:
+            # If there's an error with editing message text, it might be a media message
+            if "There is no text in the message to edit" in str(e):
+                try:
+                    await query.edit_message_caption(
+                        caption="What would you like to do with trading signals?",
+                        reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD),
+                        parse_mode=ParseMode.HTML
+                    )
+                    return CHOOSE_SIGNALS
+                except Exception as caption_e:
+                    logger.error(f"Failed to edit caption: {str(caption_e)}")
+            
+            # Last resort fallback
+            logger.error(f"Error in back_signals_callback: {str(e)}")
+            try:
+                await query.message.reply_text(
+                    text="What would you like to do with trading signals?",
+                    reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD)
+                )
+            except Exception as reply_e:
+                logger.error(f"Could not send reply message: {str(reply_e)}")
+            
+            return CHOOSE_SIGNALS
+
+    async def back_analysis_callback(self, update: Update, context=None) -> int:
+        """Handle back to analysis menu button press"""
+        query = update.callback_query
+        await query.answer()
+        
+        try:
+            # Show the analysis menu
+            await query.edit_message_text(
+                text="Choose an analysis type:",
+                reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
+                parse_mode=ParseMode.HTML
+            )
+            
+            return CHOOSE_ANALYSIS
+        except Exception as e:
+            # If there's an error with editing message text, it might be a media message
+            if "There is no text in the message to edit" in str(e):
+                try:
+                    await query.edit_message_caption(
+                        caption="Choose an analysis type:",
+                        reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
+                        parse_mode=ParseMode.HTML
+                    )
+                    return CHOOSE_ANALYSIS
+                except Exception as caption_e:
+                    logger.error(f"Failed to edit caption: {str(caption_e)}")
+            
+            # Last resort fallback
+            logger.error(f"Error in back_analysis_callback: {str(e)}")
+            try:
+                await query.message.reply_text(
+                    text="Choose an analysis type:",
+                    reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
+                )
+            except Exception as reply_e:
+                logger.error(f"Could not send reply message: {str(reply_e)}")
+            
+            return CHOOSE_ANALYSIS
