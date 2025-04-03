@@ -7,6 +7,7 @@ import re
 import stripe
 import datetime
 from datetime import timezone
+import traceback
 
 logger = logging.getLogger(__name__)
 
@@ -448,14 +449,19 @@ class Database:
             style = self._map_timeframe_to_style(timeframe)
             
             # Create new preference with style included (since the database still requires it)
+            current_time = datetime.datetime.now(timezone.utc).isoformat()
+            
             new_preference = {
-                'user_id': user_id,
-                'market': market,
-                'instrument': instrument,
-                'timeframe': normalized_timeframe,
-                'style': style,  # Add style back as the database requires it
-                'created_at': datetime.datetime.now(timezone.utc).isoformat()
+                'user_id': int(user_id),
+                'market': str(market),
+                'instrument': str(instrument),
+                'timeframe': str(normalized_timeframe),
+                'style': str(style),  # Add style back as the database requires it
+                'created_at': current_time
             }
+            
+            # Log the data being inserted for debugging
+            logger.info(f"Inserting preference data: {new_preference}")
             
             # Insert new preference
             response = self.supabase.table('subscriber_preferences').insert(new_preference).execute()
@@ -465,10 +471,12 @@ class Database:
                 return True
             else:
                 logger.warning(f"Failed to add preference for user {user_id}")
+                logger.warning(f"Response: {response}")
                 return False
                 
         except Exception as e:
             logger.error(f"Error adding subscriber preference: {str(e)}")
+            traceback.print_exc()  # Print the full traceback for better debugging
             return False
     
     def _normalize_timeframe_for_db(self, timeframe: str) -> str:
@@ -862,7 +870,7 @@ class Database:
             logger.error(f"Error subscribing to instrument: {str(e)}")
             return False
             
-    async def _detect_market(self, instrument: str) -> str:
+    def _detect_market(self, instrument: str) -> str:
         """Detect market type from instrument name"""
         instrument = instrument.upper()
         
