@@ -231,6 +231,14 @@ async def startup_event():
             # Production mode: use webhook 
             logger.info(f"Running in production mode on Railway. Using webhook URL: {webhook_url}")
             
+            # Make sure webhook URL doesn't already have the webhook path
+            if "/webhook" in webhook_url:
+                logger.warning(f"Webhook URL already contains '/webhook'. Raw URL: {webhook_url}")
+                # Extract the base URL without the webhook part
+                base_url = webhook_url.split("/webhook")[0]
+                logger.info(f"Extracted base URL: {base_url}")
+                webhook_url = base_url
+            
             # Delete any existing webhook and clear pending updates
             await telegram_service.bot.delete_webhook(drop_pending_updates=True)
             
@@ -239,12 +247,13 @@ async def startup_event():
             await telegram_service.application.start()
             
             # Set webhook with no secret token for now
-            await telegram_service.bot.set_webhook(url=f"{webhook_url}/webhook")
-            logger.info(f"Webhook set to {webhook_url}/webhook")
+            final_webhook_url = f"{webhook_url.rstrip('/')}/webhook"
+            logger.info(f"Setting webhook URL to: {final_webhook_url}")
+            await telegram_service.bot.set_webhook(url=final_webhook_url)
             
             # Log the webhook info
             webhook_info = await telegram_service.bot.get_webhook_info()
-            logger.info(f"Webhook info: {webhook_info.url}, pending updates: {webhook_info.pending_update_count}")
+            logger.info(f"Webhook info: URL={webhook_info.url}, pending_updates={webhook_info.pending_update_count}")
         else:
             # Development mode: use polling
             logger.info("Running in development mode. Using polling for updates.")
@@ -298,7 +307,7 @@ async def startup_event():
             try:
                 # Get raw update data
                 update_data = await request.json()
-                logger.info(f"Received Telegram update: {update_data.get('update_id', 'unknown')}")
+                logger.info(f"Received Telegram update: ID={update_data.get('update_id', 'unknown')}")
                 
                 # Process the update with the application's process_update method
                 # This is the proper way to handle webhook updates in python-telegram-bot v20+
