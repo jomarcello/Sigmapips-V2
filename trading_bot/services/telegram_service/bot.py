@@ -3944,7 +3944,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 simple_keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data=CALLBACK_BACK_SIGNALS)]]
                 await self._safe_message_update(query, simple_message, simple_keyboard)
             
-            return MANAGE_PREFERENCES
+            return CHOOSE_SIGNALS
         except Exception as e:
             logger.error(f"Error in signals_manage_callback: {str(e)}")
             logger.exception(e)
