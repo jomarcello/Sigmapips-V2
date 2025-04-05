@@ -9,6 +9,7 @@ import time
 import asyncio
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler
 from telegram import BotCommand
+from typing import Dict, Any
 
 # Configureer logging
 logging.basicConfig(level=logging.INFO)
@@ -43,6 +44,93 @@ chart_service = ChartService()
 telegram_service.stripe_service = stripe_service
 stripe_service.telegram_service = telegram_service
 telegram_service.chart_service = chart_service
+
+# Transformatiefunctie voor TradingView webhook data
+def transform_tradingview_signal(signal_data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Transform TradingView webhook format to the format expected by the signal processor
+    
+    Args:
+        signal_data: Original signal data from TradingView webhook
+        
+    Returns:
+        Transformed signal data ready for processing
+    """
+    # Maak een kopie om de originele data niet te wijzigen
+    transformed = signal_data.copy()
+    
+    # Verplichte velden transformeren
+    
+    # 1. Richting: 'signal' naar 'direction' en omzetten naar lowercase
+    if 'signal' in transformed and 'direction' not in transformed:
+        # Convert to lowercase and ensure it's either 'buy' or 'sell'
+        signal = transformed.pop('signal', '').lower()
+        if signal in ['buy', 'sell']:
+            transformed['direction'] = signal
+        elif signal in ['long']:
+            transformed['direction'] = 'buy'
+        elif signal in ['short']:
+            transformed['direction'] = 'sell'
+        else:
+            # Default to buy if we can't determine
+            logger.warning(f"Unknown signal type: {signal}, defaulting to 'buy'")
+            transformed['direction'] = 'buy'
+    
+    # 2. Timeframe: 'interval' naar 'timeframe'
+    if 'interval' in transformed and 'timeframe' not in transformed:
+        transformed['timeframe'] = transformed.pop('interval')
+    
+    # 3. Entry price: 'price' naar 'entry'
+    if 'price' in transformed and 'entry' not in transformed:
+        transformed['entry'] = transformed['price']
+    
+    # 4. Stop Loss: 'sl' naar 'stop_loss'
+    if 'sl' in transformed and 'stop_loss' not in transformed:
+        transformed['stop_loss'] = transformed['sl']
+    
+    # 5. Take Profit: 'tp1' naar 'take_profit'
+    if 'tp1' in transformed and 'take_profit' not in transformed:
+        transformed['take_profit'] = transformed['tp1']
+    
+    # 6. Instrument: 'ticker' naar 'instrument'
+    if 'ticker' in transformed and 'instrument' not in transformed:
+        transformed['instrument'] = transformed.pop('ticker')
+    
+    # 7. Market: voeg toe als het ontbreekt
+    if 'market' not in transformed:
+        # Detecteer markttype op basis van instrument
+        instrument = transformed.get('instrument', '')
+        if any(crypto in instrument.upper() for crypto in ['BTC', 'ETH', 'XRP']):
+            transformed['market'] = 'crypto'
+        elif any(index in instrument.upper() for index in ['SPX', 'NDX', 'DJI']):
+            transformed['market'] = 'indices'
+        else:
+            transformed['market'] = 'forex'
+    
+    # 8. Bereken risk/reward als het ontbreekt
+    if 'risk_reward' not in transformed and 'entry' in transformed and 'take_profit' in transformed and 'stop_loss' in transformed:
+        try:
+            entry = float(transformed['entry'])
+            tp = float(transformed['take_profit'])
+            sl = float(transformed['stop_loss'])
+            
+            if transformed.get('direction') == 'buy':
+                risk = entry - sl
+                reward = tp - entry
+            else:
+                risk = sl - entry  
+                reward = entry - tp
+            
+            if risk > 0:
+                risk_reward = round(reward / risk, 2)
+                transformed['risk_reward'] = str(risk_reward)
+        except (ValueError, ZeroDivisionError):
+            pass
+    
+    # Log de transformatie voor debugging
+    logger.info(f"Transformed signal: {transformed}")
+    
+    return transformed
 
 # Voeg deze functie toe bovenaan het bestand, na de imports
 def convert_interval_to_timeframe(interval):
@@ -164,8 +252,11 @@ async def startup_event():
                 signal_data = await request.json()
                 logger.info(f"Received TradingView webhook signal: {signal_data}")
                 
-                # Process the signal
-                success = await telegram_service.process_signal(signal_data)
+                # Transform the signal data to the expected format
+                transformed_signal = transform_tradingview_signal(signal_data)
+                
+                # Process the transformed signal
+                success = await telegram_service.process_signal(transformed_signal)
                 
                 if success:
                     return {"status": "success", "message": "Signal processed successfully"}
@@ -203,9 +294,12 @@ async def tradingview_signal(request: Request):
         # Parse de JSON data
         data = await request.json()
         
+        # Transformeer de data naar het juiste format
+        transformed_data = transform_tradingview_signal(data)
+        
         # Verwerk als TradingView signaal
         if telegram_service:
-            success = await telegram_service.process_signal(data)
+            success = await telegram_service.process_signal(transformed_data)
             if success:
                 return JSONResponse(content={"status": "success", "message": "Signal processed"})
             else:
@@ -227,8 +321,11 @@ async def receive_signal(request: Request):
         # Haal de data op
         signal_data = await request.json()
         
+        # Transformeer de data naar het juiste format
+        transformed_data = transform_tradingview_signal(signal_data)
+        
         # Process the signal directly without checking if enabled
-        success = await telegram_service.process_signal(signal_data)
+        success = await telegram_service.process_signal(transformed_data)
         
         if success:
             return {"status": "success", "message": "Signal processed successfully"}
