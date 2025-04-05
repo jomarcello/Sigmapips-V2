@@ -3005,54 +3005,42 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         logger.info(f"API endpoints registered at /api/signals, /signal, and {self.webhook_path}")
 
     async def initialize(self, use_webhook=False):
-        """Initialize the bot"""
+        """Initialize the bot and set up handlers"""
         try:
-            self.logger.info("Initializing bot")
-            
-            # Load signals and subscribers from database
-            self._load_signals()
-            
-            # Setup the bot's webhook
+            # Set webhook URL based on environment
             if use_webhook:
-                self.logger.info(f"Setting webhook to {self.webhook_url}")
-                await self.bot.set_webhook(url=self.webhook_url)
-                self.logger.info("Webhook set")
-            else:
-                # Remove any existing webhook and clear all pending updates
-                self.logger.info("Using polling method, removing any existing webhook")
-                await self.bot.delete_webhook(drop_pending_updates=True)
+                # Get webhook URL from environment or build from base URL
+                webhook_url = os.getenv('TELEGRAM_WEBHOOK_URL')
+                if not webhook_url and os.getenv('BASE_URL'):
+                    webhook_url = f"{os.getenv('BASE_URL')}{self.webhook_path}"
                 
-                # Wait a short time to ensure webhook is fully removed
-                await asyncio.sleep(1)
-                
-                # Try to get updates with a high offset to clear the queue
-                try:
-                    # Forcefully clear pending updates
-                    self.logger.info("Forcefully clearing update queue")
-                    await self.bot.get_updates(offset=-1, limit=1, timeout=1)
-                    await self.bot.get_updates(offset=999999999, timeout=1)
-                    self.logger.info("Update queue cleared")
+                if webhook_url:
+                    # Make sure we drop existing webhook first to avoid conflicts
+                    await self.bot.delete_webhook(drop_pending_updates=True)
                     
-                    # Give some time for Telegram servers to process
-                    await asyncio.sleep(2)
+                    # Set up the new webhook
+                    logger.info(f"Setting up webhook at {webhook_url}")
+                    await self.bot.set_webhook(url=webhook_url)
                     
-                    if hasattr(self, 'application') and hasattr(self.application, 'update_queue'):
-                        # Also clear the application queue
-                        while not self.application.update_queue.empty():
-                            try:
-                                self.application.update_queue.get_nowait()
-                            except:
-                                break
-                                
-                except Exception as e:
-                    self.logger.warning(f"Error clearing update queue: {str(e)}")
+                    # Using webhook mode - we don't need polling
+                    logger.info("Bot initialized in webhook mode")
+                    self.is_webhook_mode = True
+                    return
+                else:
+                    logger.warning("Webhook URL not configured, falling back to polling mode")
             
-            self.initialized = True
-            self.logger.info("Bot initialized successfully")
+            # If not using webhook or webhook setup failed, use polling mode
+            # Make sure any existing webhook is removed
+            await self.bot.delete_webhook(drop_pending_updates=True)
+            logger.info("Using polling mode for updates")
             
+            # Start polling in a separate task
+            self.application.run_polling(drop_pending_updates=True)
+            logger.info("Bot started with polling")
         except Exception as e:
-            self.logger.error(f"Error initializing bot: {str(e)}")
-            self.logger.exception(e)
+            logger.error(f"Error initializing bot: {str(e)}")
+            logger.exception(e)
+            raise
 
     async def menu_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> None:
         """Show the main menu when /menu command is used"""
