@@ -1782,7 +1782,9 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 return await self.signals_add_callback(update, context)
             elif callback_data == CALLBACK_SIGNALS_MANAGE:
                 return await self.signals_manage_callback(update, context)
-            elif callback_data == "remove_subscriptions":
+            
+            # Subscription management
+            elif callback_data == "remove_all_subscriptions" or callback_data.startswith("delete_pref_"):
                 return await self.remove_subscription_callback(update, context)
             
             # Market and instrument selection
@@ -1823,8 +1825,6 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Subscription management
             elif callback_data.startswith("subscribe_"):
                 return await self.handle_subscription_callback(update, context)
-            elif callback_data.startswith("delete_pref_"):
-                return await self.remove_subscription_callback(update, context)
             
             logger.warning(f"Unknown callback data: {callback_data}")
             return MENU
