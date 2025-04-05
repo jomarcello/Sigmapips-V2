@@ -308,6 +308,9 @@ async def startup_event():
                 update_id = update_data.get('update_id', 'unknown')
                 logger.info(f"Received Telegram update: ID={update_id}")
                 
+                # Log entire update for debugging
+                logger.info(f"Full update data: {json.dumps(update_data)}")
+                
                 # Log the update content for debugging (redacting sensitive info)
                 if 'message' in update_data:
                     from_info = update_data['message'].get('from', {})
@@ -319,12 +322,26 @@ async def startup_event():
                     from_info = update_data['callback_query'].get('from', {})
                     logger.info(f"Callback query from user_id={from_info.get('id')}, data='{callback_data}'")
                 
+                # Check if application is ready
+                if not hasattr(telegram_service, 'application') or telegram_service.application is None:
+                    logger.error("Telegram application not initialized yet!")
+                    await telegram_service.initialize(use_webhook=True)
+                    logger.info("Re-initialized telegram service")
+                
+                # Create Update object first regardless of type
+                from telegram import Update
+                update_obj = Update.de_json(update_data, telegram_service.bot)
+                
+                # Log the created update object
+                logger.info(f"Created update object: {update_obj}")
+                
                 # Process the update with telegram_service
                 try:
                     if 'message' in update_data and 'text' in update_data['message']:
                         # Handle message
                         text = update_data['message']['text']
                         chat_id = update_data['message']['chat']['id']
+                        user_id = update_data['message'].get('from', {}).get('id')
                         
                         # Explicitly handle commands
                         if text.startswith('/'):
@@ -333,11 +350,15 @@ async def startup_event():
                             
                             # Handle each command explicitly
                             if command == '/start':
+                                logger.info("Explicitly handling /start command")
                                 await telegram_service.bot.send_message(
                                     chat_id=chat_id, 
                                     text="Welcome to Sigmapips AI! Use /menu to access all features."
                                 )
+                                return {"status": "success", "handled": "explicit_start_command"}
+                                
                             elif command == '/menu':
+                                logger.info("Explicitly handling /menu command")
                                 # Create the main menu keyboard
                                 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
                                 keyboard = [
@@ -351,32 +372,63 @@ async def startup_event():
                                     text="Select an option from the menu:",
                                     reply_markup=InlineKeyboardMarkup(keyboard)
                                 )
+                                return {"status": "success", "handled": "explicit_menu_command"}
+                                
                             elif command == '/help':
+                                logger.info("Explicitly handling /help command")
                                 await telegram_service.bot.send_message(
                                     chat_id=chat_id,
                                     text="Available commands:\n/start - Start the bot\n/menu - Show main menu\n/help - Show this help message"
                                 )
-                    elif 'callback_query' in update_data:
-                        # This is a callback from an inline button
-                        # Use application to process it properly
-                        from telegram import Update
-                        update_obj = Update.de_json(update_data, telegram_service.bot)
-                        await telegram_service.application.update_queue.put(update_obj)
-                        logger.info(f"Dispatched callback query to application")
+                                return {"status": "success", "handled": "explicit_help_command"}
                     
-                    return {"status": "success"}
+                    # For any other type of update or non-explicit command handling
+                    logger.info("Forwarding update to application queue")
+                    
+                    # Ensure updater is running and queue is available
+                    if telegram_service.application and hasattr(telegram_service.application, 'update_queue'):
+                        # Try to put update in queue
+                        await telegram_service.application.update_queue.put(update_obj)
+                        logger.info(f"Successfully queued update {update_id} for processing")
+                        return {"status": "success", "handled": "queued"}
+                    else:
+                        logger.error("Update queue not available, trying to reinitialize bot")
+                        # Reinitialize bot if queue not available
+                        await telegram_service.initialize(use_webhook=True)
+                        try:
+                            await telegram_service.application.update_queue.put(update_obj)
+                            logger.info("Update queued after reinitialization")
+                            return {"status": "success", "handled": "queued_after_reinit"}
+                        except Exception as queue_error:
+                            logger.error(f"Failed to queue update after reinitialization: {str(queue_error)}")
+                    
                 except Exception as cmd_error:
                     logger.error(f"Error processing specific command: {str(cmd_error)}")
                     logger.exception(cmd_error)
-                    
-                    # Fall back to standard processing
-                    from telegram import Update
-                    update_obj = Update.de_json(update_data, telegram_service.bot)
-                    if update_obj:
-                        await telegram_service.application.update_queue.put(update_obj)
-                        logger.info(f"Dispatched update to application using fallback method")
                 
-                return {"status": "success"}
+                # If we reach here, command was not handled by explicit handler or queue
+                # Fall back to directly calling the handlers
+                logger.info("Trying to manually call appropriate handler for command...")
+                
+                if 'message' in update_data and 'text' in update_data['message']:
+                    text = update_data['message']['text']
+                    if text.startswith('/menu'):
+                        try:
+                            # Try to directly call menu handler if available
+                            if hasattr(telegram_service, 'menu_command'):
+                                logger.info("Directly calling menu_command handler")
+                                await telegram_service.menu_command(update_obj, None)
+                                return {"status": "success", "handled": "direct_menu_handler"}
+                            elif hasattr(telegram_service, 'show_main_menu'):
+                                logger.info("Directly calling show_main_menu handler")
+                                await telegram_service.show_main_menu(update_obj, None)
+                                return {"status": "success", "handled": "direct_main_menu_handler"}
+                        except Exception as handler_error:
+                            logger.error(f"Error calling handler directly: {str(handler_error)}")
+                            logger.exception(handler_error)
+                
+                return {"status": "warning", "message": "Update received but handling uncertain"}
+                
             except Exception as e:
                 logger.error(f"Error handling Telegram webhook: {str(e)}")
                 logger.exception(e)
