@@ -2662,35 +2662,35 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Create signal message in the required format
             signal_message = f"""🎯 New Trading Signal 🎯
 
-Instrument: {instrument}
-Action: {direction_display}
+<b>Instrument:</b> {instrument}
+<b>Action:</b> {direction_display}
 
-Entry Price: {entry_price}
-Stop Loss: {stop_loss} 🔴"""
+<b>Entry Price:</b> {entry_price}
+<b>Stop Loss:</b> {stop_loss} 🔴"""
 
             # Add take profit levels if available
             if take_profit_1:
-                signal_message += f"\nTake Profit 1: {take_profit_1} 🎯"
+                signal_message += f"\n<b>Take Profit 1:</b> {take_profit_1} 🎯"
             if take_profit_2:
-                signal_message += f"\nTake Profit 2: {take_profit_2} 🎯"
+                signal_message += f"\n<b>Take Profit 2:</b> {take_profit_2} 🎯"
             if take_profit_3:
-                signal_message += f"\nTake Profit 3: {take_profit_3} 🎯"
+                signal_message += f"\n<b>Take Profit 3:</b> {take_profit_3} 🎯"
 
             signal_message += f"""
 
-Timeframe: {timeframe}
-Strategy: {strategy}
+<b>Timeframe:</b> {timeframe}
+<b>Strategy:</b> {strategy}
 
 ————————————————————
 
-Risk Management:
+<b>Risk Management:</b>
 • Position size: 1-2% max
 • Use proper stop loss
 • Follow your trading plan
 
 ————————————————————
 
-🤖 SigmaPips AI Verdict:
+🤖 <b>SigmaPips AI Verdict:</b>
 {ai_verdict}
 """
             
