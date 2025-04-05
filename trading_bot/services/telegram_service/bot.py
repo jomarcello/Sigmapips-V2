@@ -2670,32 +2670,39 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         return SUBSCRIBE
         
     async def get_subscribers_for_instrument(self, instrument: str, timeframe: str = None) -> List[int]:
-        """Get all users subscribed to a specific instrument, ignoring timeframe"""
+        """Get a list of subscriber user IDs for a specific instrument"""
         try:
-            # Get the subscriptions from database, only filtering by instrument
-            subscriptions = await self.db.get_signal_subscriptions(instrument=instrument)
+            logger.info(f"Looking for subscribers for instrument {instrument} (timeframe: {timeframe})")
             
-            # Extract user IDs from subscriptions
-            subscribers = [int(sub['user_id']) for sub in subscriptions if 'user_id' in sub]
+            # Query for instrument subscriptions
+            subscribers = []
             
-            # Make sure list is unique
-            subscribers = list(set(subscribers))
-            
-            # Log the number of subscribers
-            if subscribers:
-                logger.info(f"Found {len(subscribers)} subscribers for {instrument}")
-            else:
-                logger.info(f"No subscribers found for {instrument}")
-            
-            # If no subscribers found for this instrument, send to all active users
-            if not subscribers:
-                logger.info("Sending signal to all active users")
-                # Try to get all users from the database
-                all_users = await self.db.get_all_active_users()
-                subscribers = [int(user['user_id']) for user in all_users if 'user_id' in user]
-                subscribers = list(set(subscribers))
-                logger.info(f"Found {len(subscribers)} active users")
+            try:
+                # First try to get subscribers from the signal_subscriptions table
+                subscriptions = await self.db.get_signal_subscriptions(instrument)
+                logger.info(f"Found {len(subscriptions)} subscriptions for instrument {instrument} in signal_subscriptions table")
                 
+                # Extract user_ids 
+                subscribers = [int(sub['user_id']) for sub in subscriptions if 'user_id' in sub]
+                logger.info(f"Extracted {len(subscribers)} subscriber IDs: {subscribers}")
+                
+            except Exception as db_error:
+                logger.error(f"Error querying instrument subscribers from DB: {str(db_error)}")
+                logger.exception(db_error)
+            
+            # If no specific subscribers, check for default subscribers (users who want all signals)
+            if not subscribers:
+                logger.info("No specific subscribers found, checking for users subscribed to all signals")
+                try:
+                    all_users = await self.db.get_all_active_users()
+                    logger.info(f"Found {len(all_users)} active users in the system")
+                    subscribers = [int(user['user_id']) for user in all_users if 'user_id' in user]
+                    subscribers = list(set(subscribers))
+                    logger.info(f"Using {len(subscribers)} active users as default subscribers: {subscribers}")
+                except Exception as all_users_error:
+                    logger.error(f"Error getting all users: {str(all_users_error)}")
+                    logger.exception(all_users_error)
+            
             return subscribers
         except Exception as e:
             logger.error(f"Error getting subscribers for {instrument}: {str(e)}")
@@ -2861,6 +2868,8 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                         [InlineKeyboardButton("🔍 Analyse Market", callback_data=f"analyze_from_signal_{instrument}_{signal_id}")],
                     ]
                     
+                    logger.info(f"Attempting to send signal to user {user_id} with callback_data: analyze_from_signal_{instrument}_{signal_id}")
+                    
                     # Send signal message
                     message = await self.bot.send_message(
                         chat_id=user_id,
@@ -2869,13 +2878,16 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                         reply_markup=InlineKeyboardMarkup(keyboard)
                     )
                     
+                    logger.info(f"Successfully sent signal message to user {user_id}")
                     sent_count += 1
                     
                     # Store signal reference in user data for quick access
                     self._save_signal_reference(str(user_id), signal_id, formatted_signal)
+                    logger.info(f"Signal {signal_id} saved for user {user_id}")
                     
                 except Exception as e:
                     logger.error(f"Error sending signal to user {user_id}: {str(e)}")
+                    logger.exception(e)
             
             logger.info(f"Successfully sent signal {signal_id} to {sent_count}/{len(subscribers)} subscribers")
             return True
