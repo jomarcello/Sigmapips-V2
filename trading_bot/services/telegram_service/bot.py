@@ -2837,25 +2837,19 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Check if user already has this subscription
             user_id = update.effective_user.id
             
-            # Check in both tables
+            # Check ONLY in the new table
             has_subscription = False
             
-            # Check the new table
             try:
+                # Only check the new signal_subscriptions table
                 signal_subs = self.db.supabase.table('signal_subscriptions').select('*').eq('user_id', user_id).eq('instrument', instrument).execute()
                 if signal_subs.data:
                     has_subscription = True
+                    logger.info(f"User {user_id} already has a subscription for {instrument}")
+                else:
+                    logger.info(f"No existing subscription found for user {user_id} and instrument {instrument}")
             except Exception as e:
                 logger.error(f"Error checking signal_subscriptions: {str(e)}")
-            
-            # Check the old table
-            if not has_subscription:
-                try:
-                    old_subs = self.db.supabase.table('subscriber_preferences').select('*').eq('user_id', user_id).eq('instrument', instrument).execute()
-                    if old_subs.data:
-                        has_subscription = True
-                except Exception as e:
-                    logger.error(f"Error checking subscriber_preferences: {str(e)}")
             
             # If user already has this subscription, show a message
             if has_subscription:
