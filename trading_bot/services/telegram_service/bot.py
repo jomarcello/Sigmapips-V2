@@ -1256,7 +1256,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                             InlineKeyboardButton("📊 Technical Analysis", callback_data=f"analysis_technical_{signal_data.get('instrument')}_signal_id"),
                             InlineKeyboardButton("📰 Market Sentiment", callback_data=f"analysis_sentiment_{signal_data.get('instrument')}_signal_id")
                         ],
-                        [InlineKeyboardButton("🏠 Main Menu", callback_data="back_menu")]
+                        [InlineKeyboardButton("📅 Economic Calendar", callback_data=f"analysis_calendar_{signal_data.get('instrument')}_signal_id")]
                     ]
                     
                     await query.edit_message_text(
@@ -2742,9 +2742,29 @@ Risk Management:
                             InlineKeyboardButton("📊 Technical Analysis", callback_data=f"analysis_technical_{instrument}_{signal_id}"),
                             InlineKeyboardButton("📰 Market Sentiment", callback_data=f"analysis_sentiment_{instrument}_{signal_id}")
                         ],
-                        [InlineKeyboardButton("📅 Economic Calendar", callback_data=f"analysis_calendar_{instrument}_{signal_id}")],
-                        [InlineKeyboardButton("🏠 Main Menu", callback_data="back_menu")]
+                        [InlineKeyboardButton("📅 Economic Calendar", callback_data=f"analysis_calendar_{instrument}_{signal_id}")]
                     ]
+                    
+                    # Prepare keyboard with analysis options
+                    if signal_data.get('custom_buttons') and signal_data.get('buttons'):
+                        # Use custom buttons if provided
+                        custom_buttons = signal_data.get('buttons', [])
+                        keyboard = []
+                        
+                        for btn_row in custom_buttons:
+                            if isinstance(btn_row, list) and len(btn_row) >= 2:
+                                btn_text, callback_prefix = btn_row[0], btn_row[1]
+                                row = [InlineKeyboardButton(btn_text, callback_data=f"{callback_prefix}_{instrument}_{signal_id}")]
+                                keyboard.append(row)
+                    else:
+                        # Default buttons without Main Menu
+                        keyboard = [
+                            [
+                                InlineKeyboardButton("📊 Technical Analysis", callback_data=f"analysis_technical_{instrument}_{signal_id}"),
+                                InlineKeyboardButton("📰 Market Sentiment", callback_data=f"analysis_sentiment_{instrument}_{signal_id}")
+                            ],
+                            [InlineKeyboardButton("📅 Economic Calendar", callback_data=f"analysis_calendar_{instrument}_{signal_id}")]
+                        ]
                     
                     # Send as regular message
                     await self.bot.send_message(
