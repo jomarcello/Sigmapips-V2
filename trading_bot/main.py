@@ -37,7 +37,11 @@ db = Database()
 
 # Initialiseer de services in de juiste volgorde
 stripe_service = StripeService(db)
-telegram_service = TelegramService(db)
+telegram_service = TelegramService(
+    db=db,
+    stripe_service=stripe_service,
+    bot_token=os.getenv("TELEGRAM_BOT_TOKEN", "")
+)
 chart_service = ChartService()
 
 # Voeg de services aan elkaar toe na initialisatie
@@ -215,17 +219,20 @@ async def startup_event():
             logger.info("Running in production environment, using webhook mode")
             await telegram_service.initialize(use_webhook=True)
             
-            # Set bot commands
-            commands = [
-                BotCommand("start", "Start the bot and get the welcome message"),
-                BotCommand("menu", "Show the main menu"),
-                BotCommand("help", "Show available commands and how to use the bot")
-            ]
-            
+            # Setup bot commands
             try:
-                # Make sure the commands are set before we process updates
+                from telegram import BotCommand
+                
+                # Define the commands that should be available in the bot
+                commands = [
+                    BotCommand("start", "Start the bot and get a welcome message"),
+                    BotCommand("menu", "Show the main menu with all available options"),
+                    BotCommand("help", "Show help information and available commands")
+                ]
+                
+                # Set the commands for the bot
                 await telegram_service.bot.set_my_commands(commands)
-                logger.info("Bot commands set successfully")
+                logger.info(f"Successfully set {len(commands)} commands for the bot")
                 
                 # Force delete and reset the webhook to ensure clean start
                 if webhook_url:
@@ -256,7 +263,7 @@ async def startup_event():
             await telegram_service.initialize(use_webhook=False)
             
         logger.info("Telegram bot initialized")
-        
+            
         # Manually register signal endpoints directly here
         logger.info("Registering signal endpoints")
         
@@ -374,7 +381,7 @@ async def startup_event():
                 logger.error(f"Error handling Telegram webhook: {str(e)}")
                 logger.exception(e)
                 return {"status": "error", "message": str(e)}
-        
+    
     except Exception as e:
         logger.error(f"Error initializing services: {str(e)}")
         logger.exception(e)
