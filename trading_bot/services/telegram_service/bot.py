@@ -1742,21 +1742,22 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
     async def button_callback(self, update: Update, context=None) -> int:
         """Handle all button callbacks"""
         query = update.callback_query
-        await query.answer()
-        
         callback_data = query.data
+        
+        # Log for debugging
         logger.info(f"Button callback opgeroepen met data: {callback_data}")
         
         try:
-            # Menu navigation
+            # For multi-chain callbacks, answer right away
+            await query.answer()
+            
+            # Main menu actions
             if callback_data == CALLBACK_MENU_ANALYSE:
                 return await self.menu_analyse_callback(update, context)
             elif callback_data == CALLBACK_MENU_SIGNALS:
                 return await self.menu_signals_callback(update, context)
-            elif callback_data == CALLBACK_BACK_MENU:
-                return await self.back_menu_callback(update, context)
             
-            # Analysis options
+            # Analysis actions
             elif callback_data == CALLBACK_ANALYSIS_TECHNICAL:
                 return await self.analysis_technical_callback(update, context)
             elif callback_data == CALLBACK_ANALYSIS_SENTIMENT:
@@ -1764,7 +1765,9 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             elif callback_data == CALLBACK_ANALYSIS_CALENDAR:
                 return await self.analysis_calendar_callback(update, context)
             
-            # Back navigation
+            # Back actions
+            elif callback_data == CALLBACK_BACK_MENU:
+                return await self.back_menu_callback(update, context)
             elif callback_data == CALLBACK_BACK_ANALYSIS:
                 return await self.back_analysis_callback(update, context)
             elif callback_data == CALLBACK_BACK_MARKET:
@@ -1773,28 +1776,55 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 return await self.back_instrument_callback(update, context)
             elif callback_data == CALLBACK_BACK_SIGNALS:
                 return await self.back_signals_callback(update, context)
-            
+                
             # Signal callbacks
             elif callback_data == CALLBACK_SIGNALS_ADD:
                 return await self.signals_add_callback(update, context)
             elif callback_data == CALLBACK_SIGNALS_MANAGE:
                 return await self.signals_manage_callback(update, context)
-                
-            # Handle subscription deletion callbacks
-            elif callback_data.startswith("delete_pref_") or callback_data == "remove_all_subscriptions":
+            elif callback_data == "remove_subscriptions":
                 return await self.remove_subscription_callback(update, context)
             
-            # Handle other callbacks appropriately
+            # Market and instrument selection
+            # Handle market selection for signals differently from regular market selection
+            elif callback_data.startswith("market_") and callback_data.endswith("_signals"):
+                logger.info(f"Routing to market_callback for signals: {callback_data}")
+                # Set signals context flag first
+                if context and hasattr(context, 'user_data'):
+                    context.user_data['is_signals_context'] = True
+                return await self.market_callback(update, context)
             elif callback_data.startswith("market_"):
-                if "signals" in callback_data:
-                    return await self.market_signals_callback(update, context)
-                else:
-                    return await self.market_callback(update, context)
+                logger.info(f"Routing to market_callback for analysis: {callback_data}")
+                # Clear signals context flag
+                if context and hasattr(context, 'user_data'):
+                    context.user_data['is_signals_context'] = False
+                return await self.market_callback(update, context)
+            elif callback_data.startswith("instrument_") and callback_data.endswith("_signals"):
+                logger.info(f"Routing to instrument_signals_callback: {callback_data}")
+                return await self.instrument_signals_callback(update, context)
             elif callback_data.startswith("instrument_"):
-                if "signals" in callback_data:
-                    return await self.instrument_signals_callback(update, context)
-                else:
-                    return await self.instrument_callback(update, context)
+                logger.info(f"Routing to instrument_callback for analysis: {callback_data}")
+                return await self.instrument_callback(update, context)
+            
+            # Signal analysis callbacks
+            elif callback_data == "signal_technical":
+                return await self.signal_technical_callback(update, context)
+            elif callback_data == "signal_sentiment":
+                return await self.signal_sentiment_callback(update, context)
+            elif callback_data == "signal_calendar":
+                return await self.signal_calendar_callback(update, context)
+            elif callback_data == "back_to_signal":
+                return await self.back_to_signal_callback(update, context)
+            elif callback_data == "back_to_signal_analysis":
+                return await self.back_to_signal_analysis_callback(update, context)
+            elif callback_data.startswith("analyze_from_signal_"):
+                return await self.analyze_from_signal_callback(update, context)
+            
+            # Subscription management
+            elif callback_data.startswith("subscribe_"):
+                return await self.handle_subscription_callback(update, context)
+            elif callback_data.startswith("delete_pref_"):
+                return await self.remove_subscription_callback(update, context)
             
             logger.warning(f"Unknown callback data: {callback_data}")
             return MENU
@@ -2582,18 +2612,24 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
     async def market_callback(self, update: Update, context=None) -> int:
         """Handle market selection and show appropriate instruments"""
         query = update.callback_query
+        await query.answer()
         callback_data = query.data
         
         # Parse the market from callback data
         parts = callback_data.split("_")
         market = parts[1]  # Extract market type (forex, crypto, etc.)
         
+        # Improved logging for debugging
+        logger.info(f"Market callback processing: {callback_data}, parts={parts}")
+        
         # Check if signal-specific context
         is_signals_context = False
         if callback_data.endswith("_signals"):
             is_signals_context = True
+            logger.info(f"Signal context detected from callback_data: {callback_data}")
         elif context and hasattr(context, 'user_data'):
             is_signals_context = context.user_data.get('is_signals_context', False)
+            logger.info(f"Signal context from user_data: {is_signals_context}")
         
         # Store market in context
         if context and hasattr(context, 'user_data'):
@@ -2604,6 +2640,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         
         # Determine which keyboard to show based on market and context
         keyboard = None
+        text = ""
         if is_signals_context or callback_data.endswith("_signals"):
             # Keyboards for signals
             if market == "forex":
@@ -2663,8 +2700,26 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Voeg terug-knop toe als laatste rij
             keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data=back_data)])
         
+        # Before updating message, check if the content has changed
+        current_text = ""
+        try:
+            # Try to get current text or caption
+            if query.message.caption:
+                current_text = query.message.caption
+            elif query.message.text:
+                current_text = query.message.text
+                
+            # If content is the same, log and return without updating
+            if current_text.strip() == text.strip():
+                logger.info(f"Content already matches, skipping update. Current: '{current_text}', New: '{text}'")
+                return CHOOSE_INSTRUMENT
+        except Exception as e:
+            logger.warning(f"Error checking current message content: {str(e)}")
+        
         # Use the safe message update method
-        await self._safe_message_update(query, text, keyboard)
+        success = await self._safe_message_update(query, text, keyboard)
+        if not success:
+            logger.error("Failed to update message in market_callback")
         
         return CHOOSE_INSTRUMENT
 
@@ -2717,8 +2772,26 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         message = "Select market for signal subscription:"
         keyboard = MARKET_KEYBOARD_SIGNALS
         
+        # Before updating message, check if the content has already been updated
+        current_text = ""
+        try:
+            # Try to get current text or caption
+            if query.message.caption:
+                current_text = query.message.caption
+            elif query.message.text:
+                current_text = query.message.text
+                
+            # If content is the same, log and return without updating
+            if current_text.strip() == message.strip():
+                logger.info("Content already matches in signals_add_callback, skipping update")
+                return CHOOSE_MARKET
+        except Exception as e:
+            logger.warning(f"Error checking current message content: {str(e)}")
+        
         # Use the safer message update method
-        await self._safe_message_update(query, message, keyboard)
+        success = await self._safe_message_update(query, message, keyboard)
+        if not success:
+            logger.error("Failed to update message in signals_add_callback")
         
         return CHOOSE_MARKET
 
