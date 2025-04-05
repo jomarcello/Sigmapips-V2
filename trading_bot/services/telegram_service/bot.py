@@ -2536,50 +2536,45 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Extract signal ID and instrument from callback data
             # Format: "analyze_from_signal_INSTRUMENT_SIGNALID"
             callback_data = query.data
+            logger.info(f"Button callback received: {callback_data}")
+            
+            if not callback_data.startswith("analyze_from_signal_"):
+                logger.warning(f"Unknown callback data: {callback_data}")
+                return MENU
+                
             parts = callback_data.split("_")
             
-            if len(parts) >= 5:
-                # Extract instrument and signal ID
-                instrument_parts = []
-                signal_id = parts[-1]  # Last part is the signal ID
+            if len(parts) < 5:  # Need at least 5 parts: analyze_from_signal_INSTRUMENT_SIGNALID
+                logger.warning(f"Invalid callback data format: {callback_data}")
+                return MENU
                 
-                # Get all the parts that make up the instrument (might contain underscores)
-                for i in range(3, len(parts) - 1):
-                    instrument_parts.append(parts[i])
+            # Extract instrument and signal ID correctly
+            instrument = parts[3]  # Fourth part is the instrument
+            signal_id = parts[4]   # Fifth part is the signal ID
+            
+            # Store in context
+            if context and hasattr(context, 'user_data'):
+                context.user_data['instrument'] = instrument
+                context.user_data['current_signal_id'] = signal_id
+                context.user_data['in_signal_flow'] = True
                 
-                instrument = "_".join(instrument_parts)
-                
-                # Store in context
-                if context and hasattr(context, 'user_data'):
-                    context.user_data['instrument'] = instrument
-                    context.user_data['current_signal_id'] = signal_id
-                    context.user_data['in_signal_flow'] = True
-                    
-                logger.info(f"Analyzing signal: instrument={instrument}, id={signal_id}")
-                
-                # Ensure the signal is loaded for this user
-                user_id = str(update.effective_user.id)
-                
-                # Make sure the signal is loaded
-                signal_data = self._get_signal_by_id(user_id, signal_id)
-                if signal_data is None:
-                    logger.error(f"Could not find signal with ID {signal_id}")
-                    await query.edit_message_text(
-                        text="Could not find the signal. Please try again from the main menu.",
-                        reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
-                    )
-                    return MENU
-                
-                # Directly show technical analysis for this instrument instead of showing analysis options
-                return await self.show_technical_analysis(update, context, instrument=instrument)
-                
-            else:
-                logger.error(f"Invalid callback data format: {callback_data}")
+            logger.info(f"Analyzing signal: instrument={instrument}, id={signal_id}")
+            
+            # Ensure the signal is loaded for this user
+            user_id = str(update.effective_user.id)
+            
+            # Make sure the signal is loaded
+            signal_data = self._get_signal_by_id(user_id, signal_id)
+            if signal_data is None:
+                logger.error(f"Could not find signal with ID {signal_id}")
                 await query.edit_message_text(
-                    text="Could not process the signal. Please try again from the main menu.",
+                    text="Could not find the signal. Please try again from the main menu.",
                     reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
                 )
                 return MENU
+            
+            # Directly show technical analysis for this instrument instead of showing analysis options
+            return await self.show_technical_analysis(update, context, instrument=instrument)
                 
         except Exception as e:
             logger.error(f"Error in analyze_from_signal_callback: {str(e)}")
