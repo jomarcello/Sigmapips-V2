@@ -3883,17 +3883,17 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         await query.answer()
         
         try:
-            # Get user's current subscriptions from both tables
+            # Get user's current subscriptions ONLY from the new table
             user_id = update.effective_user.id
             
-            # Probeer eerst van de nieuwe tabel
+            # Get subscriptions from the new table only
             signal_subs = self.db.supabase.table('signal_subscriptions').select('*').eq('user_id', user_id).execute()
             preferences = signal_subs.data if signal_subs.data else []
             
-            # En dan van de oude tabel
-            old_subs = self.db.supabase.table('subscriber_preferences').select('*').eq('user_id', user_id).execute()
-            if old_subs.data:
-                preferences.extend(old_subs.data)
+            # No longer using the old table data
+            # old_subs = self.db.supabase.table('subscriber_preferences').select('*').eq('user_id', user_id).execute()
+            # if old_subs.data:
+            #    preferences.extend(old_subs.data)
             
             if not preferences:
                 # No subscriptions yet
@@ -3968,9 +3968,9 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             if callback_data.startswith("delete_pref_"):
                 # Extract the preference ID
                 pref_id = callback_data.split("_")[2]
+                logger.info(f"Attempting to delete subscription with ID: {pref_id}")
                 
-                # Determine which table to delete from based on the ID
-                # First try the new table
+                # Only delete from the new table
                 success = False
                 
                 try:
@@ -3978,23 +3978,17 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     response = self.db.supabase.table('signal_subscriptions').delete().eq('id', pref_id).execute()
                     if response and response.data:
                         success = True
+                        logger.info(f"Successfully deleted subscription with ID {pref_id}")
+                    else:
+                        logger.warning(f"No rows affected when deleting subscription with ID {pref_id}")
                 except Exception as e:
                     logger.error(f"Error deleting from signal_subscriptions: {str(e)}")
                 
-                if not success:
-                    try:
-                        # Try to delete from the old table
-                        response = self.db.supabase.table('subscriber_preferences').delete().eq('id', pref_id).execute()
-                        if response and response.data:
-                            success = True
-                    except Exception as e:
-                        logger.error(f"Error deleting from subscriber_preferences: {str(e)}")
-                
                 # Provide feedback
                 if success:
-                    message = f"Subscription with ID {pref_id} was deleted successfully."
+                    message = f"Subscription was deleted successfully."
                 else:
-                    message = f"Failed to delete subscription with ID {pref_id}."
+                    message = f"Failed to delete subscription. Please try again."
                 
                 # Show a temporary feedback message with safe update
                 keyboard = [[InlineKeyboardButton("⬅️ Back to Subscriptions", callback_data=CALLBACK_SIGNALS_MANAGE)]]
@@ -4005,18 +3999,27 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             elif callback_data == "remove_all_subscriptions":
                 # Delete all subscriptions for this user
                 user_id = update.effective_user.id
+                logger.info(f"Attempting to delete all subscriptions for user {user_id}")
                 
-                # Delete from the new table
-                response1 = self.db.supabase.table('signal_subscriptions').delete().eq('user_id', user_id).execute()
-                
-                # Delete from the old table
-                response2 = self.db.supabase.table('subscriber_preferences').delete().eq('user_id', user_id).execute()
-                
-                # Check if any rows were affected
-                success = (response1 and response1.data) or (response2 and response2.data)
+                # Only delete from the new table
+                try:
+                    # Delete from the new table only
+                    response = self.db.supabase.table('signal_subscriptions').delete().eq('user_id', user_id).execute()
+                    
+                    # Check if any rows were affected
+                    if response and response.data and len(response.data) > 0:
+                        success = True
+                        num_deleted = len(response.data)
+                        logger.info(f"Successfully deleted {num_deleted} subscriptions for user {user_id}")
+                    else:
+                        success = False
+                        logger.warning(f"No subscriptions found to delete for user {user_id}")
+                except Exception as e:
+                    success = False
+                    logger.error(f"Error deleting all subscriptions: {str(e)}")
                 
                 if success:
-                    message = "All your subscriptions have been deleted."
+                    message = f"All your subscriptions have been deleted."
                 else:
                     message = "No subscriptions found to delete."
                 
