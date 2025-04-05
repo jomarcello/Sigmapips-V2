@@ -205,100 +205,67 @@ async def startup_event():
         webhook_url = os.getenv("WEBHOOK_URL", "")
         logger.info(f"WEBHOOK_URL from environment: '{webhook_url}'")
         
-        # Set up Telegram bot with improved error handling
+        # Set up Telegram bot properly
         logger.info("Setting up Telegram bot")
         
-        # Create application instance
-        telegram_service.application = Application.builder().bot(telegram_service.bot).build()
-        
-        # Register handlers
-        telegram_service._register_handlers(telegram_service.application)
-        
-        # Load signals
-        telegram_service._load_signals()
-        
-        # Set bot commands
-        commands = [
-            BotCommand("start", "Start the bot and get the welcome message"),
-            BotCommand("menu", "Show the main menu"),
-            BotCommand("help", "Show available commands and how to use the bot")
-        ]
-        
-        # Check if we should use webhook mode (preferred for Railway)
+        # Determine if we're running in production (Railway)
         is_production = os.getenv("RAILWAY_ENVIRONMENT") == "production" or os.getenv("RAILWAY_PUBLIC_DOMAIN")
         
-        if is_production and webhook_url:
-            # Production mode: use webhook 
-            logger.info(f"Running in production mode on Railway. Using webhook URL: {webhook_url}")
+        if is_production:
+            logger.info("Running in production environment, using webhook mode")
+            await telegram_service.initialize(use_webhook=True)
             
-            # Make sure webhook URL doesn't already have the webhook path
-            if "/webhook" in webhook_url:
-                logger.warning(f"Webhook URL already contains '/webhook'. Raw URL: {webhook_url}")
-                # Extract the base URL without the webhook part
-                base_url = webhook_url.split("/webhook")[0]
-                logger.info(f"Extracted base URL: {base_url}")
-                webhook_url = base_url
+            # Set bot commands
+            commands = [
+                BotCommand("start", "Start the bot and get the welcome message"),
+                BotCommand("menu", "Show the main menu"),
+                BotCommand("help", "Show available commands and how to use the bot")
+            ]
             
-            # Delete any existing webhook and clear pending updates
-            await telegram_service.bot.delete_webhook(drop_pending_updates=True)
-            
-            # Initialize the application
-            await telegram_service.application.initialize()
-            await telegram_service.application.start()
-            
-            # Set webhook with no secret token for now
-            final_webhook_url = f"{webhook_url.rstrip('/')}/webhook"
-            logger.info(f"Setting webhook URL to: {final_webhook_url}")
-            await telegram_service.bot.set_webhook(url=final_webhook_url)
-            
-            # Log the webhook info
-            webhook_info = await telegram_service.bot.get_webhook_info()
-            logger.info(f"Webhook info: URL={webhook_info.url}, pending_updates={webhook_info.pending_update_count}")
+            try:
+                await telegram_service.bot.set_my_commands(commands)
+                logger.info("Bot commands set successfully")
+            except Exception as cmd_error:
+                logger.error(f"Error setting bot commands: {str(cmd_error)}")
         else:
-            # Development mode: use polling
-            logger.info("Running in development mode. Using polling for updates.")
+            logger.info("Running in development environment, using polling mode")
+            await telegram_service.initialize(use_webhook=False)
             
-            # Make sure webhook is removed
-            await telegram_service.bot.delete_webhook(drop_pending_updates=True)
-            
-            # Initialize the application and start in polling mode
-            await telegram_service.application.initialize()
-            await telegram_service.application.start()
-            await telegram_service.application.updater.start_polling(drop_pending_updates=True)
-            telegram_service.polling_started = True
-            logger.info("Telegram bot started in polling mode")
+        logger.info("Telegram bot initialized")
         
-        # Set the commands
-        await telegram_service.bot.set_my_commands(commands)
+        # Manually register signal endpoints directly here
+        logger.info("Registering signal endpoints")
         
-        logger.info("Telegram bot initialization completed")
-        
-        # Manually register signal endpoints
         @app.post("/signal")
         async def process_tradingview_signal(request: Request):
             """Process TradingView webhook signal"""
             try:
                 # Get the signal data from the request
                 signal_data = await request.json()
-                logger.info(f"Received TradingView webhook signal: {signal_data}")
                 
-                # Transform the signal data to the expected format
-                transformed_signal = transform_tradingview_signal(signal_data)
+                # Transform TradingView signal to internal format
+                transformed_data = transform_tradingview_signal(signal_data)
                 
-                # Process the transformed signal
-                success = await telegram_service.process_signal(transformed_signal)
+                # Log market detection
+                instrument = transformed_data.get('instrument', '')
+                if instrument:
+                    market = transformed_data.get('market', 'forex')
+                    logger.info(f"Detected {instrument} as {market}")
+                
+                # Process the signal
+                success = await telegram_service.process_signal(transformed_data)
                 
                 if success:
                     return {"status": "success", "message": "Signal processed successfully"}
                 else:
                     return {"status": "error", "message": "Failed to process signal"}
-                    
+                
             except Exception as e:
-                logger.error(f"Error processing TradingView webhook signal: {str(e)}")
+                logger.error(f"Error processing signal: {str(e)}")
                 logger.exception(e)
                 return {"status": "error", "message": str(e)}
         
-        logger.info("Signal endpoints registered directly on FastAPI app")
+        logger.info("Signal endpoints registered")
         
         # Manually register Telegram webhook endpoint
         @app.post("/webhook")
@@ -307,14 +274,52 @@ async def startup_event():
             try:
                 # Get raw update data
                 update_data = await request.json()
-                logger.info(f"Received Telegram update: ID={update_data.get('update_id', 'unknown')}")
+                update_id = update_data.get('update_id', 'unknown')
+                logger.info(f"Received Telegram update: ID={update_id}")
                 
-                # Process the update with the application's process_update method
-                # This is the proper way to handle webhook updates in python-telegram-bot v20+
-                await telegram_service.application.process_update(update_data)
+                # Log the update content for debugging (redacting sensitive info)
+                if 'message' in update_data:
+                    from_info = update_data['message'].get('from', {})
+                    chat_info = update_data['message'].get('chat', {})
+                    text = update_data['message'].get('text', '')
+                    logger.info(f"Message update from user_id={from_info.get('id')}, chat_id={chat_info.get('id')}, text='{text}'")
+                elif 'callback_query' in update_data:
+                    callback_data = update_data['callback_query'].get('data', '')
+                    from_info = update_data['callback_query'].get('from', {})
+                    logger.info(f"Callback query from user_id={from_info.get('id')}, data='{callback_data}'")
+                
+                # Make sure the application is properly initialized
+                if not hasattr(telegram_service, 'application') or not telegram_service.application:
+                    logger.error("Telegram application not initialized")
+                    await telegram_service.initialize(use_webhook=True)
+                    logger.info("Re-initialized telegram service")
+                
+                # Check if we have the application.process_update method
+                if not hasattr(telegram_service.application, 'process_update'):
+                    logger.error("process_update method not found on application")
+                    return {"status": "error", "message": "Application not properly initialized"}
+                
+                # Process the update
+                try:
+                    # Import Update from telegram
+                    from telegram import Update
+                    
+                    # Convert dict to Update object
+                    update_obj = Update.de_json(update_data, telegram_service.bot)
+                    
+                    if update_obj:
+                        # Process update with application
+                        await telegram_service.application.process_update(update_obj)
+                        logger.info(f"Successfully processed update {update_id}")
+                    else:
+                        logger.error(f"Failed to convert update data to Update object: {update_data}")
+                except Exception as process_error:
+                    logger.error(f"Error processing update: {str(process_error)}")
+                    logger.exception(process_error)
+                
                 return {"status": "success"}
             except Exception as e:
-                logger.error(f"Error processing Telegram webhook: {str(e)}")
+                logger.error(f"Error handling Telegram webhook: {str(e)}")
                 logger.exception(e)
                 return {"status": "error", "message": str(e)}
         
