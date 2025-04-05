@@ -2641,6 +2641,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         # Determine which keyboard to show based on market and context
         keyboard = None
         text = ""
+        back_data = ""
         if is_signals_context or callback_data.endswith("_signals"):
             # Keyboards for signals
             if market == "forex":
@@ -2695,10 +2696,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             
             back_data = "back_to_analysis"  # Changed to back_to_analysis voor consistentie
         
-        # Toevoegen van Back-knop aan het einde van alle keyboards
-        if isinstance(keyboard, list):
-            # Voeg terug-knop toe als laatste rij
-            keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data=back_data)])
+        # DO NOT add back button here - they should already be included in keyboard definitions
         
         # Before updating message, check if the content has changed
         current_text = ""
