@@ -2539,18 +2539,26 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             logger.info(f"Button callback received: {callback_data}")
             
             if not callback_data.startswith("analyze_from_signal_"):
-                logger.warning(f"Unknown callback data: {callback_data}")
+                logger.warning(f"Unknown callback data format: {callback_data}")
                 return MENU
                 
             parts = callback_data.split("_")
             
             if len(parts) < 5:  # Need at least 5 parts: analyze_from_signal_INSTRUMENT_SIGNALID
-                logger.warning(f"Invalid callback data format: {callback_data}")
+                logger.warning(f"Callback data has insufficient parts: {callback_data}, parts: {parts}")
                 return MENU
                 
-            # Extract instrument and signal ID correctly
-            instrument = parts[3]  # Fourth part is the instrument
-            signal_id = parts[4]   # Fifth part is the signal ID
+            # The complete callback data is "analyze_from_signal_EURUSD_EURUSD_buy_1743850643"
+            # But we need just "EURUSD" for instrument and the actual signal ID
+            
+            # Extract the instrument
+            instrument = parts[3]
+            
+            # Get the signal ID from the parts after the instrument
+            remaining_parts = parts[4:]
+            signal_id = "_".join(remaining_parts)
+            
+            logger.info(f"Parsed callback data: instrument={instrument}, signal_id={signal_id}")
             
             # Store in context
             if context and hasattr(context, 'user_data'):
