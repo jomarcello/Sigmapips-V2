@@ -692,92 +692,61 @@ class TelegramService:
             raise
 
     def _register_handlers(self, application):
-        """Register event handlers for bot commands and callback queries"""
-        try:
-            # Log registration start
-            logger.info("Registering command and callback handlers")
-            
-            # Command handlers - register the proper handlers 
-            application.add_handler(CommandHandler("start", self.start_command))
-            application.add_handler(CommandHandler("menu", self.menu_command))  # The main menu command
-            application.add_handler(CommandHandler("help", self.help_command))
-            
-            logger.info("Basic command handlers registered")
-            
-            # Admin commands
-            application.add_handler(CommandHandler("set_subscription", self.set_subscription_command))
-            application.add_handler(CommandHandler("set_payment_failed", self.set_payment_failed_command))
-            
-            logger.info("Admin command handlers registered")
-            
-            # Register main menu callback handlers
-            application.add_handler(CallbackQueryHandler(
-                self.back_menu_callback, pattern="^back_menu$"))
-            
-            # Direct signal analysis handler - register this before any others to ensure priority
-            # IMPORTANT: This handles the 'analyze_market:INSTRUMENT' format
-            application.add_handler(CallbackQueryHandler(
-                self.button_callback, pattern="^analyze_market:"))
-                
-            # Analysis flow callbacks
-            application.add_handler(CallbackQueryHandler(
-                self.menu_analyse_callback, pattern="^menu_analyse$"))
-                
-            # ... rest of the handlers ...
-            
-            # Add specific handlers for the signal flow - these must be registered before the generic handler
-            logger.info("Registering signal flow handlers")
-            
-            # Signal analysis specific handlers
-            application.add_handler(CallbackQueryHandler(
-                self.signal_technical_callback, pattern="^signal_technical$"))
-            application.add_handler(CallbackQueryHandler(
-                self.signal_sentiment_callback, pattern="^signal_sentiment$"))
-            application.add_handler(CallbackQueryHandler(
-                self.signal_calendar_callback, pattern="^signal_calendar$"))
-            application.add_handler(CallbackQueryHandler(
-                self.back_to_signal_callback, pattern="^back_to_signal$"))
-            application.add_handler(CallbackQueryHandler(
-                self.back_to_signal_analysis_callback, pattern="^back_to_signal_analysis$"))
-            application.add_handler(CallbackQueryHandler(
-                self.analyze_from_signal_callback, pattern="^analyze_from_signal_"))
-            
-            # Regular menu flow handlers - registered after signal flow
-            application.add_handler(CallbackQueryHandler(
-                self.menu_analyse_callback, pattern="^menu_analyse$"))
-            application.add_handler(CallbackQueryHandler(
-                self.menu_signals_callback, pattern="^menu_signals$"))
-            application.add_handler(CallbackQueryHandler(
-                self.analysis_technical_callback, pattern="^analysis_technical$"))
-            application.add_handler(CallbackQueryHandler(
-                self.analysis_sentiment_callback, pattern="^analysis_sentiment$"))
-            application.add_handler(CallbackQueryHandler(
-                self.analysis_calendar_callback, pattern="^analysis_calendar$"))
-            
-            # Navigation handlers
-            application.add_handler(CallbackQueryHandler(
-                self.back_menu_callback, pattern="^back_menu$"))
-            application.add_handler(CallbackQueryHandler(
-                self.back_analysis_callback, pattern="^back_analysis$"))
-            application.add_handler(CallbackQueryHandler(
-                self.back_market_callback, pattern="^back_market$"))
-            application.add_handler(CallbackQueryHandler(
-                self.back_instrument_callback, pattern="^back_instrument$"))
-            application.add_handler(CallbackQueryHandler(
-                self.back_signals_callback, pattern="^back_signals$"))
-            
-            # Generic callback handler - must be last to catch any other callbacks
-            application.add_handler(CallbackQueryHandler(self.button_callback))
-            
-            # Load signals
-            self._load_signals()
-            
-            logger.info("Bot setup completed successfully")
-            
-        except Exception as e:
-            logger.error(f"Error setting up bot: {str(e)}")
-            logger.exception(e)
-            raise
+        """Register all command handlers and callbacks"""
+        # Log the start of handler registration
+        self.logger.info("Registering command handlers...")
+        
+        # Register basic command handlers
+        application.add_handler(CommandHandler("start", self.start_command))
+        application.add_handler(CommandHandler("menu", self.menu_command))
+        application.add_handler(CommandHandler("help", self.help_command))
+        
+        # Log command handlers registration
+        self.logger.info("Registered basic command handlers: start, menu, help")
+        
+        # Register callback query handlers in specific order (more specific first)
+        application.add_handler(CallbackQueryHandler(self.menu_analyse_callback, pattern="^menu_analyse$"))
+        application.add_handler(CallbackQueryHandler(self.menu_signals_callback, pattern="^menu_signals$"))
+        
+        # Signal management callbacks
+        application.add_handler(CallbackQueryHandler(self.signals_manage_callback, pattern="^signals_manage$"))
+        application.add_handler(CallbackQueryHandler(self.signals_add_callback, pattern="^signals_add$"))
+        
+        # Market/Instrument selection callbacks
+        application.add_handler(CallbackQueryHandler(self.market_callback, pattern="^market_"))
+        application.add_handler(CallbackQueryHandler(self.instrument_signals_callback, pattern="^instrument_"))
+        
+        # Analysis callbacks
+        application.add_handler(CallbackQueryHandler(self.analysis_technical_callback, pattern="^analysis_technical"))
+        application.add_handler(CallbackQueryHandler(self.analysis_sentiment_callback, pattern="^analysis_sentiment"))
+        application.add_handler(CallbackQueryHandler(self.analysis_calendar_callback, pattern="^analysis_calendar"))
+        
+        # Back buttons
+        application.add_handler(CallbackQueryHandler(self.back_to_signal_callback, pattern="^back_to_signal$"))
+        application.add_handler(CallbackQueryHandler(self.back_to_signal_analysis_callback, pattern="^back_to_signal_analysis$"))
+        application.add_handler(CallbackQueryHandler(self.back_market_callback, pattern="^back_market$"))
+        application.add_handler(CallbackQueryHandler(self.back_instrument_callback, pattern="^back_instrument$"))
+        application.add_handler(CallbackQueryHandler(self.back_menu_callback, pattern="^back_menu$"))
+        application.add_handler(CallbackQueryHandler(self.back_signals_callback, pattern="^back_signals$"))
+        application.add_handler(CallbackQueryHandler(self.back_analysis_callback, pattern="^back_analysis$"))
+        
+        # Subscription related handlers
+        application.add_handler(CallbackQueryHandler(self.handle_subscription_callback, pattern="^subscription_"))
+        application.add_handler(CallbackQueryHandler(self.remove_subscription_callback, pattern="^remove_"))
+        
+        # Special analysis from signal handler
+        application.add_handler(CallbackQueryHandler(self.analyze_from_signal_callback, pattern="^analyze_from_signal"))
+        
+        # Register the general callback handler for any other patterns
+        application.add_handler(CallbackQueryHandler(self.button_callback))
+        
+        # Register admin command handlers if admin_users is defined
+        if hasattr(self, 'admin_users') and self.admin_users:
+            self.logger.info(f"Registering admin command handlers for {len(self.admin_users)} admins")
+            application.add_handler(CommandHandler("signals", self.toggle_signals_command, filters=filters.User(user_id=self.admin_users)))
+        
+        # Log completion of handler registration
+        self.logger.info("All command and callback handlers registered successfully")
 
     @property
     def signals_enabled(self):
@@ -3004,89 +2973,153 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         logger.info(f"API endpoints registered at /api/signals, /signal, and {self.webhook_path}")
 
     async def initialize(self, use_webhook=False):
-        """Initialize the bot and set up handlers"""
+        """Initialize the bot application and start polling or webhook"""
         try:
-            logger.info(f"Initializing bot in {'webhook' if use_webhook else 'polling'} mode")
+            self.logger.info(f"Initializing TelegramService in {'webhook' if use_webhook else 'polling'} mode")
             
-            # Make sure application is properly initialized
+            # Make sure the application is created if it doesn't exist
             if self.application is None:
-                logger.info("Creating Application instance")
-                self.application = Application.builder().bot(self.bot).build()
+                # Set up persistence to remember user states
+                try:
+                    persistence = PicklePersistence(filepath='data/bot_persistence')
+                    self.logger.info("Initialized persistence storage")
+                except Exception as e:
+                    self.logger.error(f"Failed to initialize persistence: {e}")
+                    persistence = None
+                
+                # Create the Application with the bot's token
+                self.application = Application.builder().bot(self.bot).persistence(persistence).build()
+                self.logger.info("Created new Application instance")
             
-            # Register handlers
-            logger.info("Registering message handlers")
+            # Make sure handlers are registered
             self._register_handlers(self.application)
             
-            # Load signals
+            # Initialize signal handling
+            self.logger.info("Loading user signals...")
             self._load_signals()
             
-            # Initialize application 
-            await self.application.initialize()
-            await self.application.start()
-            
-            # Set webhook URL based on environment
+            # Start the bot based on mode
             if use_webhook:
-                # Get webhook URL from environment or build from base URL
-                webhook_url = os.getenv('WEBHOOK_URL', '')
-                if not webhook_url:
-                    logger.error("No webhook URL configured")
-                    return False
+                self.logger.info("Starting bot in webhook mode")
+                # Make sure update queue is started
+                if not self.application.update_queue:
+                    self.logger.warning("Update queue not initialized, creating it")
+                    self.application.update_queue = asyncio.Queue()
                 
-                # Make sure webhook URL doesn't already have the webhook path
-                if "/webhook" in webhook_url:
-                    logger.warning(f"Webhook URL already contains '/webhook'. Raw URL: {webhook_url}")
-                    # Extract the base URL without the webhook part
-                    base_url = webhook_url.split("/webhook")[0]
-                    logger.info(f"Extracted base URL: {base_url}")
-                    webhook_url = base_url
+                # Start the application without webhook setup (we do that separately)
+                self.logger.info("Starting application updater in webhook mode")
+                await self.application.initialize()
                 
-                # Make sure we drop existing webhook first to avoid conflicts
-                logger.info("Deleting any existing webhook")
-                await self.bot.delete_webhook(drop_pending_updates=True)
+                # Explicitly start the updater to process updates from the queue
+                self.logger.info("Starting application dispatcher")
+                await self.application.start()
                 
-                # Set up the new webhook
-                final_webhook_url = f"{webhook_url.rstrip('/')}/webhook"
-                logger.info(f"Setting webhook to: {final_webhook_url}")
+                # Configure webhook based on environment
+                webhook_url = os.getenv("WEBHOOK_URL", "")
                 
-                await self.bot.set_webhook(
-                    url=final_webhook_url,
-                    allowed_updates=["message", "callback_query", "chat_member"],
-                    drop_pending_updates=True
-                )
-                
-                # Get and log webhook info
-                webhook_info = await self.bot.get_webhook_info()
-                logger.info(f"Webhook set: URL={webhook_info.url}, pending_updates={webhook_info.pending_update_count}")
-                
-                # Make sure the application is ready to handle webhook updates
-                logger.info("Starting application in webhook mode")
-                if hasattr(self.application, 'updater') and self.application.updater:
-                    logger.info("Configuring updater for webhook")
-                    self.is_webhook_mode = True
-                
-                logger.info("Bot initialized in webhook mode")
+                if webhook_url:
+                    # Check if webhook already set
+                    webhook_info = await self.bot.get_webhook_info()
+                    
+                    if webhook_info.url:
+                        self.logger.info(f"Webhook already set to: {webhook_info.url}")
+                        
+                        # If webhook URL doesn't match, update it
+                        if webhook_url not in webhook_info.url:
+                            # Delete existing webhook first
+                            self.logger.info("Deleting existing webhook to set new one")
+                            await self.bot.delete_webhook()
+                            
+                            # Set new webhook
+                            final_webhook_url = f"{webhook_url.rstrip('/')}/webhook"
+                            self.logger.info(f"Setting webhook URL to: {final_webhook_url}")
+                            await self.bot.set_webhook(
+                                url=final_webhook_url,
+                                allowed_updates=["message", "callback_query", "chat_member"]
+                            )
+                    else:
+                        # No webhook set, set new one
+                        final_webhook_url = f"{webhook_url.rstrip('/')}/webhook"
+                        self.logger.info(f"Setting webhook URL to: {final_webhook_url}")
+                        await self.bot.set_webhook(
+                            url=final_webhook_url,
+                            allowed_updates=["message", "callback_query", "chat_member"]
+                        )
+                    
+                    # Verify webhook after setting
+                    new_webhook_info = await self.bot.get_webhook_info()
+                    self.logger.info(f"Webhook configured: URL={new_webhook_info.url}, pending_updates={new_webhook_info.pending_update_count}")
+                else:
+                    self.logger.warning("No webhook URL provided in environment variables")
             else:
-                # If not using webhook, use polling mode
-                logger.info("Using polling mode for updates")
+                self.logger.info("Starting bot in polling mode")
+                # If using polling, make sure no webhook is set
+                webhook_info = await self.bot.get_webhook_info()
+                if webhook_info.url:
+                    self.logger.info(f"Removing existing webhook: {webhook_info.url}")
+                    await self.bot.delete_webhook()
                 
-                # Make sure any existing webhook is removed
-                await self.bot.delete_webhook(drop_pending_updates=True)
-                
-                # Start polling in a separate task
-                self.application.run_polling(drop_pending_updates=True)
+                # Start polling
+                self.logger.info("Starting polling")
+                await self.application.initialize()
+                await self.application.start()
+                await self.application.updater.start_polling()
                 self.polling_started = True
-                logger.info("Bot started with polling")
-                
+            
+            self.logger.info("Bot initialization completed successfully")
             return True
+            
         except Exception as e:
-            logger.error(f"Error initializing bot: {str(e)}")
-            logger.exception(e)
+            self.logger.error(f"Error initializing bot: {str(e)}")
+            self.logger.exception(e)
             return False
 
     async def menu_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> None:
-        """Show the main menu when /menu command is used"""
-        # Directly call the show_main_menu method
-        await self.show_main_menu(update, context)
+        """Toon het hoofdmenu van de bot"""
+        self.logger.info(f"Menu command requested by user_id={update.effective_user.id if update.effective_user else 'unknown'}")
+        try:
+            # Direct implementation for more reliability
+            chat_id = update.effective_chat.id
+            
+            # Create inline keyboard
+            from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+            keyboard = [
+                [InlineKeyboardButton("📊 Analysis", callback_data="menu_analyse")],
+                [InlineKeyboardButton("🔔 Signals", callback_data="menu_signals")]
+            ]
+            
+            # Add optional buttons
+            try:
+                user_info = await self.db.get_user_by_telegram_id(update.effective_user.id)
+                if user_info and user_info.get('is_subscribed'):
+                    # Add subscription management button for subscribers
+                    keyboard.append([InlineKeyboardButton("⚙️ Manage Subscription", callback_data="signals_manage")])
+            except Exception as e:
+                self.logger.error(f"Error checking subscription status: {e}")
+                # Continue without the subscription button
+            
+            # Send message with keyboard
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await self.bot.send_message(
+                chat_id=chat_id,
+                text="Welcome to the Sigmapips AI Trading Bot! Select an option:",
+                reply_markup=reply_markup
+            )
+            
+            self.logger.info(f"Menu sent to user_id={update.effective_user.id if update.effective_user else 'unknown'}")
+        except Exception as e:
+            self.logger.error(f"Failed to show menu: {str(e)}")
+            self.logger.exception(e)
+            
+            # Send a simple message if keyboard fails
+            try:
+                if update.effective_chat:
+                    await self.bot.send_message(
+                        chat_id=update.effective_chat.id,
+                        text="There was a problem showing the menu. Please try again with /menu command."
+                    )
+            except Exception as simple_error:
+                self.logger.error(f"Even simple fallback message failed: {simple_error}")
 
     async def _format_calendar_events(self, calendar_data):
         """Format calendar events in chronological order"""
