@@ -2560,7 +2560,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 # Ensure the signal is loaded for this user
                 user_id = str(update.effective_user.id)
                 
-                # Look for signal data or load it
+                # Make sure the signal is loaded
                 signal_data = self._get_signal_by_id(user_id, signal_id)
                 if signal_data is None:
                     logger.error(f"Could not find signal with ID {signal_id}")
@@ -2570,22 +2570,8 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     )
                     return MENU
                 
-                # Show the analysis options
-                keyboard = [
-                    [InlineKeyboardButton("📈 Technical Analysis", callback_data="signal_technical")],
-                    [InlineKeyboardButton("🧠 Market Sentiment", callback_data="signal_sentiment")],
-                    [InlineKeyboardButton("📅 Economic Calendar", callback_data="signal_calendar")],
-                    [InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal")]
-                ]
-                
-                # Update message with analysis options
-                await query.edit_message_text(
-                    text=f"Select analysis type for {instrument}:",
-                    reply_markup=InlineKeyboardMarkup(keyboard),
-                    parse_mode=ParseMode.HTML
-                )
-                
-                return SIGNAL_DETAILS
+                # Directly show technical analysis for this instrument instead of showing analysis options
+                return await self.show_technical_analysis(update, context, instrument=instrument)
                 
             else:
                 logger.error(f"Invalid callback data format: {callback_data}")
@@ -2777,9 +2763,9 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 return False
             
             # Extract take profit levels
-            take_profit_1 = signal_data.get('take_profit', signal_data.get('tp1'))
-            take_profit_2 = signal_data.get('tp2')
-            take_profit_3 = signal_data.get('tp3')
+            take_profit_1 = signal_data.get('take_profit_1', signal_data.get('take_profit', signal_data.get('tp1')))
+            take_profit_2 = signal_data.get('take_profit_2', signal_data.get('tp2'))
+            take_profit_3 = signal_data.get('take_profit_3', signal_data.get('tp3'))
             
             # Strategy name
             strategy = signal_data.get('strategy', 'TradingView Signal')
@@ -2791,30 +2777,49 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             current_time = int(time.time())
             signal_id = f"{instrument}_{direction}_{current_time}"
             
-            # Format entry, stop loss and take profit levels
-            entry_str = str(entry_price) if entry_price is not None else "Market"
-            stop_loss_str = str(stop_loss) if stop_loss is not None else "N/A"
+            # Format direction for display with emoji
+            direction_display = "BUY 📈" if direction == "buy" else "SELL 📉"
             
-            take_profit_str = []
-            if take_profit_1 is not None:
-                take_profit_str.append(f"TP1: {take_profit_1}")
-            if take_profit_2 is not None:
-                take_profit_str.append(f"TP2: {take_profit_2}")
-            if take_profit_3 is not None:
-                take_profit_str.append(f"TP3: {take_profit_3}")
+            # Generate AI verdict text
+            if direction == "buy":
+                ai_verdict = f"The {instrument} buy signal shows a promising setup with defined entry at {entry_price} and stop loss at {stop_loss}. Multiple take profit levels provide opportunities for partial profit taking."
+            else:
+                ai_verdict = f"The {instrument} sell signal presents a strong bearish opportunity with entry at {entry_price} and stop loss at {stop_loss}. The defined take profit levels allow for strategic exits."
             
-            # Join take profit levels
-            take_profit_text = "\n".join(take_profit_str) if take_profit_str else "N/A"
-            
-            # Format signal message
-            signal_message = f"""<b>NEW SIGNAL: {instrument} {direction.upper()}</b>
+            # Format signal message with rich formatting and emojis
+            signal_message = f"""🎯 New Trading Signal 🎯
 
-<b>Entry:</b> {entry_str}
-<b>Stop Loss:</b> {stop_loss_str}
-<b>Take Profit:</b>
-{take_profit_text}
+<b>Instrument:</b> {instrument}
+<b>Action:</b> {direction_display}
+
+<b>Entry Price:</b> {entry_price}
+<b>Stop Loss:</b> {stop_loss} 🔴"""
+
+            # Add take profit levels if available
+            if take_profit_1:
+                signal_message += f"\n<b>Take Profit 1:</b> {take_profit_1} 🎯"
+            if take_profit_2:
+                signal_message += f"\n<b>Take Profit 2:</b> {take_profit_2} 🎯"
+            if take_profit_3:
+                signal_message += f"\n<b>Take Profit 3:</b> {take_profit_3} 🎯"
+
+            # Add timeframe and strategy
+            signal_message += f"""
+
 <b>Timeframe:</b> {timeframe}
 <b>Strategy:</b> {strategy}
+
+————————————————————
+
+<b>Risk Management:</b>
+• Position size: 1-2% max
+• Use proper stop loss
+• Follow your trading plan
+
+————————————————————
+
+🤖 <b>SigmaPips AI Verdict:</b>
+{ai_verdict}
 """
             
             # Create signal data structure for storage and future reference
@@ -2832,6 +2837,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 'strategy': strategy,
                 'market': market_type,
                 'message': signal_message,
+                'ai_verdict': ai_verdict
             }
             
             # Save signal for history tracking
@@ -2855,9 +2861,9 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             sent_count = 0
             for user_id in subscribers:
                 try:
-                    # Prepare keyboard with analysis options
+                    # Prepare keyboard with single analyze button
                     keyboard = [
-                        [InlineKeyboardButton("🔍 Analyze Signal", callback_data=f"analyze_from_signal_{instrument}_{signal_id}")],
+                        [InlineKeyboardButton("🔍 Analyse Market", callback_data=f"analyze_from_signal_{instrument}_{signal_id}")],
                     ]
                     
                     # Send signal message
@@ -3468,3 +3474,94 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             logger.error(f"Error handling button callback: {str(e)}")
             logger.exception(e)
             return MENU
+
+    async def show_technical_analysis(self, update: Update, context=None, instrument=None, timeframe=None) -> int:
+        """Show technical analysis for a selected instrument"""
+        query = update.callback_query
+        await query.answer()
+        
+        # Get instrument from parameter or context
+        if not instrument and context and hasattr(context, 'user_data'):
+            instrument = context.user_data.get('instrument')
+        
+        if not instrument:
+            logger.error("No instrument provided for technical analysis")
+            try:
+                await query.edit_message_text(
+                    text="Please select an instrument first.",
+                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
+                )
+            except Exception as e:
+                logger.error(f"Error updating message: {str(e)}")
+            return CHOOSE_MARKET
+        
+        logger.info(f"Showing technical analysis for instrument: {instrument}")
+        
+        try:
+            # Show loading message
+            loading_text = f"Generating technical analysis for {instrument}..."
+            try:
+                await query.edit_message_text(text=loading_text)
+            except Exception as e:
+                logger.warning(f"Could not edit message text: {str(e)}")
+                try:
+                    await query.edit_message_caption(caption=loading_text)
+                except Exception as e:
+                    logger.error(f"Could not edit message caption: {str(e)}")
+            
+            # Get chart from chart service
+            chart_url = await self.chart_service.get_chart(instrument)
+            
+            if not chart_url:
+                raise Exception("Failed to generate chart")
+            
+            # Create keyboard with only a back button
+            keyboard = [
+                [InlineKeyboardButton("⬅️ Back", callback_data="back_to_analysis")]
+            ]
+            
+            # Update message with chart
+            try:
+                await query.edit_message_media(
+                    media=InputMediaPhoto(
+                        media=chart_url,
+                        caption=f"📊 Technical Analysis for {instrument}",
+                        parse_mode=ParseMode.HTML
+                    ),
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            except Exception as e:
+                logger.error(f"Error updating message with chart: {str(e)}")
+                # Try to send a new message as fallback
+                await query.message.reply_photo(
+                    photo=chart_url,
+                    caption=f"📊 Technical Analysis for {instrument}",
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            
+            return CHOOSE_ANALYSIS
+            
+        except Exception as e:
+            logger.error(f"Error generating technical analysis: {str(e)}")
+            error_text = f"Error generating technical analysis for {instrument}. Please try again."
+            try:
+                await query.edit_message_text(
+                    text=error_text,
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("⬅️ Back", callback_data="back_market")],
+                    ])
+                )
+            except Exception as e:
+                logger.error(f"Error updating error message: {str(e)}")
+                try:
+                    await query.edit_message_caption(
+                        caption=error_text,
+                        reply_markup=InlineKeyboardMarkup([
+                            [InlineKeyboardButton("⬅️ Back", callback_data="back_market")],
+                        ])
+                    )
+                except Exception as e:
+                    logger.error(f"Error updating error caption: {str(e)}")
+            
+            return BACK_TO_MENU
