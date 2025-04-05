@@ -223,8 +223,32 @@ async def startup_event():
             ]
             
             try:
+                # Make sure the commands are set before we process updates
                 await telegram_service.bot.set_my_commands(commands)
                 logger.info("Bot commands set successfully")
+                
+                # Force delete and reset the webhook to ensure clean start
+                if webhook_url:
+                    # Make sure webhook URL doesn't already have the webhook path
+                    if "/webhook" in webhook_url:
+                        base_url = webhook_url.split("/webhook")[0]
+                        webhook_url = base_url
+                    
+                    final_webhook_url = f"{webhook_url.rstrip('/')}/webhook"
+                    
+                    # First delete any existing webhook
+                    await telegram_service.bot.delete_webhook(drop_pending_updates=True)
+                    logger.info("Deleted existing webhook")
+                    
+                    # Set the webhook explicitly at startup
+                    await telegram_service.bot.set_webhook(
+                        url=final_webhook_url,
+                        allowed_updates=["message", "callback_query", "chat_member"]
+                    )
+                    
+                    # Log webhook info
+                    webhook_info = await telegram_service.bot.get_webhook_info()
+                    logger.info(f"Webhook set at startup: URL={webhook_info.url}")
             except Exception as cmd_error:
                 logger.error(f"Error setting bot commands: {str(cmd_error)}")
         else:
@@ -288,34 +312,62 @@ async def startup_event():
                     from_info = update_data['callback_query'].get('from', {})
                     logger.info(f"Callback query from user_id={from_info.get('id')}, data='{callback_data}'")
                 
-                # Make sure the application is properly initialized
-                if not hasattr(telegram_service, 'application') or not telegram_service.application:
-                    logger.error("Telegram application not initialized")
-                    await telegram_service.initialize(use_webhook=True)
-                    logger.info("Re-initialized telegram service")
-                
-                # Check if we have the application.process_update method
-                if not hasattr(telegram_service.application, 'process_update'):
-                    logger.error("process_update method not found on application")
-                    return {"status": "error", "message": "Application not properly initialized"}
-                
-                # Process the update
+                # Process the update with telegram_service
                 try:
-                    # Import Update from telegram
+                    if 'message' in update_data and 'text' in update_data['message']:
+                        # Handle message
+                        text = update_data['message']['text']
+                        chat_id = update_data['message']['chat']['id']
+                        
+                        # Explicitly handle commands
+                        if text.startswith('/'):
+                            command = text.split('@')[0].split(' ')[0].lower()  # Extract command part
+                            logger.info(f"Processing command: {command}")
+                            
+                            # Handle each command explicitly
+                            if command == '/start':
+                                await telegram_service.bot.send_message(
+                                    chat_id=chat_id, 
+                                    text="Welcome to Sigmapips AI! Use /menu to access all features."
+                                )
+                            elif command == '/menu':
+                                # Create the main menu keyboard
+                                from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+                                keyboard = [
+                                    [InlineKeyboardButton("📊 Analysis", callback_data="menu_analyse")],
+                                    [InlineKeyboardButton("🔔 Signals", callback_data="menu_signals")]
+                                ]
+                                
+                                # Send menu message
+                                await telegram_service.bot.send_message(
+                                    chat_id=chat_id,
+                                    text="Select an option from the menu:",
+                                    reply_markup=InlineKeyboardMarkup(keyboard)
+                                )
+                            elif command == '/help':
+                                await telegram_service.bot.send_message(
+                                    chat_id=chat_id,
+                                    text="Available commands:\n/start - Start the bot\n/menu - Show main menu\n/help - Show this help message"
+                                )
+                    elif 'callback_query' in update_data:
+                        # This is a callback from an inline button
+                        # Use application to process it properly
+                        from telegram import Update
+                        update_obj = Update.de_json(update_data, telegram_service.bot)
+                        await telegram_service.application.update_queue.put(update_obj)
+                        logger.info(f"Dispatched callback query to application")
+                    
+                    return {"status": "success"}
+                except Exception as cmd_error:
+                    logger.error(f"Error processing specific command: {str(cmd_error)}")
+                    logger.exception(cmd_error)
+                    
+                    # Fall back to standard processing
                     from telegram import Update
-                    
-                    # Convert dict to Update object
                     update_obj = Update.de_json(update_data, telegram_service.bot)
-                    
                     if update_obj:
-                        # Process update with application
-                        await telegram_service.application.process_update(update_obj)
-                        logger.info(f"Successfully processed update {update_id}")
-                    else:
-                        logger.error(f"Failed to convert update data to Update object: {update_data}")
-                except Exception as process_error:
-                    logger.error(f"Error processing update: {str(process_error)}")
-                    logger.exception(process_error)
+                        await telegram_service.application.update_queue.put(update_obj)
+                        logger.info(f"Dispatched update to application using fallback method")
                 
                 return {"status": "success"}
             except Exception as e:
