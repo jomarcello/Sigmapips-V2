@@ -78,7 +78,8 @@ def transform_tradingview_signal(signal_data: Dict[str, Any]) -> Dict[str, Any]:
     
     # 2. Timeframe: 'interval' naar 'timeframe'
     if 'interval' in transformed and 'timeframe' not in transformed:
-        transformed['timeframe'] = transformed.pop('interval')
+        interval = transformed.pop('interval')
+        transformed['timeframe'] = convert_interval_to_timeframe(interval)
     
     # 3. Entry price: 'price' naar 'entry'
     if 'price' in transformed and 'entry' not in transformed:
@@ -96,7 +97,24 @@ def transform_tradingview_signal(signal_data: Dict[str, Any]) -> Dict[str, Any]:
     if 'ticker' in transformed and 'instrument' not in transformed:
         transformed['instrument'] = transformed.pop('ticker')
     
-    # 7. Market: voeg toe als het ontbreekt
+    # 7. Auto-determine direction based on stop loss vs entry if both exist
+    if ('entry' in transformed or 'price' in transformed) and ('stop_loss' in transformed or 'sl' in transformed):
+        entry_price = transformed.get('entry', transformed.get('price'))
+        stop_loss = transformed.get('stop_loss', transformed.get('sl'))
+        
+        try:
+            entry_float = float(entry_price)
+            sl_float = float(stop_loss)
+            
+            # If stop loss is lower than entry, it's a BUY signal
+            # If stop loss is higher than entry, it's a SELL signal
+            direction = 'buy' if sl_float < entry_float else 'sell'
+            transformed['direction'] = direction
+            logger.info(f"Auto-detected signal direction: {direction} based on entry: {entry_price}, stop loss: {stop_loss}")
+        except (ValueError, TypeError):
+            logger.warning("Could not auto-determine direction from price values")
+    
+    # 8. Market: voeg toe als het ontbreekt
     if 'market' not in transformed:
         # Detecteer markttype op basis van instrument
         instrument = transformed.get('instrument', '')
@@ -106,26 +124,6 @@ def transform_tradingview_signal(signal_data: Dict[str, Any]) -> Dict[str, Any]:
             transformed['market'] = 'indices'
         else:
             transformed['market'] = 'forex'
-    
-    # 8. Bereken risk/reward als het ontbreekt
-    if 'risk_reward' not in transformed and 'entry' in transformed and 'take_profit' in transformed and 'stop_loss' in transformed:
-        try:
-            entry = float(transformed['entry'])
-            tp = float(transformed['take_profit'])
-            sl = float(transformed['stop_loss'])
-            
-            if transformed.get('direction') == 'buy':
-                risk = entry - sl
-                reward = tp - entry
-            else:
-                risk = sl - entry  
-                reward = entry - tp
-            
-            if risk > 0:
-                risk_reward = round(reward / risk, 2)
-                transformed['risk_reward'] = str(risk_reward)
-        except (ValueError, ZeroDivisionError):
-            pass
     
     # Log de transformatie voor debugging
     logger.info(f"Transformed signal: {transformed}")
@@ -338,9 +336,27 @@ async def receive_signal(request: Request):
 # Voeg deze nieuwe route toe voor het enkelvoudige '/signal' eindpunt
 @app.post("/signal")
 async def receive_single_signal(request: Request):
-    """Endpoint for receiving trading signals (singular form)"""
-    # Stuur gewoon door naar de bestaande eindpunt-functie
-    return await receive_signal(request)
+    """Endpoint for receiving trading signals in TradingView format"""
+    try:
+        # Get the signal data from the request
+        signal_data = await request.json()
+        logger.info(f"Received TradingView webhook signal: {signal_data}")
+        
+        # Transform the signal data to match our requirements
+        transformed_signal = transform_tradingview_signal(signal_data)
+        
+        # Process the transformed signal
+        success = await telegram_service.process_signal(transformed_signal)
+        
+        if success:
+            return {"status": "success", "message": "Signal processed successfully"}
+        else:
+            return {"status": "error", "message": "Failed to process signal"}
+            
+    except Exception as e:
+        logger.error(f"Error processing TradingView webhook signal: {str(e)}")
+        logger.exception(e)
+        return {"status": "error", "message": str(e)}
 
 @app.post("/stripe-webhook")
 async def stripe_webhook(request: Request):
