@@ -694,37 +694,32 @@ class TelegramService:
     def _register_handlers(self, application):
         """Register event handlers for bot commands and callback queries"""
         try:
-            logger.info("Registering command handlers")
+            # Log registration start
+            logger.info("Registering command and callback handlers")
             
-            # Initialize the application without using run_until_complete
-            try:
-                # Instead of using loop.run_until_complete, directly call initialize 
-                # which will be properly awaited by the caller
-                asyncio.create_task(application.initialize())
-                logger.info("Telegram application initialization task created")
-            except Exception as init_e:
-                logger.error(f"Error during application initialization: {str(init_e)}")
-                logger.exception(init_e)
-                
-            # Set bot commands for menu
-            commands = [
-                BotCommand("start", "Start the bot and get the welcome message"),
-                BotCommand("menu", "Show the main menu"),
-                BotCommand("help", "Show available commands and how to use the bot")
-            ]
-            
-            # Set the commands asynchronously
-            try:
-                # Create a task instead of blocking with run_until_complete
-                asyncio.create_task(self.bot.set_my_commands(commands))
-                logger.info("Bot commands set task created")
-            except Exception as cmd_e:
-                logger.error(f"Error setting bot commands: {str(cmd_e)}")
-            
-            # Register command handlers
+            # Command handlers
             application.add_handler(CommandHandler("start", self.start_command))
-            application.add_handler(CommandHandler("menu", self.menu_command))
+            application.add_handler(CommandHandler("menu", self.show_main_menu))
             application.add_handler(CommandHandler("help", self.help_command))
+            
+            # Admin commands
+            application.add_handler(CommandHandler("set_subscription", self.set_subscription_command))
+            application.add_handler(CommandHandler("set_payment_failed", self.set_payment_failed_command))
+            
+            # Register main menu callback handlers
+            application.add_handler(CallbackQueryHandler(
+                self.back_menu_callback, pattern="^back_menu$"))
+            
+            # Direct signal analysis handler - register this before any others to ensure priority
+            # IMPORTANT: This handles the 'analyze_market:INSTRUMENT' format
+            application.add_handler(CallbackQueryHandler(
+                self.button_callback, pattern="^analyze_market:"))
+                
+            # Analysis flow callbacks
+            application.add_handler(CallbackQueryHandler(
+                self.menu_analyse_callback, pattern="^menu_analyse$"))
+                
+            # ... rest of the handlers ...
             
             # Add specific handlers for the signal flow - these must be registered before the generic handler
             logger.info("Registering signal flow handlers")
@@ -3392,13 +3387,17 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # NEW: Handle special analyze_market callback from signals
             if callback_data.startswith("analyze_market:"):
                 instrument = callback_data.split(":", 1)[1]
-                logger.info(f"Direct analysis request for {instrument}")
+                logger.info(f"DIRECT ANALYSIS REQUEST DETECTED for {instrument}")
                 
                 # Store instrument in context
                 if context and hasattr(context, 'user_data'):
                     context.user_data['instrument'] = instrument
+                    logger.info(f"Stored instrument {instrument} in context")
+                else:
+                    logger.warning("Context not available or missing user_data")
                 
                 # Go directly to technical analysis
+                logger.info(f"Calling show_technical_analysis for {instrument}")
                 return await self.show_technical_analysis(update, context, instrument=instrument)
             
             # Check if we're in signal flow from context
@@ -3492,12 +3491,14 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
 
     async def show_technical_analysis(self, update: Update, context=None, instrument=None, timeframe=None) -> int:
         """Show technical analysis for a selected instrument"""
+        logger.info(f"show_technical_analysis called for instrument={instrument}, timeframe={timeframe}")
         query = update.callback_query
         await query.answer()
         
         # Get instrument from parameter or context
         if not instrument and context and hasattr(context, 'user_data'):
             instrument = context.user_data.get('instrument')
+            logger.info(f"Got instrument from context: {instrument}")
         
         if not instrument:
             logger.error("No instrument provided for technical analysis")
