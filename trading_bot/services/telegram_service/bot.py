@@ -3002,40 +3002,77 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
     async def initialize(self, use_webhook=False):
         """Initialize the bot and set up handlers"""
         try:
+            logger.info(f"Initializing bot in {'webhook' if use_webhook else 'polling'} mode")
+            
+            # Make sure application is properly initialized
+            if self.application is None:
+                logger.info("Creating Application instance")
+                self.application = Application.builder().bot(self.bot).build()
+            
+            # Register handlers
+            logger.info("Registering message handlers")
+            self._register_handlers(self.application)
+            
+            # Load signals
+            self._load_signals()
+            
+            # Initialize application 
+            await self.application.initialize()
+            await self.application.start()
+            
             # Set webhook URL based on environment
             if use_webhook:
                 # Get webhook URL from environment or build from base URL
-                webhook_url = os.getenv('TELEGRAM_WEBHOOK_URL')
-                if not webhook_url and os.getenv('BASE_URL'):
-                    webhook_url = f"{os.getenv('BASE_URL')}{self.webhook_path}"
+                webhook_url = os.getenv('WEBHOOK_URL', '')
+                if not webhook_url:
+                    logger.error("No webhook URL configured")
+                    return False
                 
-                if webhook_url:
-                    # Make sure we drop existing webhook first to avoid conflicts
-                    await self.bot.delete_webhook(drop_pending_updates=True)
-                    
-                    # Set up the new webhook
-                    logger.info(f"Setting up webhook at {webhook_url}")
-                    await self.bot.set_webhook(url=webhook_url)
-                    
-                    # Using webhook mode - we don't need polling
-                    logger.info("Bot initialized in webhook mode")
-                    self.is_webhook_mode = True
-                    return
-                else:
-                    logger.warning("Webhook URL not configured, falling back to polling mode")
-            
-            # If not using webhook or webhook setup failed, use polling mode
-            # Make sure any existing webhook is removed
-            await self.bot.delete_webhook(drop_pending_updates=True)
-            logger.info("Using polling mode for updates")
-            
-            # Start polling in a separate task
-            self.application.run_polling(drop_pending_updates=True)
-            logger.info("Bot started with polling")
+                # Make sure webhook URL doesn't already have the webhook path
+                if "/webhook" in webhook_url:
+                    logger.warning(f"Webhook URL already contains '/webhook'. Raw URL: {webhook_url}")
+                    # Extract the base URL without the webhook part
+                    base_url = webhook_url.split("/webhook")[0]
+                    logger.info(f"Extracted base URL: {base_url}")
+                    webhook_url = base_url
+                
+                # Make sure we drop existing webhook first to avoid conflicts
+                logger.info("Deleting any existing webhook")
+                await self.bot.delete_webhook(drop_pending_updates=True)
+                
+                # Set up the new webhook
+                final_webhook_url = f"{webhook_url.rstrip('/')}/webhook"
+                logger.info(f"Setting webhook to: {final_webhook_url}")
+                
+                await self.bot.set_webhook(
+                    url=final_webhook_url,
+                    allowed_updates=["message", "callback_query", "chat_member"],
+                    drop_pending_updates=True
+                )
+                
+                # Get and log webhook info
+                webhook_info = await self.bot.get_webhook_info()
+                logger.info(f"Webhook set: URL={webhook_info.url}, pending_updates={webhook_info.pending_update_count}")
+                
+                self.is_webhook_mode = True
+                logger.info("Bot initialized in webhook mode")
+            else:
+                # If not using webhook, use polling mode
+                logger.info("Using polling mode for updates")
+                
+                # Make sure any existing webhook is removed
+                await self.bot.delete_webhook(drop_pending_updates=True)
+                
+                # Start polling in a separate task
+                self.application.run_polling(drop_pending_updates=True)
+                self.polling_started = True
+                logger.info("Bot started with polling")
+                
+            return True
         except Exception as e:
             logger.error(f"Error initializing bot: {str(e)}")
             logger.exception(e)
-            raise
+            return False
 
     async def menu_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> None:
         """Show the main menu when /menu command is used"""
