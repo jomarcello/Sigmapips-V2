@@ -3897,13 +3897,14 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             
             if not preferences:
                 # No subscriptions yet
-                await query.edit_message_text(
-                    text="You don't have any signal subscriptions yet. Add some first!",
-                    reply_markup=InlineKeyboardMarkup([
-                        [InlineKeyboardButton("➕ Add Signal Pairs", callback_data=CALLBACK_SIGNALS_ADD)],
-                        [InlineKeyboardButton("⬅️ Back", callback_data=CALLBACK_BACK_SIGNALS)]
-                    ])
-                )
+                message = "You don't have any signal subscriptions yet. Add some first!"
+                keyboard = [
+                    [InlineKeyboardButton("➕ Add Signal Pairs", callback_data=CALLBACK_SIGNALS_ADD)],
+                    [InlineKeyboardButton("⬅️ Back", callback_data=CALLBACK_BACK_SIGNALS)]
+                ]
+                
+                # Use safe message update
+                await self._safe_message_update(query, message, keyboard)
                 return CHOOSE_SIGNALS
             
             # Format current subscriptions
@@ -3933,28 +3934,27 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             keyboard.append([InlineKeyboardButton("🗑️ Delete All", callback_data="remove_all_subscriptions")])
             keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data=CALLBACK_BACK_SIGNALS)])
             
-            await query.edit_message_text(
-                text=message,
-                reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode=ParseMode.HTML
-            )
+            # Use our safe message update method
+            success = await self._safe_message_update(query, message, keyboard)
+            if not success:
+                logger.error("Failed to update message in signals_manage_callback")
+                
+                # Try one more time with a simpler message as a last resort
+                simple_message = "Error displaying your subscriptions. Please try again."
+                simple_keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data=CALLBACK_BACK_SIGNALS)]]
+                await self._safe_message_update(query, simple_message, simple_keyboard)
             
             return MANAGE_PREFERENCES
         except Exception as e:
             logger.error(f"Error in signals_manage_callback: {str(e)}")
             logger.exception(e)
             
-            try:
-                await query.edit_message_text(
-                    text="An error occurred while retrieving your subscriptions. Please try again.",
-                    reply_markup=InlineKeyboardMarkup([
-                        [InlineKeyboardButton("⬅️ Back", callback_data=CALLBACK_BACK_SIGNALS)]
-                    ])
-                )
-                return CHOOSE_SIGNALS
-            except Exception as inner_e:
-                logger.error(f"Failed to recover from error: {str(inner_e)}")
-                return MENU
+            # Use safe message update for error handling
+            message = "An error occurred while retrieving your subscriptions. Please try again."
+            keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data=CALLBACK_BACK_SIGNALS)]]
+            await self._safe_message_update(query, message, keyboard)
+            
+            return CHOOSE_SIGNALS
 
     async def remove_subscription_callback(self, update: Update, context=None) -> int:
         """Handle removal of a subscription"""
@@ -3996,13 +3996,9 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 else:
                     message = f"Failed to delete subscription with ID {pref_id}."
                 
-                # Show a temporary feedback message
-                await query.edit_message_text(
-                    text=message,
-                    reply_markup=InlineKeyboardMarkup([[
-                        InlineKeyboardButton("⬅️ Back to Subscriptions", callback_data=CALLBACK_SIGNALS_MANAGE)
-                    ]])
-                )
+                # Show a temporary feedback message with safe update
+                keyboard = [[InlineKeyboardButton("⬅️ Back to Subscriptions", callback_data=CALLBACK_SIGNALS_MANAGE)]]
+                await self._safe_message_update(query, message, keyboard)
                 
                 return CHOOSE_SIGNALS
                 
@@ -4024,13 +4020,9 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 else:
                     message = "No subscriptions found to delete."
                 
-                # Show a temporary feedback message
-                await query.edit_message_text(
-                    text=message,
-                    reply_markup=InlineKeyboardMarkup([[
-                        InlineKeyboardButton("⬅️ Back to Signals", callback_data=CALLBACK_BACK_SIGNALS)
-                    ]])
-                )
+                # Show a temporary feedback message with safe update
+                keyboard = [[InlineKeyboardButton("⬅️ Back to Signals", callback_data=CALLBACK_BACK_SIGNALS)]]
+                await self._safe_message_update(query, message, keyboard)
                 
                 return CHOOSE_SIGNALS
         
@@ -4038,12 +4030,10 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             logger.error(f"Error in remove_subscription_callback: {str(e)}")
             logger.exception(e)
             
-            await query.edit_message_text(
-                text="An error occurred while processing your request.",
-                reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("⬅️ Back", callback_data=CALLBACK_BACK_SIGNALS)
-                ]])
-            )
+            # Use safe message update for error
+            message = "An error occurred while processing your request."
+            keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data=CALLBACK_BACK_SIGNALS)]]
+            await self._safe_message_update(query, message, keyboard)
             
             return CHOOSE_SIGNALS
 
@@ -4057,39 +4047,33 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             from trading_bot.services.telegram_service.gif_utils import get_signals_gif
             gif_url = await get_signals_gif()
             
-            # Create the message with the GIF using only <a> tags
-            text = f'<a href="{gif_url}">&#8205;</a>\nWhat would you like to do with trading signals?'
-            
-            # Show the signals menu
-            await query.edit_message_text(
-                text=text,
-                parse_mode=ParseMode.HTML,
+            # Try using the gif_utils helper first
+            from trading_bot.services.telegram_service.gif_utils import update_message_with_gif
+            success = await update_message_with_gif(
+                query=query,
+                gif_url=gif_url,
+                text="Trading Signals Options:",
                 reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD)
             )
             
+            if not success:
+                # If gif update fails, use our safe message update
+                await self._safe_message_update(
+                    query,
+                    "Trading Signals Options:",
+                    SIGNALS_KEYBOARD
+                )
+            
             return CHOOSE_SIGNALS
         except Exception as e:
-            # If there's an error with editing message text, it might be a media message
-            if "There is no text in the message to edit" in str(e):
-                try:
-                    await query.edit_message_caption(
-                        caption="What would you like to do with trading signals?",
-                        reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD),
-                        parse_mode=ParseMode.HTML
-                    )
-                    return CHOOSE_SIGNALS
-                except Exception as caption_e:
-                    logger.error(f"Failed to edit caption: {str(caption_e)}")
-            
-            # Last resort fallback
             logger.error(f"Error in back_signals_callback: {str(e)}")
-            try:
-                await query.message.reply_text(
-                    text="What would you like to do with trading signals?",
-                    reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD)
-                )
-            except Exception as reply_e:
-                logger.error(f"Could not send reply message: {str(reply_e)}")
+            
+            # Use safe message update as fallback
+            await self._safe_message_update(
+                query,
+                "Trading Signals Options:",
+                SIGNALS_KEYBOARD
+            )
             
             return CHOOSE_SIGNALS
 
