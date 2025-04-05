@@ -2873,10 +2873,10 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 try:
                     # Prepare keyboard with single analyze button
                     keyboard = [
-                        [InlineKeyboardButton("🔍 Analyse Market", callback_data=f"analyze_from_signal_{instrument}_{signal_id}")],
+                        [InlineKeyboardButton("🔍 Analyse Market", callback_data=f"analyze_market:{instrument}")],
                     ]
                     
-                    logger.info(f"Attempting to send signal to user {user_id} with callback_data: analyze_from_signal_{instrument}_{signal_id}")
+                    logger.info(f"Attempting to send signal to user {user_id} with callback_data: analyze_market:{instrument}")
                     
                     # Send signal message
                     message = await self.bot.send_message(
@@ -3388,6 +3388,18 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             
             # Log the callback data for debugging
             logger.info(f"Button callback received: {callback_data}")
+            
+            # NEW: Handle special analyze_market callback from signals
+            if callback_data.startswith("analyze_market:"):
+                instrument = callback_data.split(":", 1)[1]
+                logger.info(f"Direct analysis request for {instrument}")
+                
+                # Store instrument in context
+                if context and hasattr(context, 'user_data'):
+                    context.user_data['instrument'] = instrument
+                
+                # Go directly to technical analysis
+                return await self.show_technical_analysis(update, context, instrument=instrument)
             
             # Check if we're in signal flow from context
             in_signal_flow = False
