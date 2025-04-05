@@ -697,14 +697,18 @@ class TelegramService:
             # Log registration start
             logger.info("Registering command and callback handlers")
             
-            # Command handlers
+            # Command handlers - register the proper handlers 
             application.add_handler(CommandHandler("start", self.start_command))
-            application.add_handler(CommandHandler("menu", self.show_main_menu))
+            application.add_handler(CommandHandler("menu", self.menu_command))  # The main menu command
             application.add_handler(CommandHandler("help", self.help_command))
+            
+            logger.info("Basic command handlers registered")
             
             # Admin commands
             application.add_handler(CommandHandler("set_subscription", self.set_subscription_command))
             application.add_handler(CommandHandler("set_payment_failed", self.set_payment_failed_command))
+            
+            logger.info("Admin command handlers registered")
             
             # Register main menu callback handlers
             application.add_handler(CallbackQueryHandler(
@@ -3054,7 +3058,12 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 webhook_info = await self.bot.get_webhook_info()
                 logger.info(f"Webhook set: URL={webhook_info.url}, pending_updates={webhook_info.pending_update_count}")
                 
-                self.is_webhook_mode = True
+                # Make sure the application is ready to handle webhook updates
+                logger.info("Starting application in webhook mode")
+                if hasattr(self.application, 'updater') and self.application.updater:
+                    logger.info("Configuring updater for webhook")
+                    self.is_webhook_mode = True
+                
                 logger.info("Bot initialized in webhook mode")
             else:
                 # If not using webhook, use polling mode
