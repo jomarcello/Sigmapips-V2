@@ -205,20 +205,14 @@ async def startup_event():
         webhook_url = os.getenv("WEBHOOK_URL", "")
         logger.info(f"WEBHOOK_URL from environment: '{webhook_url}'")
         
-        # Don't use the telegram_service.initialize method since it has issues
-        # Instead, set up the bot manually
-        logger.info("Setting up Telegram bot manually")
+        # Set up Telegram bot with improved error handling
+        logger.info("Setting up Telegram bot")
         
         # Create application instance
         telegram_service.application = Application.builder().bot(telegram_service.bot).build()
         
-        # Register command handlers manually
-        telegram_service.application.add_handler(CommandHandler("start", telegram_service.start_command))
-        telegram_service.application.add_handler(CommandHandler("menu", telegram_service.show_main_menu))
-        telegram_service.application.add_handler(CommandHandler("help", telegram_service.help_command))
-        telegram_service.application.add_handler(CommandHandler("set_subscription", telegram_service.set_subscription_command))
-        telegram_service.application.add_handler(CommandHandler("set_payment_failed", telegram_service.set_payment_failed_command))
-        telegram_service.application.add_handler(CallbackQueryHandler(telegram_service.button_callback))
+        # Register handlers
+        telegram_service._register_handlers(telegram_service.application)
         
         # Load signals
         telegram_service._load_signals()
@@ -230,16 +224,45 @@ async def startup_event():
             BotCommand("help", "Show available commands and how to use the bot")
         ]
         
-        # Initialize the application and start in polling mode
-        await telegram_service.application.initialize()
-        await telegram_service.application.start()
-        await telegram_service.application.updater.start_polling()
-        telegram_service.polling_started = True
+        # Check if we should use webhook mode (preferred for Railway)
+        is_production = os.getenv("RAILWAY_ENVIRONMENT") == "production" or os.getenv("RAILWAY_PUBLIC_DOMAIN")
+        
+        if is_production and webhook_url:
+            # Production mode: use webhook 
+            logger.info(f"Running in production mode on Railway. Using webhook URL: {webhook_url}")
+            
+            # Delete any existing webhook and clear pending updates
+            await telegram_service.bot.delete_webhook(drop_pending_updates=True)
+            
+            # Initialize the application
+            await telegram_service.application.initialize()
+            await telegram_service.application.start()
+            
+            # Set webhook with no secret token for now
+            await telegram_service.bot.set_webhook(url=f"{webhook_url}/webhook")
+            logger.info(f"Webhook set to {webhook_url}/webhook")
+            
+            # Log the webhook info
+            webhook_info = await telegram_service.bot.get_webhook_info()
+            logger.info(f"Webhook info: {webhook_info.url}, pending updates: {webhook_info.pending_update_count}")
+        else:
+            # Development mode: use polling
+            logger.info("Running in development mode. Using polling for updates.")
+            
+            # Make sure webhook is removed
+            await telegram_service.bot.delete_webhook(drop_pending_updates=True)
+            
+            # Initialize the application and start in polling mode
+            await telegram_service.application.initialize()
+            await telegram_service.application.start()
+            await telegram_service.application.updater.start_polling(drop_pending_updates=True)
+            telegram_service.polling_started = True
+            logger.info("Telegram bot started in polling mode")
         
         # Set the commands
         await telegram_service.bot.set_my_commands(commands)
         
-        logger.info("Telegram bot initialized successfully in polling mode")
+        logger.info("Telegram bot initialization completed")
         
         # Manually register signal endpoints
         @app.post("/signal")
@@ -267,6 +290,24 @@ async def startup_event():
                 return {"status": "error", "message": str(e)}
         
         logger.info("Signal endpoints registered directly on FastAPI app")
+        
+        # Manually register Telegram webhook endpoint
+        @app.post("/webhook")
+        async def telegram_webhook(request: Request):
+            """Process incoming updates from Telegram webhook"""
+            try:
+                # Get raw update data
+                update_data = await request.json()
+                logger.info(f"Received Telegram update: {update_data.get('update_id', 'unknown')}")
+                
+                # Process the update with the application's process_update method
+                # This is the proper way to handle webhook updates in python-telegram-bot v20+
+                await telegram_service.application.process_update(update_data)
+                return {"status": "success"}
+            except Exception as e:
+                logger.error(f"Error processing Telegram webhook: {str(e)}")
+                logger.exception(e)
+                return {"status": "error", "message": str(e)}
         
     except Exception as e:
         logger.error(f"Error initializing services: {str(e)}")
