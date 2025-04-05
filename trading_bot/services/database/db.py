@@ -983,11 +983,11 @@ class Database:
             return False
 
     async def get_signal_subscriptions(self, instrument: str, timeframe: str = None) -> List[Dict]:
-        """Get all signal subscriptions for a specific instrument and timeframe
+        """Get all signal subscriptions for a specific instrument, ignoring timeframe
         
         Arguments:
             instrument: Trading instrument/symbol (e.g., EURUSD, BTCUSD)
-            timeframe: Timeframe (optional, if provided will filter by timeframe)
+            timeframe: Timeframe (not used - kept for compatibility)
             
         Returns:
             List[Dict]: List of subscription records with user_id, instrument, timeframe, etc.
@@ -995,13 +995,9 @@ class Database:
         try:
             result = []
             
-            # Only get subscriptions from the new signal_subscriptions table
+            # Only get subscriptions from the signal_subscriptions table matching instrument
             query = self.supabase.table('signal_subscriptions').select('*').eq('instrument', instrument)
             
-            # Filter by timeframe if provided
-            if timeframe:
-                query = query.eq('timeframe', timeframe)
-                
             response = query.execute()
             
             if response and response.data:
@@ -1009,10 +1005,32 @@ class Database:
                 logger.info(f"Found {len(response.data)} subscriptions for instrument {instrument} in signal_subscriptions table")
             else:
                 logger.info(f"No subscriptions found for instrument {instrument} in signal_subscriptions table")
-                
+            
             return result
             
         except Exception as e:
             logger.error(f"Error getting signal subscriptions for instrument {instrument}: {str(e)}")
+            traceback.print_exc()
+            return []
+
+    async def get_all_active_users(self) -> List[Dict]:
+        """Get all active users from the database
+        
+        Returns:
+            List[Dict]: List of user records
+        """
+        try:
+            # Get users from the users table
+            response = self.supabase.table('users').select('*').execute()
+            
+            if response and response.data:
+                logger.info(f"Found {len(response.data)} users in the database")
+                return response.data
+            else:
+                logger.info("No users found in the database")
+                return []
+                
+        except Exception as e:
+            logger.error(f"Error getting all active users: {str(e)}")
             traceback.print_exc()
             return []
