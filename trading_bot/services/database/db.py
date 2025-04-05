@@ -995,7 +995,7 @@ class Database:
         try:
             result = []
             
-            # Try to get subscriptions from the new signal_subscriptions table first
+            # Only get subscriptions from the new signal_subscriptions table
             query = self.supabase.table('signal_subscriptions').select('*').eq('instrument', instrument)
             
             # Filter by timeframe if provided
@@ -1006,19 +1006,9 @@ class Database:
             
             if response and response.data:
                 result.extend(response.data)
-                
-            # Also check the legacy table for backward compatibility
-            query = self.supabase.table('subscriber_preferences').select('*').eq('instrument', instrument)
-            
-            # For the old table, use the normalized timeframe
-            if timeframe:
-                # Always use '1h' for querying the old table due to the constraint
-                query = query.eq('timeframe', '1h')
-                
-            response = query.execute()
-            
-            if response and response.data:
-                result.extend(response.data)
+                logger.info(f"Found {len(response.data)} subscriptions for instrument {instrument} in signal_subscriptions table")
+            else:
+                logger.info(f"No subscriptions found for instrument {instrument} in signal_subscriptions table")
                 
             return result
             
