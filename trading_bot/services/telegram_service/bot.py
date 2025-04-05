@@ -2552,40 +2552,36 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         return SUBSCRIBE
         
     async def get_subscribers_for_instrument(self, instrument: str, timeframe: str = None) -> List[int]:
-        """
-        Get a list of subscribed user IDs for a specific instrument and timeframe
-        
-        Args:
-            instrument: The trading instrument (e.g., EURUSD)
-            timeframe: Optional timeframe filter
-            
-        Returns:
-            List of subscribed user IDs
-        """
+        """Get all users subscribed to a specific instrument, ignoring timeframe"""
         try:
-            # Get all subscribers from the database
-            subscribers = await self.db.get_signal_subscriptions(instrument, timeframe)
+            # Get the subscriptions from database, only filtering by instrument
+            subscriptions = await self.db.get_signal_subscriptions(instrument=instrument)
             
-            # Filter out subscribers that don't have an active subscription
-            active_subscribers = []
-            for subscriber in subscribers:
-                user_id = subscriber['user_id']
-                
-                # Check if user is subscribed
-                is_subscribed = await self.db.is_user_subscribed(user_id)
-                
-                # Check if payment has failed
-                payment_failed = await self.db.has_payment_failed(user_id)
-                
-                if is_subscribed and not payment_failed:
-                    active_subscribers.append(user_id)
-                else:
-                    logger.info(f"User {user_id} doesn't have an active subscription, skipping signal")
+            # Extract user IDs from subscriptions
+            subscribers = [int(sub['user_id']) for sub in subscriptions if 'user_id' in sub]
             
-            return active_subscribers
+            # Make sure list is unique
+            subscribers = list(set(subscribers))
             
+            # Log the number of subscribers
+            if subscribers:
+                logger.info(f"Found {len(subscribers)} subscribers for {instrument}")
+            else:
+                logger.info(f"No subscribers found for {instrument}")
+            
+            # If no subscribers found for this instrument, send to all active users
+            if not subscribers:
+                logger.info("Sending signal to all active users")
+                # Try to get all users from the database
+                all_users = await self.db.get_all_active_users()
+                subscribers = [int(user['user_id']) for user in all_users if 'user_id' in user]
+                subscribers = list(set(subscribers))
+                logger.info(f"Found {len(subscribers)} active users")
+                
+            return subscribers
         except Exception as e:
             logger.error(f"Error getting subscribers for {instrument}: {str(e)}")
+            logger.exception(e)
             return []
     
     async def process_signal(self, signal_data: Dict[str, Any]) -> bool:
