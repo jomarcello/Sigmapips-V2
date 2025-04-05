@@ -2663,71 +2663,8 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Voeg terug-knop toe als laatste rij
             keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data=back_data)])
         
-        # Update message with appropriate keyboard
-        try:
-            # Check of bericht een foto of animatie bevat
-            has_media = bool(query.message.photo) or query.message.animation is not None
-            
-            if has_media:
-                # Verwijder het bericht en maak een nieuw tekstbericht
-                try:
-                    await query.message.delete()
-                    await context.bot.send_message(
-                        chat_id=update.effective_chat.id,
-                        text=text,
-                        reply_markup=InlineKeyboardMarkup(keyboard),
-                        parse_mode=ParseMode.HTML
-                    )
-                    return CHOOSE_INSTRUMENT
-                except Exception as delete_error:
-                    logger.warning(f"Could not delete message: {str(delete_error)}")
-                    
-                    # Probeer een transparante GIF te gebruiken als fallback
-                    try:
-                        transparent_gif = "https://upload.wikimedia.org/wikipedia/commons/thumb/0/00/Transparent.gif/1px-Transparent.gif"
-                        await query.edit_message_media(
-                            media=InputMediaDocument(
-                                media=transparent_gif,
-                                caption=text
-                            ),
-                            reply_markup=InlineKeyboardMarkup(keyboard)
-                        )
-                    except Exception as media_error:
-                        logger.warning(f"Could not update media: {str(media_error)}")
-                        # Verdere fallbacks volgen hieronder
-            
-            # Probeer tekst te updaten (als media aanpak mislukte of er geen media was)
-            await query.edit_message_text(
-                text=text,
-                reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode=ParseMode.HTML
-            )
-        except Exception as text_error:
-            # If that fails due to caption, try editing caption
-            if "There is no text in the message to edit" in str(text_error):
-                try:
-                    await query.edit_message_caption(
-                        caption=text,
-                        reply_markup=InlineKeyboardMarkup(keyboard),
-                        parse_mode=ParseMode.HTML
-                    )
-                except Exception as e:
-                    logger.error(f"Failed to update caption in market_callback: {str(e)}")
-                    # Try to send a new message as last resort
-                    await query.message.reply_text(
-                        text=text,
-                        reply_markup=InlineKeyboardMarkup(keyboard),
-                        parse_mode=ParseMode.HTML
-                    )
-            else:
-                # Re-raise for other errors
-                logger.error(f"Error updating message in market_callback: {str(text_error)}")
-                # Try to send a new message as last resort
-                await query.message.reply_text(
-                    text=text,
-                    reply_markup=InlineKeyboardMarkup(keyboard),
-                    parse_mode=ParseMode.HTML
-                )
+        # Use the safe message update method
+        await self._safe_message_update(query, text, keyboard)
         
         return CHOOSE_INSTRUMENT
 
@@ -2749,59 +2686,24 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             )
             
             if not success:
-                # If the helper function failed, try a direct approach as fallback
-                try:
-                    # First try to edit message text
-                    await query.edit_message_text(
-                        text="Trading Signals Options:",
-                        reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD),
-                        parse_mode=ParseMode.HTML
-                    )
-                except Exception as text_error:
-                    # If that fails due to caption, try editing caption
-                    if "There is no text in the message to edit" in str(text_error):
-                        await query.edit_message_caption(
-                            caption="Trading Signals Options:",
-                            reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD),
-                            parse_mode=ParseMode.HTML
-                        )
+                # If the helper function failed, try our own update method
+                await self._safe_message_update(
+                    query, 
+                    "Trading Signals Options:", 
+                    SIGNALS_KEYBOARD
+                )
             
             return CHOOSE_SIGNALS
         except Exception as e:
             logger.error(f"Error in menu_signals_callback: {str(e)}")
             
-            # If we can't edit the message, try again with a simpler approach as fallback
-            try:
-                # First try editing the caption
-                try:
-                    await query.edit_message_caption(
-                        caption="Trading Signals Options:",
-                        reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD),
-                        parse_mode=ParseMode.HTML
-                    )
-                except Exception as caption_error:
-                    # If that fails, try editing text
-                    await query.edit_message_text(
-                        text="Trading Signals Options:",
-                        reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD),
-                        parse_mode=ParseMode.HTML
-                    )
-                return CHOOSE_SIGNALS
-            except Exception as inner_e:
-                logger.error(f"Failed to recover from error: {str(inner_e)}")
-                
-                # Last resort: send a new message
-                try:
-                    await query.message.reply_text(
-                        text="Trading Signals Options:",
-                        reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD),
-                        parse_mode=ParseMode.HTML
-                    )
-                    logger.warning("Fallback to sending new message - ideally this should be avoided")
-                except Exception:
-                    pass
-                    
-                return MENU
+            # If we can't update with GIF, use the safe method
+            await self._safe_message_update(
+                query, 
+                "Trading Signals Options:", 
+                SIGNALS_KEYBOARD
+            )
+            return CHOOSE_SIGNALS
 
     async def signals_add_callback(self, update: Update, context=None) -> int:
         """Handle signals_add button press - show market selection for adding signals"""
@@ -2812,32 +2714,11 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         if context and hasattr(context, 'user_data'):
             context.user_data['is_signals_context'] = True
         
-        try:
-            await query.edit_message_text(
-                text="Select market for signal subscription:",
-                reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD_SIGNALS),
-                parse_mode=ParseMode.HTML
-            )
-        except Exception as text_error:
-            # If that fails due to caption, try editing caption
-            if "There is no text in the message to edit" in str(text_error):
-                try:
-                    await query.edit_message_caption(
-                        caption="Select market for signal subscription:",
-                        reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD_SIGNALS),
-                        parse_mode=ParseMode.HTML
-                    )
-                except Exception as e:
-                    logger.error(f"Failed to update caption in signals_add_callback: {str(e)}")
-                    # Try to send a new message as last resort
-                    await query.message.reply_text(
-                        text="Select market for signal subscription:",
-                        reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD_SIGNALS),
-                        parse_mode=ParseMode.HTML
-                    )
-            else:
-                # Re-raise for other errors
-                raise
+        message = "Select market for signal subscription:"
+        keyboard = MARKET_KEYBOARD_SIGNALS
+        
+        # Use the safer message update method
+        await self._safe_message_update(query, message, keyboard)
         
         return CHOOSE_MARKET
 
@@ -2913,12 +2794,8 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     [InlineKeyboardButton("⬅️ Back to Signals", callback_data="back_signals")]
                 ]
                 
-                await query.edit_message_text(
-                    text=message,
-                    reply_markup=InlineKeyboardMarkup(keyboard),
-                    parse_mode=ParseMode.HTML
-                )
-                
+                # Try multiple ways to update the message
+                await self._safe_message_update(query, message, keyboard)
                 return CHOOSE_SIGNALS
             
             # Directly subscribe the user to this instrument with its fixed timeframe
@@ -2936,33 +2813,8 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 [InlineKeyboardButton("⬅️ Back to Signals", callback_data="back_signals")]
             ]
             
-            try:
-                await query.edit_message_text(
-                    text=success_message,
-                    reply_markup=InlineKeyboardMarkup(keyboard),
-                    parse_mode=ParseMode.HTML
-                )
-            except Exception as text_error:
-                # If that fails due to caption, try editing caption
-                if "There is no text in the message to edit" in str(text_error):
-                    try:
-                        await query.edit_message_caption(
-                            caption=success_message,
-                            reply_markup=InlineKeyboardMarkup(keyboard),
-                            parse_mode=ParseMode.HTML
-                        )
-                    except Exception as e:
-                        logger.error(f"Failed to update caption: {str(e)}")
-                        # Try to send a new message as last resort
-                        await query.message.reply_text(
-                            text=success_message,
-                            reply_markup=InlineKeyboardMarkup(keyboard),
-                            parse_mode=ParseMode.HTML
-                        )
-                else:
-                    # Re-raise for other errors
-                    raise
-            
+            # Try multiple ways to update the message
+            await self._safe_message_update(query, success_message, keyboard)
             return CHOOSE_SIGNALS
         else:
             # Instrument not found in mapping
@@ -2971,34 +2823,74 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Show error and back button
             keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_signals")]]
             
+            # Try multiple ways to update the message
+            await self._safe_message_update(query, error_message, keyboard)
+            return CHOOSE_MARKET
+    
+    async def _safe_message_update(self, query, message, keyboard):
+        """Helper method to safely update message with multiple fallbacks"""
+        try:
+            # Check if message has media
+            has_media = bool(query.message.photo) or query.message.animation is not None
+            
+            if has_media:
+                # First try to edit the caption as it's most likely to succeed with media
+                try:
+                    await query.edit_message_caption(
+                        caption=message,
+                        reply_markup=InlineKeyboardMarkup(keyboard),
+                        parse_mode=ParseMode.HTML
+                    )
+                    return True
+                except Exception as caption_error:
+                    logger.warning(f"Failed to update caption for media message: {str(caption_error)}")
+                    
+                    # As a fallback, try to delete and resend
+                    try:
+                        chat_id = query.message.chat_id
+                        await query.message.delete()
+                        await query.bot.send_message(
+                            chat_id=chat_id,
+                            text=message,
+                            reply_markup=InlineKeyboardMarkup(keyboard),
+                            parse_mode=ParseMode.HTML
+                        )
+                        return True
+                    except Exception as delete_error:
+                        logger.warning(f"Failed to delete and resend message: {str(delete_error)}")
+            
+            # If no media or media handling failed, try normal text update
+            await query.edit_message_text(
+                text=message,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode=ParseMode.HTML
+            )
+            return True
+        except Exception as text_error:
+            logger.warning(f"Failed to update message text: {str(text_error)}")
+            
             try:
-                await query.edit_message_text(
-                    text=error_message,
+                # Try to update caption as fallback
+                await query.edit_message_caption(
+                    caption=message,
                     reply_markup=InlineKeyboardMarkup(keyboard),
                     parse_mode=ParseMode.HTML
                 )
-            except Exception as text_error:
-                # If that fails due to caption, try editing caption
-                if "There is no text in the message to edit" in str(text_error):
-                    try:
-                        await query.edit_message_caption(
-                            caption=error_message,
-                            reply_markup=InlineKeyboardMarkup(keyboard),
-                            parse_mode=ParseMode.HTML
-                        )
-                    except Exception as e:
-                        logger.error(f"Failed to update caption: {str(e)}")
-                        # Try to send a new message as last resort
-                        await query.message.reply_text(
-                            text=error_message,
-                            reply_markup=InlineKeyboardMarkup(keyboard),
-                            parse_mode=ParseMode.HTML
-                        )
-                else:
-                    # Re-raise for other errors
-                    raise
-            
-            return CHOOSE_MARKET
+                return True
+            except Exception as caption_error:
+                logger.warning(f"Failed to update caption: {str(caption_error)}")
+                
+                try:
+                    # Last resort: send a new message
+                    await query.message.reply_text(
+                        text=message,
+                        reply_markup=InlineKeyboardMarkup(keyboard),
+                        parse_mode=ParseMode.HTML
+                    )
+                    return True
+                except Exception as e:
+                    logger.error(f"All message update methods failed: {str(e)}")
+                    return False
     
     async def back_market_callback(self, update: Update, context=None) -> int:
         """Handle back button to return to market selection"""
