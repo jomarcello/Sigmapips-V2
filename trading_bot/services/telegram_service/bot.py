@@ -2593,21 +2593,18 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         Process a trading signal and send it to subscribed users
         
         Args:
-            signal_data: Dict containing signal information
-                Required keys:
-                - instrument: The trading pair/instrument (e.g., EURUSD)
-                - direction: "buy" or "sell"
-                - timeframe: The signal timeframe (e.g., "1h", "4h", "M15", etc.)
-                
-                Optional keys:
-                - entry: Entry price point
-                - stop_loss: Stop loss price
-                - take_profit: Take profit target
-                - risk_reward: Risk-reward ratio
-                - confidence: Signal confidence level (1-100)
-                - notes: Additional notes about the signal
-                - chart_url: URL to chart image
-                - strategy: Signal strategy name
+            signal_data: Dict containing signal information from TradingView
+                Expected format:
+                {
+                    "instrument": "{{ticker}}",
+                    "signal": "{{strategy.order.action}}",
+                    "price": {{close}},
+                    "tp1": {{plot_0}},
+                    "tp2": {{plot_1}},
+                    "tp3": {{plot_2}},
+                    "sl": {{plot_3}},
+                    "interval": {{interval}}
+                }
                 
         Returns:
             bool: True if signal was processed successfully, False otherwise
@@ -2615,60 +2612,89 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         try:
             # Extract required fields
             instrument = signal_data.get('instrument')
-            direction = signal_data.get('direction', '').lower()
-            timeframe = signal_data.get('timeframe')
+            timeframe = signal_data.get('timeframe', signal_data.get('interval'))
+            
+            # Get entry price and stop loss
+            entry_price = signal_data.get('entry', signal_data.get('price'))
+            stop_loss = signal_data.get('stop_loss', signal_data.get('sl'))
+            
+            # Determine signal direction based on stop loss position relative to entry
+            if entry_price is not None and stop_loss is not None:
+                try:
+                    entry_price_float = float(entry_price)
+                    stop_loss_float = float(stop_loss)
+                    
+                    # If stop loss is lower than entry, it's a BUY signal
+                    # If stop loss is higher than entry, it's a SELL signal
+                    direction = "buy" if stop_loss_float < entry_price_float else "sell"
+                except (ValueError, TypeError):
+                    # If we can't convert to float, use the provided signal
+                    direction = signal_data.get('direction', signal_data.get('signal', '')).lower()
+            else:
+                # Fallback to signal field if no price comparison possible
+                direction = signal_data.get('direction', signal_data.get('signal', '')).lower()
             
             # Basic validation
-            if not instrument or not direction:
-                logger.error(f"Missing required fields in signal data: {signal_data}")
+            if not instrument:
+                logger.error("Missing instrument in signal data")
                 return False
-                
+            
             if direction not in ['buy', 'sell']:
                 logger.error(f"Invalid direction {direction} in signal data")
                 return False
             
-            # Optional fields with defaults
-            entry = signal_data.get('entry', signal_data.get('price', 'Market'))
-            stop_loss = signal_data.get('stop_loss', signal_data.get('sl', 'Not specified'))
-            take_profit = signal_data.get('take_profit', signal_data.get('tp1', 'Not specified'))
-            strategy = signal_data.get('strategy', 'Momentum Breakout')
-            notes = signal_data.get('notes', '')
-            chart_url = signal_data.get('chart_url', '')
+            # Extract take profit levels
+            take_profit_1 = signal_data.get('take_profit', signal_data.get('tp1'))
+            take_profit_2 = signal_data.get('tp2')
+            take_profit_3 = signal_data.get('tp3')
             
-            # Capital the direction for display
-            direction_display = "BUY" if direction == "buy" else "SELL"
+            # Strategy name
+            strategy = signal_data.get('strategy', 'TradingView Signal')
+            
+            # Format direction for display (uppercase)
+            direction_display = "BUY 📈" if direction == "buy" else "SELL 📉"
             
             # Create signal ID for tracking
             signal_id = f"{instrument}_{direction}_{timeframe}_{int(time.time())}"
 
-            # Generate AI verdict text if not provided
-            ai_verdict = signal_data.get('ai_verdict', '')
-            if not ai_verdict:
-                # Generate default AI verdict based on signal parameters
-                if direction == "buy":
-                    ai_verdict = f"The {instrument} setup shows a strong momentum breakout on the {timeframe} chart, which could lead to a quick profit if the trend continues. With a tight stop loss and a favorable risk/reward ratio, this trade aligns with disciplined risk management practices."
-                else:
-                    ai_verdict = f"The {instrument} chart shows a bearish pattern on the {timeframe} timeframe. The recent price action indicates downward momentum which creates a selling opportunity. Managing risk with a defined stop loss level is crucial for this trade."
-            
-            # Create signal message in the desired format with proper emojis and sections
-            signal_message = f"""📊 <b>{instrument} {direction_display} Signal ({timeframe})</b>
+            # Generate AI verdict text
+            if direction == "buy":
+                ai_verdict = f"The {instrument} buy signal shows a promising setup with defined entry at {entry_price} and stop loss at {stop_loss}. Multiple take profit levels provide opportunities for partial profit taking."
+            else:
+                ai_verdict = f"The {instrument} sell signal presents a strong bearish opportunity with entry at {entry_price} and stop loss at {stop_loss}. The defined take profit levels allow for strategic exits."
 
-<b>Entry Price:</b> {entry}
-✅ <b>Take Profit:</b> {take_profit}
-🔴 <b>Stop Loss:</b> {stop_loss}
+            # Create signal message in the required format
+            signal_message = f"""🎯 New Trading Signal 🎯
 
-⚙️ <b>Strategy:</b> {strategy}
+Instrument: {instrument}
+Action: {direction_display}
 
---------------------
+Entry Price: {entry_price}
+Stop Loss: {stop_loss} 🔴"""
 
-⚠️ <b>Risk Management:</b>
+            # Add take profit levels if available
+            if take_profit_1:
+                signal_message += f"\nTake Profit 1: {take_profit_1} 🎯"
+            if take_profit_2:
+                signal_message += f"\nTake Profit 2: {take_profit_2} 🎯"
+            if take_profit_3:
+                signal_message += f"\nTake Profit 3: {take_profit_3} 🎯"
+
+            signal_message += f"""
+
+Timeframe: {timeframe}
+Strategy: {strategy}
+
+————————————————————
+
+Risk Management:
 • Position size: 1-2% max
 • Use proper stop loss
 • Follow your trading plan
 
---------------------
+————————————————————
 
-🤖 <b>SigmaPips AI Verdict:</b>
+🤖 SigmaPips AI Verdict:
 {ai_verdict}
 """
             
@@ -2682,12 +2708,12 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 'instrument': instrument,
                 'direction': direction,
                 'timeframe': timeframe,
-                'entry': entry,
+                'entry': entry_price,
                 'stop_loss': stop_loss, 
-                'take_profit': take_profit,
+                'take_profit_1': take_profit_1,
+                'take_profit_2': take_profit_2,
+                'take_profit_3': take_profit_3,
                 'strategy': strategy,
-                'notes': notes,
-                'chart_url': chart_url,
                 'market': market_type,
                 'message': signal_message,
                 'ai_verdict': ai_verdict
@@ -2720,37 +2746,17 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                             InlineKeyboardButton("📊 Technical Analysis", callback_data=f"analysis_technical_{instrument}_{signal_id}"),
                             InlineKeyboardButton("📰 Market Sentiment", callback_data=f"analysis_sentiment_{instrument}_{signal_id}")
                         ],
-                        [InlineKeyboardButton("⬅️ Back to Signal", callback_data=f"back_to_signal_{signal_id}")],
+                        [InlineKeyboardButton("📅 Economic Calendar", callback_data=f"analysis_calendar_{instrument}_{signal_id}")],
                         [InlineKeyboardButton("🏠 Main Menu", callback_data="back_menu")]
                     ]
                     
-                    # If we have a chart URL, send it as a photo
-                    if chart_url:
-                        try:
-                            await self.bot.send_photo(
-                                chat_id=user_id,
-                                photo=chart_url,
-                                caption=signal_message,
-                                parse_mode=ParseMode.HTML,
-                                reply_markup=InlineKeyboardMarkup(keyboard)
-                            )
-                        except Exception as photo_e:
-                            # If photo fails, fallback to just text
-                            logger.error(f"Could not send photo for signal {signal_id}: {str(photo_e)}")
-                            await self.bot.send_message(
-                                chat_id=user_id,
-                                text=signal_message,
-                                parse_mode=ParseMode.HTML,
-                                reply_markup=InlineKeyboardMarkup(keyboard)
-                            )
-                    else:
-                        # Send as regular message
-                        await self.bot.send_message(
-                            chat_id=user_id,
-                            text=signal_message,
-                            parse_mode=ParseMode.HTML,
-                            reply_markup=InlineKeyboardMarkup(keyboard)
-                        )
+                    # Send as regular message
+                    await self.bot.send_message(
+                        chat_id=user_id,
+                        text=signal_message,
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
                     
                     sent_count += 1
                     # Store signal reference in user data for quick access
@@ -2769,7 +2775,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             logger.error(f"Error processing signal: {str(e)}")
             logger.exception(e)
             return False
-            
+
     def _load_signals(self):
         """Load stored signals from the signals directory"""
         if not os.path.exists(self.signals_dir):
