@@ -2714,30 +2714,29 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         if is_signals_context or callback_data.endswith("_signals"):
             # Keyboards for signals
             if market == "forex":
-                keyboard = FOREX_KEYBOARD_SIGNALS
+                keyboard = FOREX_KEYBOARD_SIGNALS.copy()
             elif market == "crypto":
-                keyboard = CRYPTO_KEYBOARD_SIGNALS
+                keyboard = CRYPTO_KEYBOARD_SIGNALS.copy()
             elif market == "indices":
-                keyboard = INDICES_KEYBOARD_SIGNALS
+                keyboard = INDICES_KEYBOARD_SIGNALS.copy()
             elif market == "commodities":
-                keyboard = COMMODITIES_KEYBOARD_SIGNALS
+                keyboard = COMMODITIES_KEYBOARD_SIGNALS.copy()
             else:
-                keyboard = MARKET_KEYBOARD_SIGNALS
+                keyboard = MARKET_KEYBOARD_SIGNALS.copy()
             
             text = f"Select a {market} instrument for signals:"
-            back_data = "back_signals"
         else:
             # Keyboards for analysis
             if market == "forex":
-                keyboard = FOREX_KEYBOARD
+                keyboard = FOREX_KEYBOARD.copy()
             elif market == "crypto":
-                keyboard = CRYPTO_KEYBOARD
+                keyboard = CRYPTO_KEYBOARD.copy()
             elif market == "indices":
-                keyboard = INDICES_KEYBOARD
+                keyboard = INDICES_KEYBOARD.copy()
             elif market == "commodities":
-                keyboard = COMMODITIES_KEYBOARD
+                keyboard = COMMODITIES_KEYBOARD.copy()
             else:
-                keyboard = MARKET_KEYBOARD
+                keyboard = MARKET_KEYBOARD.copy()
             
             # Set analysis type if present in callback data
             analysis_type = ""
@@ -2749,37 +2748,21 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Specifieke keyboards voor verschillende analyse types
             if analysis_type == "sentiment":
                 if market == "forex":
-                    keyboard = FOREX_SENTIMENT_KEYBOARD
+                    keyboard = FOREX_SENTIMENT_KEYBOARD.copy()
                 elif market == "crypto":
-                    keyboard = CRYPTO_SENTIMENT_KEYBOARD
+                    keyboard = CRYPTO_SENTIMENT_KEYBOARD.copy()
                 elif market == "indices":
-                    keyboard = INDICES_SENTIMENT_KEYBOARD
+                    keyboard = INDICES_SENTIMENT_KEYBOARD.copy()
                 elif market == "commodities":
-                    keyboard = COMMODITIES_SENTIMENT_KEYBOARD
+                    keyboard = COMMODITIES_SENTIMENT_KEYBOARD.copy()
                 
                 text = f"Select a {market} instrument for sentiment analysis:"
             elif analysis_type == "calendar":
                 text = f"Select a {market} instrument for economic calendar:"
             else:
                 text = f"Select a {market} instrument for analysis:"
-            
-            back_data = "back_to_analysis"  # Changed to back_to_analysis voor consistentie
         
-        # Don't add back button if the keyboard already has one
-        has_back_button = False
-        if isinstance(keyboard, list):
-            for row in keyboard:
-                for button in row:
-                    if "Back" in button.text or "back" in button.callback_data:
-                        has_back_button = True
-                        break
-                if has_back_button:
-                    break
-        
-        # Add back button only if not already present
-        if isinstance(keyboard, list) and not has_back_button:
-            # Add back button as last row
-            keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data=back_data)])
+        # All keyboards already have back buttons - do not add more
         
         # Update message with appropriate keyboard
         try:
@@ -2855,8 +2838,8 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         await query.answer()  # Respond to prevent loading icon
         
         try:
-            # Get a signals GIF URL
-            gif_url = "https://media.giphy.com/media/TINKrQAL1xCGMf8MjD/giphy.gif"
+            # Use a signals-specific GIF URL - different from /menu
+            gif_url = "https://media.giphy.com/media/LQ2JqYDOLGBpvpKxiQ/giphy.gif"
             
             # Try updating with GIF
             try:
@@ -2906,189 +2889,52 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             if 'previous_menu_state' in context.user_data:
                 del context.user_data['previous_menu_state']
         
+        # Always create a completely new message to avoid button stacking
+        message_id = query.message.message_id
+        chat_id = query.message.chat_id
+        
+        # Create a clean keyboard without any possibility of duplicate back buttons
+        clean_market_keyboard = [
+            [InlineKeyboardButton("Forex", callback_data="market_forex_signals")],
+            [InlineKeyboardButton("Crypto", callback_data="market_crypto_signals")],
+            [InlineKeyboardButton("Commodities", callback_data="market_commodities_signals")],
+            [InlineKeyboardButton("Indices", callback_data="market_indices_signals")],
+            [InlineKeyboardButton("⬅️ Back", callback_data="back_signals")]
+        ]
+        
         try:
-            # Try to delete the current message and send a new one to avoid button accumulation
-            message_id = query.message.message_id
-            chat_id = query.message.chat_id
-            
+            # First try to delete the current message
+            await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
+        except Exception as delete_error:
+            logger.warning(f"Could not delete message: {str(delete_error)}")
+        
+        # Send a new message regardless of whether deletion succeeded
+        try:
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text="Select market for signal subscription:",
+                reply_markup=InlineKeyboardMarkup(clean_market_keyboard),
+                parse_mode=ParseMode.HTML
+            )
+        except Exception as e:
+            logger.error(f"Failed to send new message in signals_add_callback: {str(e)}")
+            # Try a fallback approach if sending fails
             try:
-                # First try to delete the current message
-                await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
-                
-                # Then send a new message
-                await context.bot.send_message(
-                    chat_id=chat_id,
-                    text="Select market for signal subscription:",
-                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD_SIGNALS),
-                    parse_mode=ParseMode.HTML
-                )
-                return CHOOSE_MARKET
-            except Exception as delete_error:
-                logger.warning(f"Could not delete message: {str(delete_error)}")
-                # Fall back to editing if delete fails
                 await query.edit_message_text(
                     text="Select market for signal subscription:",
-                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD_SIGNALS),
+                    reply_markup=InlineKeyboardMarkup(clean_market_keyboard),
                     parse_mode=ParseMode.HTML
                 )
-        except Exception as text_error:
-            # If that fails due to caption, try editing caption
-            if "There is no text in the message to edit" in str(text_error):
-                try:
-                    await query.edit_message_caption(
-                        caption="Select market for signal subscription:",
-                        reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD_SIGNALS),
-                        parse_mode=ParseMode.HTML
-                    )
-                except Exception as e:
-                    logger.error(f"Failed to update caption in signals_add_callback: {str(e)}")
-                    # Try to send a new message as last resort
-                    await query.message.reply_text(
-                        text="Select market for signal subscription:",
-                        reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD_SIGNALS),
-                        parse_mode=ParseMode.HTML
-                    )
-            else:
-                # Re-raise for other errors
-                raise
+            except Exception as edit_error:
+                logger.error(f"Fallback also failed in signals_add_callback: {str(edit_error)}")
+                # Last resort
+                await query.message.reply_text(
+                    text="Select market for signal subscription:",
+                    reply_markup=InlineKeyboardMarkup(clean_market_keyboard),
+                    parse_mode=ParseMode.HTML
+                )
         
         return CHOOSE_MARKET
-
-    async def instrument_signals_callback(self, update: Update, context=None) -> int:
-        """Handle instrument selection for signals"""
-        query = update.callback_query
-        await query.answer()
-        callback_data = query.data
-        
-        # Extract the instrument from the callback data
-        # Format: "instrument_EURUSD_signals"
-        parts = callback_data.split("_")
-        instrument_parts = []
-        
-        # Find where the "signals" specifier starts
-        for i, part in enumerate(parts[1:], 1):  # Skip "instrument_" prefix
-            if part == "signals":
-                break
-            instrument_parts.append(part)
-        
-        # Join the instrument parts
-        instrument = "_".join(instrument_parts) if instrument_parts else ""
-        
-        # Store instrument in context
-        if context and hasattr(context, 'user_data'):
-            context.user_data['instrument'] = instrument
-            context.user_data['is_signals_context'] = True
-        
-        logger.info(f"Instrument signals callback: instrument={instrument}")
-        
-        if not instrument:
-            logger.error("No instrument found in callback data")
-            await query.edit_message_text(
-                text="Invalid instrument selection. Please try again.",
-                reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD_SIGNALS)
-            )
-            return CHOOSE_MARKET
-        
-        # Each instrument has only one timeframe available, get it directly
-        if instrument in INSTRUMENT_TIMEFRAME_MAP:
-            # Get the predefined timeframe for this instrument
-            timeframe = INSTRUMENT_TIMEFRAME_MAP[instrument]
-            timeframe_display = TIMEFRAME_DISPLAY_MAP.get(timeframe, timeframe)
-            
-            # Check if user is already subscribed to this instrument
-            user_id = update.effective_user.id
-            
-            # Check if the subscription already exists in the signal_subscriptions table
-            try:
-                signal_subs = self.db.supabase.table('signal_subscriptions').select('*').eq('user_id', user_id).eq('instrument', instrument).execute()
-                
-                # Create keyboard with options to add more or go back
-                keyboard = [
-                    [InlineKeyboardButton("➕ Add More Pairs", callback_data="signals_add")],
-                    [InlineKeyboardButton("⬅️ Back to Signals", callback_data="back_signals")]
-                ]
-                
-                if signal_subs and signal_subs.data:
-                    # User is already subscribed to this instrument
-                    message = f"ℹ️ You are already subscribed to {instrument} ({timeframe_display}) signals."
-                else:
-                    # Subscribe the user to this instrument
-                    await self.db.subscribe_to_instrument(user_id, instrument, timeframe)
-                    message = f"✅ Successfully subscribed to {instrument} ({timeframe_display}) signals!"
-            except Exception as e:
-                logger.error(f"Error checking signal_subscriptions: {str(e)}")
-                # If there's an error, proceed with subscription anyway
-                await self.db.subscribe_to_instrument(user_id, instrument, timeframe)
-                message = f"✅ Successfully subscribed to {instrument} ({timeframe_display}) signals!"
-                # Create keyboard with options to add more or go back
-                keyboard = [
-                    [InlineKeyboardButton("➕ Add More Pairs", callback_data="signals_add")],
-                    [InlineKeyboardButton("⬅️ Back to Signals", callback_data="back_signals")]
-                ]
-            
-            try:
-                await query.edit_message_text(
-                    text=message,
-                    reply_markup=InlineKeyboardMarkup(keyboard),
-                    parse_mode=ParseMode.HTML
-                )
-            except Exception as text_error:
-                # If that fails due to caption, try editing caption
-                if "There is no text in the message to edit" in str(text_error):
-                    try:
-                        await query.edit_message_caption(
-                            caption=message,
-                            reply_markup=InlineKeyboardMarkup(keyboard),
-                            parse_mode=ParseMode.HTML
-                        )
-                    except Exception as e:
-                        logger.error(f"Failed to update caption: {str(e)}")
-                        # Try to send a new message as last resort
-                        await query.message.reply_text(
-                            text=message,
-                            reply_markup=InlineKeyboardMarkup(keyboard),
-                            parse_mode=ParseMode.HTML
-                        )
-                else:
-                    # Re-raise for other errors
-                    raise
-            
-            return CHOOSE_SIGNALS
-        else:
-            # Instrument not found in mapping
-            error_message = f"❌ Sorry, {instrument} is currently not available for signal subscription."
-            
-            # Show error and back button
-            keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]]
-            
-            try:
-                await query.edit_message_text(
-                    text=error_message,
-                    reply_markup=InlineKeyboardMarkup(keyboard),
-                    parse_mode=ParseMode.HTML
-                )
-            except Exception as text_error:
-                # If that fails due to caption, try editing caption
-                if "There is no text in the message to edit" in str(text_error):
-                    try:
-                        await query.edit_message_caption(
-                            caption=error_message,
-                            reply_markup=InlineKeyboardMarkup(keyboard),
-                            parse_mode=ParseMode.HTML
-                        )
-                    except Exception as e:
-                        logger.error(f"Failed to update caption: {str(e)}")
-                        # Try to send a new message as last resort
-                        await query.message.reply_text(
-                            text=error_message,
-                            reply_markup=InlineKeyboardMarkup(keyboard),
-                            parse_mode=ParseMode.HTML
-                        )
-                else:
-                    # Re-raise for other errors
-                    raise
-            
-            return CHOOSE_MARKET
     
     async def back_market_callback(self, update: Update, context=None) -> int:
         """Handle back button to return to market selection"""
@@ -4017,8 +3863,8 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         
         # Show the signals menu
         try:
-            # Restore GIF
-            gif_url = "https://media.giphy.com/media/TINKrQAL1xCGMf8MjD/giphy.gif"
+            # Use signals-specific GIF - same as in menu_signals_callback
+            gif_url = "https://media.giphy.com/media/LQ2JqYDOLGBpvpKxiQ/giphy.gif"
             
             try:
                 # Try updating with GIF
@@ -4030,6 +3876,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     ),
                     reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD)
                 )
+                return CHOOSE_SIGNALS
             except Exception as media_error:
                 logger.warning(f"Could not update with GIF: {str(media_error)}")
                 
@@ -4039,6 +3886,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD),
                     parse_mode=ParseMode.HTML
                 )
+                return CHOOSE_SIGNALS
         except Exception as text_error:
             # If that fails due to caption, try editing caption
             if "There is no text in the message to edit" in str(text_error):
@@ -4048,6 +3896,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                         reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD),
                         parse_mode=ParseMode.HTML
                     )
+                    return CHOOSE_SIGNALS
                 except Exception as e:
                     logger.error(f"Failed to update caption: {str(e)}")
                     # Try to send a new message as last resort
@@ -4056,6 +3905,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                         reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD),
                         parse_mode=ParseMode.HTML
                     )
+                    return CHOOSE_SIGNALS
             else:
                 # Re-raise for other errors
                 raise
