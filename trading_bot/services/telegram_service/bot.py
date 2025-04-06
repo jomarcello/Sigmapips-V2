@@ -2191,6 +2191,18 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         # Save analysis type in context
         if context and hasattr(context, 'user_data'):
             context.user_data['analysis_type'] = 'calendar'
+            # Make sure we save the original signal data to return to later
+            signal_instrument = context.user_data.get('instrument')
+            signal_direction = context.user_data.get('signal_direction')
+            signal_timeframe = context.user_data.get('signal_timeframe') 
+            
+            # Save these explicitly to ensure they're preserved
+            context.user_data['signal_instrument_backup'] = signal_instrument
+            context.user_data['signal_direction_backup'] = signal_direction
+            context.user_data['signal_timeframe_backup'] = signal_timeframe
+            
+            # Log for debugging
+            logger.info(f"Saved signal data before calendar analysis: instrument={signal_instrument}, direction={signal_direction}, timeframe={signal_timeframe}")
         
         # Get the instrument from context (voor tracking van context en eventuele toekomstige functionaliteit)
         instrument = None
@@ -2270,14 +2282,22 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Get the current signal being viewed
             user_id = update.effective_user.id
             
-            # Reset signal flow flag to prevent cross-flow issues
+            # First try to get signal data from backup in context
+            signal_instrument = None
+            signal_direction = None
+            signal_timeframe = None
+            
             if context and hasattr(context, 'user_data'):
-                signal_instrument = context.user_data.get('signal_instrument')
-                signal_direction = context.user_data.get('signal_direction')
-                signal_timeframe = context.user_data.get('signal_timeframe')
+                # Try to get from backup fields first (these are more reliable after navigation)
+                signal_instrument = context.user_data.get('signal_instrument_backup') or context.user_data.get('signal_instrument')
+                signal_direction = context.user_data.get('signal_direction_backup') or context.user_data.get('signal_direction')
+                signal_timeframe = context.user_data.get('signal_timeframe_backup') or context.user_data.get('signal_timeframe')
                 
                 # Reset signal flow flags but keep the signal info
                 context.user_data['from_signal'] = True
+                
+                # Log retrieved values for debugging
+                logger.info(f"Retrieved signal data from context: instrument={signal_instrument}, direction={signal_direction}, timeframe={signal_timeframe}")
             
             # Find the most recent signal for this user based on context data
             signal_data = None
@@ -2290,15 +2310,35 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 matching_signals = []
                 
                 for sig_id, sig in user_signal_dict.items():
-                    if (sig.get('instrument') == signal_instrument and 
-                        sig.get('direction') == signal_direction and
-                        sig.get('interval') == signal_timeframe):
+                    instrument_match = sig.get('instrument') == signal_instrument
+                    direction_match = True  # Default to true if we don't have direction data
+                    timeframe_match = True  # Default to true if we don't have timeframe data
+                    
+                    if signal_direction:
+                        direction_match = sig.get('direction') == signal_direction
+                    if signal_timeframe:
+                        timeframe_match = sig.get('interval') == signal_timeframe
+                    
+                    if instrument_match and direction_match and timeframe_match:
                         matching_signals.append((sig_id, sig))
                 
                 # Sort by timestamp, newest first
                 if matching_signals:
                     matching_signals.sort(key=lambda x: x[1].get('timestamp', ''), reverse=True)
                     signal_id, signal_data = matching_signals[0]
+                    logger.info(f"Found matching signal with ID: {signal_id}")
+                else:
+                    logger.warning(f"No matching signals found for instrument={signal_instrument}, direction={signal_direction}, timeframe={signal_timeframe}")
+                    # If no exact match, try with just the instrument
+                    matching_signals = []
+                    for sig_id, sig in user_signal_dict.items():
+                        if sig.get('instrument') == signal_instrument:
+                            matching_signals.append((sig_id, sig))
+                    
+                    if matching_signals:
+                        matching_signals.sort(key=lambda x: x[1].get('timestamp', ''), reverse=True)
+                        signal_id, signal_data = matching_signals[0]
+                        logger.info(f"Found signal with just instrument match, ID: {signal_id}")
             
             if not signal_data:
                 # Fallback message if signal not found
@@ -2347,79 +2387,73 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         
         try:
             # Extract signal information from callback data
-            # Format: analyze_from_signal_INSTRUMENT_INSTRUMENT_DIRECTION_TIMEFRAME_TIMESTAMP
-            # Example: analyze_from_signal_EURUSD_EURUSD_SELL_4h_1743927394
-            data_parts = query.data.split('_')
-            if len(data_parts) >= 7:
-                instrument = data_parts[3]  # The instrument (e.g., EURUSD)
-                signal_direction = data_parts[5]  # BUY or SELL
-                timeframe = data_parts[6]  # Timeframe (e.g., 4h)
+            parts = query.data.split('_')
+            
+            # Format: analyze_from_signal_INSTRUMENT_SIGNALID
+            if len(parts) >= 4:
+                instrument = parts[3]
+                signal_id = parts[4] if len(parts) >= 5 else None
                 
-                # Store signal context in user_data for the analysis flow
+                # Store in context for other handlers
                 if context and hasattr(context, 'user_data'):
-                    context.user_data['from_signal'] = True
-                    context.user_data['signal_instrument'] = instrument
-                    context.user_data['signal_direction'] = signal_direction
-                    context.user_data['signal_timeframe'] = timeframe
-                
-                # Create signal-specific analysis keyboard with direct links to the analysis functions
-                # Using dedicated signal flow callbacks to ensure separation of flows
-                # But make the button text EXACTLY the same as in the menu flow
-                keyboard = [
-                    [InlineKeyboardButton("📈 Technical Analysis", callback_data=f"signal_flow_technical_{instrument}_{timeframe}")],
-                    [InlineKeyboardButton("🧠 Market Sentiment", callback_data=f"signal_flow_sentiment_{instrument}")],
-                    [InlineKeyboardButton("📅 Economic Calendar", callback_data=f"signal_flow_calendar_{instrument}")],
-                    [InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal")]
-                ]
-                
-                # Gebruik de juiste analyse GIF URL
-                gif_url = "https://media.giphy.com/media/gSzIKNrqtotEYrZv7i/giphy.gif"
-                
-                # Probeer eerst het huidige bericht te updaten met de analyse GIF
-                try:
-                    await query.edit_message_media(
-                        media=InputMediaAnimation(
-                            media=gif_url,
-                            caption="Select your analysis type:" # Exact same text as in menu flow, without instrument name
-                        ),
-                        reply_markup=InlineKeyboardMarkup(keyboard)
-                    )
-                except Exception as media_error:
-                    logger.warning(f"Could not update media: {str(media_error)}")
+                    context.user_data['instrument'] = instrument
+                    if signal_id:
+                        context.user_data['signal_id'] = signal_id
                     
-                    # Als media update mislukt, probeer tekst te updaten
-                    try:
-                        await query.edit_message_text(
-                            text="Select your analysis type:", # Exact same text as in menu flow, without instrument name
-                            reply_markup=InlineKeyboardMarkup(keyboard),
-                            parse_mode=ParseMode.HTML
-                        )
-                    except Exception as text_error:
-                        # Als tekst updaten mislukt, probeer bijschrift te updaten
-                        if "There is no text in the message to edit" in str(text_error):
-                            try:
-                                await query.edit_message_caption(
-                                    caption="Select your analysis type:", # Exact same text as in menu flow, without instrument name
-                                    reply_markup=InlineKeyboardMarkup(keyboard),
-                                    parse_mode=ParseMode.HTML
-                                )
-                            except Exception as caption_error:
-                                logger.error(f"Failed to update caption: {str(caption_error)}")
-                
-                return ANALYSIS
+                    # Make a backup copy to ensure we can return to signal later
+                    context.user_data['signal_instrument_backup'] = instrument
+                    if signal_id:
+                        context.user_data['signal_id_backup'] = signal_id
+                    
+                    # Also store info from the actual signal if available
+                    if str(update.effective_user.id) in self.user_signals and signal_id in self.user_signals[str(update.effective_user.id)]:
+                        signal = self.user_signals[str(update.effective_user.id)][signal_id]
+                        if signal:
+                            context.user_data['signal_direction'] = signal.get('direction')
+                            context.user_data['signal_timeframe'] = signal.get('interval')
+                            # Backup copies
+                            context.user_data['signal_direction_backup'] = signal.get('direction')
+                            context.user_data['signal_timeframe_backup'] = signal.get('interval')
+                            logger.info(f"Stored signal details: direction={signal.get('direction')}, timeframe={signal.get('interval')}")
             else:
-                # Fallback if data format is incorrect
-                logger.error(f"Invalid callback data format: {query.data}")
-                await query.edit_message_text(
-                    text="An error occurred. Please try again from the main menu.",
-                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
-                )
-                return MENU
+                # Legacy support - just extract the instrument
+                instrument = parts[3] if len(parts) >= 4 else None
                 
+                if instrument and context and hasattr(context, 'user_data'):
+                    context.user_data['instrument'] = instrument
+                    context.user_data['signal_instrument_backup'] = instrument
+            
+            # Show analysis options for this instrument
+            # Format message
+            keyboard = [
+                [InlineKeyboardButton("📊 Technical", callback_data=f"signal_technical")],
+                [InlineKeyboardButton("🧠 Sentiment", callback_data=f"signal_sentiment")],
+                [InlineKeyboardButton("📅 Calendar", callback_data=f"signal_calendar")],
+                [InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal")]
+            ]
+            
+            # Try to edit the message text
+            try:
+                await query.edit_message_text(
+                    text=f"Select analysis type for {instrument}:",
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.HTML
+                )
+            except Exception as e:
+                logger.error(f"Error in analyze_from_signal_callback: {str(e)}")
+                # Fall back to sending a new message
+                await query.message.reply_text(
+                    text=f"Select analysis type for {instrument}:",
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.HTML
+                )
+            
+            return CHOOSE_ANALYSIS
+        
         except Exception as e:
             logger.error(f"Error in analyze_from_signal_callback: {str(e)}")
+            logger.exception(e)
             
-            # Error recovery
             try:
                 await query.edit_message_text(
                     text="An error occurred. Please try again from the main menu.",
