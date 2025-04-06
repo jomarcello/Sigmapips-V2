@@ -32,7 +32,8 @@ import telegram.error  # Add this import for BadRequest error handling
 from trading_bot.services.database.db import Database
 from trading_bot.services.chart_service.chart import ChartService
 from trading_bot.services.sentiment_service.sentiment import MarketSentimentService
-from trading_bot.services.calendar_service.calendar import EconomicCalendarService, MAJOR_CURRENCIES, CURRENCY_FLAG, INSTRUMENT_CURRENCY_MAP
+from trading_bot.services.calendar_service import EconomicCalendarService
+from trading_bot.services.calendar_service.calendar import MAJOR_CURRENCIES, CURRENCY_FLAG, INSTRUMENT_CURRENCY_MAP
 from trading_bot.services.payment_service.stripe_service import StripeService
 from trading_bot.services.payment_service.stripe_config import get_subscription_features
 from trading_bot.services.telegram_service.states import (
@@ -1758,7 +1759,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             query = update.callback_query
             
             # Log that we're showing the calendar
-            self.logger.info(f"Showing economic calendar for {currency if currency else 'all currencies'}")
+            self.logger.info(f"Showing economic calendar for all major currencies")
             
             # Initialize the calendar service
             calendar_service = self._get_calendar_service()
@@ -1773,50 +1774,21 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             else:
                 self.logger.warning("No Tavily API key found, will use mock data")
             
-            # Get the calendar data based on currency
-            self.logger.info(f"Requesting calendar data for {currency if currency else 'all currencies'}")
+            # Get calendar data for ALL major currencies, regardless of the supplied parameter
+            self.logger.info(f"Requesting calendar data for all major currencies")
             
             calendar_data = []
             
-            # Get calendar data
-            if currency and currency in MAJOR_CURRENCIES:
-                try:
-                    # Check if calendar service has get_instrument_calendar method
-                    if hasattr(calendar_service, 'get_instrument_calendar'):
-                        # Get instrument-specific calendar
-                        instrument_calendar = await calendar_service.get_instrument_calendar(currency)
-                        
-                        # Extract the raw data for formatting
-                        try:
-                            # Check if we can get the flattened data directly
-                            if hasattr(calendar_service, 'get_calendar'):
-                                calendar_data = await calendar_service.get_calendar()
-                                # Filter for specified currency
-                                calendar_data = [event for event in calendar_data if event.get('country') == currency]
-                        except Exception as e:
-                            # If no flattened data available, use the formatted text
-                            self.logger.warning(f"Could not get raw calendar data, using text data: {str(e)}")
-                            # Send the formatted text directly
-                            message = instrument_calendar
-                            calendar_data = []
-                    else:
-                        # Fallback to mock data if method doesn't exist
-                        self.logger.warning("calendar_service.get_instrument_calendar method not available, using mock data")
-                        calendar_data = []
-                except Exception as e:
-                    self.logger.warning(f"Error getting instrument calendar: {str(e)}")
+            # Get all currencies data
+            try:
+                if hasattr(calendar_service, 'get_calendar'):
+                    calendar_data = await calendar_service.get_calendar()
+                else:
+                    self.logger.warning("calendar_service.get_calendar method not available, using mock data")
                     calendar_data = []
-            else:
-                # Get all currencies data
-                try:
-                    if hasattr(calendar_service, 'get_calendar'):
-                        calendar_data = await calendar_service.get_calendar()
-                    else:
-                        self.logger.warning("calendar_service.get_calendar method not available, using mock data")
-                        calendar_data = []
-                except Exception as e:
-                    self.logger.warning(f"Error getting calendar data: {str(e)}")
-                    calendar_data = []
+            except Exception as e:
+                self.logger.warning(f"Error getting calendar data: {str(e)}")
+                calendar_data = []
             
             # Check if data is empty
             if not calendar_data or len(calendar_data) == 0:
@@ -1852,7 +1824,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             else:
                 # Fallback to calendar service formatting if the method doesn't exist on TelegramService
                 if hasattr(calendar_service, '_format_calendar_response'):
-                    message = await calendar_service._format_calendar_response(calendar_data, currency)
+                    message = await calendar_service._format_calendar_response(calendar_data, "ALL")
                 else:
                     # Simple formatting fallback
                     message = "<b>📅 Economic Calendar</b>\n\n"
@@ -2181,7 +2153,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         if context and hasattr(context, 'user_data'):
             context.user_data['analysis_type'] = 'calendar'
         
-        # Get the instrument from context
+        # Get the instrument from context (voor tracking van context en eventuele toekomstige functionaliteit)
         instrument = None
         if context and hasattr(context, 'user_data'):
             instrument = context.user_data.get('instrument')
@@ -2197,98 +2169,58 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 if context and hasattr(context, 'user_data'):
                     context.user_data['instrument'] = instrument
         
-        if instrument:
-            # Set flag to indicate we're in signal flow
-            if context and hasattr(context, 'user_data'):
-                context.user_data['from_signal'] = True
-                logger.info(f"Set from_signal flag to True for calendar analysis of {instrument}")
+        # Set flag to indicate we're in signal flow
+        if context and hasattr(context, 'user_data'):
+            context.user_data['from_signal'] = True
+            logger.info(f"Set from_signal flag to True for calendar analysis")
+        
+        # Try to show loading animation first
+        loading_gif_url = "https://media.giphy.com/media/gSzIKNrqtotEYrZv7i/giphy.gif"
+        loading_text = f"Loading economic calendar..."
+        
+        try:
+            # Try to update with animated GIF first (best visual experience)
+            await query.edit_message_media(
+                media=InputMediaAnimation(
+                    media=loading_gif_url,
+                    caption=loading_text
+                )
+            )
+            logger.info(f"Successfully showed loading GIF for economic calendar")
+        except Exception as media_error:
+            logger.warning(f"Could not update with GIF: {str(media_error)}")
             
-            # Try to show loading animation first
-            loading_gif_url = "https://media.giphy.com/media/gSzIKNrqtotEYrZv7i/giphy.gif"
-            loading_text = f"Loading economic calendar for {instrument}..."
-            
+            # If GIF fails, try to update the text
             try:
-                # Try to update with animated GIF first (best visual experience)
-                await query.edit_message_media(
-                    media=InputMediaAnimation(
-                        media=loading_gif_url,
+                loading_message = await query.edit_message_text(
+                    text=loading_text
+                )
+                if context and hasattr(context, 'user_data'):
+                    context.user_data['loading_message'] = loading_message
+            except Exception as text_error:
+                logger.warning(f"Could not update text: {str(text_error)}")
+                
+                # If text update fails, try to update caption
+                try:
+                    await query.edit_message_caption(
                         caption=loading_text
                     )
-                )
-                logger.info(f"Successfully showed loading GIF for {instrument} calendar")
-            except Exception as media_error:
-                logger.warning(f"Could not update with GIF: {str(media_error)}")
-                
-                # If GIF fails, try to update the text
-                try:
-                    loading_message = await query.edit_message_text(
-                        text=loading_text
-                    )
-                    if context and hasattr(context, 'user_data'):
-                        context.user_data['loading_message'] = loading_message
-                except Exception as text_error:
-                    logger.warning(f"Could not update text: {str(text_error)}")
+                except Exception as caption_error:
+                    logger.warning(f"Could not update caption: {str(caption_error)}")
                     
-                    # If text update fails, try to update caption
+                    # Last resort - send a new message with loading GIF
                     try:
-                        await query.edit_message_caption(
-                            caption=loading_text
+                        from trading_bot.services.telegram_service.gif_utils import send_loading_gif
+                        await send_loading_gif(
+                            self.bot,
+                            update.effective_chat.id,
+                            caption=f"⏳ <b>Loading economic calendar...</b>"
                         )
-                    except Exception as caption_error:
-                        logger.warning(f"Could not update caption: {str(caption_error)}")
-                        
-                        # Last resort - send a new message with loading GIF
-                        try:
-                            from trading_bot.services.telegram_service.gif_utils import send_loading_gif
-                            await send_loading_gif(
-                                self.bot,
-                                update.effective_chat.id,
-                                caption=f"⏳ <b>Loading economic calendar for {instrument}...</b>"
-                            )
-                        except Exception as gif_error:
-                            logger.warning(f"Could not show loading GIF: {str(gif_error)}")
-            
-            # Extract the currency information from the instrument
-            if instrument in INSTRUMENT_CURRENCY_MAP:
-                # Get the base currency which is usually the first currency in the pair
-                base_currency = INSTRUMENT_CURRENCY_MAP[instrument][0]
-                logger.info(f"Using currency {base_currency} for economic calendar of {instrument}")
-                
-                # Store the base currency in context for later reference
-                if context and hasattr(context, 'user_data'):
-                    context.user_data['calendar_currency'] = base_currency
-            
-            # Show calendar analysis for this instrument
-            return await self.show_calendar_analysis(update, context, instrument=instrument)
-        else:
-            # Error handling - go back to signal analysis menu
-            try:
-                # First try to edit message text
-                await query.edit_message_text(
-                    text="Could not find the instrument. Please try again.",
-                    reply_markup=InlineKeyboardMarkup(SIGNAL_ANALYSIS_KEYBOARD)
-                )
-            except Exception as text_error:
-                # If that fails due to caption, try editing caption
-                if "There is no text in the message to edit" in str(text_error):
-                    try:
-                        await query.edit_message_caption(
-                            caption="Could not find the instrument. Please try again.",
-                            reply_markup=InlineKeyboardMarkup(SIGNAL_ANALYSIS_KEYBOARD),
-                            parse_mode=ParseMode.HTML
-                        )
-                    except Exception as e:
-                        logger.error(f"Failed to update caption in signal_calendar_callback: {str(e)}")
-                        # Try to send a new message as last resort
-                        await query.message.reply_text(
-                            text="Could not find the instrument. Please try again.",
-                            reply_markup=InlineKeyboardMarkup(SIGNAL_ANALYSIS_KEYBOARD),
-                            parse_mode=ParseMode.HTML
-                        )
-            else:
-                # Re-raise for other errors
-                raise
-        return CHOOSE_ANALYSIS
+                    except Exception as gif_error:
+                        logger.warning(f"Could not show loading GIF: {str(gif_error)}")
+        
+        # Show calendar analysis for ALL major currencies
+        return await self.show_calendar_analysis(update, context, instrument=None)
 
     async def back_to_signal_callback(self, update: Update, context=None) -> int:
         """Handle back_to_signal button press"""
@@ -3325,7 +3257,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             if not instrument and context and hasattr(context, 'user_data'):
                 instrument = context.user_data.get('instrument')
             
-            # For currency pairs, extract the base currency
+            # For currency pairs, extract the base currency (alleen voor logging doeleinden)
             if instrument and len(instrument) >= 6 and instrument[3] == '/':
                 # Traditional format like EUR/USD
                 base_currency = instrument[:3]
@@ -3343,7 +3275,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # If no loading message in context, create one
             if not loading_message:
                 # Show loading message with GIF - similar to sentiment analysis
-                loading_text = f"Loading economic calendar for {base_currency}..."
+                loading_text = f"Loading economic calendar..."
                 loading_gif = "https://media.giphy.com/media/dpjUltnOPye7azvAhH/giphy.gif"
                 
                 try:
@@ -3354,7 +3286,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                             caption=loading_text
                         )
                     )
-                    logger.info(f"Successfully showed loading GIF for {base_currency} calendar")
+                    logger.info(f"Successfully showed loading GIF for economic calendar")
                 except Exception as gif_error:
                     logger.warning(f"Could not show loading GIF: {str(gif_error)}")
                     # Fallback to text loading message
@@ -3383,10 +3315,11 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 context.user_data['loading_message'] = None
             
             # Get the economic calendar data with the prepared back button
+            # We always get data for ALL major currencies, ongeacht het instrument
             await self.show_economic_calendar(
                 update, 
-                context, 
-                currency=base_currency, 
+                context,
+                currency=None,  # Pass None to show all currencies
                 loading_message=loading_message
             )
             
@@ -3406,6 +3339,222 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 pass
             
             return MENU
+
+    async def show_economic_calendar(self, update: Update, context: CallbackContext, currency=None, loading_message=None):
+        """Show the economic calendar for a specific currency"""
+        try:
+            # VERIFICATION MARKER: SIGMAPIPS_CALENDAR_FIX_APPLIED
+            self.logger.info("VERIFICATION MARKER: SIGMAPIPS_CALENDAR_FIX_APPLIED")
+            
+            chat_id = update.effective_chat.id
+            query = update.callback_query
+            
+            # Log that we're showing the calendar
+            self.logger.info(f"Showing economic calendar for {currency if currency else 'all currencies'}")
+            
+            # Initialize the calendar service
+            calendar_service = self._get_calendar_service()
+            cache_size = len(getattr(calendar_service, 'cache', {}))
+            self.logger.info(f"Calendar service initialized, cache size: {cache_size}")
+            
+            # Check if API key is available
+            tavily_api_key = os.environ.get("TAVILY_API_KEY", "")
+            if tavily_api_key:
+                masked_key = f"{tavily_api_key[:4]}..." if len(tavily_api_key) > 7 else "***"
+                self.logger.info(f"Tavily API key is available: {masked_key}")
+            else:
+                self.logger.warning("No Tavily API key found, will use mock data")
+            
+            # Get the calendar data based on currency
+            self.logger.info(f"Requesting calendar data for {currency if currency else 'all currencies'}")
+            
+            calendar_data = []
+            
+            # Get calendar data
+            if currency and currency in MAJOR_CURRENCIES:
+                try:
+                    # Check if calendar service has get_instrument_calendar method
+                    if hasattr(calendar_service, 'get_instrument_calendar'):
+                        # Get instrument-specific calendar
+                        instrument_calendar = await calendar_service.get_instrument_calendar(currency)
+                        
+                        # Extract the raw data for formatting
+                        try:
+                            # Check if we can get the flattened data directly
+                            if hasattr(calendar_service, 'get_calendar'):
+                                calendar_data = await calendar_service.get_calendar()
+                                # Filter for specified currency
+                                calendar_data = [event for event in calendar_data if event.get('country') == currency]
+                        except Exception as e:
+                            # If no flattened data available, use the formatted text
+                            self.logger.warning(f"Could not get raw calendar data, using text data: {str(e)}")
+                            # Send the formatted text directly
+                            message = instrument_calendar
+                            calendar_data = []
+                    else:
+                        # Fallback to mock data if method doesn't exist
+                        self.logger.warning("calendar_service.get_instrument_calendar method not available, using mock data")
+                        calendar_data = []
+                except Exception as e:
+                    self.logger.warning(f"Error getting instrument calendar: {str(e)}")
+                    calendar_data = []
+            else:
+                # Get all currencies data
+                try:
+                    if hasattr(calendar_service, 'get_calendar'):
+                        calendar_data = await calendar_service.get_calendar()
+                    else:
+                        self.logger.warning("calendar_service.get_calendar method not available, using mock data")
+                        calendar_data = []
+                except Exception as e:
+                    self.logger.warning(f"Error getting calendar data: {str(e)}")
+                    calendar_data = []
+            
+            # Check if data is empty
+            if not calendar_data or len(calendar_data) == 0:
+                self.logger.warning("Calendar data is empty, using mock data...")
+                # Generate mock data
+                today_date = datetime.now().strftime("%B %d, %Y")
+                
+                # Use the mock data generator from the calendar service if available
+                if hasattr(calendar_service, '_generate_mock_calendar_data'):
+                    mock_data = calendar_service._generate_mock_calendar_data(MAJOR_CURRENCIES, today_date)
+                else:
+                    # Otherwise use our own implementation
+                    mock_data = self._generate_mock_calendar_data(MAJOR_CURRENCIES, today_date)
+                
+                # Flatten the mock data
+                flattened_mock = []
+                for currency_code, events in mock_data.items():
+                    for event in events:
+                        flattened_mock.append({
+                            "time": event.get("time", ""),
+                            "country": currency_code,
+                            "country_flag": CURRENCY_FLAG.get(currency_code, ""),
+                            "title": event.get("event", ""),
+                            "impact": event.get("impact", "Low")
+                        })
+                
+                calendar_data = flattened_mock
+                self.logger.info(f"Generated {len(flattened_mock)} mock calendar events")
+            
+            # Format the calendar data in chronological order
+            if hasattr(self, '_format_calendar_events'):
+                message = await self._format_calendar_events(calendar_data)
+            else:
+                # Fallback to calendar service formatting if the method doesn't exist on TelegramService
+                if hasattr(calendar_service, '_format_calendar_response'):
+                    message = await calendar_service._format_calendar_response(calendar_data, "ALL")
+                else:
+                    # Simple formatting fallback
+                    message = "<b>📅 Economic Calendar</b>\n\n"
+                    for event in calendar_data[:10]:  # Limit to first 10 events
+                        country = event.get('country', 'Unknown')
+                        title = event.get('title', 'Unknown Event')
+                        time = event.get('time', 'Unknown Time')
+                        message += f"{country}: {time} - {title}\n\n"
+            
+            # Create keyboard with back button if not provided from caller
+            keyboard = None
+            if context and hasattr(context, 'user_data') and context.user_data.get('from_signal', False):
+                keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal_analysis")]])
+            else:
+                keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="menu_analyse")]])
+            
+            # Try to delete loading message first if it exists
+            if loading_message:
+                try:
+                    await loading_message.delete()
+                    self.logger.info("Successfully deleted loading message")
+                except Exception as delete_error:
+                    self.logger.warning(f"Could not delete loading message: {str(delete_error)}")
+                    
+                    # If deletion fails, try to edit it
+                    try:
+                        await context.bot.edit_message_text(
+                            chat_id=chat_id,
+                            message_id=loading_message.message_id,
+                            text=message,
+                            parse_mode=ParseMode.HTML,
+                            reply_markup=keyboard
+                        )
+                        self.logger.info("Edited loading message with calendar data")
+                        return  # Skip sending a new message
+                    except Exception as edit_error:
+                        self.logger.warning(f"Could not edit loading message: {str(edit_error)}")
+            
+            # Send the message as a new message
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=message,
+                parse_mode=ParseMode.HTML,
+                reply_markup=keyboard
+            )
+            self.logger.info("Sent calendar data as new message")
+        
+        except Exception as e:
+            self.logger.error(f"Error showing economic calendar: {str(e)}")
+            self.logger.exception(e)
+            
+            # Send error message
+            chat_id = update.effective_chat.id
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text="<b>⚠️ Error showing economic calendar</b>\n\nSorry, there was an error retrieving the economic calendar data. Please try again later.",
+                parse_mode=ParseMode.HTML
+            )
+            
+    def _generate_mock_calendar_data(self, currencies, date):
+        """Generate mock calendar data if the real service fails"""
+        self.logger.info(f"Generating mock calendar data for {len(currencies)} currencies")
+        mock_data = {}
+        
+        # Impact levels
+        impact_levels = ["High", "Medium", "Low"]
+        
+        # Possible event titles
+        events = [
+            "Interest Rate Decision",
+            "Non-Farm Payrolls",
+            "GDP Growth Rate",
+            "Inflation Rate",
+            "Unemployment Rate",
+            "Retail Sales",
+            "Manufacturing PMI",
+            "Services PMI",
+            "Trade Balance",
+            "Consumer Confidence",
+            "Building Permits",
+            "Central Bank Speech",
+            "Housing Starts",
+            "Industrial Production"
+        ]
+        
+        # Generate random events for each currency
+        for currency in currencies:
+            num_events = random.randint(1, 5)  # Random number of events per currency
+            currency_events = []
+            
+            for _ in range(num_events):
+                # Generate a random time (hour between 7-18, minute 00, 15, 30 or 45)
+                hour = random.randint(7, 18)
+                minute = random.choice([0, 15, 30, 45])
+                time_str = f"{hour:02d}:{minute:02d} EST"
+                
+                # Random event and impact
+                event = random.choice(events)
+                impact = random.choice(impact_levels)
+                
+                currency_events.append({
+                    "time": time_str,
+                    "event": event,
+                    "impact": impact
+                })
+            
+            # Sort events by time
+            mock_data[currency] = sorted(currency_events, key=lambda x: x["time"])
+        
+        return mock_data
 
     async def back_to_signal_analysis_callback(self, update: Update, context=None) -> int:
         """Handle back_to_signal_analysis button press"""
