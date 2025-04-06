@@ -33,7 +33,6 @@ from trading_bot.services.database.db import Database
 from trading_bot.services.chart_service.chart import ChartService
 from trading_bot.services.sentiment_service.sentiment import MarketSentimentService
 from trading_bot.services.calendar_service import EconomicCalendarService
-from trading_bot.services.calendar_service.calendar import MAJOR_CURRENCIES, CURRENCY_FLAG, INSTRUMENT_CURRENCY_MAP
 from trading_bot.services.payment_service.stripe_service import StripeService
 from trading_bot.services.payment_service.stripe_config import get_subscription_features
 from trading_bot.services.telegram_service.states import (
@@ -47,6 +46,62 @@ import trading_bot.services.telegram_service.gif_utils as gif_utils
 
 # Initialize logger
 logger = logging.getLogger(__name__)
+
+# Major currencies to focus on
+MAJOR_CURRENCIES = ["USD", "EUR", "GBP", "JPY", "CHF", "AUD", "NZD", "CAD"]
+
+# Currency to flag emoji mapping
+CURRENCY_FLAG = {
+    "USD": "🇺🇸",
+    "EUR": "🇪🇺",
+    "GBP": "🇬🇧",
+    "JPY": "🇯🇵",
+    "CHF": "🇨🇭",
+    "AUD": "🇦🇺",
+    "NZD": "🇳🇿",
+    "CAD": "🇨🇦"
+}
+
+# Map of instruments to their corresponding currencies
+INSTRUMENT_CURRENCY_MAP = {
+    # Special case for global view
+    "GLOBAL": MAJOR_CURRENCIES,
+    
+    # Forex
+    "EURUSD": ["EUR", "USD"],
+    "GBPUSD": ["GBP", "USD"],
+    "USDJPY": ["USD", "JPY"],
+    "USDCHF": ["USD", "CHF"],
+    "AUDUSD": ["AUD", "USD"],
+    "NZDUSD": ["NZD", "USD"],
+    "USDCAD": ["USD", "CAD"],
+    "EURGBP": ["EUR", "GBP"],
+    "EURJPY": ["EUR", "JPY"],
+    "GBPJPY": ["GBP", "JPY"],
+    
+    # Indices (mapped to their related currencies)
+    "US30": ["USD"],
+    "US100": ["USD"],
+    "US500": ["USD"],
+    "UK100": ["GBP"],
+    "GER40": ["EUR"],
+    "FRA40": ["EUR"],
+    "ESP35": ["EUR"],
+    "JP225": ["JPY"],
+    "AUS200": ["AUD"],
+    
+    # Commodities (mapped to USD primarily)
+    "XAUUSD": ["USD", "XAU"],  # Gold
+    "XAGUSD": ["USD", "XAG"],  # Silver
+    "USOIL": ["USD"],          # Oil (WTI)
+    "UKOIL": ["USD", "GBP"],   # Oil (Brent)
+    
+    # Crypto
+    "BTCUSD": ["USD", "BTC"],
+    "ETHUSD": ["USD", "ETH"],
+    "LTCUSD": ["USD", "LTC"],
+    "XRPUSD": ["USD", "XRP"]
+}
 
 # Callback data constants
 CALLBACK_ANALYSIS_TECHNICAL = "analysis_technical"
