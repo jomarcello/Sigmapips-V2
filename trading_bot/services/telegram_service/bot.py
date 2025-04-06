@@ -297,7 +297,6 @@ FOREX_KEYBOARD_SIGNALS = [
         InlineKeyboardButton("USDJPY", callback_data="instrument_USDJPY_signals")
     ],
     [
-        InlineKeyboardButton("AUDUSD", callback_data="instrument_AUDUSD_signals"),
         InlineKeyboardButton("USDCAD", callback_data="instrument_USDCAD_signals"),
         InlineKeyboardButton("EURGBP", callback_data="instrument_EURGBP_signals")
     ],
@@ -687,6 +686,7 @@ class TelegramService:
             application.add_handler(CallbackQueryHandler(self.menu_analyse_callback, pattern="^menu_analyse$"))
             application.add_handler(CallbackQueryHandler(self.menu_signals_callback, pattern="^menu_signals$"))
             application.add_handler(CallbackQueryHandler(self.signals_add_callback, pattern="^signals_add$"))
+            application.add_handler(CallbackQueryHandler(self.signals_manage_callback, pattern="^signals_manage$"))
             application.add_handler(CallbackQueryHandler(self.market_callback, pattern="^market_"))
             application.add_handler(CallbackQueryHandler(self.instrument_callback, pattern="^instrument_(?!.*_signals)"))
             application.add_handler(CallbackQueryHandler(self.instrument_signals_callback, pattern="^instrument_.*_signals$"))
@@ -1859,6 +1859,57 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         # Signals handlers
         if query.data == "signals_add" or query.data == CALLBACK_SIGNALS_ADD:
             return await self.signals_add_callback(update, context)
+            
+        # Manage signals handler
+        if query.data == "signals_manage" or query.data == CALLBACK_SIGNALS_MANAGE:
+            return await self.signals_manage_callback(update, context)
+            
+        # Handle delete signal
+        if query.data.startswith("delete_signal_"):
+            # Extract signal ID from callback data
+            signal_id = query.data.replace("delete_signal_", "")
+            
+            try:
+                # Delete the signal subscription
+                response = self.db.supabase.table('signal_subscriptions').delete().eq('id', signal_id).execute()
+                
+                if response and response.data:
+                    # Successfully deleted
+                    await query.answer("Signal subscription removed successfully")
+                else:
+                    # Failed to delete
+                    await query.answer("Failed to remove signal subscription")
+                
+                # Refresh the manage signals view
+                return await self.signals_manage_callback(update, context)
+                
+            except Exception as e:
+                logger.error(f"Error deleting signal subscription: {str(e)}")
+                await query.answer("Error removing signal subscription")
+                return await self.signals_manage_callback(update, context)
+                
+        # Handle delete all signals
+        if query.data == "delete_all_signals":
+            user_id = update.effective_user.id
+            
+            try:
+                # Delete all signal subscriptions for this user
+                response = self.db.supabase.table('signal_subscriptions').delete().eq('user_id', user_id).execute()
+                
+                if response and response.data:
+                    # Successfully deleted
+                    await query.answer("All signal subscriptions removed successfully")
+                else:
+                    # Failed to delete
+                    await query.answer("Failed to remove signal subscriptions")
+                
+                # Refresh the manage signals view
+                return await self.signals_manage_callback(update, context)
+                
+            except Exception as e:
+                logger.error(f"Error deleting all signal subscriptions: {str(e)}")
+                await query.answer("Error removing signal subscriptions")
+                return await self.signals_manage_callback(update, context)
 
     async def market_signals_callback(self, update: Update, context=None) -> int:
         """Handle signals market selection"""
@@ -2792,72 +2843,48 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         query = update.callback_query
         await query.answer()  # Respond to prevent loading icon
         
+        # Skip GIF and directly update text
         try:
-            # Get a signals GIF URL
-            gif_url = await get_signals_gif()
+            # First try to delete the current message and send a new one to avoid issues
+            message_id = query.message.message_id
+            chat_id = query.message.chat_id
             
-            # Update the message with the GIF using the helper function
-            success = await gif_utils.update_message_with_gif(
-                query=query,
-                gif_url=gif_url,
-                text="Trading Signals Options:",
-                reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD)
-            )
-            
-            if not success:
-                # If the helper function failed, try a direct approach as fallback
-                try:
-                    # First try to edit message text
-                    await query.edit_message_text(
-                        text="Trading Signals Options:",
-                        reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD),
-                        parse_mode=ParseMode.HTML
-                    )
-                except Exception as text_error:
-                    # If that fails due to caption, try editing caption
-                    if "There is no text in the message to edit" in str(text_error):
-                        await query.edit_message_caption(
-                            caption="Trading Signals Options:",
-                            reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD),
-                            parse_mode=ParseMode.HTML
-                        )
+            try:
+                # First try to delete the current message
+                await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
+                
+                # Then send a new message
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text="Trading Signals Options:",
+                    reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD),
+                    parse_mode=ParseMode.HTML
+                )
+                return CHOOSE_SIGNALS
+            except Exception as delete_error:
+                logger.warning(f"Could not delete message: {str(delete_error)}")
+                # Fall back to editing text
+                await query.edit_message_text(
+                    text="Trading Signals Options:",
+                    reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD),
+                    parse_mode=ParseMode.HTML
+                )
             
             return CHOOSE_SIGNALS
         except Exception as e:
             logger.error(f"Error in menu_signals_callback: {str(e)}")
             
-            # If we can't edit the message, try again with a simpler approach as fallback
+            # Try to send a new message as last resort
             try:
-                # First try editing the caption
-                try:
-                    await query.edit_message_caption(
-                        caption="Trading Signals Options:",
-                        reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD),
-                        parse_mode=ParseMode.HTML
-                    )
-                except Exception as caption_error:
-                    # If that fails, try editing text
-                    await query.edit_message_text(
-                        text="Trading Signals Options:",
-                        reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD),
-                        parse_mode=ParseMode.HTML
-                    )
-                return CHOOSE_SIGNALS
-            except Exception as inner_e:
-                logger.error(f"Failed to recover from error: {str(inner_e)}")
+                await query.message.reply_text(
+                    text="Trading Signals Options:",
+                    reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD),
+                    parse_mode=ParseMode.HTML
+                )
+            except Exception:
+                pass
                 
-                # Last resort: send a new message
-                try:
-                    await query.message.reply_text(
-                        text="Trading Signals Options:",
-                        reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD),
-                        parse_mode=ParseMode.HTML
-                    )
-                    logger.warning("Fallback to sending new message - ideally this should be avoided")
-                except Exception:
-                    pass
-                    
-                return MENU
+            return CHOOSE_SIGNALS
 
     async def signals_add_callback(self, update: Update, context=None) -> int:
         """Handle signals_add button press - show market selection for adding signals"""
@@ -2867,13 +2894,35 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         # Set the signals context flag
         if context and hasattr(context, 'user_data'):
             context.user_data['is_signals_context'] = True
+            # Clear any previous state that could cause button accumulation
+            if 'previous_menu_state' in context.user_data:
+                del context.user_data['previous_menu_state']
         
         try:
-            await query.edit_message_text(
-                text="Select market for signal subscription:",
-                reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD_SIGNALS),
-                parse_mode=ParseMode.HTML
-            )
+            # Try to delete the current message and send a new one to avoid button accumulation
+            message_id = query.message.message_id
+            chat_id = query.message.chat_id
+            
+            try:
+                # First try to delete the current message
+                await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
+                
+                # Then send a new message
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text="Select market for signal subscription:",
+                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD_SIGNALS),
+                    parse_mode=ParseMode.HTML
+                )
+                return CHOOSE_MARKET
+            except Exception as delete_error:
+                logger.warning(f"Could not delete message: {str(delete_error)}")
+                # Fall back to editing if delete fails
+                await query.edit_message_text(
+                    text="Select market for signal subscription:",
+                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD_SIGNALS),
+                    parse_mode=ParseMode.HTML
+                )
         except Exception as text_error:
             # If that fails due to caption, try editing caption
             if "There is no text in the message to edit" in str(text_error):
@@ -3149,6 +3198,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     keyboard = COMMODITIES_KEYBOARD
                 else:
                     keyboard = MARKET_KEYBOARD
+                
                 
                 text = f"Select a {market} instrument for analysis:"
         
@@ -3959,54 +4009,140 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         
         # Show the signals menu
         try:
-            gif_url = "https://media.giphy.com/media/TINKrQAL1xCGMf8MjD/giphy.gif"
-            
-            try:
-                # Try updating with GIF
-                await query.edit_message_media(
-                    media=InputMediaAnimation(
-                        media=gif_url,
-                        caption="Select an option:",
-                        parse_mode=ParseMode.HTML
-                    ),
-                    reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD)
-                )
-            except Exception as media_error:
-                logger.warning(f"Could not update with GIF: {str(media_error)}")
-                
-                # Fall back to text update
-                try:
-                    await query.edit_message_text(
-                        text="Select an option:",
-                        reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD),
-                        parse_mode=ParseMode.HTML
-                    )
-                except Exception as text_error:
-                    if "There is no text in the message to edit" in str(text_error):
-                        try:
-                            await query.edit_message_caption(
-                                caption="Select an option:",
-                                reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD),
-                                parse_mode=ParseMode.HTML
-                            )
-                        except Exception as e:
-                            logger.error(f"Failed to update caption: {str(e)}")
-                            # Try to send a new message as last resort
-                            await query.message.reply_text(
-                                text="Select an option:",
-                                reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD),
-                                parse_mode=ParseMode.HTML
-                            )
-                    else:
-                        # Re-raise for other errors
-                        raise
-        except Exception as e:
-            logger.error(f"Error in back_signals_callback: {str(e)}")
-            # Last resort - try to send a new message
-            await query.message.reply_text(
-                text="Select an option:",
+            # Don't use GIF as it's causing issues
+            await query.edit_message_text(
+                text="Trading Signals Options:",
                 reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD),
                 parse_mode=ParseMode.HTML
             )
+        except Exception as text_error:
+            # If that fails due to caption, try editing caption
+            if "There is no text in the message to edit" in str(text_error):
+                try:
+                    await query.edit_message_caption(
+                        caption="Trading Signals Options:",
+                        reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD),
+                        parse_mode=ParseMode.HTML
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to update caption: {str(e)}")
+                    # Try to send a new message as last resort
+                    await query.message.reply_text(
+                        text="Trading Signals Options:",
+                        reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD),
+                        parse_mode=ParseMode.HTML
+                    )
+            else:
+                # Re-raise for other errors
+                raise
         
         return CHOOSE_SIGNALS
+
+    async def signals_manage_callback(self, update: Update, context=None) -> int:
+        """Handle signals_manage callback to manage signal preferences"""
+        query = update.callback_query
+        await query.answer()
+        
+        user_id = update.effective_user.id
+        
+        try:
+            # Get user's current signal subscriptions
+            signal_subs = self.db.supabase.table('signal_subscriptions').select('*').eq('user_id', user_id).execute()
+            
+            if signal_subs and signal_subs.data:
+                # User has signal subscriptions
+                text = "Your current signal subscriptions:\n\n"
+                
+                # Create keyboard with delete options for each subscription
+                keyboard = []
+                
+                for sub in signal_subs.data:
+                    instrument = sub.get('instrument', 'Unknown')
+                    timeframe = sub.get('timeframe', 'Unknown')
+                    timeframe_display = TIMEFRAME_DISPLAY_MAP.get(timeframe, timeframe)
+                    sub_id = sub.get('id')
+                    
+                    # Add subscription info to text
+                    text += f"• {instrument} ({timeframe_display})\n"
+                    
+                    # Add button to delete this subscription
+                    keyboard.append([
+                        InlineKeyboardButton(f"❌ Remove {instrument}", callback_data=f"delete_signal_{sub_id}")
+                    ])
+                
+                # Add button to delete all subscriptions
+                keyboard.append([
+                    InlineKeyboardButton("❌ Remove All Signals", callback_data="delete_all_signals")
+                ])
+                
+                # Add button to add more subscriptions
+                keyboard.append([
+                    InlineKeyboardButton("➕ Add More Signals", callback_data=CALLBACK_SIGNALS_ADD)
+                ])
+                
+                # Add back button
+                keyboard.append([
+                    InlineKeyboardButton("⬅️ Back to Signals", callback_data="back_signals")
+                ])
+                
+            else:
+                # User has no signal subscriptions
+                text = "You don't have any signal subscriptions yet. Add some to receive trading signals."
+                
+                # Add button to add subscriptions
+                keyboard = [
+                    [InlineKeyboardButton("➕ Add Signals", callback_data=CALLBACK_SIGNALS_ADD)],
+                    [InlineKeyboardButton("⬅️ Back to Signals", callback_data="back_signals")]
+                ]
+            
+            # Update message with subscription info
+            try:
+                await query.edit_message_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.HTML
+                )
+            except Exception as text_error:
+                # If that fails due to caption, try editing caption
+                if "There is no text in the message to edit" in str(text_error):
+                    try:
+                        await query.edit_message_caption(
+                            caption=text,
+                            reply_markup=InlineKeyboardMarkup(keyboard),
+                            parse_mode=ParseMode.HTML
+                        )
+                    except Exception as e:
+                        logger.error(f"Failed to update caption: {str(e)}")
+                        # Try to send a new message as last resort
+                        await query.message.reply_text(
+                            text=text,
+                            reply_markup=InlineKeyboardMarkup(keyboard),
+                            parse_mode=ParseMode.HTML
+                        )
+                else:
+                    # Re-raise for other errors
+                    raise
+                
+            return CHOOSE_SIGNALS
+            
+        except Exception as e:
+            logger.error(f"Error in signals_manage_callback: {str(e)}")
+            
+            # Show error message
+            error_text = "Sorry, there was an error retrieving your signal subscriptions. Please try again."
+            keyboard = [[InlineKeyboardButton("⬅️ Back to Signals", callback_data="back_signals")]]
+            
+            try:
+                await query.edit_message_text(
+                    text=error_text,
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.HTML
+                )
+            except Exception:
+                await query.message.reply_text(
+                    text=error_text,
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.HTML
+                )
+            
+            return CHOOSE_SIGNALS
