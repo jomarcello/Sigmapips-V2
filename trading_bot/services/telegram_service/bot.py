@@ -2374,7 +2374,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # If no loading message in context or not in signal flow, create one
             if not loading_message:
                 # Show loading message with GIF - similar to sentiment analysis
-                loading_text = f"Loading {instrument} {timeframe} chart..."
+                loading_text = f"Loading {instrument} chart..."
                 loading_gif = "https://media.giphy.com/media/dpjUltnOPye7azvAhH/giphy.gif"
                 
                 try:
@@ -2411,7 +2411,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             
             if not chart_image:
                 # Fallback to error message
-                error_text = f"Failed to generate chart for {instrument} {timeframe}. Please try again later."
+                error_text = f"Failed to generate chart for {instrument}. Please try again later."
                 await query.edit_message_text(
                     text=error_text,
                     reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
@@ -2434,7 +2434,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 await context.bot.send_photo(
                     chat_id=update.effective_chat.id,
                     photo=chart_image,
-                    caption=f"{instrument} {timeframe} Technical Analysis",
+                    caption=f"{instrument} Technical Analysis",
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
                 
