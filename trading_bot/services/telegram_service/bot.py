@@ -2765,9 +2765,20 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             
             back_data = "back_to_analysis"  # Changed to back_to_analysis voor consistentie
         
-        # Toevoegen van Back-knop aan het einde van alle keyboards
+        # Don't add back button if the keyboard already has one
+        has_back_button = False
         if isinstance(keyboard, list):
-            # Voeg terug-knop toe als laatste rij
+            for row in keyboard:
+                for button in row:
+                    if "Back" in button.text or "back" in button.callback_data:
+                        has_back_button = True
+                        break
+                if has_back_button:
+                    break
+        
+        # Add back button only if not already present
+        if isinstance(keyboard, list) and not has_back_button:
+            # Add back button as last row
             keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data=back_data)])
         
         # Update message with appropriate keyboard
@@ -2843,34 +2854,31 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         query = update.callback_query
         await query.answer()  # Respond to prevent loading icon
         
-        # Skip GIF and directly update text
         try:
-            # First try to delete the current message and send a new one to avoid issues
-            message_id = query.message.message_id
-            chat_id = query.message.chat_id
+            # Get a signals GIF URL
+            gif_url = "https://media.giphy.com/media/TINKrQAL1xCGMf8MjD/giphy.gif"
             
+            # Try updating with GIF
             try:
-                # First try to delete the current message
-                await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
-                
-                # Then send a new message
-                await context.bot.send_message(
-                    chat_id=chat_id,
-                    text="Trading Signals Options:",
-                    reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD),
-                    parse_mode=ParseMode.HTML
+                await query.edit_message_media(
+                    media=InputMediaAnimation(
+                        media=gif_url,
+                        caption="Trading Signals Options:",
+                        parse_mode=ParseMode.HTML
+                    ),
+                    reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD)
                 )
                 return CHOOSE_SIGNALS
-            except Exception as delete_error:
-                logger.warning(f"Could not delete message: {str(delete_error)}")
-                # Fall back to editing text
+            except Exception as media_error:
+                # If GIF fails, fall back to text update
+                logger.warning(f"Could not update with GIF: {str(media_error)}")
+                
                 await query.edit_message_text(
                     text="Trading Signals Options:",
                     reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD),
                     parse_mode=ParseMode.HTML
                 )
-            
-            return CHOOSE_SIGNALS
+                return CHOOSE_SIGNALS
         except Exception as e:
             logger.error(f"Error in menu_signals_callback: {str(e)}")
             
@@ -4009,12 +4017,28 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         
         # Show the signals menu
         try:
-            # Don't use GIF as it's causing issues
-            await query.edit_message_text(
-                text="Trading Signals Options:",
-                reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD),
-                parse_mode=ParseMode.HTML
-            )
+            # Restore GIF
+            gif_url = "https://media.giphy.com/media/TINKrQAL1xCGMf8MjD/giphy.gif"
+            
+            try:
+                # Try updating with GIF
+                await query.edit_message_media(
+                    media=InputMediaAnimation(
+                        media=gif_url,
+                        caption="Trading Signals Options:",
+                        parse_mode=ParseMode.HTML
+                    ),
+                    reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD)
+                )
+            except Exception as media_error:
+                logger.warning(f"Could not update with GIF: {str(media_error)}")
+                
+                # Fall back to text update
+                await query.edit_message_text(
+                    text="Trading Signals Options:",
+                    reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD),
+                    parse_mode=ParseMode.HTML
+                )
         except Exception as text_error:
             # If that fails due to caption, try editing caption
             if "There is no text in the message to edit" in str(text_error):
