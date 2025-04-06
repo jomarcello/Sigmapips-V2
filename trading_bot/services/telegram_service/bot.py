@@ -653,9 +653,11 @@ class TelegramService:
             # Make sure the webhook path is included in the URL
             if not self.webhook_url.endswith(self.webhook_path):
                 self.webhook_url = f"{self.webhook_url}{self.webhook_path}"
-        
-        self.logger.info(f"Bot initialized with webhook URL: {self.webhook_url}")
-        
+                
+            self.logger.info(f"Using webhook URL: {self.webhook_url}")
+        else:
+            self.logger.warning("No webhook URL configured - bot will only work in polling mode")
+            
         # Initialize API services
         self.chart_service = ChartService()  # Initialize chart service
         self.calendar_service = EconomicCalendarService()  # Economic calendar service
@@ -3012,51 +3014,64 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 self.logger.info("Creating application builder")
                 self.application = Application.builder().bot(self.bot).build()
                 self._register_handlers(self.application)
+                
+                # Initialize a basic update queue if it doesn't exist
+                if not hasattr(self.application, 'update_queue') or self.application.update_queue is None:
+                    self.application.update_queue = asyncio.Queue()
+                    self.logger.info("Created new update queue")
             
             # Initialize application
             await self.application.initialize()
-            self.logger.info("Application initialized")
+            await self.application.start()
+            self.logger.info("Application initialized and started")
             
             if use_webhook:
-                self.logger.info("Starting bot in webhook mode")
-                # Just initialize, don't start polling
-                self.logger.info("Application ready for webhook updates")
+                self.logger.info("Configuring bot for webhook mode")
                 
-                # Set webhook if we have a URL
-                if self.webhook_url:
-                    # Check if webhook already set correctly
-                    webhook_info = await self.bot.get_webhook_info()
+                # Ensure webhook URL is set
+                if not self.webhook_url:
+                    self.logger.error("No webhook URL provided - cannot set webhook")
+                    return False
+                
+                try:
+                    # Delete any existing webhook first for a clean start
+                    await self.bot.delete_webhook(drop_pending_updates=True)
+                    self.logger.info("Deleted existing webhook for clean setup")
                     
-                    # If no webhook set or wrong URL, set the webhook
-                    if not webhook_info.url or self.webhook_url not in webhook_info.url:
-                        # Delete existing webhook first
-                        self.logger.info(f"Setting new webhook to {self.webhook_url}")
-                        await self.bot.delete_webhook(drop_pending_updates=True)
-                        
-                        # Set the webhook
-                        await self.bot.set_webhook(
-                            url=self.webhook_url,
-                            allowed_updates=["message", "callback_query", "inline_query"]
-                        )
-                        
-                        # Log the webhook setup
-                        new_info = await self.bot.get_webhook_info()
-                        self.logger.info(f"Webhook set to {new_info.url}")
+                    # Set the webhook with enhanced settings
+                    await self.bot.set_webhook(
+                        url=self.webhook_url,
+                        allowed_updates=["message", "callback_query", "inline_query", "chat_member"],
+                        drop_pending_updates=True,
+                        max_connections=100  # Allow more parallel connections
+                    )
+                    
+                    # Verify the webhook was set
+                    webhook_info = await self.bot.get_webhook_info()
+                    if webhook_info.url == self.webhook_url:
+                        self.logger.info(f"Webhook successfully configured: URL={webhook_info.url}")
                     else:
-                        self.logger.info(f"Webhook already correctly set to {webhook_info.url}")
-                else:
-                    self.logger.warning("No webhook URL provided, bot might not receive updates")
+                        self.logger.warning(f"Webhook URL mismatch: Set to {self.webhook_url} but returned {webhook_info.url}")
+                        
+                except Exception as webhook_error:
+                    self.logger.error(f"Error setting webhook: {str(webhook_error)}")
+                    self.logger.exception(webhook_error)
+                    return False
+                
+                self.logger.info("Webhook mode configured successfully")
             else:
-                # Start polling if requested
+                # Start polling
                 self.logger.info("Starting bot in polling mode")
                 
                 # Remove any existing webhook
                 await self.bot.delete_webhook(drop_pending_updates=True)
-                self.logger.info("Deleted any existing webhook for polling mode")
                 
-                # Start polling
-                await self.application.start_polling()
-                self.logger.info("Polling started")
+                # Start polling with appropriate settings
+                await self.application.updater.start_polling(
+                    drop_pending_updates=True,
+                    allowed_updates=["message", "callback_query", "inline_query", "chat_member"]
+                )
+                self.logger.info("Polling started successfully")
                 self.polling_started = True
             
             self.logger.info("Bot initialization completed successfully")
@@ -3068,44 +3083,28 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             return False
 
     async def menu_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> None:
-        """Toon het hoofdmenu van de bot"""
+        """Toon het hoofdmenu van de bot - vereenvoudigde versie die altijd werkt"""
         self.logger.info(f"Menu command requested by user_id={update.effective_user.id if update.effective_user else 'unknown'}")
+        
         try:
-            # Make sure we have a valid chat_id
-            if update.effective_chat is None:
-                self.logger.error("No effective_chat in update - cannot show menu")
+            # Direct implementation for reliability - no database dependencies
+            chat_id = update.effective_chat.id if update.effective_chat else None
+            if not chat_id:
+                self.logger.error("No chat_id available in update")
                 return
                 
-            # Direct implementation for more reliability
-            chat_id = update.effective_chat.id
-            self.logger.info(f"Showing menu for chat_id={chat_id}")
+            self.logger.info(f"Showing simple menu for chat_id={chat_id}")
             
-            # Create inline keyboard
+            # Create simple menu keyboard without database lookups
             from telegram import InlineKeyboardMarkup, InlineKeyboardButton
             keyboard = [
                 [InlineKeyboardButton("📊 Analysis", callback_data="menu_analyse")],
-                [InlineKeyboardButton("🔔 Signals", callback_data="menu_signals")]
+                [InlineKeyboardButton("🔔 Signals", callback_data="menu_signals")],
+                [InlineKeyboardButton("⚙️ Manage Settings", callback_data="signals_manage")]
             ]
-            
-            # Add optional buttons
-            try:
-                if update.effective_user:
-                    user_id = update.effective_user.id
-                    user_info = await self.db.get_user_by_telegram_id(user_id)
-                    self.logger.info(f"User info: {user_info}")
-                    
-                    if user_info and user_info.get('is_subscribed'):
-                        # Add subscription management button for subscribers
-                        keyboard.append([InlineKeyboardButton("⚙️ Manage Subscription", callback_data="signals_manage")])
-                        self.logger.info("Added subscription management button (user is subscribed)")
-            except Exception as e:
-                self.logger.error(f"Error checking subscription status: {e}")
-                self.logger.exception(e)
-                # Continue without the subscription button
             
             # Send message with keyboard
             reply_markup = InlineKeyboardMarkup(keyboard)
-            self.logger.info(f"Sending menu with {len(keyboard)} button rows")
             
             await self.bot.send_message(
                 chat_id=chat_id,
@@ -3113,20 +3112,26 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 reply_markup=reply_markup
             )
             
-            self.logger.info(f"Menu sent successfully to user_id={update.effective_user.id if update.effective_user else 'unknown'}")
+            self.logger.info(f"Menu sent successfully to chat_id={chat_id}")
+            
         except Exception as e:
             self.logger.error(f"Failed to show menu: {str(e)}")
             self.logger.exception(e)
             
-            # Send a simple message if keyboard fails
+            # Extremely simplified fallback
             try:
                 if update.effective_chat:
                     await self.bot.send_message(
                         chat_id=update.effective_chat.id,
-                        text="There was a problem showing the menu. Please try again with /menu command."
+                        text="Welcome to Sigmapips AI! Please use the buttons below to navigate.",
+                        reply_markup=InlineKeyboardMarkup([
+                            [InlineKeyboardButton("📊 Analysis", callback_data="menu_analyse")],
+                            [InlineKeyboardButton("🔔 Signals", callback_data="menu_signals")]
+                        ])
                     )
-            except Exception as simple_error:
-                self.logger.error(f"Even simple fallback message failed: {simple_error}")
+                    self.logger.info("Sent fallback menu")
+            except Exception as fallback_error:
+                self.logger.error(f"Even simple fallback message failed: {fallback_error}")
 
     async def _format_calendar_events(self, calendar_data):
         """Format calendar events in chronological order"""
