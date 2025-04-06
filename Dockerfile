@@ -109,8 +109,6 @@ ENV TRADINGVIEW_DEBUG=true
 RUN echo '#!/bin/bash\n\
 echo "Starting SigmaPips Trading Bot..."\n\
 cd /app\n\
-echo "Checking and fixing imports..."\n\
-python -m fix_calendar_imports\n\
 echo "Starting main application..."\n\
 python -m trading_bot.main\n\
 ' > /app/start.sh && chmod +x /app/start.sh
