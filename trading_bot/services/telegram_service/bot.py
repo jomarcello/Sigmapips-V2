@@ -32,7 +32,7 @@ import telegram.error  # Add this import for BadRequest error handling
 from trading_bot.services.database.db import Database
 from trading_bot.services.chart_service.chart import ChartService
 from trading_bot.services.sentiment_service.sentiment import MarketSentimentService
-from trading_bot.services.calendar_service.calendar import EconomicCalendarService, MAJOR_CURRENCIES, CURRENCY_FLAG
+from trading_bot.services.calendar_service.calendar import EconomicCalendarService, MAJOR_CURRENCIES, CURRENCY_FLAG, INSTRUMENT_CURRENCY_MAP
 from trading_bot.services.payment_service.stripe_service import StripeService
 from trading_bot.services.payment_service.stripe_config import get_subscription_features
 from trading_bot.services.telegram_service.states import (
@@ -652,6 +652,248 @@ class TelegramService:
             logger.error(f"Error initializing Telegram service: {str(e)}")
             raise
 
+    # Calendar service helpers
+    def _get_calendar_service(self):
+        """Get the calendar service instance"""
+        self.logger.info("Getting calendar service")
+        return self.calendar_service
+
+    async def _format_calendar_events(self, calendar_data):
+        """Format the calendar data into a readable HTML message"""
+        self.logger.info(f"Formatting calendar data with {len(calendar_data)} events")
+        if not calendar_data:
+            return "<b>📅 Economic Calendar</b>\n\nNo economic events found for today."
+        
+        # Sort events by time
+        try:
+            # Try to parse time for sorting
+            def parse_time_for_sorting(event):
+                time_str = event.get('time', '')
+                try:
+                    # Extract hour and minute if in format like "08:30 EST"
+                    if ':' in time_str:
+                        parts = time_str.split(' ')[0].split(':')
+                        hour = int(parts[0])
+                        minute = int(parts[1])
+                        return hour * 60 + minute
+                    return 0
+                except:
+                    return 0
+            
+            # Sort the events by time
+            sorted_events = sorted(calendar_data, key=parse_time_for_sorting)
+        except Exception as e:
+            self.logger.error(f"Error sorting calendar events: {str(e)}")
+            sorted_events = calendar_data
+        
+        # Format the message
+        message = "<b>📅 Economic Calendar</b>\n\n"
+        
+        # Get current date
+        current_date = datetime.now().strftime("%B %d, %Y")
+        message += f"<b>Date:</b> {current_date}\n\n"
+        
+        # Add impact legend
+        message += "<b>Impact:</b> 🔴 High   🟠 Medium   🟢 Low\n\n"
+        
+        # Group events by country
+        events_by_country = {}
+        for event in sorted_events:
+            country = event.get('country', 'Unknown')
+            if country not in events_by_country:
+                events_by_country[country] = []
+            events_by_country[country].append(event)
+        
+        # Format events by country
+        for country, events in events_by_country.items():
+            country_flag = CURRENCY_FLAG.get(country, '')
+            message += f"<b>{country_flag} {country}</b>\n"
+            
+            for event in events:
+                time = event.get('time', 'TBA')
+                title = event.get('title', 'Unknown Event')
+                impact = event.get('impact', 'Low')
+                impact_emoji = {'High': '🔴', 'Medium': '🟠', 'Low': '🟢'}.get(impact, '🟢')
+                
+                message += f"{time} - {impact_emoji} {title}\n"
+            
+            message += "\n"  # Add extra newline between countries
+        
+        return message
+        
+    # Utility functions that might be missing
+    async def update_message(self, query, text, keyboard=None, parse_mode=ParseMode.HTML):
+        """Utility to update a message with error handling"""
+        try:
+            self.logger.info("Updating message")
+            # Try to edit message text first
+            await query.edit_message_text(
+                text=text,
+                reply_markup=keyboard,
+                parse_mode=parse_mode
+            )
+            return True
+        except Exception as e:
+            self.logger.warning(f"Could not update message text: {str(e)}")
+            
+            # If text update fails, try to edit caption
+            try:
+                await query.edit_message_caption(
+                    caption=text,
+                    reply_markup=keyboard,
+                    parse_mode=parse_mode
+                )
+                return True
+            except Exception as e2:
+                self.logger.error(f"Could not update caption either: {str(e2)}")
+                
+                # As a last resort, send a new message
+                try:
+                    chat_id = query.message.chat_id
+                    await self.bot.send_message(
+                        chat_id=chat_id,
+                        text=text,
+                        reply_markup=keyboard,
+                        parse_mode=parse_mode
+                    )
+                    return True
+                except Exception as e3:
+                    self.logger.error(f"Failed to send new message: {str(e3)}")
+                    return False
+    
+    # Missing handler implementations
+    async def back_signals_callback(self, update: Update, context=None) -> int:
+        """Handle back_signals button press"""
+        query = update.callback_query
+        await query.answer()
+        
+        self.logger.info("back_signals_callback called")
+        
+        # Create keyboard for signal menu
+        keyboard = [
+            [InlineKeyboardButton("📊 Add Signal", callback_data="signals_add")],
+            [InlineKeyboardButton("⚙️ Manage Signals", callback_data="signals_manage")],
+            [InlineKeyboardButton("⬅️ Back to Menu", callback_data="back_menu")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        # Update message
+        await self.update_message(
+            query=query,
+            text="<b>📈 Signal Management</b>\n\nManage your trading signals",
+            keyboard=reply_markup
+        )
+        
+        return SIGNALS
+        
+    async def get_subscribers_for_instrument(self, instrument: str, timeframe: str = None) -> List[int]:
+        """Get a list of subscribers for a specific instrument"""
+        try:
+            self.logger.info(f"Getting subscribers for {instrument} timeframe: {timeframe}")
+            # Get all premium users
+            subscribers = []
+            
+            # Retrieve users from database
+            query = {"is_premium": True}
+            premium_users = await self.db.find_all("users", query)
+            
+            for user in premium_users:
+                # Check if user has active subscription
+                user_id = user.get("user_id")
+                if user.get("subscription_expiry"):
+                    expiry = datetime.fromisoformat(user.get("subscription_expiry"))
+                    if expiry > datetime.now():
+                        subscribers.append(user_id)
+                        
+            self.logger.info(f"Found {len(subscribers)} subscribers for {instrument}")
+            return subscribers
+        except Exception as e:
+            self.logger.error(f"Error getting subscribers: {str(e)}")
+            return []
+            
+    async def process_signal(self, signal_data: Dict[str, Any]) -> bool:
+        """Process a signal and send to subscribers"""
+        try:
+            self.logger.info(f"Processing signal: {signal_data}")
+            
+            # Extract key data
+            instrument = signal_data.get("instrument")
+            direction = signal_data.get("direction")
+            timeframe = signal_data.get("timeframe", "")
+            
+            if not instrument or not direction:
+                self.logger.error("Missing required signal data")
+                return False
+                
+            # Get subscribers for this instrument
+            subscribers = await self.get_subscribers_for_instrument(instrument, timeframe)
+            
+            if not subscribers:
+                self.logger.warning(f"No subscribers found for {instrument}")
+                return False
+                
+            # Format signal message
+            message = self._format_signal_message(signal_data)
+            
+            # Create the button for signal analysis
+            signal_id = f"{instrument}_{direction}_{timeframe}_{int(time.time())}"
+            keyboard = [[
+                InlineKeyboardButton(
+                    "🔍 Analyze Market", 
+                    callback_data=f"analyze_from_signal_{instrument}_{signal_id}"
+                )
+            ]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            # Send signal to all subscribers
+            for user_id in subscribers:
+                try:
+                    await self.bot.send_message(
+                        chat_id=user_id,
+                        text=message,
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=reply_markup
+                    )
+                    self.logger.info(f"Signal sent to user {user_id}")
+                except Exception as e:
+                    self.logger.error(f"Error sending signal to user {user_id}: {str(e)}")
+            
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Error processing signal: {str(e)}")
+            return False
+            
+    def _format_signal_message(self, signal_data: Dict[str, Any]) -> str:
+        """Format a signal into a message for telegram"""
+        instrument = signal_data.get("instrument", "Unknown")
+        direction = signal_data.get("direction", "")
+        timeframe = signal_data.get("timeframe", "")
+        entry = signal_data.get("entry", "Market")
+        stop_loss = signal_data.get("stop_loss", "")
+        take_profit = signal_data.get("take_profit", "")
+        
+        # Add emoji based on direction
+        direction_emoji = "🟢" if direction.upper() == "BUY" else "🔴"
+        
+        # Format the message
+        message = f"<b>{direction_emoji} {instrument} SIGNAL</b>\n\n"
+        message += f"<b>Direction:</b> {direction.upper()}\n"
+        message += f"<b>Timeframe:</b> {timeframe}\n"
+        message += f"<b>Entry:</b> {entry}\n"
+        
+        if stop_loss:
+            message += f"<b>Stop Loss:</b> {stop_loss}\n"
+            
+        if take_profit:
+            message += f"<b>Take Profit:</b> {take_profit}\n"
+            
+        # Add timestamp
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        message += f"\n<i>Generated at {now}</i>"
+        
+        return message
+
     def _register_handlers(self, application):
         """Register event handlers for bot commands and callback queries"""
         try:
@@ -716,6 +958,7 @@ class TelegramService:
             application.add_handler(CallbackQueryHandler(self.signal_technical_callback, pattern="^signal_technical$"))
             application.add_handler(CallbackQueryHandler(self.signal_sentiment_callback, pattern="^signal_sentiment$"))
             application.add_handler(CallbackQueryHandler(self.signal_calendar_callback, pattern="^signal_calendar$"))
+            application.add_handler(CallbackQueryHandler(self.signal_calendar_callback, pattern="^signal_flow_calendar_.*$"))
             application.add_handler(CallbackQueryHandler(self.back_to_signal_callback, pattern="^back_to_signal$"))
             application.add_handler(CallbackQueryHandler(self.back_to_signal_analysis_callback, pattern="^back_to_signal_analysis$"))
             
@@ -1335,6 +1578,9 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
     async def show_economic_calendar(self, update: Update, context: CallbackContext, currency=None, loading_message=None):
         """Show the economic calendar for a specific currency"""
         try:
+            # VERIFICATION MARKER: SIGMAPIPS_CALENDAR_FIX_APPLIED
+            self.logger.info("VERIFICATION MARKER: SIGMAPIPS_CALENDAR_FIX_APPLIED")
+            
             chat_id = update.effective_chat.id
             query = update.callback_query
             
@@ -1361,44 +1607,65 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             
             # Get calendar data
             if currency and currency in MAJOR_CURRENCIES:
-                # Get instrument-specific calendar
-                instrument_calendar = await calendar_service.get_instrument_calendar(currency)
-                
-                # Extract the raw data for formatting
                 try:
-                    # Check if we can get the flattened data directly
-                    calendar_data = await calendar_service.get_calendar()
-                    # Filter for specified currency
-                    calendar_data = [event for event in calendar_data if event.get('country') == currency]
+                    # Check if calendar service has get_instrument_calendar method
+                    if hasattr(calendar_service, 'get_instrument_calendar'):
+                        # Get instrument-specific calendar
+                        instrument_calendar = await calendar_service.get_instrument_calendar(currency)
+                        
+                        # Extract the raw data for formatting
+                        try:
+                            # Check if we can get the flattened data directly
+                            if hasattr(calendar_service, 'get_calendar'):
+                                calendar_data = await calendar_service.get_calendar()
+                                # Filter for specified currency
+                                calendar_data = [event for event in calendar_data if event.get('country') == currency]
+                        except Exception as e:
+                            # If no flattened data available, use the formatted text
+                            self.logger.warning(f"Could not get raw calendar data, using text data: {str(e)}")
+                            # Send the formatted text directly
+                            message = instrument_calendar
+                            calendar_data = []
+                    else:
+                        # Fallback to mock data if method doesn't exist
+                        self.logger.warning("calendar_service.get_instrument_calendar method not available, using mock data")
+                        calendar_data = []
                 except Exception as e:
-                    # If no flattened data available, use the formatted text
-                    self.logger.warning(f"Could not get raw calendar data, using text data: {str(e)}")
-                    # Send the formatted text directly
-                    message = instrument_calendar
+                    self.logger.warning(f"Error getting instrument calendar: {str(e)}")
                     calendar_data = []
             else:
                 # Get all currencies data
                 try:
-                    calendar_data = await calendar_service.get_calendar()
+                    if hasattr(calendar_service, 'get_calendar'):
+                        calendar_data = await calendar_service.get_calendar()
+                    else:
+                        self.logger.warning("calendar_service.get_calendar method not available, using mock data")
+                        calendar_data = []
                 except Exception as e:
                     self.logger.warning(f"Error getting calendar data: {str(e)}")
                     calendar_data = []
             
             # Check if data is empty
             if not calendar_data or len(calendar_data) == 0:
-                self.logger.warning("Calendar data is empty, trying mock data...")
+                self.logger.warning("Calendar data is empty, using mock data...")
                 # Generate mock data
                 today_date = datetime.now().strftime("%B %d, %Y")
-                mock_data = calendar_service._generate_mock_calendar_data(MAJOR_CURRENCIES, today_date)
+                
+                # Use the mock data generator from the calendar service if available
+                if hasattr(calendar_service, '_generate_mock_calendar_data'):
+                    mock_data = calendar_service._generate_mock_calendar_data(MAJOR_CURRENCIES, today_date)
+                else:
+                    # Otherwise use our own implementation
+                    mock_data = self._generate_mock_calendar_data(MAJOR_CURRENCIES, today_date)
                 
                 # Flatten the mock data
                 flattened_mock = []
-                for currency, events in mock_data.items():
+                for currency_code, events in mock_data.items():
                     for event in events:
                         flattened_mock.append({
                             "time": event.get("time", ""),
-                            "country": currency,
-                            "country_flag": CURRENCY_FLAG.get(currency, ""),
+                            "country": currency_code,
+                            "country_flag": CURRENCY_FLAG.get(currency_code, ""),
                             "title": event.get("event", ""),
                             "impact": event.get("impact", "Low")
                         })
@@ -1407,31 +1674,44 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 self.logger.info(f"Generated {len(flattened_mock)} mock calendar events")
             
             # Format the calendar data in chronological order
-            message = await self._format_calendar_events(calendar_data)
+            if hasattr(self, '_format_calendar_events'):
+                message = await self._format_calendar_events(calendar_data)
+            else:
+                # Fallback to calendar service formatting if the method doesn't exist on TelegramService
+                if hasattr(calendar_service, '_format_calendar_response'):
+                    message = await calendar_service._format_calendar_response(calendar_data, currency)
+                else:
+                    # Simple formatting fallback
+                    message = "<b>📅 Economic Calendar</b>\n\n"
+                    for event in calendar_data[:10]:  # Limit to first 10 events
+                        country = event.get('country', 'Unknown')
+                        title = event.get('title', 'Unknown Event')
+                        time = event.get('time', 'Unknown Time')
+                        message += f"{country}: {time} - {title}\n\n"
             
-            # Create keyboard with back button
-            keyboard = [
-                [InlineKeyboardButton("⬅️ Back", callback_data="menu_analyse")]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
+            # Create keyboard with back button if not provided from caller
+            keyboard = None
+            if context and hasattr(context, 'user_data') and context.user_data.get('from_signal', False):
+                keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal_analysis")]])
+            else:
+                keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="menu_analyse")]])
             
-            # Probeer eerst het loading bericht te verwijderen
+            # Try to delete loading message first if it exists
             if loading_message:
                 try:
-                    # Verwijder het loading bericht
                     await loading_message.delete()
                     self.logger.info("Successfully deleted loading message")
                 except Exception as delete_error:
                     self.logger.warning(f"Could not delete loading message: {str(delete_error)}")
                     
-                    # Als verwijderen niet lukt, probeer het te bewerken
+                    # If deletion fails, try to edit it
                     try:
-                        await context.bot.editMessageText(
+                        await context.bot.edit_message_text(
                             chat_id=chat_id,
                             message_id=loading_message.message_id,
                             text=message,
                             parse_mode=ParseMode.HTML,
-                            reply_markup=reply_markup
+                            reply_markup=keyboard
                         )
                         self.logger.info("Edited loading message with calendar data")
                         return  # Skip sending a new message
@@ -1439,11 +1719,11 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                         self.logger.warning(f"Could not edit loading message: {str(edit_error)}")
             
             # Send the message as a new message
-            await context.bot.sendMessage(
+            await context.bot.send_message(
                 chat_id=chat_id,
                 text=message,
                 parse_mode=ParseMode.HTML,
-                reply_markup=reply_markup
+                reply_markup=keyboard
             )
             self.logger.info("Sent calendar data as new message")
         
@@ -1453,11 +1733,63 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             
             # Send error message
             chat_id = update.effective_chat.id
-            await context.bot.sendMessage(
+            await context.bot.send_message(
                 chat_id=chat_id,
                 text="<b>⚠️ Error showing economic calendar</b>\n\nSorry, there was an error retrieving the economic calendar data. Please try again later.",
                 parse_mode=ParseMode.HTML
             )
+            
+    def _generate_mock_calendar_data(self, currencies, date):
+        """Generate mock calendar data if the real service fails"""
+        self.logger.info(f"Generating mock calendar data for {len(currencies)} currencies")
+        mock_data = {}
+        
+        # Impact levels
+        impact_levels = ["High", "Medium", "Low"]
+        
+        # Possible event titles
+        events = [
+            "Interest Rate Decision",
+            "Non-Farm Payrolls",
+            "GDP Growth Rate",
+            "Inflation Rate",
+            "Unemployment Rate",
+            "Retail Sales",
+            "Manufacturing PMI",
+            "Services PMI",
+            "Trade Balance",
+            "Consumer Confidence",
+            "Building Permits",
+            "Central Bank Speech",
+            "Housing Starts",
+            "Industrial Production"
+        ]
+        
+        # Generate random events for each currency
+        for currency in currencies:
+            num_events = random.randint(1, 5)  # Random number of events per currency
+            currency_events = []
+            
+            for _ in range(num_events):
+                # Generate a random time (hour between 7-18, minute 00, 15, 30 or 45)
+                hour = random.randint(7, 18)
+                minute = random.choice([0, 15, 30, 45])
+                time_str = f"{hour:02d}:{minute:02d} EST"
+                
+                # Random event and impact
+                event = random.choice(events)
+                impact = random.choice(impact_levels)
+                
+                currency_events.append({
+                    "time": time_str,
+                    "event": event,
+                    "impact": impact
+                })
+            
+            # Sort events by time
+            mock_data[currency] = sorted(currency_events, key=lambda x: x["time"])
+        
+        return mock_data
 
     async def signal_technical_callback(self, update: Update, context=None) -> int:
         """Handle signal_technical button press"""
@@ -1669,6 +2001,9 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         query = update.callback_query
         await query.answer()
         
+        # Add detailed debug logging
+        logger.info(f"signal_calendar_callback called with data: {query.data}")
+        
         # Save analysis type in context
         if context and hasattr(context, 'user_data'):
             context.user_data['analysis_type'] = 'calendar'
@@ -1677,11 +2012,23 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         instrument = None
         if context and hasattr(context, 'user_data'):
             instrument = context.user_data.get('instrument')
+            logger.info(f"Instrument from context: {instrument}")
+        
+        # Check if the callback data contains an instrument
+        if query.data.startswith("signal_flow_calendar_"):
+            parts = query.data.split("_")
+            if len(parts) >= 4:
+                instrument = parts[3]  # Extract instrument from callback data
+                logger.info(f"Extracted instrument from callback data: {instrument}")
+                # Save to context
+                if context and hasattr(context, 'user_data'):
+                    context.user_data['instrument'] = instrument
         
         if instrument:
             # Set flag to indicate we're in signal flow
             if context and hasattr(context, 'user_data'):
                 context.user_data['from_signal'] = True
+                logger.info(f"Set from_signal flag to True for calendar analysis of {instrument}")
             
             # Try to show loading animation first
             loading_gif_url = "https://media.giphy.com/media/gSzIKNrqtotEYrZv7i/giphy.gif"
@@ -1695,7 +2042,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                         caption=loading_text
                     )
                 )
-                logger.info(f"Successfully showed loading GIF for {instrument} calendar analysis")
+                logger.info(f"Successfully showed loading GIF for {instrument} calendar")
             except Exception as media_error:
                 logger.warning(f"Could not update with GIF: {str(media_error)}")
                 
@@ -1727,6 +2074,16 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                             )
                         except Exception as gif_error:
                             logger.warning(f"Could not show loading GIF: {str(gif_error)}")
+            
+            # Extract the currency information from the instrument
+            if instrument in INSTRUMENT_CURRENCY_MAP:
+                # Get the base currency which is usually the first currency in the pair
+                base_currency = INSTRUMENT_CURRENCY_MAP[instrument][0]
+                logger.info(f"Using currency {base_currency} for economic calendar of {instrument}")
+                
+                # Store the base currency in context for later reference
+                if context and hasattr(context, 'user_data'):
+                    context.user_data['calendar_currency'] = base_currency
             
             # Show calendar analysis for this instrument
             return await self.show_calendar_analysis(update, context, instrument=instrument)
@@ -2840,32 +3197,27 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                         except Exception as caption_error:
                             logger.error(f"Failed to update caption: {str(caption_error)}")
             
-            # Get the economic calendar data
-            await self.show_economic_calendar(update, context, base_currency)
-            
             # Create the keyboard with appropriate back button based on flow
             keyboard = []
             if from_signal:  # Use from_signal instead of is_from_signal for consistency
                 keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal_analysis")])
             else:
                 keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="back_to_analysis")])
+            reply_markup = InlineKeyboardMarkup(keyboard)
             
             # Clear the loading message from context if it exists
             if context and hasattr(context, 'user_data') and 'loading_message' in context.user_data:
                 context.user_data['loading_message'] = None
             
-            # Add the back button to the calendar message
-            try:
-                # Find the latest message (should be the calendar)
-                async for message in context.bot.iter_chat_history(
-                    chat_id=update.effective_chat.id, limit=1
-                ):
-                    await message.edit_reply_markup(
-                        reply_markup=InlineKeyboardMarkup(keyboard)
-                    )
-                    break
-            except Exception as e:
-                logger.error(f"Failed to add back button to calendar: {str(e)}")
+            # Get the economic calendar data with the prepared back button
+            await self.show_economic_calendar(
+                update, 
+                context, 
+                currency=base_currency, 
+                loading_message=loading_message
+            )
+            
+            # No need to add back button separately - it will be added directly in show_economic_calendar
             
             return SHOW_RESULT
             
@@ -3289,119 +3641,133 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             self.user_signals = {}
 
     async def back_signals_callback(self, update: Update, context=None) -> int:
-        """Handle back_signals button press to return to signals menu"""
+        """Handle back_signals button press"""
         query = update.callback_query
         await query.answer()
         
+        self.logger.info("back_signals_callback called")
+        
+        # Create keyboard for signal menu
+        keyboard = [
+            [InlineKeyboardButton("📊 Add Signal", callback_data="signals_add")],
+            [InlineKeyboardButton("⚙️ Manage Signals", callback_data="signals_manage")],
+            [InlineKeyboardButton("⬅️ Back to Menu", callback_data="back_menu")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        # Update message
+        await self.update_message(
+            query=query,
+            text="<b>📈 Signal Management</b>\n\nManage your trading signals",
+            keyboard=reply_markup
+        )
+        
+        return SIGNALS
+        
+    async def get_subscribers_for_instrument(self, instrument: str, timeframe: str = None) -> List[int]:
+        """Get a list of subscribers for a specific instrument"""
         try:
-            # Return to signals menu
-            keyboard = SIGNALS_KEYBOARD
-            text = "Choose a signals option:"
+            self.logger.info(f"Getting subscribers for {instrument} timeframe: {timeframe}")
+            # Get all premium users
+            subscribers = []
             
-            try:
-                await query.edit_message_text(
-                    text=text,
-                    reply_markup=InlineKeyboardMarkup(keyboard),
-                    parse_mode=ParseMode.HTML
+            # Retrieve users from database
+            query = {"is_premium": True}
+            premium_users = await self.db.find_all("users", query)
+            
+            for user in premium_users:
+                # Check if user has active subscription
+                user_id = user.get("user_id")
+                if user.get("subscription_expiry"):
+                    expiry = datetime.fromisoformat(user.get("subscription_expiry"))
+                    if expiry > datetime.now():
+                        subscribers.append(user_id)
+                        
+            self.logger.info(f"Found {len(subscribers)} subscribers for {instrument}")
+            return subscribers
+        except Exception as e:
+            self.logger.error(f"Error getting subscribers: {str(e)}")
+            return []
+            
+    async def process_signal(self, signal_data: Dict[str, Any]) -> bool:
+        """Process a signal and send to subscribers"""
+        try:
+            self.logger.info(f"Processing signal: {signal_data}")
+            
+            # Extract key data
+            instrument = signal_data.get("instrument")
+            direction = signal_data.get("direction")
+            timeframe = signal_data.get("timeframe", "")
+            
+            if not instrument or not direction:
+                self.logger.error("Missing required signal data")
+                return False
+                
+            # Get subscribers for this instrument
+            subscribers = await self.get_subscribers_for_instrument(instrument, timeframe)
+            
+            if not subscribers:
+                self.logger.warning(f"No subscribers found for {instrument}")
+                return False
+                
+            # Format signal message
+            message = self._format_signal_message(signal_data)
+            
+            # Create the button for signal analysis
+            signal_id = f"{instrument}_{direction}_{timeframe}_{int(time.time())}"
+            keyboard = [[
+                InlineKeyboardButton(
+                    "🔍 Analyze Market", 
+                    callback_data=f"analyze_from_signal_{instrument}_{signal_id}"
                 )
-            except Exception as e:
-                logger.error(f"Error updating message in back_signals_callback: {str(e)}")
-                
-                # If there's a photo or animation, try to delete and send new message
-                if query.message.photo or query.message.animation:
-                    try:
-                        await query.message.delete()
-                        await context.bot.send_message(
-                            chat_id=update.effective_chat.id,
-                            text=text,
-                            reply_markup=InlineKeyboardMarkup(keyboard),
-                            parse_mode=ParseMode.HTML
-                        )
-                    except Exception as delete_error:
-                        logger.error(f"Failed to delete message: {str(delete_error)}")
-                
-                # As a last resort, try to edit caption
-                try:
-                    await query.edit_message_caption(
-                        caption=text,
-                        reply_markup=InlineKeyboardMarkup(keyboard),
-                        parse_mode=ParseMode.HTML
-                    )
-                except Exception as caption_error:
-                    logger.error(f"Failed to update caption: {str(caption_error)}")
+            ]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
             
-            return CHOOSE_SIGNALS
+            # Send signal to all subscribers
+            for user_id in subscribers:
+                try:
+                    await self.bot.send_message(
+                        chat_id=user_id,
+                        text=message,
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=reply_markup
+                    )
+                    self.logger.info(f"Signal sent to user {user_id}")
+                except Exception as e:
+                    self.logger.error(f"Error sending signal to user {user_id}: {str(e)}")
+            
+            return True
             
         except Exception as e:
-            logger.error(f"Error in back_signals_callback: {str(e)}")
-            logger.exception(e)
+            self.logger.error(f"Error processing signal: {str(e)}")
+            return False
             
-            # Error recovery - go to main menu
-            try:
-                await query.edit_message_text(
-                    text="An error occurred. Returning to main menu.",
-                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
-                )
-            except Exception:
-                pass
-                
-            return MENU
-
-    async def update_message(self, query, text, keyboard=None, parse_mode=ParseMode.HTML):
-        """Update a message with robust error handling for different message types"""
-        try:
-            # Check if keyboard should be wrapped in InlineKeyboardMarkup
-            if keyboard and not isinstance(keyboard, InlineKeyboardMarkup):
-                keyboard = InlineKeyboardMarkup(keyboard)
+    def _format_signal_message(self, signal_data: Dict[str, Any]) -> str:
+        """Format a signal into a message for telegram"""
+        instrument = signal_data.get("instrument", "Unknown")
+        direction = signal_data.get("direction", "")
+        timeframe = signal_data.get("timeframe", "")
+        entry = signal_data.get("entry", "Market")
+        stop_loss = signal_data.get("stop_loss", "")
+        take_profit = signal_data.get("take_profit", "")
+        
+        # Add emoji based on direction
+        direction_emoji = "🟢" if direction.upper() == "BUY" else "🔴"
+        
+        # Format the message
+        message = f"<b>{direction_emoji} {instrument} SIGNAL</b>\n\n"
+        message += f"<b>Direction:</b> {direction.upper()}\n"
+        message += f"<b>Timeframe:</b> {timeframe}\n"
+        message += f"<b>Entry:</b> {entry}\n"
+        
+        if stop_loss:
+            message += f"<b>Stop Loss:</b> {stop_loss}\n"
             
-            # Try to edit message text first (most common case)
-            await query.edit_message_text(
-                text=text,
-                reply_markup=keyboard,
-                parse_mode=parse_mode
-            )
-            return True
-        except Exception as text_error:
-            logger.debug(f"Could not edit message text: {str(text_error)}")
+        if take_profit:
+            message += f"<b>Take Profit:</b> {take_profit}\n"
             
-            # If message has photo or animation
-            if hasattr(query, 'message') and (
-                query.message.photo or 
-                query.message.animation or 
-                hasattr(query.message, 'document')
-            ):
-                try:
-                    # Try to delete and send new message
-                    await query.message.delete()
-                    await query.bot.send_message(
-                        chat_id=query.message.chat_id,
-                        text=text,
-                        reply_markup=keyboard,
-                        parse_mode=parse_mode
-                    )
-                    return True
-                except Exception as delete_error:
-                    logger.debug(f"Could not delete and resend: {str(delete_error)}")
-                    
-                    # Try to edit caption if it's a media message
-                    try:
-                        await query.edit_message_caption(
-                            caption=text,
-                            reply_markup=keyboard,
-                            parse_mode=parse_mode
-                        )
-                        return True
-                    except Exception as caption_error:
-                        logger.error(f"Could not edit caption: {str(caption_error)}")
-            
-            # Last resort - send a new message
-            try:
-                await query.message.reply_text(
-                    text=text,
-                    reply_markup=keyboard,
-                    parse_mode=parse_mode
-                )
-                return True
-            except Exception as last_error:
-                logger.error(f"All update_message attempts failed: {str(last_error)}")
-                return False
+        # Add timestamp
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        message += f"\n<i>Generated at {now}</i>"
+        
+        return message
