@@ -1687,20 +1687,45 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     context.user_data['signal_direction'] = signal_direction
                     context.user_data['signal_timeframe'] = timeframe
                 
-                # Show analysis options
-                keyboard = [
-                    [
-                        InlineKeyboardButton("Technical", callback_data=f"analysis_technical_signal_{instrument}_{timeframe}"),
-                        InlineKeyboardButton("Sentiment", callback_data=f"analysis_sentiment_signal_{instrument}"),
-                        InlineKeyboardButton("Calendar", callback_data=f"analysis_calendar_signal_{instrument}")
-                    ],
-                    [InlineKeyboardButton("Back to Signal", callback_data="back_to_signal")]
-                ]
+                # Use the standard ANALYSIS_KEYBOARD but replace the Back button
+                # to point to back_to_signal instead of back_menu
+                keyboard = copy.deepcopy(ANALYSIS_KEYBOARD)
+                # Replace the last row (which contains the Back button)
+                keyboard[-1] = [InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal")]
                 
-                await query.edit_message_text(
-                    text=f"Select your analysis type for {instrument}:",
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
+                # Gebruik de juiste analyse GIF URL
+                gif_url = "https://media.giphy.com/media/gSzIKNrqtotEYrZv7i/giphy.gif"
+                
+                # Probeer eerst het huidige bericht te updaten met de analyse GIF
+                try:
+                    await query.edit_message_media(
+                        media=InputMediaAnimation(
+                            media=gif_url,
+                            caption=f"Select your analysis type for {instrument}:"
+                        ),
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+                except Exception as media_error:
+                    logger.warning(f"Could not update media: {str(media_error)}")
+                    
+                    # Als media update mislukt, probeer tekst te updaten
+                    try:
+                        await query.edit_message_text(
+                            text=f"Select your analysis type for {instrument}:",
+                            reply_markup=InlineKeyboardMarkup(keyboard),
+                            parse_mode=ParseMode.HTML
+                        )
+                    except Exception as text_error:
+                        # Als tekst updaten mislukt, probeer bijschrift te updaten
+                        if "There is no text in the message to edit" in str(text_error):
+                            try:
+                                await query.edit_message_caption(
+                                    caption=f"Select your analysis type for {instrument}:",
+                                    reply_markup=InlineKeyboardMarkup(keyboard),
+                                    parse_mode=ParseMode.HTML
+                                )
+                            except Exception as caption_error:
+                                logger.error(f"Failed to update caption: {str(caption_error)}")
                 
                 return ANALYSIS
             else:
