@@ -835,6 +835,25 @@ class TelegramService:
         
         self.logger.info("back_signals_callback called")
         
+        # Make sure we're in the signals flow context
+        if context and hasattr(context, 'user_data'):
+            # Keep is_signals_context flag but reset from_signal flag
+            context.user_data['is_signals_context'] = True
+            context.user_data['from_signal'] = False
+            
+            # Clear other specific analysis keys but maintain signals context
+            keys_to_remove = [
+                'instrument', 'market', 'analysis_type', 'timeframe', 
+                'signal_id', 'signal_instrument', 'signal_direction', 'signal_timeframe',
+                'loading_message'
+            ]
+            
+            for key in keys_to_remove:
+                if key in context.user_data:
+                    del context.user_data[key]
+            
+            self.logger.info(f"Updated context in back_signals_callback: {context.user_data}")
+        
         # Create keyboard for signal menu
         keyboard = [
             [InlineKeyboardButton("📊 Add Signal", callback_data="signals_add")],
@@ -843,12 +862,30 @@ class TelegramService:
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        # Update message
-        await self.update_message(
-            query=query,
-            text="<b>📈 Signal Management</b>\n\nManage your trading signals",
-            keyboard=reply_markup
-        )
+        # Get the signals GIF URL for better UX
+        signals_gif_url = "https://media.giphy.com/media/gSzIKNrqtotEYrZv7i/giphy.gif"
+        
+        # Try to update with GIF for better visual feedback
+        try:
+            # First try to delete and send new message with GIF
+            await query.message.delete()
+            await context.bot.send_animation(
+                chat_id=update.effective_chat.id,
+                animation=signals_gif_url,
+                caption="<b>📈 Signal Management</b>\n\nManage your trading signals",
+                parse_mode=ParseMode.HTML,
+                reply_markup=reply_markup
+            )
+            return SIGNALS
+        except Exception as delete_error:
+            self.logger.warning(f"Could not delete message: {str(delete_error)}")
+            
+            # Fallback to update message
+            await self.update_message(
+                query=query,
+                text="<b>📈 Signal Management</b>\n\nManage your trading signals",
+                keyboard=reply_markup
+            )
         
         return SIGNALS
         
@@ -4313,3 +4350,207 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             )
             
         return CHOOSE_ANALYSIS
+
+    async def back_menu_callback(self, update: Update, context=None) -> int:
+        """Handle back_menu button press to return to main menu.
+        
+        This function properly separates the /menu flow from the signal flow
+        by clearing context data to prevent mixing of flows.
+        """
+        query = update.callback_query
+        await query.answer()
+        
+        try:
+            # Reset all context data to ensure clean separation between flows
+            if context and hasattr(context, 'user_data'):
+                # Log the current context for debugging
+                logger.info(f"Clearing user context data: {context.user_data}")
+                
+                # List of keys to remove to ensure separation of flows
+                keys_to_remove = [
+                    'instrument', 'market', 'analysis_type', 'timeframe',
+                    'signal_id', 'from_signal', 'is_signals_context',
+                    'signal_instrument', 'signal_direction', 'signal_timeframe',
+                    'signal_instrument_backup', 'signal_direction_backup', 'signal_timeframe_backup',
+                    'signal_id_backup', 'loading_message'
+                ]
+                
+                # Remove all flow-specific keys
+                for key in keys_to_remove:
+                    if key in context.user_data:
+                        del context.user_data[key]
+                
+                # Explicitly set the signals context flag to False
+                context.user_data['is_signals_context'] = False
+                context.user_data['from_signal'] = False
+                
+                logger.info(f"Set menu flow context: {context.user_data}")
+            
+            # GIF URL for the welcome animation
+            gif_url = "https://media.giphy.com/media/gSzIKNrqtotEYrZv7i/giphy.gif"
+            
+            try:
+                # First approach: delete the current message and send a new one
+                await query.message.delete()
+                await context.bot.send_animation(
+                    chat_id=update.effective_chat.id,
+                    animation=gif_url,
+                    caption=WELCOME_MESSAGE,
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
+                )
+                return MENU
+            except Exception as delete_e:
+                logger.warning(f"Could not delete message: {str(delete_e)}")
+                
+                # Try to replace with a GIF
+                try:
+                    # If message has photo or animation, replace media
+                    if query.message.photo or query.message.animation:
+                        await query.edit_message_media(
+                            media=InputMediaAnimation(
+                                media=gif_url,
+                                caption=WELCOME_MESSAGE
+                            ),
+                            reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
+                        )
+                    else:
+                        # Otherwise just update text
+                        await query.edit_message_text(
+                            text=WELCOME_MESSAGE,
+                            parse_mode=ParseMode.HTML,
+                            reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
+                        )
+                except Exception as e:
+                    logger.warning(f"Could not update message media/text: {str(e)}")
+                    
+                    # Last resort: try to update just the caption
+                    try:
+                        await query.edit_message_caption(
+                            caption=WELCOME_MESSAGE,
+                            parse_mode=ParseMode.HTML,
+                            reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
+                        )
+                    except Exception as caption_e:
+                        logger.error(f"Failed to update caption in back_menu_callback: {str(caption_e)}")
+                        
+                        # Absolute last resort: send a new message
+                        await context.bot.send_message(
+                            chat_id=update.effective_chat.id,
+                            text=WELCOME_MESSAGE,
+                            parse_mode=ParseMode.HTML,
+                            reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
+                        )
+            
+            return MENU
+        except Exception as e:
+            logger.error(f"Error in back_menu_callback: {str(e)}")
+            # Try to recover by sending a basic menu as fallback
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text=WELCOME_MESSAGE,
+                parse_mode=ParseMode.HTML,
+                reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
+            )
+            return MENU
+
+    async def menu_signals_callback(self, update: Update, context=None) -> int:
+        """Handle menu_signals button press to show signals management menu.
+        
+        This function properly sets up the signals flow context to ensure it doesn't
+        mix with the regular menu flow.
+        """
+        query = update.callback_query
+        await query.answer()
+        
+        logger.info("menu_signals_callback called")
+        
+        try:
+            # Set the signals context flag to True and reset other context
+            if context and hasattr(context, 'user_data'):
+                # First clear any previous flow-specific data to prevent mixing
+                context.user_data.clear()
+                
+                # Set flags specifically for signals flow
+                context.user_data['is_signals_context'] = True
+                context.user_data['from_signal'] = False
+                
+                logger.info(f"Set signal flow context: {context.user_data}")
+            
+            # Get the signals GIF URL for better UX
+            signals_gif_url = "https://media.giphy.com/media/gSzIKNrqtotEYrZv7i/giphy.gif"
+            
+            # Create keyboard for signals menu
+            keyboard = [
+                [InlineKeyboardButton("📊 Add Signal", callback_data="signals_add")],
+                [InlineKeyboardButton("⚙️ Manage Signals", callback_data="signals_manage")],
+                [InlineKeyboardButton("⬅️ Back to Menu", callback_data="back_menu")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            # Try to update with GIF for better visual feedback
+            try:
+                # First try to delete and send new message with GIF
+                await query.message.delete()
+                await context.bot.send_animation(
+                    chat_id=update.effective_chat.id,
+                    animation=signals_gif_url,
+                    caption="<b>📈 Signal Management</b>\n\nManage your trading signals",
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=reply_markup
+                )
+                return SIGNALS
+            except Exception as delete_error:
+                logger.warning(f"Could not delete message: {str(delete_error)}")
+                
+                # If deletion fails, try replacing with a GIF
+                try:
+                    # If message has photo or animation, replace media
+                    if hasattr(query.message, 'photo') and query.message.photo or hasattr(query.message, 'animation') and query.message.animation:
+                        await query.edit_message_media(
+                            media=InputMediaAnimation(
+                                media=signals_gif_url,
+                                caption="<b>📈 Signal Management</b>\n\nManage your trading signals"
+                            ),
+                            reply_markup=reply_markup
+                        )
+                    else:
+                        # Otherwise just update text
+                        await query.edit_message_text(
+                            text="<b>📈 Signal Management</b>\n\nManage your trading signals",
+                            parse_mode=ParseMode.HTML,
+                            reply_markup=reply_markup
+                        )
+                    return SIGNALS
+                except Exception as e:
+                    logger.warning(f"Could not update message media/text: {str(e)}")
+                    
+                    # Last resort: try to update just the caption
+                    try:
+                        await query.edit_message_caption(
+                            caption="<b>📈 Signal Management</b>\n\nManage your trading signals",
+                            parse_mode=ParseMode.HTML,
+                            reply_markup=reply_markup
+                        )
+                    except Exception as caption_e:
+                        logger.error(f"Failed to update caption in menu_signals_callback: {str(caption_e)}")
+                        
+                        # Absolute last resort: send a new message
+                        await context.bot.send_message(
+                            chat_id=update.effective_chat.id,
+                            text="<b>📈 Signal Management</b>\n\nManage your trading signals",
+                            parse_mode=ParseMode.HTML,
+                            reply_markup=reply_markup
+                        )
+            
+            return SIGNALS
+        except Exception as e:
+            logger.error(f"Error in menu_signals_callback: {str(e)}")
+            # Fallback approach on error
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text="<b>📈 Signal Management</b>\n\nManage your trading signals",
+                parse_mode=ParseMode.HTML,
+                reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD)
+            )
+            return SIGNALS
