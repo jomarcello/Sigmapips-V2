@@ -292,7 +292,7 @@ SIGNAL_ANALYSIS_KEYBOARD = [
     [InlineKeyboardButton("📈 Technical Analysis", callback_data="signal_technical")],
     [InlineKeyboardButton("🧠 Market Sentiment", callback_data="signal_sentiment")],
     [InlineKeyboardButton("📅 Economic Calendar", callback_data="signal_calendar")],
-    [InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal")]
+    [InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal")]
 ]
 
 # Crypto keyboard voor sentiment analyse
@@ -2425,17 +2425,13 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             
             # Show analysis options for this instrument
             # Format message
-            keyboard = [
-                [InlineKeyboardButton("📊 Technical", callback_data=f"signal_technical")],
-                [InlineKeyboardButton("🧠 Sentiment", callback_data=f"signal_sentiment")],
-                [InlineKeyboardButton("📅 Calendar", callback_data=f"signal_calendar")],
-                [InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal")]
-            ]
+            # Use the SIGNAL_ANALYSIS_KEYBOARD for consistency
+            keyboard = SIGNAL_ANALYSIS_KEYBOARD
             
             # Try to edit the message text
             try:
                 await query.edit_message_text(
-                    text=f"Select analysis type for {instrument}:",
+                    text=f"Select your analysis type:",
                     reply_markup=InlineKeyboardMarkup(keyboard),
                     parse_mode=ParseMode.HTML
                 )
@@ -2443,7 +2439,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 logger.error(f"Error in analyze_from_signal_callback: {str(e)}")
                 # Fall back to sending a new message
                 await query.message.reply_text(
-                    text=f"Select analysis type for {instrument}:",
+                    text=f"Select your analysis type:",
                     reply_markup=InlineKeyboardMarkup(keyboard),
                     parse_mode=ParseMode.HTML
                 )
@@ -3734,16 +3730,11 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Check if message has photo or animation
             has_photo = bool(query.message.photo) or query.message.animation is not None
             
-            # Create keyboard for analysis options
-            keyboard = [
-                [InlineKeyboardButton("📈 Technical Analysis", callback_data=f"signal_technical")],
-                [InlineKeyboardButton("🧠 Market Sentiment", callback_data=f"signal_sentiment")],
-                [InlineKeyboardButton("📅 Economic Calendar", callback_data=f"signal_calendar")],
-                [InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal")]
-            ]
+            # Use the standard SIGNAL_ANALYSIS_KEYBOARD
+            keyboard = SIGNAL_ANALYSIS_KEYBOARD
             
             # Format the message text
-            text = f"Select analysis type for {instrument}:" if instrument else "Select analysis type:"
+            text = f"Select your analysis type:"
             
             if has_photo:
                 # Try to delete the message first (if possible)
