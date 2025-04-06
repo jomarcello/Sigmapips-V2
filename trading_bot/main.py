@@ -21,7 +21,8 @@ load_dotenv()
 from trading_bot.services.database.db import Database
 from trading_bot.services.chart_service.chart import ChartService
 from trading_bot.services.sentiment_service.sentiment import MarketSentimentService
-from trading_bot.services.calendar_service.calendar import EconomicCalendarService
+# Import from package level to let the __init__.py handle the specific implementation
+from trading_bot.services.calendar_service import EconomicCalendarService
 
 # Import directly from the module to avoid circular imports through __init__.py
 from trading_bot.services.telegram_service.bot import TelegramService
