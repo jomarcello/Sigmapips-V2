@@ -3306,18 +3306,24 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             else:
                 base_currency = instrument
             
-            # Check if we already have a loading message from context
+            # Check if we have a message with media
+            has_photo = False
+            if query and query.message:
+                has_photo = bool(query.message.photo) or query.message.animation is not None
+                
+            # Show loading message with GIF
+            loading_text = f"Loading economic calendar..."
+            loading_gif = "https://media.giphy.com/media/dpjUltnOPye7azvAhH/giphy.gif"
             loading_message = None
-            if context and hasattr(context, 'user_data'):
-                loading_message = context.user_data.get('loading_message')
-                
-            # If no loading message in context, create one
-            if not loading_message:
-                # Show loading message with GIF - similar to sentiment analysis
-                loading_text = f"Loading economic calendar..."
-                loading_gif = "https://media.giphy.com/media/dpjUltnOPye7azvAhH/giphy.gif"
-                
-                try:
+            
+            try:
+                # Show loading animation if we're not already displaying an image
+                if not has_photo:
+                    # Try to show animated GIF for loading
+                    await query.edit_message_text(
+                        text=loading_text
+                    )
+                else:
                     # Try to show animated GIF for loading
                     await query.edit_message_media(
                         media=InputMediaAnimation(
@@ -3325,44 +3331,123 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                             caption=loading_text
                         )
                     )
-                    logger.info(f"Successfully showed loading GIF for economic calendar")
-                except Exception as gif_error:
-                    logger.warning(f"Could not show loading GIF: {str(gif_error)}")
-                    # Fallback to text loading message
-                    try:
-                        loading_message = await query.edit_message_text(
-                            text=loading_text
-                        )
-                    except Exception as e:
-                        logger.error(f"Failed to show loading message: {str(e)}")
-                        # Try to edit caption as last resort
-                        try:
-                            await query.edit_message_caption(caption=loading_text)
-                        except Exception as caption_error:
-                            logger.error(f"Failed to update caption: {str(caption_error)}")
+                logger.info(f"Successfully showed loading indicator for economic calendar")
+            except Exception as gif_error:
+                logger.warning(f"Could not show loading indicator: {str(gif_error)}")
+                # Fallback to updating caption
+                try:
+                    await query.edit_message_caption(caption=loading_text)
+                except Exception as caption_error:
+                    logger.error(f"Failed to update caption: {str(caption_error)}")
             
             # Create the keyboard with appropriate back button based on flow
             keyboard = []
-            if from_signal:  # Use from_signal instead of is_from_signal for consistency
+            if from_signal:
                 keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal_analysis")])
             else:
                 keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="back_to_analysis")])
             reply_markup = InlineKeyboardMarkup(keyboard)
             
-            # Clear the loading message from context if it exists
-            if context and hasattr(context, 'user_data') and 'loading_message' in context.user_data:
-                context.user_data['loading_message'] = None
+            # Get the economic calendar data
+            # We always get data for ALL major currencies, regardless of the instrument
+            calendar_data = []
+            message_text = ""
             
-            # Get the economic calendar data with the prepared back button
-            # We always get data for ALL major currencies, ongeacht het instrument
-            await self.show_economic_calendar(
-                update, 
-                context,
-                currency=None,  # Pass None to show all currencies
-                loading_message=loading_message
-            )
+            # Initialize the calendar service and get data
+            calendar_service = self._get_calendar_service()
+            try:
+                if hasattr(calendar_service, 'get_calendar'):
+                    calendar_data = await calendar_service.get_calendar()
+                
+                # Format the calendar data
+                if hasattr(self, '_format_calendar_events'):
+                    message_text = await self._format_calendar_events(calendar_data)
+                else:
+                    # Fallback to calendar service formatting
+                    if hasattr(calendar_service, '_format_calendar_response'):
+                        message_text = await calendar_service._format_calendar_response(calendar_data, "ALL")
+                    else:
+                        # Simple formatting fallback
+                        message_text = "<b>📅 Economic Calendar</b>\n\n"
+                        for event in calendar_data[:10]:
+                            country = event.get('country', 'Unknown')
+                            title = event.get('title', 'Unknown Event')
+                            time = event.get('time', 'Unknown Time')
+                            message_text += f"{country}: {time} - {title}\n\n"
+            except Exception as e:
+                logger.error(f"Error getting calendar data: {str(e)}")
+                message_text = "<b>⚠️ Error</b>\n\nCould not retrieve economic calendar data."
             
-            # No need to add back button separately - it will be added directly in show_economic_calendar
+            # Multi-step approach to remove loading GIF and display calendar data
+            try:
+                # Step 1: Try to delete the message and send a new one
+                chat_id = update.effective_chat.id
+                message_id = query.message.message_id
+                
+                try:
+                    # Try to delete the current message
+                    await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
+                    # Send a new message with the calendar data
+                    await context.bot.send_message(
+                        chat_id=chat_id,
+                        text=message_text,
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=reply_markup
+                    )
+                    logger.info("Successfully deleted loading message and sent new calendar data")
+                except Exception as delete_error:
+                    logger.warning(f"Could not delete message: {str(delete_error)}")
+                    
+                    # Step 2: If deletion fails, try replacing with transparent GIF
+                    try:
+                        transparent_gif = "https://upload.wikimedia.org/wikipedia/commons/thumb/0/00/Transparent.gif/1px-Transparent.gif"
+                        if has_photo:
+                            await query.edit_message_media(
+                                media=InputMediaDocument(
+                                    media=transparent_gif,
+                                    caption=message_text,
+                                    parse_mode=ParseMode.HTML
+                                ),
+                                reply_markup=reply_markup
+                            )
+                            logger.info("Replaced loading GIF with transparent GIF and updated calendar data")
+                        else:
+                            # If no media, just update the text
+                            await query.edit_message_text(
+                                text=message_text,
+                                parse_mode=ParseMode.HTML,
+                                reply_markup=reply_markup
+                            )
+                            logger.info("Updated text with calendar data")
+                    except Exception as media_error:
+                        logger.warning(f"Could not update media: {str(media_error)}")
+                        
+                        # Step 3: As last resort, only update the caption
+                        try:
+                            await query.edit_message_caption(
+                                caption=message_text,
+                                parse_mode=ParseMode.HTML,
+                                reply_markup=reply_markup
+                            )
+                            logger.info("Updated caption with calendar data")
+                        except Exception as caption_error:
+                            logger.error(f"Failed to update caption: {str(caption_error)}")
+                            # Send a new message as absolutely last resort
+                            await context.bot.send_message(
+                                chat_id=chat_id,
+                                text=message_text,
+                                parse_mode=ParseMode.HTML,
+                                reply_markup=reply_markup
+                            )
+            except Exception as e:
+                logger.error(f"Error displaying calendar data: {str(e)}")
+                # Error recovery - send new message
+                await context.bot.send_message(
+                    chat_id=update.effective_chat.id,
+                    text="<b>⚠️ Error</b>\n\nFailed to display economic calendar data.",
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=reply_markup
+                )
             
             return SHOW_RESULT
             
@@ -4113,3 +4198,93 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         )
         
         return SIGNALS
+
+    async def analysis_callback(self, update: Update, context=None) -> int:
+        """Handle back button from market selection to analysis menu"""
+        query = update.callback_query
+        await query.answer()
+        
+        logger.info("analysis_callback called - returning to analysis menu")
+        
+        # Determine if we have a photo or animation
+        has_photo = False
+        if query and query.message:
+            has_photo = bool(query.message.photo) or query.message.animation is not None
+            
+        # Get the analysis GIF URL
+        gif_url = "https://media.giphy.com/media/gSzIKNrqtotEYrZv7i/giphy.gif"
+        
+        # Multi-step approach to handle media messages
+        try:
+            # Step 1: Try to delete the message and send a new one
+            chat_id = update.effective_chat.id
+            message_id = query.message.message_id
+            
+            try:
+                # Try to delete the current message
+                await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
+                # Send a new message with the analysis menu
+                await context.bot.send_animation(
+                    chat_id=chat_id,
+                    animation=gif_url,
+                    caption="Select your analysis type:",
+                    reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
+                    parse_mode=ParseMode.HTML
+                )
+                logger.info("Successfully deleted message and sent new analysis menu")
+                return CHOOSE_ANALYSIS
+            except Exception as delete_error:
+                logger.warning(f"Could not delete message: {str(delete_error)}")
+                
+                # Step 2: If deletion fails, try replacing with a GIF or transparent GIF
+                try:
+                    if has_photo:
+                        # Replace with the analysis GIF
+                        await query.edit_message_media(
+                            media=InputMediaAnimation(
+                                media=gif_url,
+                                caption="Select your analysis type:"
+                            ),
+                            reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
+                        )
+                    else:
+                        # Just update the text
+                        await query.edit_message_text(
+                            text="Select your analysis type:",
+                            reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
+                            parse_mode=ParseMode.HTML
+                        )
+                    logger.info("Updated message with analysis menu")
+                    return CHOOSE_ANALYSIS
+                except Exception as media_error:
+                    logger.warning(f"Could not update media: {str(media_error)}")
+                    
+                    # Step 3: As last resort, only update the caption
+                    try:
+                        await query.edit_message_caption(
+                            caption="Select your analysis type:",
+                            reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
+                            parse_mode=ParseMode.HTML
+                        )
+                        logger.info("Updated caption with analysis menu")
+                        return CHOOSE_ANALYSIS
+                    except Exception as caption_error:
+                        logger.error(f"Failed to update caption in analysis_callback: {str(caption_error)}")
+                        # Send a new message as absolutely last resort
+                        await context.bot.send_message(
+                            chat_id=chat_id,
+                            text="Select your analysis type:",
+                            parse_mode=ParseMode.HTML,
+                            reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
+                        )
+        except Exception as e:
+            logger.error(f"Error in analysis_callback: {str(e)}")
+            # Send a new message as fallback
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text="Select your analysis type:",
+                parse_mode=ParseMode.HTML,
+                reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
+            )
+            
+        return CHOOSE_ANALYSIS
