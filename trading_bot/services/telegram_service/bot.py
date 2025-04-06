@@ -670,8 +670,8 @@ class TelegramService:
         self.calendar_service = EconomicCalendarService()  # Economic calendar service
         self.sentiment_service = MarketSentimentService()  # Market sentiment service
         
-        # Initialize chart service
-        asyncio.create_task(self.chart_service.initialize())
+        # Don't use asyncio.create_task here - it requires a running event loop
+        # We'll initialize chart service later when the event loop is running
         
         # Bot application initialization
         self.persistence = None
@@ -708,6 +708,16 @@ class TelegramService:
             logger.error(f"Error initializing Telegram service: {str(e)}")
             raise
 
+    async def initialize_services(self):
+        """Initialize services that require an asyncio event loop"""
+        try:
+            # Initialize chart service
+            await self.chart_service.initialize()
+            logger.info("Chart service initialized")
+        except Exception as e:
+            logger.error(f"Error initializing services: {str(e)}")
+            raise
+            
     # Calendar service helpers
     def _get_calendar_service(self):
         """Get the calendar service instance"""
@@ -1132,8 +1142,8 @@ class TelegramService:
             try:
                 # Instead of using loop.run_until_complete, directly call initialize 
                 # which will be properly awaited by the caller
-                asyncio.create_task(application.initialize())
-                logger.info("Telegram application initialization task created")
+                self.init_task = application.initialize()
+                logger.info("Telegram application initialization ready to be awaited")
             except Exception as init_e:
                 logger.error(f"Error during application initialization: {str(init_e)}")
                 logger.exception(init_e)
@@ -1145,13 +1155,13 @@ class TelegramService:
                 BotCommand("help", "Show available commands and how to use the bot")
             ]
             
-            # Set the commands asynchronously
+            # Store the set_commands task to be awaited later
             try:
-                # Create a task instead of blocking with run_until_complete
-                asyncio.create_task(self.bot.set_my_commands(commands))
-                logger.info("Bot commands set task created")
+                # Instead of asyncio.create_task, we will await this in the startup event
+                self.set_commands_task = self.bot.set_my_commands(commands)
+                logger.info("Bot commands ready to be set")
             except Exception as cmd_e:
-                logger.error(f"Error setting bot commands: {str(cmd_e)}")
+                logger.error(f"Error preparing bot commands: {str(cmd_e)}")
             
             # Register command handlers
             application.add_handler(CommandHandler("start", self.start_command))
