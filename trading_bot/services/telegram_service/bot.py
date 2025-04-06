@@ -4020,3 +4020,198 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 )
             
             return CHOOSE_SIGNALS
+
+    async def instrument_signals_callback(self, update: Update, context=None) -> int:
+        """Handle instrument selection for signals"""
+        query = update.callback_query
+        await query.answer()
+        callback_data = query.data
+        
+        # Extract the instrument from the callback data
+        # Format: "instrument_EURUSD_signals"
+        parts = callback_data.split("_")
+        instrument_parts = []
+        
+        # Find where the "signals" specifier starts
+        for i, part in enumerate(parts[1:], 1):  # Skip "instrument_" prefix
+            if part == "signals":
+                break
+            instrument_parts.append(part)
+        
+        # Join the instrument parts
+        instrument = "_".join(instrument_parts) if instrument_parts else ""
+        
+        # Store instrument in context
+        if context and hasattr(context, 'user_data'):
+            context.user_data['instrument'] = instrument
+            context.user_data['is_signals_context'] = True
+        
+        logger.info(f"Instrument signals callback: instrument={instrument}")
+        
+        if not instrument:
+            logger.error("No instrument found in callback data")
+            await query.edit_message_text(
+                text="Invalid instrument selection. Please try again.",
+                reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD_SIGNALS)
+            )
+            return CHOOSE_MARKET
+        
+        # Each instrument has only one timeframe available, get it directly
+        if instrument in INSTRUMENT_TIMEFRAME_MAP:
+            # Get the predefined timeframe for this instrument
+            timeframe = INSTRUMENT_TIMEFRAME_MAP[instrument]
+            timeframe_display = TIMEFRAME_DISPLAY_MAP.get(timeframe, timeframe)
+            
+            # Check if user is already subscribed to this instrument
+            user_id = update.effective_user.id
+            
+            # Check if the subscription already exists in the signal_subscriptions table
+            try:
+                signal_subs = self.db.supabase.table('signal_subscriptions').select('*').eq('user_id', user_id).eq('instrument', instrument).execute()
+                
+                # Create keyboard with options to add more or go back
+                keyboard = [
+                    [InlineKeyboardButton("➕ Add More Pairs", callback_data="signals_add")],
+                    [InlineKeyboardButton("⬅️ Back to Signals", callback_data="back_signals")]
+                ]
+                
+                if signal_subs and signal_subs.data:
+                    # User is already subscribed to this instrument
+                    message = f"ℹ️ You are already subscribed to {instrument} ({timeframe_display}) signals."
+                else:
+                    # Subscribe the user to this instrument
+                    await self.db.subscribe_to_instrument(user_id, instrument, timeframe)
+                    message = f"✅ Successfully subscribed to {instrument} ({timeframe_display}) signals!"
+            except Exception as e:
+                logger.error(f"Error checking signal_subscriptions: {str(e)}")
+                # If there's an error, proceed with subscription anyway
+                await self.db.subscribe_to_instrument(user_id, instrument, timeframe)
+                message = f"✅ Successfully subscribed to {instrument} ({timeframe_display}) signals!"
+                # Create keyboard with options to add more or go back
+                keyboard = [
+                    [InlineKeyboardButton("➕ Add More Pairs", callback_data="signals_add")],
+                    [InlineKeyboardButton("⬅️ Back to Signals", callback_data="back_signals")]
+                ]
+            
+            try:
+                await query.edit_message_text(
+                    text=message,
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.HTML
+                )
+            except Exception as text_error:
+                # If that fails due to caption, try editing caption
+                if "There is no text in the message to edit" in str(text_error):
+                    try:
+                        await query.edit_message_caption(
+                            caption=message,
+                            reply_markup=InlineKeyboardMarkup(keyboard),
+                            parse_mode=ParseMode.HTML
+                        )
+                    except Exception as e:
+                        logger.error(f"Failed to update caption: {str(e)}")
+                        # Try to send a new message as last resort
+                        await query.message.reply_text(
+                            text=message,
+                            reply_markup=InlineKeyboardMarkup(keyboard),
+                            parse_mode=ParseMode.HTML
+                        )
+                else:
+                    # Re-raise for other errors
+                    raise
+            
+            return CHOOSE_SIGNALS
+        else:
+            # Instrument not found in mapping
+            error_message = f"❌ Sorry, {instrument} is currently not available for signal subscription."
+            
+            # Show error and back button
+            keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]]
+            
+            try:
+                await query.edit_message_text(
+                    text=error_message,
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.HTML
+                )
+            except Exception as text_error:
+                # If that fails due to caption, try editing caption
+                if "There is no text in the message to edit" in str(text_error):
+                    try:
+                        await query.edit_message_caption(
+                            caption=error_message,
+                            reply_markup=InlineKeyboardMarkup(keyboard),
+                            parse_mode=ParseMode.HTML
+                        )
+                    except Exception as e:
+                        logger.error(f"Failed to update caption: {str(e)}")
+                        # Try to send a new message as last resort
+                        await query.message.reply_text(
+                            text=error_message,
+                            reply_markup=InlineKeyboardMarkup(keyboard),
+                            parse_mode=ParseMode.HTML
+                        )
+                else:
+                    # Re-raise for other errors
+                    raise
+            
+            return CHOOSE_MARKET
+            
+    async def back_market_callback(self, update: Update, context=None) -> int:
+        """Handle back button to return to market selection"""
+        query = update.callback_query
+        await query.answer()
+        
+        # Get analysis type from context
+        analysis_type = None
+        if context and hasattr(context, 'user_data'):
+            analysis_type = context.user_data.get('analysis_type')
+            is_signals_context = context.user_data.get('is_signals_context', False)
+        
+        # Determine which keyboard to show based on analysis type
+        if is_signals_context:
+            # For signals, always go back to the signals market keyboard
+            keyboard = MARKET_KEYBOARD_SIGNALS
+            text = "Select market for signal subscription:"
+        else:
+            # For analysis, select appropriate keyboard based on analysis type
+            if analysis_type == "sentiment":
+                keyboard = MARKET_SENTIMENT_KEYBOARD
+                text = "Select market for sentiment analysis:"
+            elif analysis_type == "calendar":
+                keyboard = MARKET_KEYBOARD
+                text = "Select market for economic calendar:"
+            else:
+                # Default to regular market keyboard
+                keyboard = MARKET_KEYBOARD
+                text = "Select market for analysis:"
+        
+        # Update message with the appropriate keyboard
+        try:
+            await query.edit_message_text(
+                text=text,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode=ParseMode.HTML
+            )
+        except Exception as text_error:
+            # If that fails due to caption, try editing caption
+            if "There is no text in the message to edit" in str(text_error):
+                try:
+                    await query.edit_message_caption(
+                        caption=text,
+                        reply_markup=InlineKeyboardMarkup(keyboard),
+                        parse_mode=ParseMode.HTML
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to update caption in back_market_callback: {str(e)}")
+                    # Try to send a new message as last resort
+                    await query.message.reply_text(
+                        text=text,
+                        reply_markup=InlineKeyboardMarkup(keyboard),
+                        parse_mode=ParseMode.HTML
+                    )
+            else:
+                # Re-raise for other errors
+                raise
+        
+        return CHOOSE_MARKET
