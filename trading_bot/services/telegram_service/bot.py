@@ -1464,6 +1464,9 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         query = update.callback_query
         await query.answer()
         
+        # Add detailed debug logging
+        logger.info(f"signal_technical_callback called with query data: {query.data}")
+        
         # Save analysis type in context
         if context and hasattr(context, 'user_data'):
             context.user_data['analysis_type'] = 'technical'
@@ -1472,15 +1475,25 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         instrument = None
         if context and hasattr(context, 'user_data'):
             instrument = context.user_data.get('instrument')
+            # Debug log for instrument
+            logger.info(f"Instrument from context: {instrument}")
         
         if instrument:
             # Set flag to indicate we're in signal flow
             if context and hasattr(context, 'user_data'):
                 context.user_data['from_signal'] = True
+                logger.info("Set from_signal flag to True")
             
             # Try to show loading animation first
             loading_gif_url = "https://media.giphy.com/media/gSzIKNrqtotEYrZv7i/giphy.gif"
             loading_text = f"Loading {instrument} chart..."
+            
+            # Store the current message ID to ensure we can find it later
+            message_id = query.message.message_id
+            chat_id = update.effective_chat.id
+            logger.info(f"Current message_id: {message_id}, chat_id: {chat_id}")
+            
+            loading_message = None
             
             try:
                 # Try to update with animated GIF first (best visual experience)
@@ -2302,21 +2315,17 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         query = update.callback_query
         
         try:
+            # Add detailed debug logging
+            logger.info(f"show_technical_analysis called for instrument: {instrument}, timeframe: {timeframe}")
+            if query:
+                logger.info(f"Query data: {query.data}")
+            
             # Check if we're in signal flow
             from_signal = False
             if context and hasattr(context, 'user_data'):
                 from_signal = context.user_data.get('from_signal', False)
-                
-            # Clear loading message if present
-            loading_message = None
-            if context and hasattr(context, 'user_data'):
-                loading_message = context.user_data.get('loading_message')
-                if loading_message:
-                    try:
-                        await loading_message.delete()
-                        context.user_data['loading_message'] = None
-                    except Exception as e:
-                        logger.error(f"Failed to delete loading message: {str(e)}")
+                logger.info(f"From signal flow: {from_signal}")
+                logger.info(f"Context user_data: {context.user_data}")
             
             # If no instrument is provided, try to extract it from callback data
             if not instrument and query:
@@ -2357,13 +2366,40 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Get chart URL
             logger.info(f"Getting technical analysis chart for {instrument} on {timeframe} timeframe")
             
-            # Show loading message
-            try:
-                loading_message = await query.edit_message_text(
-                    text=f"Loading {instrument} {timeframe} chart..."
-                )
-            except Exception as e:
-                logger.error(f"Failed to show loading message: {str(e)}")
+            # Check if we have a loading message in context.user_data
+            loading_message = None
+            if context and hasattr(context, 'user_data'):
+                loading_message = context.user_data.get('loading_message')
+            
+            # If no loading message in context or not in signal flow, create one
+            if not loading_message:
+                # Show loading message with GIF - similar to sentiment analysis
+                loading_text = f"Loading {instrument} {timeframe} chart..."
+                loading_gif = "https://media.giphy.com/media/dpjUltnOPye7azvAhH/giphy.gif"
+                
+                try:
+                    # Try to show animated GIF for loading
+                    await query.edit_message_media(
+                        media=InputMediaAnimation(
+                            media=loading_gif,
+                            caption=loading_text
+                        )
+                    )
+                    logger.info(f"Successfully showed loading GIF for {instrument} technical analysis")
+                except Exception as gif_error:
+                    logger.warning(f"Could not show loading GIF: {str(gif_error)}")
+                    # Fallback to text loading message
+                    try:
+                        loading_message = await query.edit_message_text(
+                            text=loading_text
+                        )
+                    except Exception as e:
+                        logger.error(f"Failed to show loading message: {str(e)}")
+                        # Try to edit caption as last resort
+                        try:
+                            await query.edit_message_caption(caption=loading_text)
+                        except Exception as caption_error:
+                            logger.error(f"Failed to update caption: {str(caption_error)}")
             
             # Initialize the chart service if needed
             if not hasattr(self, 'chart_service') or not self.chart_service:
@@ -2393,13 +2429,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             
             # Show the chart
             try:
-                # Delete loading message if it exists
-                if loading_message:
-                    try:
-                        await loading_message.delete()
-                    except Exception:
-                        pass
-                
+                logger.info(f"Sending chart image for {instrument} {timeframe}")
                 # Try to send a new message with the chart
                 await context.bot.send_photo(
                     chat_id=update.effective_chat.id,
@@ -2408,8 +2438,10 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
                 
-                # Delete the original message
+                # Delete the original message (the one with the loading indicator)
+                logger.info(f"Deleting original message {query.message.message_id}")
                 await query.delete_message()
+                logger.info("Original message deleted successfully")
                 
                 return SHOW_RESULT
                 
@@ -2780,13 +2812,33 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 
             # If no loading message in context, create one
             if not loading_message:
-                # Show loading message
+                # Show loading message with GIF - similar to sentiment analysis
+                loading_text = f"Loading economic calendar for {base_currency}..."
+                loading_gif = "https://media.giphy.com/media/dpjUltnOPye7azvAhH/giphy.gif"
+                
                 try:
-                    loading_message = await query.edit_message_text(
-                        text=f"Loading economic calendar for {base_currency}..."
+                    # Try to show animated GIF for loading
+                    await query.edit_message_media(
+                        media=InputMediaAnimation(
+                            media=loading_gif,
+                            caption=loading_text
+                        )
                     )
-                except Exception as e:
-                    logger.error(f"Failed to show loading message: {str(e)}")
+                    logger.info(f"Successfully showed loading GIF for {base_currency} calendar")
+                except Exception as gif_error:
+                    logger.warning(f"Could not show loading GIF: {str(gif_error)}")
+                    # Fallback to text loading message
+                    try:
+                        loading_message = await query.edit_message_text(
+                            text=loading_text
+                        )
+                    except Exception as e:
+                        logger.error(f"Failed to show loading message: {str(e)}")
+                        # Try to edit caption as last resort
+                        try:
+                            await query.edit_message_caption(caption=loading_text)
+                        except Exception as caption_error:
+                            logger.error(f"Failed to update caption: {str(caption_error)}")
             
             # Get the economic calendar data
             await self.show_economic_calendar(update, context, base_currency)
