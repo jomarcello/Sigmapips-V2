@@ -361,6 +361,7 @@ INSTRUMENT_TIMEFRAME_MAP = {
     "HK50": "H1",
     "NZDJPY": "H1",
     "USDCHF": "H1",
+    "USDJPY": "H1",  # USDJPY toegevoegd voor signaalabonnementen
     "XRPUSD": "H1",
     
     # H4 timeframe only
@@ -395,7 +396,11 @@ INSTRUMENT_TIMEFRAME_MAP = {
     "USDCAD": "M30",
     "XLMUSD": "M30",
     "XTIUSD": "M30",
-    "DE40": "M30"
+    "DE40": "M30",
+    "BTCUSD": "M30",  # Added for consistency with CRYPTO_KEYBOARD_SIGNALS
+    "US100": "M30",   # Added for consistency with INDICES_KEYBOARD_SIGNALS
+    "XAGUSD": "M15",  # Added for consistency with COMMODITIES_KEYBOARD_SIGNALS
+    "USOIL": "M30"    # Added for consistency with COMMODITIES_KEYBOARD_SIGNALS
     
     # Removed as requested: EU50, FR40, LTCUSD
 }
