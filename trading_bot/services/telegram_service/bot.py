@@ -3477,31 +3477,31 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Generate AI verdict for the signal
             ai_verdict = f"The {instrument} {direction.lower()} signal shows a promising setup with defined entry at {price} and stop loss at {sl}. Multiple take profit levels provide opportunities for partial profit taking."
             
-            # Create signal message in the specified format
+            # Create signal message in the specified format with bold headers
             signal_message = f"""🎯 New Trading Signal 🎯
 
-Instrument: {instrument}
-Action: {direction} {direction_emoji}
+<b>Instrument:</b> {instrument}
+<b>Action:</b> {direction} {direction_emoji}
 
-Entry Price: {price}
-Stop Loss: {sl} 🔴
-Take Profit 1: {tp1} 🎯
-Take Profit 2: {tp2} 🎯
-Take Profit 3: {tp3} 🎯
+<b>Entry Price:</b> {price}
+<b>Stop Loss:</b> {sl} 🔴
+<b>Take Profit 1:</b> {tp1} 🎯
+<b>Take Profit 2:</b> {tp2} 🎯
+<b>Take Profit 3:</b> {tp3} 🎯
 
-Timeframe: {interval}
-Strategy: TradingView Signal
+<b>Timeframe:</b> {interval}
+<b>Strategy:</b> TradingView Signal
 
 ————————————————————
 
-Risk Management:
+<b>Risk Management:</b>
 • Position size: 1-2% max
 • Use proper stop loss
 • Follow your trading plan
 
 ————————————————————
 
-🤖 SigmaPips AI Verdict:
+<b>🤖 SigmaPips AI Verdict:</b>
 {ai_verdict}"""
             
             # Determine market type for the instrument
