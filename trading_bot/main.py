@@ -332,29 +332,30 @@ async def startup_event():
                         if command == '/menu':
                             logger.info(f"Explicitly handling /menu command from user {user_id} in chat {chat_id}")
                             try:
-                                # Call the menu_command method directly
+                                # Call the simple menu_command method directly without context
                                 await telegram_service.menu_command(update_obj, None)
                                 logger.info("Successfully handled /menu command")
                                 return {"status": "success", "handled": "explicit_menu_command"}
                             except Exception as menu_error:
                                 logger.error(f"Error in menu_command: {str(menu_error)}")
                                 logger.exception(menu_error)
-                                # Try a simpler approach as fallback
+                                # Extra direct fallback
                                 try:
                                     from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+                                    logger.info("Using direct fallback implementation without any dependencies")
                                     keyboard = [
                                         [InlineKeyboardButton("📊 Analysis", callback_data="menu_analyse")],
                                         [InlineKeyboardButton("🔔 Signals", callback_data="menu_signals")]
                                     ]
                                     await telegram_service.bot.send_message(
                                         chat_id=chat_id,
-                                        text="Select an option from the menu:",
+                                        text="Welcome to Sigmapips AI! Select an option:",
                                         reply_markup=InlineKeyboardMarkup(keyboard)
                                     )
-                                    logger.info("Sent fallback menu after error")
-                                    return {"status": "success", "handled": "fallback_menu"}
-                                except Exception as fallback_error:
-                                    logger.error(f"Even fallback menu failed: {str(fallback_error)}")
+                                    logger.info("Sent direct menu implementation")
+                                    return {"status": "success", "handled": "direct_fallback_menu"}
+                                except Exception as direct_error:
+                                    logger.error(f"Direct implementation failed: {str(direct_error)}")
                         
                         # Handle other commands
                         elif command == '/start':
