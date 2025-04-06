@@ -787,112 +787,285 @@ class TelegramService:
         return SIGNALS
         
     async def get_subscribers_for_instrument(self, instrument: str, timeframe: str = None) -> List[int]:
-        """Get a list of subscribers for a specific instrument"""
+        """
+        Get a list of subscribed user IDs for a specific instrument and timeframe
+        
+        Args:
+            instrument: The trading instrument (e.g., EURUSD)
+            timeframe: Optional timeframe filter
+            
+        Returns:
+            List of subscribed user IDs
+        """
         try:
-            self.logger.info(f"Getting subscribers for {instrument} timeframe: {timeframe}")
-            # Get all premium users
-            subscribers = []
+            logger.info(f"Getting subscribers for {instrument} timeframe: {timeframe}")
             
-            # Retrieve users from database
-            query = {"is_premium": True}
-            premium_users = await self.db.find_all("users", query)
+            # Get all subscribers from the database
+            # Note: Using get_signal_subscriptions instead of find_all
+            subscribers = await self.db.get_signal_subscriptions(instrument, timeframe)
             
-            for user in premium_users:
-                # Check if user has active subscription
-                user_id = user.get("user_id")
-                if user.get("subscription_expiry"):
-                    expiry = datetime.fromisoformat(user.get("subscription_expiry"))
-                    if expiry > datetime.now():
-                        subscribers.append(user_id)
-                        
-            self.logger.info(f"Found {len(subscribers)} subscribers for {instrument}")
-            return subscribers
+            if not subscribers:
+                logger.warning(f"No subscribers found for {instrument}")
+                return []
+                
+            # Filter out subscribers that don't have an active subscription
+            active_subscribers = []
+            for subscriber in subscribers:
+                user_id = subscriber['user_id']
+                
+                # Check if user is subscribed
+                is_subscribed = await self.db.is_user_subscribed(user_id)
+                
+                # Check if payment has failed
+                payment_failed = await self.db.has_payment_failed(user_id)
+                
+                if is_subscribed and not payment_failed:
+                    active_subscribers.append(user_id)
+                else:
+                    logger.info(f"User {user_id} doesn't have an active subscription, skipping signal")
+            
+            return active_subscribers
+            
         except Exception as e:
-            self.logger.error(f"Error getting subscribers: {str(e)}")
+            logger.error(f"Error getting subscribers: {str(e)}")
+            # FOR TESTING: Add admin users if available
+            if hasattr(self, 'admin_users') and self.admin_users:
+                logger.info(f"Returning admin users for testing: {self.admin_users}")
+                return self.admin_users
             return []
-            
+
     async def process_signal(self, signal_data: Dict[str, Any]) -> bool:
-        """Process a signal and send to subscribers"""
+        """
+        Process a trading signal from TradingView webhook or API
+        
+        Supports two formats:
+        1. TradingView format: instrument, signal, price, sl, tp1, tp2, tp3, interval
+        2. Custom format: instrument, direction, entry, stop_loss, take_profit, timeframe
+        
+        Returns:
+            bool: True if signal was processed successfully, False otherwise
+        """
         try:
-            self.logger.info(f"Processing signal: {signal_data}")
+            # Log the incoming signal data
+            logger.info(f"Processing signal: {signal_data}")
             
-            # Extract key data
-            instrument = signal_data.get("instrument")
-            direction = signal_data.get("direction")
-            timeframe = signal_data.get("timeframe", "")
+            # Check which format we're dealing with and normalize it
+            instrument = signal_data.get('instrument')
             
-            if not instrument or not direction:
-                self.logger.error("Missing required signal data")
+            # Handle TradingView format (price, sl, interval)
+            if 'price' in signal_data and 'sl' in signal_data:
+                price = signal_data.get('price')
+                sl = signal_data.get('sl')
+                tp1 = signal_data.get('tp1')
+                tp2 = signal_data.get('tp2')
+                tp3 = signal_data.get('tp3')
+                interval = signal_data.get('interval', '1h')
+                
+                # Determine signal direction based on price and SL relationship
+                direction = "BUY" if float(sl) < float(price) else "SELL"
+                
+                # Create normalized signal data
+                normalized_data = {
+                    'instrument': instrument,
+                    'direction': direction,
+                    'entry': price,
+                    'stop_loss': sl,
+                    'take_profit': tp1,  # Use first take profit level
+                    'timeframe': interval
+                }
+                
+                # Add optional fields if present
+                normalized_data['tp1'] = tp1
+                normalized_data['tp2'] = tp2
+                normalized_data['tp3'] = tp3
+            
+            # Handle custom format (direction, entry, stop_loss, timeframe)
+            elif 'direction' in signal_data and 'entry' in signal_data:
+                direction = signal_data.get('direction')
+                entry = signal_data.get('entry')
+                stop_loss = signal_data.get('stop_loss')
+                take_profit = signal_data.get('take_profit')
+                timeframe = signal_data.get('timeframe', '1h')
+                
+                # Create normalized signal data
+                normalized_data = {
+                    'instrument': instrument,
+                    'direction': direction,
+                    'entry': entry,
+                    'stop_loss': stop_loss,
+                    'take_profit': take_profit,
+                    'timeframe': timeframe
+                }
+            else:
+                logger.error(f"Missing required signal data")
+                return False
+            
+            # Basic validation
+            if not normalized_data.get('instrument') or not normalized_data.get('direction') or not normalized_data.get('entry'):
+                logger.error(f"Missing required fields in normalized signal data: {normalized_data}")
                 return False
                 
+            # Create signal ID for tracking
+            signal_id = f"{normalized_data['instrument']}_{normalized_data['direction']}_{normalized_data['timeframe']}_{int(time.time())}"
+            
+            # Format the signal message
+            message = self._format_signal_message(normalized_data)
+            
+            # Determine market type for the instrument
+            market_type = _detect_market(instrument)
+            
+            # Store the full signal data for reference
+            normalized_data['id'] = signal_id
+            normalized_data['timestamp'] = datetime.now().isoformat()
+            normalized_data['message'] = message
+            normalized_data['market'] = market_type
+            
+            # Save signal for history tracking
+            if not os.path.exists(self.signals_dir):
+                os.makedirs(self.signals_dir, exist_ok=True)
+                
+            # Save to signals directory
+            with open(f"{self.signals_dir}/{signal_id}.json", 'w') as f:
+                json.dump(normalized_data, f)
+            
+            # FOR TESTING: Always send to admin for testing
+            if hasattr(self, 'admin_users') and self.admin_users:
+                try:
+                    logger.info(f"Sending signal to admin users for testing: {self.admin_users}")
+                    for admin_id in self.admin_users:
+                        # Prepare keyboard with analysis options
+                        keyboard = [
+                            [InlineKeyboardButton("🔍 Analyze Market", callback_data=f"analyze_from_signal_{instrument}_{signal_id}")]
+                        ]
+                        
+                        # Send the signal
+                        await self.bot.send_message(
+                            chat_id=admin_id,
+                            text=message,
+                            parse_mode=ParseMode.HTML,
+                            reply_markup=InlineKeyboardMarkup(keyboard)
+                        )
+                        logger.info(f"Test signal sent to admin {admin_id}")
+                        
+                        # Store signal reference for quick access
+                        if not hasattr(self, 'user_signals'):
+                            self.user_signals = {}
+                            
+                        admin_str_id = str(admin_id)
+                        if admin_str_id not in self.user_signals:
+                            self.user_signals[admin_str_id] = {}
+                        
+                        self.user_signals[admin_str_id][signal_id] = normalized_data
+                except Exception as e:
+                    logger.error(f"Error sending test signal to admin: {str(e)}")
+            
             # Get subscribers for this instrument
+            timeframe = normalized_data.get('timeframe', '1h')
             subscribers = await self.get_subscribers_for_instrument(instrument, timeframe)
             
             if not subscribers:
-                self.logger.warning(f"No subscribers found for {instrument}")
-                return False
-                
-            # Format signal message
-            message = self._format_signal_message(signal_data)
-            
-            # Create the button for signal analysis
-            signal_id = f"{instrument}_{direction}_{timeframe}_{int(time.time())}"
-            keyboard = [[
-                InlineKeyboardButton(
-                    "🔍 Analyze Market", 
-                    callback_data=f"analyze_from_signal_{instrument}_{signal_id}"
-                )
-            ]]
-            reply_markup = InlineKeyboardMarkup(keyboard)
+                logger.warning(f"No subscribers found for {instrument}")
+                return True  # Successfully processed, just no subscribers
             
             # Send signal to all subscribers
+            logger.info(f"Sending signal {signal_id} to {len(subscribers)} subscribers")
+            
+            sent_count = 0
             for user_id in subscribers:
                 try:
+                    # Prepare keyboard with analysis options
+                    keyboard = [
+                        [InlineKeyboardButton("🔍 Analyze Market", callback_data=f"analyze_from_signal_{instrument}_{signal_id}")]
+                    ]
+                    
+                    # Send the signal
                     await self.bot.send_message(
                         chat_id=user_id,
                         text=message,
                         parse_mode=ParseMode.HTML,
-                        reply_markup=reply_markup
+                        reply_markup=InlineKeyboardMarkup(keyboard)
                     )
-                    self.logger.info(f"Signal sent to user {user_id}")
+                    
+                    sent_count += 1
+                    
+                    # Store signal reference for quick access
+                    if not hasattr(self, 'user_signals'):
+                        self.user_signals = {}
+                        
+                    user_str_id = str(user_id)
+                    if user_str_id not in self.user_signals:
+                        self.user_signals[user_str_id] = {}
+                    
+                    self.user_signals[user_str_id][signal_id] = normalized_data
+                    
                 except Exception as e:
-                    self.logger.error(f"Error sending signal to user {user_id}: {str(e)}")
+                    logger.error(f"Error sending signal to user {user_id}: {str(e)}")
             
+            logger.info(f"Successfully sent signal {signal_id} to {sent_count}/{len(subscribers)} subscribers")
             return True
             
         except Exception as e:
-            self.logger.error(f"Error processing signal: {str(e)}")
+            logger.error(f"Error processing signal: {str(e)}")
+            logger.exception(e)
             return False
-            
+
     def _format_signal_message(self, signal_data: Dict[str, Any]) -> str:
-        """Format a signal into a message for telegram"""
-        instrument = signal_data.get("instrument", "Unknown")
-        direction = signal_data.get("direction", "")
-        timeframe = signal_data.get("timeframe", "")
-        entry = signal_data.get("entry", "Market")
-        stop_loss = signal_data.get("stop_loss", "")
-        take_profit = signal_data.get("take_profit", "")
-        
-        # Add emoji based on direction
-        direction_emoji = "🟢" if direction.upper() == "BUY" else "🔴"
-        
-        # Format the message
-        message = f"<b>{direction_emoji} {instrument} SIGNAL</b>\n\n"
-        message += f"<b>Direction:</b> {direction.upper()}\n"
-        message += f"<b>Timeframe:</b> {timeframe}\n"
-        message += f"<b>Entry:</b> {entry}\n"
-        
-        if stop_loss:
-            message += f"<b>Stop Loss:</b> {stop_loss}\n"
+        """Format signal data into a nice message for Telegram"""
+        try:
+            # Extract fields from signal data
+            instrument = signal_data.get('instrument', 'Unknown')
+            direction = signal_data.get('direction', 'Unknown')
+            entry = signal_data.get('entry', 'Unknown')
+            stop_loss = signal_data.get('stop_loss')
+            take_profit = signal_data.get('take_profit')
+            timeframe = signal_data.get('timeframe', '1h')
             
-        if take_profit:
-            message += f"<b>Take Profit:</b> {take_profit}\n"
+            # Get multiple take profit levels if available
+            tp1 = signal_data.get('tp1', take_profit)
+            tp2 = signal_data.get('tp2')
+            tp3 = signal_data.get('tp3')
             
-        # Add timestamp
-        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        message += f"\n<i>Generated at {now}</i>"
-        
-        return message
+            # Add emoji based on direction
+            direction_emoji = "🟢" if direction.upper() == "BUY" else "🔴"
+            
+            # Format the message with multiple take profits if available
+            message = f"<b>🎯 New Trading Signal 🎯</b>\n\n"
+            message += f"<b>Instrument:</b> {instrument}\n"
+            message += f"<b>Action:</b> {direction.upper()} {direction_emoji}\n\n"
+            message += f"<b>Entry Price:</b> {entry}\n"
+            
+            if stop_loss:
+                message += f"<b>Stop Loss:</b> {stop_loss} 🔴\n"
+            
+            # Add take profit levels
+            if tp1:
+                message += f"<b>Take Profit 1:</b> {tp1} 🎯\n"
+            if tp2:
+                message += f"<b>Take Profit 2:</b> {tp2} 🎯\n"
+            if tp3:
+                message += f"<b>Take Profit 3:</b> {tp3} 🎯\n"
+            
+            message += f"\n<b>Timeframe:</b> {timeframe}\n"
+            message += f"<b>Strategy:</b> TradingView Signal\n\n"
+            
+            message += "————————————————————\n\n"
+            message += "<b>Risk Management:</b>\n"
+            message += "• Position size: 1-2% max\n"
+            message += "• Use proper stop loss\n"
+            message += "• Follow your trading plan\n\n"
+            
+            message += "————————————————————\n\n"
+            
+            # Generate AI verdict
+            ai_verdict = f"The {instrument} {direction.lower()} signal shows a promising setup with defined entry at {entry} and stop loss at {stop_loss}. Multiple take profit levels provide opportunities for partial profit taking."
+            message += f"<b>🤖 SigmaPips AI Verdict:</b>\n{ai_verdict}"
+            
+            return message
+            
+        except Exception as e:
+            logger.error(f"Error formatting signal message: {str(e)}")
+            # Return simple message on error
+            return f"New {signal_data.get('instrument', 'Unknown')} {signal_data.get('direction', 'Unknown')} Signal"
 
     def _register_handlers(self, application):
         """Register event handlers for bot commands and callback queries"""
@@ -3426,9 +3599,16 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             List of subscribed user IDs
         """
         try:
+            logger.info(f"Getting subscribers for {instrument} timeframe: {timeframe}")
+            
             # Get all subscribers from the database
+            # Note: Using get_signal_subscriptions instead of find_all
             subscribers = await self.db.get_signal_subscriptions(instrument, timeframe)
             
+            if not subscribers:
+                logger.warning(f"No subscribers found for {instrument}")
+                return []
+                
             # Filter out subscribers that don't have an active subscription
             active_subscribers = []
             for subscriber in subscribers:
@@ -3448,84 +3628,98 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             return active_subscribers
             
         except Exception as e:
-            logger.error(f"Error getting subscribers for {instrument}: {str(e)}")
+            logger.error(f"Error getting subscribers: {str(e)}")
+            # FOR TESTING: Add admin users if available
+            if hasattr(self, 'admin_users') and self.admin_users:
+                logger.info(f"Returning admin users for testing: {self.admin_users}")
+                return self.admin_users
             return []
-    
+
     async def process_signal(self, signal_data: Dict[str, Any]) -> bool:
         """
         Process a trading signal from TradingView webhook or API
+        
+        Supports two formats:
+        1. TradingView format: instrument, signal, price, sl, tp1, tp2, tp3, interval
+        2. Custom format: instrument, direction, entry, stop_loss, take_profit, timeframe
+        
+        Returns:
+            bool: True if signal was processed successfully, False otherwise
         """
         try:
-            # Extract fields from TradingView webhook
-            instrument = signal_data.get('instrument')
-            price = signal_data.get('price')
-            sl = signal_data.get('sl')
-            tp1 = signal_data.get('tp1')
-            tp2 = signal_data.get('tp2')
-            tp3 = signal_data.get('tp3')
-            interval = signal_data.get('interval', '1h')
+            # Log the incoming signal data
+            logger.info(f"Processing signal: {signal_data}")
             
-            # Basic validation
-            if not instrument or price is None or sl is None:
-                logger.error(f"Missing required fields in signal data: {signal_data}")
+            # Check which format we're dealing with and normalize it
+            instrument = signal_data.get('instrument')
+            
+            # Handle TradingView format (price, sl, interval)
+            if 'price' in signal_data and 'sl' in signal_data:
+                price = signal_data.get('price')
+                sl = signal_data.get('sl')
+                tp1 = signal_data.get('tp1')
+                tp2 = signal_data.get('tp2')
+                tp3 = signal_data.get('tp3')
+                interval = signal_data.get('interval', '1h')
+                
+                # Determine signal direction based on price and SL relationship
+                direction = "BUY" if float(sl) < float(price) else "SELL"
+                
+                # Create normalized signal data
+                normalized_data = {
+                    'instrument': instrument,
+                    'direction': direction,
+                    'entry': price,
+                    'stop_loss': sl,
+                    'take_profit': tp1,  # Use first take profit level
+                    'timeframe': interval
+                }
+                
+                # Add optional fields if present
+                normalized_data['tp1'] = tp1
+                normalized_data['tp2'] = tp2
+                normalized_data['tp3'] = tp3
+            
+            # Handle custom format (direction, entry, stop_loss, timeframe)
+            elif 'direction' in signal_data and 'entry' in signal_data:
+                direction = signal_data.get('direction')
+                entry = signal_data.get('entry')
+                stop_loss = signal_data.get('stop_loss')
+                take_profit = signal_data.get('take_profit')
+                timeframe = signal_data.get('timeframe', '1h')
+                
+                # Create normalized signal data
+                normalized_data = {
+                    'instrument': instrument,
+                    'direction': direction,
+                    'entry': entry,
+                    'stop_loss': stop_loss,
+                    'take_profit': take_profit,
+                    'timeframe': timeframe
+                }
+            else:
+                logger.error(f"Missing required signal data")
                 return False
             
-            # Determine signal type based on price and SL relationship
-            # Note: We ignore the signal field from TradingView as instructed
-            direction = "BUY" if float(sl) < float(price) else "SELL"
-            direction_emoji = "📈" if direction == "BUY" else "📉"
-            
+            # Basic validation
+            if not normalized_data.get('instrument') or not normalized_data.get('direction') or not normalized_data.get('entry'):
+                logger.error(f"Missing required fields in normalized signal data: {normalized_data}")
+                return False
+                
             # Create signal ID for tracking
-            signal_id = f"{instrument}_{direction}_{interval}_{int(time.time())}"
-
-            # Generate AI verdict for the signal
-            ai_verdict = f"The {instrument} {direction.lower()} signal shows a promising setup with defined entry at {price} and stop loss at {sl}. Multiple take profit levels provide opportunities for partial profit taking."
+            signal_id = f"{normalized_data['instrument']}_{normalized_data['direction']}_{normalized_data['timeframe']}_{int(time.time())}"
             
-            # Create signal message in the specified format with bold headers
-            signal_message = f"""<b>🎯 New Trading Signal 🎯</b>
-
-<b>Instrument:</b> {instrument}
-<b>Action:</b> {direction} {direction_emoji}
-
-<b>Entry Price:</b> {price}
-<b>Stop Loss:</b> {sl} 🔴
-<b>Take Profit 1:</b> {tp1} 🎯
-<b>Take Profit 2:</b> {tp2} 🎯
-<b>Take Profit 3:</b> {tp3} 🎯
-
-<b>Timeframe:</b> {interval}
-<b>Strategy:</b> TradingView Signal
-
-————————————————————
-
-<b>Risk Management:</b>
-• Position size: 1-2% max
-• Use proper stop loss
-• Follow your trading plan
-
-————————————————————
-
-<b>🤖 SigmaPips AI Verdict:</b>
-{ai_verdict}"""
+            # Format the signal message
+            message = self._format_signal_message(normalized_data)
             
             # Determine market type for the instrument
             market_type = _detect_market(instrument)
             
-            # Create signal data structure for storage and future reference
-            formatted_signal = {
-                'id': signal_id,
-                'timestamp': datetime.now().isoformat(),
-                'instrument': instrument,
-                'direction': direction,
-                'interval': interval,
-                'price': price,
-                'sl': sl,
-                'tp1': tp1,
-                'tp2': tp2, 
-                'tp3': tp3,
-                'market': market_type,
-                'message': signal_message
-            }
+            # Store the full signal data for reference
+            normalized_data['id'] = signal_id
+            normalized_data['timestamp'] = datetime.now().isoformat()
+            normalized_data['message'] = message
+            normalized_data['market'] = market_type
             
             # Save signal for history tracking
             if not os.path.exists(self.signals_dir):
@@ -3533,7 +3727,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 
             # Save to signals directory
             with open(f"{self.signals_dir}/{signal_id}.json", 'w') as f:
-                json.dump(formatted_signal, f)
+                json.dump(normalized_data, f)
             
             # FOR TESTING: Always send to admin for testing
             if hasattr(self, 'admin_users') and self.admin_users:
@@ -3545,28 +3739,33 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                             [InlineKeyboardButton("🔍 Analyze Market", callback_data=f"analyze_from_signal_{instrument}_{signal_id}")]
                         ]
                         
+                        # Send the signal
                         await self.bot.send_message(
                             chat_id=admin_id,
-                            text=signal_message,
+                            text=message,
                             parse_mode=ParseMode.HTML,
                             reply_markup=InlineKeyboardMarkup(keyboard)
                         )
                         logger.info(f"Test signal sent to admin {admin_id}")
                         
-                        # Store signal reference in user data for quick access
+                        # Store signal reference for quick access
+                        if not hasattr(self, 'user_signals'):
+                            self.user_signals = {}
+                            
                         admin_str_id = str(admin_id)
                         if admin_str_id not in self.user_signals:
                             self.user_signals[admin_str_id] = {}
                         
-                        self.user_signals[admin_str_id][signal_id] = formatted_signal
+                        self.user_signals[admin_str_id][signal_id] = normalized_data
                 except Exception as e:
                     logger.error(f"Error sending test signal to admin: {str(e)}")
             
             # Get subscribers for this instrument
-            subscribers = await self.get_subscribers_for_instrument(instrument, interval)
+            timeframe = normalized_data.get('timeframe', '1h')
+            subscribers = await self.get_subscribers_for_instrument(instrument, timeframe)
             
             if not subscribers:
-                logger.info(f"No subscribers found for {instrument} {interval}")
+                logger.warning(f"No subscribers found for {instrument}")
                 return True  # Successfully processed, just no subscribers
             
             # Send signal to all subscribers
@@ -3580,20 +3779,25 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                         [InlineKeyboardButton("🔍 Analyze Market", callback_data=f"analyze_from_signal_{instrument}_{signal_id}")]
                     ]
                     
-                    # Send as regular message
+                    # Send the signal
                     await self.bot.send_message(
                         chat_id=user_id,
-                        text=signal_message,
+                        text=message,
                         parse_mode=ParseMode.HTML,
                         reply_markup=InlineKeyboardMarkup(keyboard)
                     )
                     
                     sent_count += 1
-                    # Store signal reference in user data for quick access
-                    if str(user_id) not in self.user_signals:
-                        self.user_signals[str(user_id)] = {}
                     
-                    self.user_signals[str(user_id)][signal_id] = formatted_signal
+                    # Store signal reference for quick access
+                    if not hasattr(self, 'user_signals'):
+                        self.user_signals = {}
+                        
+                    user_str_id = str(user_id)
+                    if user_str_id not in self.user_signals:
+                        self.user_signals[user_str_id] = {}
+                    
+                    self.user_signals[user_str_id][signal_id] = normalized_data
                     
                 except Exception as e:
                     logger.error(f"Error sending signal to user {user_id}: {str(e)}")
@@ -3605,6 +3809,64 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             logger.error(f"Error processing signal: {str(e)}")
             logger.exception(e)
             return False
+
+    def _format_signal_message(self, signal_data: Dict[str, Any]) -> str:
+        """Format signal data into a nice message for Telegram"""
+        try:
+            # Extract fields from signal data
+            instrument = signal_data.get('instrument', 'Unknown')
+            direction = signal_data.get('direction', 'Unknown')
+            entry = signal_data.get('entry', 'Unknown')
+            stop_loss = signal_data.get('stop_loss')
+            take_profit = signal_data.get('take_profit')
+            timeframe = signal_data.get('timeframe', '1h')
+            
+            # Get multiple take profit levels if available
+            tp1 = signal_data.get('tp1', take_profit)
+            tp2 = signal_data.get('tp2')
+            tp3 = signal_data.get('tp3')
+            
+            # Add emoji based on direction
+            direction_emoji = "🟢" if direction.upper() == "BUY" else "🔴"
+            
+            # Format the message with multiple take profits if available
+            message = f"<b>🎯 New Trading Signal 🎯</b>\n\n"
+            message += f"<b>Instrument:</b> {instrument}\n"
+            message += f"<b>Action:</b> {direction.upper()} {direction_emoji}\n\n"
+            message += f"<b>Entry Price:</b> {entry}\n"
+            
+            if stop_loss:
+                message += f"<b>Stop Loss:</b> {stop_loss} 🔴\n"
+            
+            # Add take profit levels
+            if tp1:
+                message += f"<b>Take Profit 1:</b> {tp1} 🎯\n"
+            if tp2:
+                message += f"<b>Take Profit 2:</b> {tp2} 🎯\n"
+            if tp3:
+                message += f"<b>Take Profit 3:</b> {tp3} 🎯\n"
+            
+            message += f"\n<b>Timeframe:</b> {timeframe}\n"
+            message += f"<b>Strategy:</b> TradingView Signal\n\n"
+            
+            message += "————————————————————\n\n"
+            message += "<b>Risk Management:</b>\n"
+            message += "• Position size: 1-2% max\n"
+            message += "• Use proper stop loss\n"
+            message += "• Follow your trading plan\n\n"
+            
+            message += "————————————————————\n\n"
+            
+            # Generate AI verdict
+            ai_verdict = f"The {instrument} {direction.lower()} signal shows a promising setup with defined entry at {entry} and stop loss at {stop_loss}. Multiple take profit levels provide opportunities for partial profit taking."
+            message += f"<b>🤖 SigmaPips AI Verdict:</b>\n{ai_verdict}"
+            
+            return message
+            
+        except Exception as e:
+            logger.error(f"Error formatting signal message: {str(e)}")
+            # Return simple message on error
+            return f"New {signal_data.get('instrument', 'Unknown')} {signal_data.get('direction', 'Unknown')} Signal"
 
     async def _load_signals(self):
         """Load and cache previously saved signals"""
