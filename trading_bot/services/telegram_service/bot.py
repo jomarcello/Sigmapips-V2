@@ -145,7 +145,7 @@ ANALYSIS_KEYBOARD = [
 # Signals menu keyboard
 SIGNALS_KEYBOARD = [
     [InlineKeyboardButton("➕ Add New Pairs", callback_data=CALLBACK_SIGNALS_ADD)],
-    [InlineKeyboardButton("⚙️ Manage Preferences", callback_data=CALLBACK_SIGNALS_MANAGE)],
+    [InlineKeyboardButton("⚙️ Manage Signals", callback_data=CALLBACK_SIGNALS_MANAGE)],
     [InlineKeyboardButton("⬅️ Back", callback_data=CALLBACK_BACK_MENU)]
 ]
 
@@ -682,6 +682,28 @@ class TelegramService:
             application.add_handler(CommandHandler("start", self.start_command))
             application.add_handler(CommandHandler("menu", self.menu_command))
             application.add_handler(CommandHandler("help", self.help_command))
+            
+            # Register callback handlers
+            application.add_handler(CallbackQueryHandler(self.menu_analyse_callback, pattern="^menu_analyse$"))
+            application.add_handler(CallbackQueryHandler(self.menu_signals_callback, pattern="^menu_signals$"))
+            application.add_handler(CallbackQueryHandler(self.signals_add_callback, pattern="^signals_add$"))
+            application.add_handler(CallbackQueryHandler(self.market_callback, pattern="^market_"))
+            application.add_handler(CallbackQueryHandler(self.instrument_callback, pattern="^instrument_(?!.*_signals)"))
+            application.add_handler(CallbackQueryHandler(self.instrument_signals_callback, pattern="^instrument_.*_signals$"))
+            
+            # Add handler for back buttons
+            application.add_handler(CallbackQueryHandler(self.back_market_callback, pattern="^back_market$"))
+            application.add_handler(CallbackQueryHandler(self.back_instrument_callback, pattern="^back_instrument$"))
+            application.add_handler(CallbackQueryHandler(self.back_signals_callback, pattern="^back_signals$"))
+            application.add_handler(CallbackQueryHandler(self.back_menu_callback, pattern="^back_menu$"))
+            
+            # Analysis handlers
+            application.add_handler(CallbackQueryHandler(self.analysis_technical_callback, pattern="^analysis_technical"))
+            application.add_handler(CallbackQueryHandler(self.analysis_sentiment_callback, pattern="^analysis_sentiment"))
+            application.add_handler(CallbackQueryHandler(self.analysis_calendar_callback, pattern="^analysis_calendar"))
+            
+            # Catch-all handler for any other callbacks
+            application.add_handler(CallbackQueryHandler(self.button_callback))
             
             # Load signals
             self._load_signals()
@@ -1779,7 +1801,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             return await self.back_instrument_callback(update, context)
         
         if query.data == "back_signals":
-            return await self.market_signals_callback(update, context)
+            return await self.back_signals_callback(update, context)
         
         # Handle refresh sentiment analysis 
         if query.data.startswith("instrument_") and query.data.endswith("_sentiment"):
@@ -2916,22 +2938,40 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             timeframe = INSTRUMENT_TIMEFRAME_MAP[instrument]
             timeframe_display = TIMEFRAME_DISPLAY_MAP.get(timeframe, timeframe)
             
-            # Directly subscribe the user to this instrument with its fixed timeframe
+            # Check if user is already subscribed to this instrument
             user_id = update.effective_user.id
-            await self.db.subscribe_to_instrument(user_id, instrument, timeframe)
             
-            # Show success message
-            success_message = f"✅ Successfully subscribed to {instrument} ({timeframe_display}) signals!"
-            
-            # Create keyboard with options to add more or go back
-            keyboard = [
-                [InlineKeyboardButton("➕ Add More Pairs", callback_data="signals_add")],
-                [InlineKeyboardButton("⬅️ Back to Signals", callback_data="back_signals")]
-            ]
+            # Check if the subscription already exists in the signal_subscriptions table
+            try:
+                signal_subs = self.db.supabase.table('signal_subscriptions').select('*').eq('user_id', user_id).eq('instrument', instrument).execute()
+                
+                # Create keyboard with options to add more or go back
+                keyboard = [
+                    [InlineKeyboardButton("➕ Add More Pairs", callback_data="signals_add")],
+                    [InlineKeyboardButton("⬅️ Back to Signals", callback_data="back_signals")]
+                ]
+                
+                if signal_subs and signal_subs.data:
+                    # User is already subscribed to this instrument
+                    message = f"ℹ️ You are already subscribed to {instrument} ({timeframe_display}) signals."
+                else:
+                    # Subscribe the user to this instrument
+                    await self.db.subscribe_to_instrument(user_id, instrument, timeframe)
+                    message = f"✅ Successfully subscribed to {instrument} ({timeframe_display}) signals!"
+            except Exception as e:
+                logger.error(f"Error checking signal_subscriptions: {str(e)}")
+                # If there's an error, proceed with subscription anyway
+                await self.db.subscribe_to_instrument(user_id, instrument, timeframe)
+                message = f"✅ Successfully subscribed to {instrument} ({timeframe_display}) signals!"
+                # Create keyboard with options to add more or go back
+                keyboard = [
+                    [InlineKeyboardButton("➕ Add More Pairs", callback_data="signals_add")],
+                    [InlineKeyboardButton("⬅️ Back to Signals", callback_data="back_signals")]
+                ]
             
             try:
                 await query.edit_message_text(
-                    text=success_message,
+                    text=message,
                     reply_markup=InlineKeyboardMarkup(keyboard),
                     parse_mode=ParseMode.HTML
                 )
@@ -2940,7 +2980,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 if "There is no text in the message to edit" in str(text_error):
                     try:
                         await query.edit_message_caption(
-                            caption=success_message,
+                            caption=message,
                             reply_markup=InlineKeyboardMarkup(keyboard),
                             parse_mode=ParseMode.HTML
                         )
@@ -2948,7 +2988,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                         logger.error(f"Failed to update caption: {str(e)}")
                         # Try to send a new message as last resort
                         await query.message.reply_text(
-                            text=success_message,
+                            text=message,
                             reply_markup=InlineKeyboardMarkup(keyboard),
                             parse_mode=ParseMode.HTML
                         )
@@ -3906,3 +3946,67 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # If all else fails, create a new instance
             from trading_bot.services.calendar_service.calendar import EconomicCalendarService
             return EconomicCalendarService()
+
+    async def back_signals_callback(self, update: Update, context=None) -> int:
+        """Handle back button to return to signals menu"""
+        query = update.callback_query
+        await query.answer()
+        
+        # Clear any instrument-specific context
+        if context and hasattr(context, 'user_data'):
+            if 'instrument' in context.user_data:
+                del context.user_data['instrument']
+        
+        # Show the signals menu
+        try:
+            gif_url = "https://media.giphy.com/media/TINKrQAL1xCGMf8MjD/giphy.gif"
+            
+            try:
+                # Try updating with GIF
+                await query.edit_message_media(
+                    media=InputMediaAnimation(
+                        media=gif_url,
+                        caption="Select an option:",
+                        parse_mode=ParseMode.HTML
+                    ),
+                    reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD)
+                )
+            except Exception as media_error:
+                logger.warning(f"Could not update with GIF: {str(media_error)}")
+                
+                # Fall back to text update
+                try:
+                    await query.edit_message_text(
+                        text="Select an option:",
+                        reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD),
+                        parse_mode=ParseMode.HTML
+                    )
+                except Exception as text_error:
+                    if "There is no text in the message to edit" in str(text_error):
+                        try:
+                            await query.edit_message_caption(
+                                caption="Select an option:",
+                                reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD),
+                                parse_mode=ParseMode.HTML
+                            )
+                        except Exception as e:
+                            logger.error(f"Failed to update caption: {str(e)}")
+                            # Try to send a new message as last resort
+                            await query.message.reply_text(
+                                text="Select an option:",
+                                reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD),
+                                parse_mode=ParseMode.HTML
+                            )
+                    else:
+                        # Re-raise for other errors
+                        raise
+        except Exception as e:
+            logger.error(f"Error in back_signals_callback: {str(e)}")
+            # Last resort - try to send a new message
+            await query.message.reply_text(
+                text="Select an option:",
+                reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD),
+                parse_mode=ParseMode.HTML
+            )
+        
+        return CHOOSE_SIGNALS
