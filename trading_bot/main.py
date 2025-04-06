@@ -112,9 +112,9 @@ async def startup_event():
         # The log shows "Successfully connected to Supabase" already
         logger.info("Database initialized")
         
-        # Initialize chart service first
-        await chart_service.initialize()
-        logger.info("Chart service initialized")
+        # Initialize chart service through the telegram service's initialize_services method
+        await telegram_service.initialize_services()
+        logger.info("Chart service initialized through telegram service")
         
         # Initialize the calendar service
         calendar_service = EconomicCalendarService()
