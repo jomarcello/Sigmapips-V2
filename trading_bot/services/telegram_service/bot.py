@@ -1085,109 +1085,11 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         
         return CHOOSE_ANALYSIS
 
-    async def show_main_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None, skip_gif=False) -> None:
-        """Show the main menu when /menu command is used"""
-        # Use context.bot if available, otherwise use self.bot
-        bot = context.bot if context is not None else self.bot
-        
-        # Check if the user has a subscription
-        user_id = update.effective_user.id
-        is_subscribed = await self.db.is_user_subscribed(user_id)
-        payment_failed = await self.db.has_payment_failed(user_id)
-        
-        if is_subscribed and not payment_failed:
-            # Show the main menu for subscribed users
-            reply_markup = InlineKeyboardMarkup(START_KEYBOARD)
-            
-            # Forceer altijd de welkomst GIF
-            gif_url = "https://media.giphy.com/media/gSzIKNrqtotEYrZv7i/giphy.gif"
-            
-            # If we should show the GIF
-            if not skip_gif:
-                try:
-                    # For message commands we can use reply_animation
-                    if hasattr(update, 'message') and update.message:
-                        # Verwijder eventuele vorige berichten met callback query
-                        if hasattr(update, 'callback_query') and update.callback_query:
-                            try:
-                                await update.callback_query.message.delete()
-                            except Exception:
-                                pass
-                        
-                        # Send the GIF using regular animation method
-                        await update.message.reply_animation(
-                            animation=gif_url,
-                            caption=WELCOME_MESSAGE,
-                            parse_mode=ParseMode.HTML,
-                            reply_markup=reply_markup
-                        )
-                    else:
-                        # Voor callback_query, verwijder huidige bericht en stuur nieuw bericht
-                        if hasattr(update, 'callback_query') and update.callback_query:
-                            try:
-                                # Verwijder het huidige bericht
-                                await update.callback_query.message.delete()
-                                
-                                # Stuur nieuw bericht met de welkomst GIF
-                                await bot.send_animation(
-                                    chat_id=update.effective_chat.id,
-                                    animation=gif_url,
-                                    caption=WELCOME_MESSAGE,
-                                    parse_mode=ParseMode.HTML,
-                                    reply_markup=reply_markup
-                                )
-                            except Exception as e:
-                                logger.error(f"Failed to handle callback query: {str(e)}")
-                                # Valt terug op tekstwijziging als verwijderen niet lukt
-                                await update.callback_query.edit_message_text(
-                                    text=WELCOME_MESSAGE,
-                                    parse_mode=ParseMode.HTML,
-                                    reply_markup=reply_markup
-                                )
-                        else:
-                            # Final fallback - try to send a new message
-                            await bot.send_animation(
-                                chat_id=update.effective_chat.id,
-                                animation=gif_url,
-                                caption=WELCOME_MESSAGE,
-                                parse_mode=ParseMode.HTML,
-                                reply_markup=reply_markup
-                            )
-                except Exception as e:
-                    logger.error(f"Failed to send menu GIF: {str(e)}")
-                    # Fallback to text-only approach
-                    if hasattr(update, 'message') and update.message:
-                        await update.message.reply_text(
-                            text=WELCOME_MESSAGE,
-                            parse_mode=ParseMode.HTML,
-                            reply_markup=reply_markup
-                        )
-                    else:
-                        await bot.send_message(
-                            chat_id=update.effective_chat.id,
-                            text=WELCOME_MESSAGE,
-                            parse_mode=ParseMode.HTML,
-                            reply_markup=reply_markup
-                        )
-            else:
-                # Skip GIF mode - just send text
-                if hasattr(update, 'message') and update.message:
-                    await update.message.reply_text(
-                        text=WELCOME_MESSAGE,
-                        parse_mode=ParseMode.HTML,
-                        reply_markup=reply_markup
-                    )
-                else:
-                    await bot.send_message(
-                        chat_id=update.effective_chat.id,
-                        text=WELCOME_MESSAGE,
-                        parse_mode=ParseMode.HTML,
-                        reply_markup=reply_markup
-                    )
-        else:
-            # Handle non-subscribed users similar to start command
-            await self.start_command(update, context)
-            
+    async def show_main_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> None:
+        """Show the main menu - identical to menu_command for maximum compatibility"""
+        self.logger.info("show_main_menu called - forwarding to menu_command")
+        await self.menu_command(update, context)
+
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> None:
         """Show help information when /help command is used"""
         await update.message.reply_text(
@@ -2134,9 +2036,16 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         """Safely update message text and keyboard with error handling"""
         self.logger.info("Performing safe message update")
         try:
+            # Make sure the keyboard is an InlineKeyboardMarkup
+            if keyboard and not isinstance(keyboard, InlineKeyboardMarkup):
+                # If it's a list of buttons, wrap it in InlineKeyboardMarkup
+                keyboard_markup = InlineKeyboardMarkup(keyboard)
+            else:
+                keyboard_markup = keyboard
+            
             await query.edit_message_text(
                 text=message,
-                reply_markup=keyboard
+                reply_markup=keyboard_markup
             )
             self.logger.info("Message updated successfully")
             return True
@@ -2145,7 +2054,13 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             
             # Try just updating the keyboard if text update failed
             try:
-                await query.edit_message_reply_markup(reply_markup=keyboard)
+                # Make sure the keyboard is an InlineKeyboardMarkup
+                if keyboard and not isinstance(keyboard, InlineKeyboardMarkup):
+                    keyboard_markup = InlineKeyboardMarkup(keyboard)
+                else:
+                    keyboard_markup = keyboard
+                
+                await query.edit_message_reply_markup(reply_markup=keyboard_markup)
                 self.logger.info("Keyboard updated successfully after text update failed")
                 return True
             except Exception as kb_error:
@@ -2153,9 +2068,15 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 
                 # Try sending a new message as last resort
                 try:
+                    # Make sure the keyboard is an InlineKeyboardMarkup
+                    if keyboard and not isinstance(keyboard, InlineKeyboardMarkup):
+                        keyboard_markup = InlineKeyboardMarkup(keyboard)
+                    else:
+                        keyboard_markup = keyboard
+                    
                     await query.message.reply_text(
                         text=message,
-                        reply_markup=keyboard
+                        reply_markup=keyboard_markup
                     )
                     self.logger.info("Sent new message as fallback")
                     return True
@@ -2175,14 +2096,20 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             bool: Success status
         """
         try:
+            # Make sure the keyboard is an InlineKeyboardMarkup if provided
+            if keyboard and not isinstance(keyboard, InlineKeyboardMarkup):
+                keyboard_markup = InlineKeyboardMarkup(keyboard)
+            else:
+                keyboard_markup = keyboard
+            
             # For callback queries
             if update.callback_query:
                 query = update.callback_query
                 try:
-                    if keyboard:
+                    if keyboard_markup:
                         await query.edit_message_text(
                             text=text,
-                            reply_markup=keyboard,
+                            reply_markup=keyboard_markup,
                             parse_mode=ParseMode.HTML
                         )
                     else:
@@ -2195,19 +2122,19 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     self.logger.error(f"Error updating message: {str(e)}")
                     
                     # Try just updating the keyboard if text update failed
-                    if keyboard:
+                    if keyboard_markup:
                         try:
-                            await query.edit_message_reply_markup(reply_markup=keyboard)
+                            await query.edit_message_reply_markup(reply_markup=keyboard_markup)
                             return True
                         except Exception as kb_error:
                             self.logger.error(f"Error updating keyboard: {str(kb_error)}")
                     
                     # Try sending a new message as last resort
                     try:
-                        if keyboard:
+                        if keyboard_markup:
                             await query.message.reply_text(
                                 text=text,
-                                reply_markup=keyboard,
+                                reply_markup=keyboard_markup,
                                 parse_mode=ParseMode.HTML
                             )
                         else:
@@ -2222,10 +2149,10 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             
             # For regular messages
             elif update.message:
-                if keyboard:
+                if keyboard_markup:
                     await update.message.reply_text(
                         text=text,
-                        reply_markup=keyboard,
+                        reply_markup=keyboard_markup,
                         parse_mode=ParseMode.HTML
                     )
                 else:
@@ -3083,53 +3010,67 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             return False
 
     async def menu_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> None:
-        """Toon het hoofdmenu van de bot - vereenvoudigde versie die altijd werkt"""
-        self.logger.info(f"Menu command requested by user_id={update.effective_user.id if update.effective_user else 'unknown'}")
+        """Toon het hoofdmenu van de bot - simpele implementatie zoals in bot.py(6).py"""
+        self.logger.info(f"Menu command requested - CUSTOM DEBUG VERSION 2023-11")
         
         try:
-            # Direct implementation for reliability - no database dependencies
-            chat_id = update.effective_chat.id if update.effective_chat else None
-            if not chat_id:
-                self.logger.error("No chat_id available in update")
-                return
-                
-            self.logger.info(f"Showing simple menu for chat_id={chat_id}")
+            # Eenvoudige implementatie zonder database queries, zoals in bot.py(6).py
+            if update.message:
+                chat_id = update.message.chat_id
+                # Reply to the message
+                await update.message.reply_text(
+                    text="Welcome to the Sigmapips AI Trading Bot! Select an option: [DEBUG 2023-11]",
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("📊 Analysis", callback_data="menu_analyse")],
+                        [InlineKeyboardButton("🔔 Signals", callback_data="menu_signals")]
+                    ]),
+                    parse_mode=ParseMode.HTML
+                )
+            elif update.callback_query:
+                chat_id = update.callback_query.message.chat_id
+                # Edit the existing message
+                await update.callback_query.edit_message_text(
+                    text="Welcome to the Sigmapips AI Trading Bot! Select an option: [DEBUG 2023-11]",
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("📊 Analysis", callback_data="menu_analyse")],
+                        [InlineKeyboardButton("🔔 Signals", callback_data="menu_signals")]
+                    ]),
+                    parse_mode=ParseMode.HTML
+                )
+            else:
+                # Direct message to chat_id if available
+                chat_id = update.effective_chat.id if update.effective_chat else None
+                if chat_id:
+                    await self.bot.send_message(
+                        chat_id=chat_id,
+                        text="Welcome to the Sigmapips AI Trading Bot! Select an option: [DEBUG 2023-11]",
+                        reply_markup=InlineKeyboardMarkup([
+                            [InlineKeyboardButton("📊 Analysis", callback_data="menu_analyse")],
+                            [InlineKeyboardButton("🔔 Signals", callback_data="menu_signals")]
+                        ]),
+                        parse_mode=ParseMode.HTML
+                    )
+                else:
+                    self.logger.warning("Could not determine chat_id for menu_command")
+                    return
             
-            # Create simple menu keyboard without database lookups
-            from telegram import InlineKeyboardMarkup, InlineKeyboardButton
-            keyboard = [
-                [InlineKeyboardButton("📊 Analysis", callback_data="menu_analyse")],
-                [InlineKeyboardButton("🔔 Signals", callback_data="menu_signals")],
-                [InlineKeyboardButton("⚙️ Manage Settings", callback_data="signals_manage")]
-            ]
-            
-            # Send message with keyboard
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            
-            await self.bot.send_message(
-                chat_id=chat_id,
-                text="Welcome to the Sigmapips AI Trading Bot! Select an option:",
-                reply_markup=reply_markup
-            )
-            
-            self.logger.info(f"Menu sent successfully to chat_id={chat_id}")
+            self.logger.info(f"Menu shown to chat_id={chat_id} - DEBUG VERSION")
             
         except Exception as e:
-            self.logger.error(f"Failed to show menu: {str(e)}")
+            self.logger.error(f"Error showing menu: {str(e)}")
             self.logger.exception(e)
-            
             # Extremely simplified fallback
             try:
                 if update.effective_chat:
                     await self.bot.send_message(
                         chat_id=update.effective_chat.id,
-                        text="Welcome to Sigmapips AI! Please use the buttons below to navigate.",
+                        text="Welcome to Sigmapips AI! Please use the buttons below to navigate. [DEBUG]",
                         reply_markup=InlineKeyboardMarkup([
                             [InlineKeyboardButton("📊 Analysis", callback_data="menu_analyse")],
                             [InlineKeyboardButton("🔔 Signals", callback_data="menu_signals")]
                         ])
                     )
-                    self.logger.info("Sent fallback menu")
+                    self.logger.info("Sent fallback menu - DEBUG VERSION")
             except Exception as fallback_error:
                 self.logger.error(f"Even simple fallback message failed: {fallback_error}")
 
@@ -3391,19 +3332,12 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         await query.answer()
         
         try:
-            # Create signals menu keyboard
-            from telegram import InlineKeyboardMarkup, InlineKeyboardButton
-            keyboard = InlineKeyboardMarkup([
-                [InlineKeyboardButton("➕ Add Signals", callback_data="signals_add")],
-                [InlineKeyboardButton("⚙️ Manage Subscriptions", callback_data="signals_manage")],
-                [InlineKeyboardButton("🔙 Back to Main Menu", callback_data="back_menu")]
-            ])
-            
+            # Use the predefined SIGNALS_KEYBOARD instead of creating a new one
             # Update the message with signals menu
             success = await self.update_message(
                 update,
                 "📊 <b>Signals Menu</b>\n\nSelect an option to continue:",
-                keyboard
+                InlineKeyboardMarkup(SIGNALS_KEYBOARD)
             )
             
             if not success:
@@ -3412,7 +3346,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 await self.bot.send_message(
                     chat_id=chat_id,
                     text="📊 <b>Signals Menu</b>\n\nSelect an option to continue:",
-                    reply_markup=keyboard,
+                    reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD),
                     parse_mode=ParseMode.HTML
                 )
                 
