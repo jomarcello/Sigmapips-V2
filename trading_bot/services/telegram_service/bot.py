@@ -1784,35 +1784,9 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Show analysis directly for this instrument
             return await self.show_calendar_analysis(update, context, instrument=instrument)
         
-        # Show the market selection menu
-        try:
-            # First try to edit message text
-            await query.edit_message_text(
-                text="Select market for economic calendar analysis:",
-                reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
-            )
-        except Exception as text_error:
-            # If that fails due to caption, try editing caption
-            if "There is no text in the message to edit" in str(text_error):
-                try:
-                    await query.edit_message_caption(
-                        caption="Select market for economic calendar analysis:",
-                        reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD),
-                        parse_mode=ParseMode.HTML
-                    )
-                except Exception as e:
-                    logger.error(f"Failed to update caption in analysis_calendar_callback: {str(e)}")
-                    # Try to send a new message as last resort
-                    await query.message.reply_text(
-                        text="Select market for economic calendar analysis:",
-                        reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD),
-                        parse_mode=ParseMode.HTML
-                    )
-            else:
-                # Re-raise for other errors
-                raise
-        
-        return CHOOSE_MARKET
+        # Skip market selection and go directly to calendar analysis
+        logger.info("Showing economic calendar without market selection")
+        return await self.show_calendar_analysis(update, context)
 
     async def show_economic_calendar(self, update: Update, context: CallbackContext, currency=None, loading_message=None):
         """Show the economic calendar for a specific currency"""
