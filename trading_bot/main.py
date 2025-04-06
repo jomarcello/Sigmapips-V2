@@ -359,19 +359,8 @@ async def startup_event():
                                 
                             elif command == '/menu':
                                 logger.info("Explicitly handling /menu command")
-                                # Create the main menu keyboard
-                                from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-                                keyboard = [
-                                    [InlineKeyboardButton("📊 Analysis", callback_data="menu_analyse")],
-                                    [InlineKeyboardButton("🔔 Signals", callback_data="menu_signals")]
-                                ]
-                                
-                                # Send menu message
-                                await telegram_service.bot.send_message(
-                                    chat_id=chat_id,
-                                    text="Select an option from the menu:",
-                                    reply_markup=InlineKeyboardMarkup(keyboard)
-                                )
+                                # Call the menu_command method directly instead of recreating the keyboard here
+                                await telegram_service.menu_command(update_obj, None)
                                 return {"status": "success", "handled": "explicit_menu_command"}
                                 
                             elif command == '/help':
