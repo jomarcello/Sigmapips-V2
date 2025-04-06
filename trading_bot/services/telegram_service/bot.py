@@ -231,7 +231,7 @@ CRYPTO_KEYBOARD = [
     [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
 ]
 
-# Keyboard for signal-specific analysis options
+# Signal analysis keyboard
 SIGNAL_ANALYSIS_KEYBOARD = [
     [InlineKeyboardButton("📈 Technical Analysis", callback_data="signal_technical")],
     [InlineKeyboardButton("🧠 Market Sentiment", callback_data="signal_sentiment")],
@@ -1165,12 +1165,13 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             await self.start_command(update, context)
             
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> None:
-        """Show help information when /help command is used"""
-        await update.message.reply_text(
-            text=HELP_MESSAGE,
-            parse_mode=ParseMode.HTML
-        )
-
+        """Send a message when the command /help is issued."""
+        await self.show_main_menu(update, context)
+        
+    async def menu_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> None:
+        """Send a message when the command /menu is issued."""
+        await self.show_main_menu(update, context)
+        
     async def analysis_technical_callback(self, update: Update, context=None) -> int:
         """Handle analysis_technical button press"""
         query = update.callback_query
@@ -2941,3 +2942,155 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             logger.error(f"Error processing signal: {str(e)}")
             logger.exception(e)
             return False
+
+    async def _load_signals(self):
+        """Load and cache previously saved signals"""
+        try:
+            # Initialize user_signals dictionary if it doesn't exist
+            if not hasattr(self, 'user_signals'):
+                self.user_signals = {}
+                
+            # If we have a database connection, load signals from there
+            if self.db:
+                # Get all active signals from the database
+                signals = await self.db.get_active_signals()
+                
+                # Organize signals by user_id for quick access
+                for signal in signals:
+                    user_id = str(signal.get('user_id'))
+                    signal_id = signal.get('id')
+                    
+                    # Initialize user dictionary if needed
+                    if user_id not in self.user_signals:
+                        self.user_signals[user_id] = {}
+                    
+                    # Store the signal
+                    self.user_signals[user_id][signal_id] = signal
+                
+                logger.info(f"Loaded {len(signals)} signals for {len(self.user_signals)} users")
+            else:
+                logger.warning("No database connection available for loading signals")
+                
+        except Exception as e:
+            logger.error(f"Error loading signals: {str(e)}")
+            logger.exception(e)
+            # Initialize empty dict on error
+            self.user_signals = {}
+
+    async def back_signals_callback(self, update: Update, context=None) -> int:
+        """Handle back_signals button press to return to signals menu"""
+        query = update.callback_query
+        await query.answer()
+        
+        try:
+            # Return to signals menu
+            keyboard = SIGNALS_KEYBOARD
+            text = "Choose a signals option:"
+            
+            try:
+                await query.edit_message_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.HTML
+                )
+            except Exception as e:
+                logger.error(f"Error updating message in back_signals_callback: {str(e)}")
+                
+                # If there's a photo or animation, try to delete and send new message
+                if query.message.photo or query.message.animation:
+                    try:
+                        await query.message.delete()
+                        await context.bot.send_message(
+                            chat_id=update.effective_chat.id,
+                            text=text,
+                            reply_markup=InlineKeyboardMarkup(keyboard),
+                            parse_mode=ParseMode.HTML
+                        )
+                    except Exception as delete_error:
+                        logger.error(f"Failed to delete message: {str(delete_error)}")
+                
+                # As a last resort, try to edit caption
+                try:
+                    await query.edit_message_caption(
+                        caption=text,
+                        reply_markup=InlineKeyboardMarkup(keyboard),
+                        parse_mode=ParseMode.HTML
+                    )
+                except Exception as caption_error:
+                    logger.error(f"Failed to update caption: {str(caption_error)}")
+            
+            return CHOOSE_SIGNALS
+            
+        except Exception as e:
+            logger.error(f"Error in back_signals_callback: {str(e)}")
+            logger.exception(e)
+            
+            # Error recovery - go to main menu
+            try:
+                await query.edit_message_text(
+                    text="An error occurred. Returning to main menu.",
+                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
+                )
+            except Exception:
+                pass
+                
+            return MENU
+
+    async def update_message(self, query, text, keyboard=None, parse_mode=ParseMode.HTML):
+        """Update a message with robust error handling for different message types"""
+        try:
+            # Check if keyboard should be wrapped in InlineKeyboardMarkup
+            if keyboard and not isinstance(keyboard, InlineKeyboardMarkup):
+                keyboard = InlineKeyboardMarkup(keyboard)
+            
+            # Try to edit message text first (most common case)
+            await query.edit_message_text(
+                text=text,
+                reply_markup=keyboard,
+                parse_mode=parse_mode
+            )
+            return True
+        except Exception as text_error:
+            logger.debug(f"Could not edit message text: {str(text_error)}")
+            
+            # If message has photo or animation
+            if hasattr(query, 'message') and (
+                query.message.photo or 
+                query.message.animation or 
+                hasattr(query.message, 'document')
+            ):
+                try:
+                    # Try to delete and send new message
+                    await query.message.delete()
+                    await query.bot.send_message(
+                        chat_id=query.message.chat_id,
+                        text=text,
+                        reply_markup=keyboard,
+                        parse_mode=parse_mode
+                    )
+                    return True
+                except Exception as delete_error:
+                    logger.debug(f"Could not delete and resend: {str(delete_error)}")
+                    
+                    # Try to edit caption if it's a media message
+                    try:
+                        await query.edit_message_caption(
+                            caption=text,
+                            reply_markup=keyboard,
+                            parse_mode=parse_mode
+                        )
+                        return True
+                    except Exception as caption_error:
+                        logger.error(f"Could not edit caption: {str(caption_error)}")
+            
+            # Last resort - send a new message
+            try:
+                await query.message.reply_text(
+                    text=text,
+                    reply_markup=keyboard,
+                    parse_mode=parse_mode
+                )
+                return True
+            except Exception as last_error:
+                logger.error(f"All update_message attempts failed: {str(last_error)}")
+                return False
