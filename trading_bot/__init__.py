@@ -4,13 +4,12 @@
 # Define version
 __version__ = '2.0.0'
 
-# Import hack voor backward compatibility
+# Import hack for backward compatibility only, do not use these imports in new code
 from trading_bot.services.chart_service.tradingview_selenium import TradingViewSeleniumService
 from trading_bot.services.chart_service.tradingview_playwright import TradingViewPlaywrightService
-from trading_bot.services.calendar_service.calendar import EconomicCalendarService
 
-# Voor backward compatibility
+# For backward compatibility
 TradingViewPuppeteerService = TradingViewPlaywrightService
 
-# Leeg bestand of minimale imports
-# Vermijd het importeren van ChartService en TradingViewSeleniumService hier
+# DO NOT import other services here to avoid circular dependencies
+# Import directly from the specific modules instead
