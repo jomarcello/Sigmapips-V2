@@ -3544,10 +3544,9 @@ Risk Management:
             sent_count = 0
             for user_id in subscribers:
                 try:
-                    # Prepare keyboard with analysis options
+                    # Prepare keyboard with analysis options - removed Main Menu button
                     keyboard = [
-                        [InlineKeyboardButton("🔍 Analyze Market", callback_data=f"analyze_from_signal_{instrument}_{signal_id}")],
-                        [InlineKeyboardButton("🏠 Main Menu", callback_data="back_menu")]
+                        [InlineKeyboardButton("🔍 Analyze Market", callback_data=f"analyze_from_signal_{instrument}_{signal_id}")]
                     ]
                     
                     # Send as regular message
