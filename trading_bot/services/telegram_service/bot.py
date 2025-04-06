@@ -3010,31 +3010,25 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             return False
 
     async def menu_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> None:
-        """Toon het hoofdmenu van de bot - simpele implementatie zoals in bot.py(6).py"""
-        self.logger.info(f"Menu command requested - CUSTOM DEBUG VERSION 2023-11")
+        """Display the main menu of the bot"""
+        self.logger.info("Menu command requested")
         
         try:
-            # Eenvoudige implementatie zonder database queries, zoals in bot.py(6).py
+            # Use the predefined constants for consistent appearance
             if update.message:
                 chat_id = update.message.chat_id
                 # Reply to the message
                 await update.message.reply_text(
-                    text="Welcome to the Sigmapips AI Trading Bot! Select an option: [DEBUG 2023-11]",
-                    reply_markup=InlineKeyboardMarkup([
-                        [InlineKeyboardButton("📊 Analysis", callback_data="menu_analyse")],
-                        [InlineKeyboardButton("🔔 Signals", callback_data="menu_signals")]
-                    ]),
+                    text=WELCOME_MESSAGE,
+                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
                     parse_mode=ParseMode.HTML
                 )
             elif update.callback_query:
                 chat_id = update.callback_query.message.chat_id
                 # Edit the existing message
                 await update.callback_query.edit_message_text(
-                    text="Welcome to the Sigmapips AI Trading Bot! Select an option: [DEBUG 2023-11]",
-                    reply_markup=InlineKeyboardMarkup([
-                        [InlineKeyboardButton("📊 Analysis", callback_data="menu_analyse")],
-                        [InlineKeyboardButton("🔔 Signals", callback_data="menu_signals")]
-                    ]),
+                    text=WELCOME_MESSAGE,
+                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
                     parse_mode=ParseMode.HTML
                 )
             else:
@@ -3043,34 +3037,29 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 if chat_id:
                     await self.bot.send_message(
                         chat_id=chat_id,
-                        text="Welcome to the Sigmapips AI Trading Bot! Select an option: [DEBUG 2023-11]",
-                        reply_markup=InlineKeyboardMarkup([
-                            [InlineKeyboardButton("📊 Analysis", callback_data="menu_analyse")],
-                            [InlineKeyboardButton("🔔 Signals", callback_data="menu_signals")]
-                        ]),
+                        text=WELCOME_MESSAGE,
+                        reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
                         parse_mode=ParseMode.HTML
                     )
                 else:
                     self.logger.warning("Could not determine chat_id for menu_command")
                     return
             
-            self.logger.info(f"Menu shown to chat_id={chat_id} - DEBUG VERSION")
+            self.logger.info(f"Menu shown to chat_id={chat_id}")
             
         except Exception as e:
             self.logger.error(f"Error showing menu: {str(e)}")
             self.logger.exception(e)
-            # Extremely simplified fallback
+            # Simplified fallback
             try:
                 if update.effective_chat:
                     await self.bot.send_message(
                         chat_id=update.effective_chat.id,
-                        text="Welcome to Sigmapips AI! Please use the buttons below to navigate. [DEBUG]",
-                        reply_markup=InlineKeyboardMarkup([
-                            [InlineKeyboardButton("📊 Analysis", callback_data="menu_analyse")],
-                            [InlineKeyboardButton("🔔 Signals", callback_data="menu_signals")]
-                        ])
+                        text=WELCOME_MESSAGE,
+                        reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
+                        parse_mode=ParseMode.HTML
                     )
-                    self.logger.info("Sent fallback menu - DEBUG VERSION")
+                    self.logger.info("Sent fallback menu")
             except Exception as fallback_error:
                 self.logger.error(f"Even simple fallback message failed: {fallback_error}")
 
