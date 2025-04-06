@@ -702,10 +702,24 @@ class TelegramService:
             application.add_handler(CallbackQueryHandler(self.back_signals_callback, pattern="^back_signals$"))
             application.add_handler(CallbackQueryHandler(self.back_menu_callback, pattern="^back_menu$"))
             
-            # Analysis handlers
-            application.add_handler(CallbackQueryHandler(self.analysis_technical_callback, pattern="^analysis_technical"))
-            application.add_handler(CallbackQueryHandler(self.analysis_sentiment_callback, pattern="^analysis_sentiment"))
-            application.add_handler(CallbackQueryHandler(self.analysis_calendar_callback, pattern="^analysis_calendar"))
+            # Analysis handlers for regular flow
+            application.add_handler(CallbackQueryHandler(self.analysis_technical_callback, pattern="^analysis_technical$"))
+            application.add_handler(CallbackQueryHandler(self.analysis_sentiment_callback, pattern="^analysis_sentiment$"))
+            application.add_handler(CallbackQueryHandler(self.analysis_calendar_callback, pattern="^analysis_calendar$"))
+            
+            # Analysis handlers for signal flow - with instrument embedded in callback
+            application.add_handler(CallbackQueryHandler(self.analysis_technical_callback, pattern="^analysis_technical_signal_.*$"))
+            application.add_handler(CallbackQueryHandler(self.analysis_sentiment_callback, pattern="^analysis_sentiment_signal_.*$"))
+            application.add_handler(CallbackQueryHandler(self.analysis_calendar_callback, pattern="^analysis_calendar_signal_.*$"))
+            
+            # Signal analysis flow handlers
+            application.add_handler(CallbackQueryHandler(self.signal_technical_callback, pattern="^signal_technical$"))
+            application.add_handler(CallbackQueryHandler(self.signal_sentiment_callback, pattern="^signal_sentiment$"))
+            application.add_handler(CallbackQueryHandler(self.signal_calendar_callback, pattern="^signal_calendar$"))
+            application.add_handler(CallbackQueryHandler(self.back_to_signal_callback, pattern="^back_to_signal$"))
+            
+            # Signal from analysis
+            application.add_handler(CallbackQueryHandler(self.analyze_from_signal_callback, pattern="^analyze_from_signal_.*$"))
             
             # Catch-all handler for any other callbacks
             application.add_handler(CallbackQueryHandler(self.button_callback))
@@ -716,9 +730,8 @@ class TelegramService:
             logger.info("Bot setup completed successfully")
             
         except Exception as e:
-            logger.error(f"Error setting up bot: {str(e)}")
+            logger.error(f"Error setting up bot handlers: {str(e)}")
             logger.exception(e)
-            raise
 
     @property
     def signals_enabled(self):
@@ -1163,7 +1176,6 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         await query.answer()
         
         # Check if signal-specific data is present in callback data
-        signal_data = None
         if context and hasattr(context, 'user_data'):
             context.user_data['analysis_type'] = 'technical'
         
@@ -1199,7 +1211,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                         parse_mode=ParseMode.HTML
                     )
                 except Exception as e:
-                    logger.error(f"Failed to update caption for technical analysis: {str(e)}")
+                    logger.error(f"Failed to update caption in analysis_technical_callback: {str(e)}")
                     # Try to send a new message as last resort
                     await query.message.reply_text(
                         text="Select market for technical analysis:",
@@ -1211,17 +1223,16 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 raise
         
         return CHOOSE_MARKET
-
+        
     async def analysis_sentiment_callback(self, update: Update, context=None) -> int:
         """Handle analysis_sentiment button press"""
         query = update.callback_query
         await query.answer()
         
-        # Set analysis type in context
         if context and hasattr(context, 'user_data'):
             context.user_data['analysis_type'] = 'sentiment'
         
-        # Check if signal-specific data is present in callback data
+        # Set the callback data
         callback_data = query.data
         
         # Set the instrument if it was passed in the callback data
@@ -1235,13 +1246,13 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             
             # Show analysis directly for this instrument
             return await self.show_sentiment_analysis(update, context, instrument=instrument)
-        
+            
         # Show the market selection menu
         try:
             # First try to edit message text
             await query.edit_message_text(
                 text="Select market for sentiment analysis:",
-                reply_markup=InlineKeyboardMarkup(MARKET_SENTIMENT_KEYBOARD)
+                reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
             )
         except Exception as text_error:
             # If that fails due to caption, try editing caption
@@ -1249,15 +1260,15 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 try:
                     await query.edit_message_caption(
                         caption="Select market for sentiment analysis:",
-                        reply_markup=InlineKeyboardMarkup(MARKET_SENTIMENT_KEYBOARD),
+                        reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD),
                         parse_mode=ParseMode.HTML
                     )
                 except Exception as e:
-                    logger.error(f"Failed to update caption for sentiment analysis: {str(e)}")
+                    logger.error(f"Failed to update caption in analysis_sentiment_callback: {str(e)}")
                     # Try to send a new message as last resort
                     await query.message.reply_text(
                         text="Select market for sentiment analysis:",
-                        reply_markup=InlineKeyboardMarkup(MARKET_SENTIMENT_KEYBOARD),
+                        reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD),
                         parse_mode=ParseMode.HTML
                     )
             else:
@@ -1265,128 +1276,59 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 raise
         
         return CHOOSE_MARKET
-
+        
     async def analysis_calendar_callback(self, update: Update, context=None) -> int:
         """Handle analysis_calendar button press"""
+        query = update.callback_query
+        await query.answer()
+        
+        if context and hasattr(context, 'user_data'):
+            context.user_data['analysis_type'] = 'calendar'
+            
+        # Set the callback data
+        callback_data = query.data
+        
+        # Set the instrument if it was passed in the callback data
+        if callback_data.startswith("analysis_calendar_signal_"):
+            # Extract instrument from the callback data
+            instrument = callback_data.replace("analysis_calendar_signal_", "")
+            if context and hasattr(context, 'user_data'):
+                context.user_data['instrument'] = instrument
+            
+            logger.info(f"Calendar analysis for specific instrument: {instrument}")
+            
+            # Show analysis directly for this instrument
+            return await self.show_calendar_analysis(update, context, instrument=instrument)
+        
+        # Show the market selection menu
         try:
-            query = update.callback_query
-            chat_id = update.effective_chat.id
-            
-            # Set callback answer
-            try:
-                await query.answer()
-            except Exception as e:
-                self.logger.error(f"Could not answer callback: {str(e)}")
-            
-            # Verwijder het huidige bericht/media voordat we de loading animatie tonen
-            try:
-                # Stap 1: Probeer het bericht te verwijderen
-                await query.message.delete()
-                self.logger.info("Successfully deleted previous message")
-            except Exception as delete_error:
-                self.logger.warning(f"Could not delete message: {str(delete_error)}")
-                
-                # Stap 2: Als verwijderen niet lukt, vervang met transparante GIF
-                has_photo = bool(query.message.photo) or query.message.animation is not None
-                
-                if has_photo:
-                    try:
-                        # Gebruik een transparante GIF om de huidige afbeelding te vervangen
-                        transparent_gif_url = "https://upload.wikimedia.org/wikipedia/commons/thumb/0/00/Transparent.gif/1px-Transparent.gif"
-                        
-                        await query.edit_message_media(
-                            media=InputMediaDocument(
-                                media=transparent_gif_url,
-                                caption="Loading calendar..."
-                            )
-                        )
-                        self.logger.info("Replaced media with transparent GIF")
-                    except Exception as media_error:
-                        self.logger.warning(f"Could not replace media: {str(media_error)}")
-                        
-                        # Stap 3: Als laatste optie, pas alleen het bijschrift aan
-                        try:
-                            await query.edit_message_caption(
-                                caption="Loading calendar...",
-                            )
-                            self.logger.info("Updated caption only")
-                        except Exception as caption_error:
-                            self.logger.warning(f"Could not update caption: {str(caption_error)}")
-            
-            # BELANGRIJK: Toon de loading animatie
-            animation_url = "https://media.giphy.com/media/dpjUltnOPye7azvAhH/giphy.gif"
-            
-            # Verstuur de animatie
-            try:
-                loading_message = await context.bot.sendAnimation(
-                    chat_id=chat_id,
-                    animation=animation_url,
-                    caption="<b>📅 Fetching economic calendar data...</b>",
-                    parse_mode=ParseMode.HTML
-                )
-                self.logger.info("Successfully sent loading animation")
-                
-                # Check if it's an instrument-specific calendar request
-                if query.data.startswith("analysis_calendar_signal_"):
-                    instrument = query.data.replace("analysis_calendar_signal_", "")
-                    self.logger.info(f"Showing economic calendar for instrument: {instrument}")
-                    await self.show_economic_calendar(update, context, instrument, loading_message)
-                else:
-                    # Show calendar for all currencies
-                    self.logger.info("Showing economic calendar for all currencies")
-                    await self.show_economic_calendar(update, context, None, loading_message)
-                
-            except Exception as e:
-                self.logger.error(f"Failed to send loading animation: {str(e)}")
-                # Als de animatie mislukt, stuur een tekst bericht als fallback
+            # First try to edit message text
+            await query.edit_message_text(
+                text="Select market for economic calendar analysis:",
+                reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
+            )
+        except Exception as text_error:
+            # If that fails due to caption, try editing caption
+            if "There is no text in the message to edit" in str(text_error):
                 try:
-                    loading_message = await context.bot.sendMessage(
-                        chat_id=chat_id,
-                        text="<b>📅 Loading economic calendar...</b>",
+                    await query.edit_message_caption(
+                        caption="Select market for economic calendar analysis:",
+                        reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD),
                         parse_mode=ParseMode.HTML
                     )
-                    self.logger.info("Sent text loading message as fallback")
-                    
-                    # Check if it's an instrument-specific calendar request
-                    if query.data.startswith("analysis_calendar_signal_"):
-                        instrument = query.data.replace("analysis_calendar_signal_", "")
-                        self.logger.info(f"Showing economic calendar for instrument: {instrument}")
-                        await self.show_economic_calendar(update, context, instrument, loading_message)
-                    else:
-                        # Show calendar for all currencies
-                        self.logger.info("Showing economic calendar for all currencies")
-                        await self.show_economic_calendar(update, context, None, loading_message)
-                except Exception as text_error:
-                    self.logger.error(f"Failed to send text loading message: {str(text_error)}")
-                    # Direct call to show_economic_calendar as last resort
-                    if query.data.startswith("analysis_calendar_signal_"):
-                        instrument = query.data.replace("analysis_calendar_signal_", "")
-                        await self.show_economic_calendar(update, context, instrument)
-                    else:
-                        await self.show_economic_calendar(update, context)
-            
-            return ANALYSIS
-        except Exception as e:
-            self.logger.error(f"Error in analysis_calendar_callback: {str(e)}")
-            self.logger.exception(e)
-            
-            chat_id = update.effective_chat.id
-            
-            # Create keyboard with retry button
-            keyboard = [
-                [InlineKeyboardButton("🔄 Try Again", callback_data="analysis_calendar")],
-                [InlineKeyboardButton("⬅️ Back", callback_data="menu_analyse")]
-            ]
-            
-            # Send error message
-            await context.bot.send_message(
-                chat_id=chat_id,
-                text="<b>⚠️ Error showing economic calendar</b>\n\nSorry, there was an error retrieving the calendar data. Please try again later.",
-                reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode=ParseMode.HTML
-            )
-            
-            return ANALYSIS
+                except Exception as e:
+                    logger.error(f"Failed to update caption in analysis_calendar_callback: {str(e)}")
+                    # Try to send a new message as last resort
+                    await query.message.reply_text(
+                        text="Select market for economic calendar analysis:",
+                        reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD),
+                        parse_mode=ParseMode.HTML
+                    )
+            else:
+                # Re-raise for other errors
+                raise
+        
+        return CHOOSE_MARKET
 
     async def show_economic_calendar(self, update: Update, context: CallbackContext, currency=None, loading_message=None):
         """Show the economic calendar for a specific currency"""
@@ -3283,6 +3225,45 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 if context and hasattr(context, 'user_data'):
                     context.user_data['instrument'] = instrument
                     context.user_data['current_signal_id'] = signal_id
+                    
+                    # Directly show the analysis options for the signal
+                    # Skip market selection since we already know the instrument
+                    keyboard = [
+                        [InlineKeyboardButton("📈 Technical Analysis", callback_data=f"analysis_technical_signal_{instrument}")],
+                        [InlineKeyboardButton("🧠 Market Sentiment", callback_data=f"analysis_sentiment_signal_{instrument}")],
+                        [InlineKeyboardButton("📅 Economic Calendar", callback_data=f"analysis_calendar_signal_{instrument}")],
+                        [InlineKeyboardButton("⬅️ Back", callback_data="back_menu")]
+                    ]
+                    
+                    # Update message with analysis options
+                    try:
+                        await query.edit_message_text(
+                            text=f"Select analysis type for {instrument}:",
+                            reply_markup=InlineKeyboardMarkup(keyboard),
+                            parse_mode=ParseMode.HTML
+                        )
+                    except Exception as text_error:
+                        # If that fails due to caption, try editing caption
+                        if "There is no text in the message to edit" in str(text_error):
+                            try:
+                                await query.edit_message_caption(
+                                    caption=f"Select analysis type for {instrument}:",
+                                    reply_markup=InlineKeyboardMarkup(keyboard),
+                                    parse_mode=ParseMode.HTML
+                                )
+                            except Exception as e:
+                                logger.error(f"Failed to update caption in analyze_from_signal_callback: {str(e)}")
+                                # Try to send a new message as last resort
+                                await query.message.reply_text(
+                                    text=f"Select analysis type for {instrument}:",
+                                    reply_markup=InlineKeyboardMarkup(keyboard),
+                                    parse_mode=ParseMode.HTML
+                                )
+                        else:
+                            # Re-raise for other errors
+                            raise
+                    
+                    return SIGNAL_DETAILS
         
         if not instrument and context and hasattr(context, 'user_data'):
             instrument = context.user_data.get('instrument')
@@ -3453,71 +3434,75 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
     
     async def process_signal(self, signal_data: Dict[str, Any]) -> bool:
         """
-        Process a trading signal and send it to subscribed users
+        Process a trading signal from TradingView webhook or API
         
-        Args:
-            signal_data: Dict containing signal information
-                Required keys:
-                - instrument: The trading pair/instrument (e.g., EURUSD)
-                - direction: "buy" or "sell"
-                - timeframe: The signal timeframe (e.g., "1h", "4h", "M15", etc.)
-                
-                Optional keys:
-                - entry: Entry price point
-                - stop_loss: Stop loss price
-                - take_profit: Take profit target
-                - risk_reward: Risk-reward ratio
-                - confidence: Signal confidence level (1-100)
-                - notes: Additional notes about the signal
-                - chart_url: URL to chart image
-                
+        Expected TradingView JSON format:
+        {
+            "instrument": "{{ticker}}",
+            "signal": "{{strategy.order.action}}",
+            "price": {{close}},
+            "tp1": {{plot_0}},
+            "tp2": {{plot_1}},
+            "tp3": {{plot_2}},
+            "sl": {{plot_3}},
+            "interval": "{{interval}}"
+        }
+        
         Returns:
             bool: True if signal was processed successfully, False otherwise
         """
         try:
-            # Extract required fields
+            # Extract fields from TradingView webhook
             instrument = signal_data.get('instrument')
-            direction = signal_data.get('direction', '').lower()
-            timeframe = signal_data.get('timeframe')
+            price = signal_data.get('price')
+            sl = signal_data.get('sl')
+            tp1 = signal_data.get('tp1')
+            tp2 = signal_data.get('tp2')
+            tp3 = signal_data.get('tp3')
+            interval = signal_data.get('interval', '1h')
             
             # Basic validation
-            if not instrument or not direction:
+            if not instrument or price is None or sl is None:
                 logger.error(f"Missing required fields in signal data: {signal_data}")
                 return False
-                
-            if direction not in ['buy', 'sell']:
-                logger.error(f"Invalid direction {direction} in signal data")
-                return False
             
-            # Optional fields with defaults
-            entry = signal_data.get('entry', 'Market')
-            stop_loss = signal_data.get('stop_loss', 'Not specified')
-            take_profit = signal_data.get('take_profit', 'Not specified')
-            risk_reward = signal_data.get('risk_reward', 'Not specified')
-            confidence = signal_data.get('confidence', 'Not specified')
-            notes = signal_data.get('notes', '')
-            chart_url = signal_data.get('chart_url', '')
+            # Determine signal type based on price and SL relationship
+            # Note: We ignore the signal field from TradingView as instructed
+            direction = "BUY" if float(sl) < float(price) else "SELL"
+            direction_emoji = "📈" if direction == "BUY" else "📉"
             
             # Create signal ID for tracking
-            signal_id = f"{instrument}_{direction}_{timeframe}_{int(time.time())}"
+            signal_id = f"{instrument}_{direction}_{interval}_{int(time.time())}"
+
+            # Generate AI verdict for the signal
+            ai_verdict = f"The {instrument} {direction.lower()} signal shows a promising setup with defined entry at {price} and stop loss at {sl}. Multiple take profit levels provide opportunities for partial profit taking."
             
-            # Create signal message
-            direction_emoji = "🟢 BUY" if direction == "buy" else "🔴 SELL"
-            signal_message = f"""
-🔔 <b>NEW SIGNAL ALERT</b> 🔔
+            # Create signal message in the specified format
+            signal_message = f"""🎯 New Trading Signal 🎯
 
-<b>Instrument:</b> {instrument}
-<b>Direction:</b> {direction_emoji}
-<b>Timeframe:</b> {timeframe}
+Instrument: {instrument}
+Action: {direction} {direction_emoji}
 
-<b>Entry:</b> {entry}
-<b>Stop Loss:</b> {stop_loss}
-<b>Take Profit:</b> {take_profit}
-<b>Risk/Reward:</b> {risk_reward}
-<b>Confidence:</b> {confidence}
+Entry Price: {price}
+Stop Loss: {sl} 🔴
+Take Profit 1: {tp1} 🎯
+Take Profit 2: {tp2} 🎯
+Take Profit 3: {tp3} 🎯
 
-{notes}
-"""
+Timeframe: {interval}
+Strategy: TradingView Signal
+
+————————————————————
+
+Risk Management:
+• Position size: 1-2% max
+• Use proper stop loss
+• Follow your trading plan
+
+————————————————————
+
+🤖 SigmaPips AI Verdict:
+{ai_verdict}"""
             
             # Determine market type for the instrument
             market_type = _detect_market(instrument)
@@ -3528,14 +3513,12 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 'timestamp': datetime.now().isoformat(),
                 'instrument': instrument,
                 'direction': direction,
-                'timeframe': timeframe,
-                'entry': entry,
-                'stop_loss': stop_loss, 
-                'take_profit': take_profit,
-                'risk_reward': risk_reward,
-                'confidence': confidence,
-                'notes': notes,
-                'chart_url': chart_url,
+                'interval': interval,
+                'price': price,
+                'sl': sl,
+                'tp1': tp1,
+                'tp2': tp2, 
+                'tp3': tp3,
                 'market': market_type,
                 'message': signal_message
             }
@@ -3549,10 +3532,10 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 json.dump(formatted_signal, f)
             
             # Get subscribers for this instrument
-            subscribers = await self.get_subscribers_for_instrument(instrument, timeframe)
+            subscribers = await self.get_subscribers_for_instrument(instrument, interval)
             
             if not subscribers:
-                logger.info(f"No subscribers found for {instrument} {timeframe}")
+                logger.info(f"No subscribers found for {instrument} {interval}")
                 return True  # Successfully processed, just no subscribers
             
             # Send signal to all subscribers
@@ -3563,38 +3546,17 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 try:
                     # Prepare keyboard with analysis options
                     keyboard = [
-                        [InlineKeyboardButton("🔍 Analyze", callback_data=f"analyze_from_signal_{instrument}_{signal_id}")],
-                        [InlineKeyboardButton("📊 Charts", callback_data=f"charts_from_signal_{instrument}_{signal_id}")],
+                        [InlineKeyboardButton("🔍 Analyze Market", callback_data=f"analyze_from_signal_{instrument}_{signal_id}")],
                         [InlineKeyboardButton("🏠 Main Menu", callback_data="back_menu")]
                     ]
                     
-                    # If we have a chart URL, send it as a photo
-                    if chart_url:
-                        try:
-                            await self.bot.send_photo(
-                                chat_id=user_id,
-                                photo=chart_url,
-                                caption=signal_message,
-                                parse_mode=ParseMode.HTML,
-                                reply_markup=InlineKeyboardMarkup(keyboard)
-                            )
-                        except Exception as photo_e:
-                            # If photo fails, fallback to just text
-                            logger.error(f"Could not send photo for signal {signal_id}: {str(photo_e)}")
-                            await self.bot.send_message(
-                                chat_id=user_id,
-                                text=signal_message,
-                                parse_mode=ParseMode.HTML,
-                                reply_markup=InlineKeyboardMarkup(keyboard)
-                            )
-                    else:
-                        # Send as regular message
-                        await self.bot.send_message(
-                            chat_id=user_id,
-                            text=signal_message,
-                            parse_mode=ParseMode.HTML,
-                            reply_markup=InlineKeyboardMarkup(keyboard)
-                        )
+                    # Send as regular message
+                    await self.bot.send_message(
+                        chat_id=user_id,
+                        text=signal_message,
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
                     
                     sent_count += 1
                     # Store signal reference in user data for quick access
@@ -3613,7 +3575,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             logger.error(f"Error processing signal: {str(e)}")
             logger.exception(e)
             return False
-            
+
     def _load_signals(self):
         """Load stored signals from the signals directory"""
         if not os.path.exists(self.signals_dir):
