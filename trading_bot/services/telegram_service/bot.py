@@ -2838,8 +2838,8 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         await query.answer()  # Respond to prevent loading icon
         
         try:
-            # Use a signals-specific GIF URL - different from /menu
-            gif_url = "https://media.giphy.com/media/LQ2JqYDOLGBpvpKxiQ/giphy.gif"
+            # Use the same GIF as in menu_command which is working
+            gif_url = "https://media.giphy.com/media/gSzIKNrqtotEYrZv7i/giphy.gif"
             
             # Try updating with GIF
             try:
@@ -3863,8 +3863,8 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         
         # Show the signals menu
         try:
-            # Use signals-specific GIF - same as in menu_signals_callback
-            gif_url = "https://media.giphy.com/media/LQ2JqYDOLGBpvpKxiQ/giphy.gif"
+            # Use the same GIF as in menu_command which is working
+            gif_url = "https://media.giphy.com/media/gSzIKNrqtotEYrZv7i/giphy.gif"
             
             try:
                 # Try updating with GIF
