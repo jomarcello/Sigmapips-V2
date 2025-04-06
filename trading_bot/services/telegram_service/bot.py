@@ -1511,6 +1511,17 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         query = update.callback_query
         await query.answer()
         
+        # Set proper context to ensure we're in menu flow, not signal flow
+        if context and hasattr(context, 'user_data'):
+            # Reset all context data to ensure clean separation between flows
+            context.user_data.clear()
+            
+            # Explicitly set the signals context flag to False - this is critical
+            context.user_data['is_signals_context'] = False
+            context.user_data['from_signal'] = False
+            
+            logger.info(f"Set menu flow context: {context.user_data}")
+        
         # Gebruik de juiste analyse GIF URL
         gif_url = "https://media.giphy.com/media/gSzIKNrqtotEYrZv7i/giphy.gif"
         
@@ -2212,9 +2223,9 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                             reply_markup=InlineKeyboardMarkup(SIGNAL_ANALYSIS_KEYBOARD),
                             parse_mode=ParseMode.HTML
                         )
-            else:
-                # Re-raise for other errors
-                raise
+                else:
+                    # Re-raise for other errors
+                    raise
         return CHOOSE_ANALYSIS
 
     async def signal_calendar_callback(self, update: Update, context=None) -> int:
