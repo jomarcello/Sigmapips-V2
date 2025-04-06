@@ -74,13 +74,17 @@ RUN pip install --upgrade pip
 RUN pip install --no-cache-dir -r requirements.txt
 RUN pip install --no-cache-dir webdriver-manager==3.8.6
 
-# Installeer Playwright browsers voor Python
-RUN playwright install chromium
-
 # Installeer Playwright voor Node.js en de browsers
-RUN npm install -g playwright @playwright/test
-RUN npm install -g playwright-core
-RUN npx playwright install chromium
+ENV PLAYWRIGHT_BROWSERS_PATH=/app/ms-playwright
+RUN npm init -y && \
+    npm install playwright && \
+    npx playwright install chromium && \
+    npx playwright install-deps chromium
+
+# Installeer Playwright browsers voor Python
+ENV PLAYWRIGHT_BROWSERS_PATH=/app/ms-playwright
+RUN playwright install chromium
+RUN playwright install-deps
 
 # Maak directories voor data opslag
 RUN mkdir -p /app/selenium_data
@@ -88,19 +92,28 @@ RUN mkdir -p /app/playwright_data
 RUN chmod -R 777 /app/selenium_data
 RUN chmod -R 777 /app/playwright_data
 
-# Ga terug naar de hoofddirectory
-WORKDIR /app
-
 # Kopieer de rest van de code
 COPY . .
 
 # Stel environment variables in
 ENV PYTHONPATH=/app
 ENV PORT=8080
+ENV NODE_ENV=production
+ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=0
+ENV PLAYWRIGHT_BROWSERS_PATH=/app/ms-playwright
 
 # Stel debug mode in
 ENV TRADINGVIEW_DEBUG=true
 
-# Start Xvfb en de applicatie
-CMD Xvfb :99 -screen 0 1920x1080x24 > /dev/null 2>&1 & \
-    uvicorn trading_bot.main:app --host 0.0.0.0 --port 8080
+# Voeg een script toe om de bot te starten
+RUN echo '#!/bin/bash\n\
+echo "Starting SigmaPips Trading Bot..."\n\
+cd /app\n\
+echo "Checking and fixing imports..."\n\
+python -m fix_calendar_imports\n\
+echo "Starting main application..."\n\
+python -m trading_bot.main\n\
+' > /app/start.sh && chmod +x /app/start.sh
+
+# Draai de applicatie
+CMD ["/app/start.sh"]
