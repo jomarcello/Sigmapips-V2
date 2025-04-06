@@ -1474,35 +1474,57 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             instrument = context.user_data.get('instrument')
         
         if instrument:
-            # Show loading message with GIF
+            # Set flag to indicate we're in signal flow
+            if context and hasattr(context, 'user_data'):
+                context.user_data['from_signal'] = True
+            
+            # Try to show loading animation first
+            loading_gif_url = "https://media.giphy.com/media/gSzIKNrqtotEYrZv7i/giphy.gif"
+            loading_text = f"Loading {instrument} chart..."
+            
             try:
-                # Create and store loading message in context
-                loading_message = await query.edit_message_text(
-                    text=f"Loading {instrument} chart..."
-                )
-                
-                if context and hasattr(context, 'user_data'):
-                    context.user_data['loading_message'] = loading_message
-                    # Set flag to indicate we're in signal flow
-                    context.user_data['from_signal'] = True
-                
-                # Show technical analysis for this instrument
-                return await self.show_technical_analysis(update, context, instrument=instrument)
-            except Exception as e:
-                logger.error(f"Error showing loading message: {str(e)}")
-                # Try fallback with GIF
-                try:
-                    from trading_bot.services.telegram_service.gif_utils import send_loading_gif
-                    await send_loading_gif(
-                        self.bot,
-                        update.effective_chat.id,
-                        caption=f"⏳ <b>Analyzing technical data for {instrument}...</b>"
+                # Try to update with animated GIF first (best visual experience)
+                await query.edit_message_media(
+                    media=InputMediaAnimation(
+                        media=loading_gif_url,
+                        caption=loading_text
                     )
-                except Exception as gif_error:
-                    logger.warning(f"Could not show loading GIF: {str(gif_error)}")
+                )
+                logger.info(f"Successfully showed loading GIF for {instrument}")
+            except Exception as media_error:
+                logger.warning(f"Could not update with GIF: {str(media_error)}")
                 
-                # Continue with technical analysis
-                return await self.show_technical_analysis(update, context, instrument=instrument)
+                # If GIF fails, try to update the text
+                try:
+                    loading_message = await query.edit_message_text(
+                        text=loading_text
+                    )
+                    if context and hasattr(context, 'user_data'):
+                        context.user_data['loading_message'] = loading_message
+                except Exception as text_error:
+                    logger.warning(f"Could not update text: {str(text_error)}")
+                    
+                    # If text update fails, try to update caption
+                    try:
+                        await query.edit_message_caption(
+                            caption=loading_text
+                        )
+                    except Exception as caption_error:
+                        logger.warning(f"Could not update caption: {str(caption_error)}")
+                        
+                        # Last resort - send a new message with loading GIF
+                        try:
+                            from trading_bot.services.telegram_service.gif_utils import send_loading_gif
+                            await send_loading_gif(
+                                self.bot,
+                                update.effective_chat.id,
+                                caption=f"⏳ <b>Analyzing technical data for {instrument}...</b>"
+                            )
+                        except Exception as gif_error:
+                            logger.warning(f"Could not show loading GIF: {str(gif_error)}")
+            
+            # Show technical analysis for this instrument
+            return await self.show_technical_analysis(update, context, instrument=instrument)
         else:
             # Error handling - go back to signal analysis menu
             try:
@@ -1548,35 +1570,57 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             instrument = context.user_data.get('instrument')
         
         if instrument:
-            # Show loading message with GIF
+            # Set flag to indicate we're in signal flow
+            if context and hasattr(context, 'user_data'):
+                context.user_data['from_signal'] = True
+            
+            # Try to show loading animation first
+            loading_gif_url = "https://media.giphy.com/media/gSzIKNrqtotEYrZv7i/giphy.gif"
+            loading_text = f"Loading sentiment analysis for {instrument}..."
+            
             try:
-                # Create and store loading message in context
-                loading_message = await query.edit_message_text(
-                    text=f"Loading sentiment analysis for {instrument}..."
-                )
-                
-                if context and hasattr(context, 'user_data'):
-                    context.user_data['loading_message'] = loading_message
-                    # Set flag to indicate we're in signal flow
-                    context.user_data['from_signal'] = True
-                
-                # Show sentiment analysis for this instrument
-                return await self.show_sentiment_analysis(update, context, instrument=instrument)
-            except Exception as e:
-                logger.error(f"Error showing loading message: {str(e)}")
-                # Try fallback with GIF
-                try:
-                    from trading_bot.services.telegram_service.gif_utils import send_loading_gif
-                    await send_loading_gif(
-                        self.bot,
-                        update.effective_chat.id,
-                        caption=f"⏳ <b>Analyzing market sentiment for {instrument}...</b>"
+                # Try to update with animated GIF first (best visual experience)
+                await query.edit_message_media(
+                    media=InputMediaAnimation(
+                        media=loading_gif_url,
+                        caption=loading_text
                     )
-                except Exception as gif_error:
-                    logger.warning(f"Could not show loading GIF: {str(gif_error)}")
+                )
+                logger.info(f"Successfully showed loading GIF for {instrument} sentiment analysis")
+            except Exception as media_error:
+                logger.warning(f"Could not update with GIF: {str(media_error)}")
                 
-                # Continue with sentiment analysis
-                return await self.show_sentiment_analysis(update, context, instrument=instrument)
+                # If GIF fails, try to update the text
+                try:
+                    loading_message = await query.edit_message_text(
+                        text=loading_text
+                    )
+                    if context and hasattr(context, 'user_data'):
+                        context.user_data['loading_message'] = loading_message
+                except Exception as text_error:
+                    logger.warning(f"Could not update text: {str(text_error)}")
+                    
+                    # If text update fails, try to update caption
+                    try:
+                        await query.edit_message_caption(
+                            caption=loading_text
+                        )
+                    except Exception as caption_error:
+                        logger.warning(f"Could not update caption: {str(caption_error)}")
+                        
+                        # Last resort - send a new message with loading GIF
+                        try:
+                            from trading_bot.services.telegram_service.gif_utils import send_loading_gif
+                            await send_loading_gif(
+                                self.bot,
+                                update.effective_chat.id,
+                                caption=f"⏳ <b>Analyzing market sentiment for {instrument}...</b>"
+                            )
+                        except Exception as gif_error:
+                            logger.warning(f"Could not show loading GIF: {str(gif_error)}")
+            
+            # Show sentiment analysis for this instrument
+            return await self.show_sentiment_analysis(update, context, instrument=instrument)
         else:
             # Error handling - go back to signal analysis menu
             try:
@@ -1622,35 +1666,57 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             instrument = context.user_data.get('instrument')
         
         if instrument:
-            # Show loading message with GIF
+            # Set flag to indicate we're in signal flow
+            if context and hasattr(context, 'user_data'):
+                context.user_data['from_signal'] = True
+            
+            # Try to show loading animation first
+            loading_gif_url = "https://media.giphy.com/media/gSzIKNrqtotEYrZv7i/giphy.gif"
+            loading_text = f"Loading economic calendar for {instrument}..."
+            
             try:
-                # Create and store loading message in context
-                loading_message = await query.edit_message_text(
-                    text=f"Loading economic calendar for {instrument}..."
-                )
-                
-                if context and hasattr(context, 'user_data'):
-                    context.user_data['loading_message'] = loading_message
-                    # Set flag to indicate we're in signal flow
-                    context.user_data['from_signal'] = True
-                
-                # Show calendar analysis for this instrument
-                return await self.show_calendar_analysis(update, context, instrument=instrument)
-            except Exception as e:
-                logger.error(f"Error showing loading message: {str(e)}")
-                # Try fallback with GIF
-                try:
-                    from trading_bot.services.telegram_service.gif_utils import send_loading_gif
-                    await send_loading_gif(
-                        self.bot,
-                        update.effective_chat.id,
-                        caption=f"⏳ <b>Loading economic calendar for {instrument}...</b>"
+                # Try to update with animated GIF first (best visual experience)
+                await query.edit_message_media(
+                    media=InputMediaAnimation(
+                        media=loading_gif_url,
+                        caption=loading_text
                     )
-                except Exception as gif_error:
-                    logger.warning(f"Could not show loading GIF: {str(gif_error)}")
+                )
+                logger.info(f"Successfully showed loading GIF for {instrument} calendar analysis")
+            except Exception as media_error:
+                logger.warning(f"Could not update with GIF: {str(media_error)}")
                 
-                # Continue with calendar analysis
-                return await self.show_calendar_analysis(update, context, instrument=instrument)
+                # If GIF fails, try to update the text
+                try:
+                    loading_message = await query.edit_message_text(
+                        text=loading_text
+                    )
+                    if context and hasattr(context, 'user_data'):
+                        context.user_data['loading_message'] = loading_message
+                except Exception as text_error:
+                    logger.warning(f"Could not update text: {str(text_error)}")
+                    
+                    # If text update fails, try to update caption
+                    try:
+                        await query.edit_message_caption(
+                            caption=loading_text
+                        )
+                    except Exception as caption_error:
+                        logger.warning(f"Could not update caption: {str(caption_error)}")
+                        
+                        # Last resort - send a new message with loading GIF
+                        try:
+                            from trading_bot.services.telegram_service.gif_utils import send_loading_gif
+                            await send_loading_gif(
+                                self.bot,
+                                update.effective_chat.id,
+                                caption=f"⏳ <b>Loading economic calendar for {instrument}...</b>"
+                            )
+                        except Exception as gif_error:
+                            logger.warning(f"Could not show loading GIF: {str(gif_error)}")
+            
+            # Show calendar analysis for this instrument
+            return await self.show_calendar_analysis(update, context, instrument=instrument)
         else:
             # Error handling - go back to signal analysis menu
             try:
@@ -2389,6 +2455,9 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         is_from_signal = False
         if context and hasattr(context, 'user_data'):
             is_from_signal = context.user_data.get('from_signal', False)
+            # Add debug logging
+            logger.info(f"show_sentiment_analysis: from_signal = {is_from_signal}")
+            logger.info(f"Context user_data: {context.user_data}")
         
         # Get instrument from parameter or context
         if not instrument and context and hasattr(context, 'user_data'):
@@ -2575,9 +2644,11 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Verwijder alle dubbele newlines om nog meer witruimte te voorkomen
             full_message = re.sub(r'\n{3,}', '\n\n', full_message)
             
-            # Create reply markup with back button
+            # Create reply markup with back button - use correct back button based on flow
+            back_callback = "back_to_signal_analysis" if is_from_signal else "back_to_analysis"
+            logger.info(f"Using back button callback: {back_callback} (from_signal: {is_from_signal})")
             reply_markup = InlineKeyboardMarkup([[
-                InlineKeyboardButton("⬅️ Back", callback_data="back_to_analysis")
+                InlineKeyboardButton("⬅️ Back", callback_data=back_callback)
             ]])
             
             # Validate HTML formatting
@@ -2612,22 +2683,43 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             
             # Send a completely new message to avoid issues with previous message
             try:
-                await query.message.delete()
-                await context.bot.send_message(
-                    chat_id=update.effective_chat.id,
-                    text=full_message,
-                    parse_mode=ParseMode.HTML,
-                    reply_markup=reply_markup
-                )
+                # First try to edit the existing message when possible
+                try:
+                    await query.edit_message_text(
+                        text=full_message,
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=reply_markup
+                    )
+                    logger.info("Successfully edited existing message with sentiment analysis")
+                except Exception as edit_error:
+                    logger.warning(f"Could not edit message, will create new one: {str(edit_error)}")
+                    
+                    # If editing fails, delete and create new message
+                    await query.message.delete()
+                    await context.bot.send_message(
+                        chat_id=update.effective_chat.id,
+                        text=full_message,
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=reply_markup
+                    )
+                    logger.info("Created new message with sentiment analysis after deleting old one")
             except Exception as msg_error:
                 logger.error(f"Error sending message: {str(msg_error)}")
                 # Try without HTML parsing if that's the issue
                 if "Can't parse entities" in str(msg_error):
-                    await context.bot.send_message(
-                        chat_id=update.effective_chat.id,
-                        text=re.sub(r'<[^>]+>', '', full_message),  # Strip HTML tags
-                        reply_markup=reply_markup
-                    )
+                    try:
+                        # Try to edit first
+                        await query.edit_message_text(
+                            text=re.sub(r'<[^>]+>', '', full_message),  # Strip HTML tags
+                            reply_markup=reply_markup
+                        )
+                    except Exception:
+                        # If editing fails, send new message
+                        await context.bot.send_message(
+                            chat_id=update.effective_chat.id,
+                            text=re.sub(r'<[^>]+>', '', full_message),  # Strip HTML tags
+                            reply_markup=reply_markup
+                        )
             
             return CHOOSE_ANALYSIS
             
@@ -2742,6 +2834,12 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         """Handle back_to_signal_analysis button press"""
         query = update.callback_query
         await query.answer()
+        
+        # Add detailed logging for debugging
+        logger.info("back_to_signal_analysis_callback called")
+        logger.info(f"Query data: {query.data}")
+        if context and hasattr(context, 'user_data'):
+            logger.info(f"Context user_data: {context.user_data}")
         
         try:
             # Get instrument from context
