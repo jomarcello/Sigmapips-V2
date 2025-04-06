@@ -203,10 +203,6 @@ async def startup_event():
         logger.info("Initializing Stripe service...")
         stripe_service = StripeService(db=db)
         
-        # Initialize trading service
-        logger.info("Initializing trading service...")
-        trading_service = TradingService()
-        
         # Initialize and set global telegram service
         logger.info("Initializing Telegram service...")
         global telegram_service
@@ -332,17 +328,17 @@ async def startup_event():
                         if command == '/menu':
                             logger.info(f"Explicitly handling /menu command from user {user_id} in chat {chat_id}")
                             try:
-                                # Call the simple menu_command method directly without context
+                                # Call the menu_command directly without context, exact same way as bot.py(6).py
                                 await telegram_service.menu_command(update_obj, None)
                                 logger.info("Successfully handled /menu command")
                                 return {"status": "success", "handled": "explicit_menu_command"}
                             except Exception as menu_error:
                                 logger.error(f"Error in menu_command: {str(menu_error)}")
                                 logger.exception(menu_error)
-                                # Extra direct fallback
+                                # Extremely simplified fallback without any dependencies
                                 try:
-                                    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-                                    logger.info("Using direct fallback implementation without any dependencies")
+                                    logger.info("Using direct fallback implementation")
+                                    from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ParseMode
                                     keyboard = [
                                         [InlineKeyboardButton("📊 Analysis", callback_data="menu_analyse")],
                                         [InlineKeyboardButton("🔔 Signals", callback_data="menu_signals")]
@@ -350,7 +346,8 @@ async def startup_event():
                                     await telegram_service.bot.send_message(
                                         chat_id=chat_id,
                                         text="Welcome to Sigmapips AI! Select an option:",
-                                        reply_markup=InlineKeyboardMarkup(keyboard)
+                                        reply_markup=InlineKeyboardMarkup(keyboard),
+                                        parse_mode=ParseMode.HTML
                                     )
                                     logger.info("Sent direct menu implementation")
                                     return {"status": "success", "handled": "direct_fallback_menu"}
@@ -587,5 +584,3 @@ if __name__ == "__main__":
 
 # Expliciet de app exporteren
 __all__ = ['app']
-
-app = app  # Expliciete herbevestiging van de app variabele
