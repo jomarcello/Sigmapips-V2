@@ -1599,7 +1599,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             return CHOOSE_ANALYSIS
 
     async def back_to_signal_callback(self, update: Update, context=None) -> int:
-        """Handle back_to_signal button press"""
+        """Handle back to signal menu button"""
         query = update.callback_query
         await query.answer()
         
@@ -1653,6 +1653,67 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             
         except Exception as e:
             logger.error(f"Error in back_to_signal_callback: {str(e)}")
+            
+            # Error recovery
+            try:
+                await query.edit_message_text(
+                    text="An error occurred. Please try again from the main menu.",
+                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
+                )
+            except Exception:
+                pass
+            
+            return MENU
+
+    async def analyze_from_signal_callback(self, update: Update, context=None) -> int:
+        """Handle Analyze Market button from signal notifications"""
+        query = update.callback_query
+        logger.info(f"analyze_from_signal_callback called with data: {query.data}")
+        
+        try:
+            # Extract signal information from callback data
+            # Format: analyze_from_signal_INSTRUMENT_INSTRUMENT_DIRECTION_TIMEFRAME_TIMESTAMP
+            # Example: analyze_from_signal_EURUSD_EURUSD_SELL_4h_1743927394
+            data_parts = query.data.split('_')
+            if len(data_parts) >= 7:
+                instrument = data_parts[3]  # The instrument (e.g., EURUSD)
+                signal_direction = data_parts[5]  # BUY or SELL
+                timeframe = data_parts[6]  # Timeframe (e.g., 4h)
+                
+                # Store signal context in user_data for the analysis flow
+                if context and hasattr(context, 'user_data'):
+                    context.user_data['from_signal'] = True
+                    context.user_data['signal_instrument'] = instrument
+                    context.user_data['signal_direction'] = signal_direction
+                    context.user_data['signal_timeframe'] = timeframe
+                
+                # Show analysis options
+                keyboard = [
+                    [
+                        InlineKeyboardButton("Technical", callback_data=f"analysis_technical_signal_{instrument}_{timeframe}"),
+                        InlineKeyboardButton("Sentiment", callback_data=f"analysis_sentiment_signal_{instrument}"),
+                        InlineKeyboardButton("Calendar", callback_data=f"analysis_calendar_signal_{instrument}")
+                    ],
+                    [InlineKeyboardButton("Back to Signal", callback_data="back_to_signal")]
+                ]
+                
+                await query.edit_message_text(
+                    text=f"Select your analysis type for {instrument}:",
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+                
+                return ANALYSIS
+            else:
+                # Fallback if data format is incorrect
+                logger.error(f"Invalid callback data format: {query.data}")
+                await query.edit_message_text(
+                    text="An error occurred. Please try again from the main menu.",
+                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
+                )
+                return MENU
+                
+        except Exception as e:
+            logger.error(f"Error in analyze_from_signal_callback: {str(e)}")
             
             # Error recovery
             try:
