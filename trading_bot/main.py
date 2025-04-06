@@ -115,6 +115,10 @@ async def startup_event():
         await chart_service.initialize()
         logger.info("Chart service initialized")
         
+        # Initialize the calendar service
+        calendar_service = EconomicCalendarService()
+        logger.info("Calendar service initialized")
+        
         # Log environment variables
         webhook_url = os.getenv("WEBHOOK_URL", "")
         logger.info(f"WEBHOOK_URL from environment: '{webhook_url}'")
