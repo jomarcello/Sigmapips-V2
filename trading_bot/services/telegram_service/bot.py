@@ -2936,8 +2936,100 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
 
 <b>🤖 SigmaPips AI Verdict:</b>
 {ai_verdict}"""
-
+            
+            # Determine market type for the instrument
+            market_type = _detect_market(instrument)
+            
+            # Create signal data structure for storage and future reference
+            formatted_signal = {
+                'id': signal_id,
+                'timestamp': datetime.now().isoformat(),
+                'instrument': instrument,
+                'direction': direction,
+                'interval': interval,
+                'price': price,
+                'sl': sl,
+                'tp1': tp1,
+                'tp2': tp2, 
+                'tp3': tp3,
+                'market': market_type,
+                'message': signal_message
+            }
+            
+            # Save signal for history tracking
+            if not os.path.exists(self.signals_dir):
+                os.makedirs(self.signals_dir, exist_ok=True)
+                
+            # Save to signals directory
+            with open(f"{self.signals_dir}/{signal_id}.json", 'w') as f:
+                json.dump(formatted_signal, f)
+            
+            # FOR TESTING: Always send to admin for testing
+            if hasattr(self, 'admin_users') and self.admin_users:
+                try:
+                    logger.info(f"Sending signal to admin users for testing: {self.admin_users}")
+                    for admin_id in self.admin_users:
+                        # Prepare keyboard with analysis options
+                        keyboard = [
+                            [InlineKeyboardButton("🔍 Analyze Market", callback_data=f"analyze_from_signal_{instrument}_{signal_id}")]
+                        ]
+                        
+                        await self.bot.send_message(
+                            chat_id=admin_id,
+                            text=signal_message,
+                            parse_mode=ParseMode.HTML,
+                            reply_markup=InlineKeyboardMarkup(keyboard)
+                        )
+                        logger.info(f"Test signal sent to admin {admin_id}")
+                        
+                        # Store signal reference in user data for quick access
+                        admin_str_id = str(admin_id)
+                        if admin_str_id not in self.user_signals:
+                            self.user_signals[admin_str_id] = {}
+                        
+                        self.user_signals[admin_str_id][signal_id] = formatted_signal
+                except Exception as e:
+                    logger.error(f"Error sending test signal to admin: {str(e)}")
+            
+            # Get subscribers for this instrument
+            subscribers = await self.get_subscribers_for_instrument(instrument, interval)
+            
+            if not subscribers:
+                logger.info(f"No subscribers found for {instrument} {interval}")
+                return True  # Successfully processed, just no subscribers
+            
+            # Send signal to all subscribers
+            logger.info(f"Sending signal {signal_id} to {len(subscribers)} subscribers")
+            
+            sent_count = 0
+            for user_id in subscribers:
+                try:
+                    # Prepare keyboard with analysis options
+                    keyboard = [
+                        [InlineKeyboardButton("🔍 Analyze Market", callback_data=f"analyze_from_signal_{instrument}_{signal_id}")]
+                    ]
+                    
+                    # Send as regular message
+                    await self.bot.send_message(
+                        chat_id=user_id,
+                        text=signal_message,
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+                    
+                    sent_count += 1
+                    # Store signal reference in user data for quick access
+                    if str(user_id) not in self.user_signals:
+                        self.user_signals[str(user_id)] = {}
+                    
+                    self.user_signals[str(user_id)][signal_id] = formatted_signal
+                    
+                except Exception as e:
+                    logger.error(f"Error sending signal to user {user_id}: {str(e)}")
+            
+            logger.info(f"Successfully sent signal {signal_id} to {sent_count}/{len(subscribers)} subscribers")
             return True
+            
         except Exception as e:
             logger.error(f"Error processing signal: {str(e)}")
             logger.exception(e)
