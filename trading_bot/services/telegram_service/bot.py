@@ -1701,15 +1701,12 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 
                 # Create signal-specific analysis keyboard with direct links to the analysis functions
                 # Using dedicated signal flow callbacks to ensure separation of flows
+                # But make the button text EXACTLY the same as in the menu flow
                 keyboard = [
-                    [
-                        InlineKeyboardButton("📈 Technical Analysis", callback_data=f"signal_flow_technical_{instrument}_{timeframe}"),
-                        InlineKeyboardButton("🧠 Market Sentiment", callback_data=f"signal_flow_sentiment_{instrument}")
-                    ],
-                    [
-                        InlineKeyboardButton("📅 Economic Calendar", callback_data=f"signal_flow_calendar_{instrument}"),
-                        InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal")
-                    ]
+                    [InlineKeyboardButton("📈 Technical Analysis", callback_data=f"signal_flow_technical_{instrument}_{timeframe}")],
+                    [InlineKeyboardButton("🧠 Market Sentiment", callback_data=f"signal_flow_sentiment_{instrument}")],
+                    [InlineKeyboardButton("📅 Economic Calendar", callback_data=f"signal_flow_calendar_{instrument}")],
+                    [InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal")]
                 ]
                 
                 # Gebruik de juiste analyse GIF URL
@@ -1720,7 +1717,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     await query.edit_message_media(
                         media=InputMediaAnimation(
                             media=gif_url,
-                            caption=f"Select your analysis type for {instrument}:"
+                            caption="Select your analysis type:" # Exact same text as in menu flow, without instrument name
                         ),
                         reply_markup=InlineKeyboardMarkup(keyboard)
                     )
@@ -1730,7 +1727,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     # Als media update mislukt, probeer tekst te updaten
                     try:
                         await query.edit_message_text(
-                            text=f"Select your analysis type for {instrument}:",
+                            text="Select your analysis type:", # Exact same text as in menu flow, without instrument name
                             reply_markup=InlineKeyboardMarkup(keyboard),
                             parse_mode=ParseMode.HTML
                         )
@@ -1739,7 +1736,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                         if "There is no text in the message to edit" in str(text_error):
                             try:
                                 await query.edit_message_caption(
-                                    caption=f"Select your analysis type for {instrument}:",
+                                    caption="Select your analysis type:", # Exact same text as in menu flow, without instrument name
                                     reply_markup=InlineKeyboardMarkup(keyboard),
                                     parse_mode=ParseMode.HTML
                                 )
@@ -2236,20 +2233,12 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 )
                 return MENU
             
-            # Prepare the keyboard for back and timeframe buttons
-            timeframe_buttons = [
-                InlineKeyboardButton("1h", callback_data=f"show_ta_{instrument}_1h"),
-                InlineKeyboardButton("4h", callback_data=f"show_ta_{instrument}_4h"),
-                InlineKeyboardButton("1d", callback_data=f"show_ta_{instrument}_1d")
-            ]
-            
             # Create the keyboard with appropriate back button based on flow
             keyboard = []
-            keyboard.append(timeframe_buttons)
             
             # Add the appropriate back button based on whether we're in signal flow or menu flow
             if from_signal:
-                keyboard.append([InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal")])
+                keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal")])
             else:
                 keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="back_instrument")])
             
