@@ -2847,16 +2847,25 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     message_text = f"Unknown market: {market}"
                 message_text = f"Select instrument for technical analysis:"
         
-        # Add back button
-        back_button = [InlineKeyboardButton("⬅️ Back", callback_data="back_signals" if is_signals_context else "back_analysis")]
-        if keyboard and isinstance(keyboard, list) and len(keyboard) > 0:
-            # Check if the last row already has a back button
-            last_row = keyboard[-1]
-            if not any(btn.callback_data in ["back_signals", "back_analysis", "back_menu"] for btn in last_row):
+        # Check if the keyboard already has a back button before adding one
+        has_back_button = False
+        if keyboard and isinstance(keyboard, list):
+            for row in keyboard:
+                for btn in row:
+                    if hasattr(btn, 'callback_data') and btn.callback_data in ["back_signals", "back_analysis", "back_menu"]:
+                        has_back_button = True
+                        break
+                if has_back_button:
+                    break
+                    
+        # Add back button only if not already present
+        if not has_back_button:
+            back_button = [InlineKeyboardButton("⬅️ Back", callback_data="back_signals" if is_signals_context else "back_analysis")]
+            if keyboard and isinstance(keyboard, list) and len(keyboard) > 0:
                 keyboard.append(back_button)
-        else:
-            # If keyboard is empty, just add back button
-            keyboard = [back_button]
+            else:
+                # If keyboard is empty, just add back button
+                keyboard = [back_button]
         
         # Show the keyboard
         try:
