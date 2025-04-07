@@ -208,38 +208,83 @@ class TradingViewCalendarService:
             end_date = today + timedelta(days=days_to_add)
             
             # Prepare parameters for API call
-            # We use all available countries instead of only major currencies
+            # Try without specific countries to get all events
             params = {
                 'from': start_date.isoformat() + '.000Z',
                 'to': end_date.isoformat() + '.000Z',
-                'countries': ','.join([CURRENCY_COUNTRY_MAP.get(curr, "") for curr in MAJOR_CURRENCIES if curr in CURRENCY_COUNTRY_MAP])
+                # Not specifying countries to get all available events
+            }
+            
+            # Enhanced headers with more browser-like properties
+            enhanced_headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'application/json, text/plain, */*',
+                'Accept-Language': 'en-US,en;q=0.9',
+                'Origin': 'https://www.tradingview.com',
+                'Referer': 'https://www.tradingview.com/economic-calendar/',
+                'Sec-Fetch-Dest': 'empty',
+                'Sec-Fetch-Mode': 'cors',
+                'Sec-Fetch-Site': 'same-site',
+                'Connection': 'keep-alive',
+                'Cache-Control': 'no-cache',
+                'Pragma': 'no-cache'
             }
             
             self.logger.info(f"API parameters: {params}")
+            self.logger.info(f"Using enhanced headers for API request")
+            
+            # Log the full URL being called
+            query_string = "&".join([f"{k}={v}" for k, v in params.items()])
+            full_url = f"{self.calendar_api_url}?{query_string}"
+            self.logger.info(f"Calling API URL: {full_url}")
             
             # Make API call
             async with aiohttp.ClientSession() as session:
                 try:
                     async with session.get(
                         self.calendar_api_url,
-                        headers=self.headers,
+                        headers=enhanced_headers,
                         params=params,
                         timeout=30  # Add explicit timeout
                     ) as response:
-                        if response.status != 200:
-                            self.logger.error(f"API request failed with status {response.status}")
+                        status = response.status
+                        self.logger.info(f"API response status: {status}")
+                        
+                        if status != 200:
+                            self.logger.error(f"API request failed with status {status}")
                             # Try to get response text for better debugging
                             try:
                                 error_text = await response.text()
                                 self.logger.error(f"Error response: {error_text[:500]}")
-                            except:
-                                pass
+                            except Exception as text_error:
+                                self.logger.error(f"Could not read error response: {text_error}")
                             return []
                         
-                        data = await response.json()
+                        # Log response headers for debugging
+                        self.logger.info(f"Response headers: {dict(response.headers)}")
+                        
+                        # Read response as text first for debugging
+                        response_text = await response.text()
+                        self.logger.info(f"Response length: {len(response_text)} bytes")
+                        
+                        # Save raw response for debugging
+                        try:
+                            with open("tradingview_response.txt", "w") as f:
+                                f.write(response_text)
+                            self.logger.info("Saved raw API response to tradingview_response.txt")
+                        except Exception as e:
+                            self.logger.warning(f"Could not save response text file: {e}")
+                        
+                        # Parse as JSON
+                        try:
+                            data = json.loads(response_text)
+                        except json.JSONDecodeError as e:
+                            self.logger.error(f"JSON parse error: {e}")
+                            self.logger.error(f"First 200 chars of response: {response_text[:200]}")
+                            return []
                         
                         if not data or 'result' not in data:
-                            self.logger.error(f"Invalid API response: {data}")
+                            self.logger.error(f"Invalid API response structure: {data}")
                             return []
                 
                 except aiohttp.ClientError as e:
@@ -253,11 +298,45 @@ class TradingViewCalendarService:
             events_data = data.get('result', [])
             self.logger.info(f"Received {len(events_data)} events from TradingView API")
             
+            # Test if return data is empty, try alternative approach
+            if not events_data:
+                self.logger.warning("Received empty events list, trying alternative approach")
+                
+                # Try with specific countries
+                alt_params = params.copy()
+                alt_params['countries'] = 'US,EU,GB,JP'
+                
+                self.logger.info(f"Trying alternative API parameters: {alt_params}")
+                
+                async with aiohttp.ClientSession() as session:
+                    try:
+                        async with session.get(
+                            self.calendar_api_url,
+                            headers=enhanced_headers,
+                            params=alt_params,
+                            timeout=30
+                        ) as alt_response:
+                            if alt_response.status != 200:
+                                self.logger.error(f"Alternative API request failed with status {alt_response.status}")
+                                return []
+                            
+                            alt_data = await alt_response.json()
+                            
+                            if not alt_data or 'result' not in alt_data:
+                                self.logger.error(f"Invalid alternative API response: {alt_data}")
+                                return []
+                            
+                            events_data = alt_data.get('result', [])
+                            self.logger.info(f"Received {len(events_data)} events from alternative TradingView API call")
+                    
+                    except Exception as alt_error:
+                        self.logger.error(f"Alternative approach error: {alt_error}")
+            
             # Save raw data for debugging
             try:
                 with open("tradingview_debug.json", "w") as f:
                     json.dump(events_data, f, indent=2)
-                self.logger.info("Saved raw API response to tradingview_debug.json")
+                self.logger.info("Saved API response data to tradingview_debug.json")
             except Exception as e:
                 self.logger.warning(f"Could not save debug file: {e}")
             
