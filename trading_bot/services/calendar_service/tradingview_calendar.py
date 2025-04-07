@@ -145,6 +145,21 @@ class TradingViewCalendarService:
             'Referer': 'https://in.tradingview.com/'
         }
         
+        # Enhanced headers for better API connectivity
+        self.enhanced_headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'application/json, text/plain, */*',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Origin': 'https://www.tradingview.com',
+            'Referer': 'https://www.tradingview.com/economic-calendar/',
+            'Sec-Fetch-Dest': 'empty',
+            'Sec-Fetch-Mode': 'cors',
+            'Sec-Fetch-Site': 'same-site',
+            'Connection': 'keep-alive',
+            'Cache-Control': 'no-cache',
+            'Pragma': 'no-cache'
+        }
+        
         # Important economic indicators for better filtering
         self.important_indicators = [
             # High importance keywords (case insensitive)
@@ -153,6 +168,93 @@ class TradingViewCalendarService:
             "manufacturing", "trade balance", "central bank", "ecb", "boe", "rba", "boc", "snb",
             "monetary policy", "press conference"
         ]
+        
+        # Run debug connection test
+        try:
+            asyncio.create_task(self.debug_api_connection())
+        except Exception as e:
+            self.logger.error(f"Could not start debug task: {e}")
+    
+    async def debug_api_connection(self):
+        """Test the TradingView API connection and log detailed results"""
+        self.logger.info("DEBUG: Testing TradingView API connection...")
+        
+        # Standard parameters
+        today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        tomorrow = today + timedelta(days=1)
+        params = {
+            'from': today.isoformat() + '.000Z',
+            'to': tomorrow.isoformat() + '.000Z'
+        }
+        
+        # Try different variations of headers and parameters
+        header_variations = [
+            {"name": "Enhanced Browser", "headers": self.enhanced_headers},
+            {"name": "Simple Browser", "headers": {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0',
+                'Origin': 'https://www.tradingview.com',
+                'Referer': 'https://www.tradingview.com/economic-calendar/'
+            }},
+            {"name": "Minimal", "headers": {
+                'User-Agent': 'Mozilla/5.0'
+            }}
+        ]
+        
+        param_variations = [
+            {"name": "All countries", "params": params},
+            {"name": "With USD only", "params": {**params, "countries": "US"}},
+            {"name": "With major countries", "params": {**params, "countries": "US,EU,GB,JP"}}
+        ]
+        
+        # Log environment info
+        self.logger.info(f"DEBUG: Running in environment: {os.environ.get('RAILWAY_ENVIRONMENT', 'local')}")
+        
+        # Test each combination
+        for header_var in header_variations:
+            for param_var in param_variations:
+                try:
+                    self.logger.info(f"DEBUG: Testing with {header_var['name']} headers and {param_var['name']} params")
+                    
+                    async with aiohttp.ClientSession() as session:
+                        start_time = datetime.now()
+                        async with session.get(
+                            self.calendar_api_url,
+                            headers=header_var["headers"],
+                            params=param_var["params"],
+                            timeout=30
+                        ) as response:
+                            elapsed = (datetime.now() - start_time).total_seconds()
+                            status = response.status
+                            self.logger.info(f"DEBUG: API response status: {status} (time: {elapsed:.2f}s)")
+                            
+                            response_text = await response.text()
+                            self.logger.info(f"DEBUG: Response length: {len(response_text)} bytes")
+                            
+                            if len(response_text) < 500:
+                                self.logger.info(f"DEBUG: Full response: {response_text}")
+                            else:
+                                self.logger.info(f"DEBUG: First 200 chars: {response_text[:200]}")
+                            
+                            # Check if we got a valid response with events
+                            try:
+                                data = json.loads(response_text)
+                                events = data.get('result', [])
+                                self.logger.info(f"DEBUG: Found {len(events)} events in response")
+                                
+                                if events:
+                                    self.logger.info(f"DEBUG: SUCCESS with {header_var['name']} headers and {param_var['name']} params")
+                                    
+                                    # Remember successful config for future use
+                                    self.best_headers = header_var["headers"]
+                                    self.best_params_template = param_var["params"]
+                                    
+                            except Exception as e:
+                                self.logger.error(f"DEBUG: Error parsing response JSON: {e}")
+                            
+                except Exception as e:
+                    self.logger.error(f"DEBUG: Connection error with {header_var['name']} and {param_var['name']}: {e}")
+        
+        self.logger.info("DEBUG: API connection test completed")
     
     async def get_calendar(self, days_ahead: int = 2, min_impact: str = "Low") -> List[Dict]:
         """Get the economic calendar events from TradingView
@@ -173,24 +275,43 @@ class TradingViewCalendarService:
                 calendar_data = self._generate_mock_calendar_data()
                 return self._filter_by_impact(calendar_data, min_impact)
             
-            # Fetch the calendar data from TradingView API
+            # First try the TradingView API
             events = await self._fetch_tradingview_calendar(days_ahead=days_ahead)
             
-            if not events:
-                self.logger.warning("No events returned from TradingView API, using mock data")
-                return self._filter_by_impact(self._generate_mock_calendar_data(), min_impact)
+            if events and len(events) > 0:
+                self.logger.info(f"SUCCESS: Got {len(events)} events from TradingView API")
+                filtered_events = self._filter_by_impact(events, min_impact)
+                return filtered_events
+            else:
+                self.logger.warning("No events from TradingView API, using fallback data")
             
-            # Filter events by minimum impact level
-            filtered_events = self._filter_by_impact(events, min_impact)
-            
-            return filtered_events
+            # If we reached this point, the API call failed or returned empty
+            self.logger.info("Using fallback calendar implementation")
+            try:
+                from trading_bot.services.calendar_service.calendar_fix import EconomicCalendarService
+                fallback = EconomicCalendarService()
+                mock_data = await fallback.get_calendar(days_ahead, min_impact)
+                self.logger.info(f"Successfully got {len(mock_data)} events from fallback implementation")
+                return mock_data
+            except Exception as fallback_error:
+                self.logger.error(f"Error using fallback implementation: {fallback_error}")
+                # Last resort: use our internal mock data
+                calendar_data = self._generate_mock_calendar_data()
+                return self._filter_by_impact(calendar_data, min_impact)
             
         except Exception as e:
             self.logger.error(f"Error getting calendar data: {e}")
             self.logger.exception(e)
-            # If anything fails, use mock data
-            calendar_data = self._generate_mock_calendar_data()
-            return self._filter_by_impact(calendar_data, min_impact)
+            
+            # Use fallback on any error
+            try:
+                from trading_bot.services.calendar_service.calendar_fix import EconomicCalendarService
+                fallback = EconomicCalendarService()
+                return await fallback.get_calendar(days_ahead, min_impact)
+            except Exception:
+                # If anything fails, use our internal mock data
+                calendar_data = self._generate_mock_calendar_data()
+                return self._filter_by_impact(calendar_data, min_impact)
     
     async def _fetch_tradingview_calendar(self, days_ahead: int = 1) -> List[Dict]:
         """Fetch economic calendar data from TradingView API"""
@@ -215,23 +336,11 @@ class TradingViewCalendarService:
                 # Not specifying countries to get all available events
             }
             
-            # Enhanced headers with more browser-like properties
-            enhanced_headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Accept': 'application/json, text/plain, */*',
-                'Accept-Language': 'en-US,en;q=0.9',
-                'Origin': 'https://www.tradingview.com',
-                'Referer': 'https://www.tradingview.com/economic-calendar/',
-                'Sec-Fetch-Dest': 'empty',
-                'Sec-Fetch-Mode': 'cors',
-                'Sec-Fetch-Site': 'same-site',
-                'Connection': 'keep-alive',
-                'Cache-Control': 'no-cache',
-                'Pragma': 'no-cache'
-            }
+            # Use headers that were successful in the debug test if available
+            headers_to_use = getattr(self, 'best_headers', self.enhanced_headers)
             
             self.logger.info(f"API parameters: {params}")
-            self.logger.info(f"Using enhanced headers for API request")
+            self.logger.info(f"Using headers: {headers_to_use.get('User-Agent', 'Not specified')}")
             
             # Log the full URL being called
             query_string = "&".join([f"{k}={v}" for k, v in params.items()])
@@ -243,7 +352,7 @@ class TradingViewCalendarService:
                 try:
                     async with session.get(
                         self.calendar_api_url,
-                        headers=enhanced_headers,
+                        headers=headers_to_use,
                         params=params,
                         timeout=30  # Add explicit timeout
                     ) as response:
@@ -312,7 +421,7 @@ class TradingViewCalendarService:
                     try:
                         async with session.get(
                             self.calendar_api_url,
-                            headers=enhanced_headers,
+                            headers=headers_to_use,
                             params=alt_params,
                             timeout=30
                         ) as alt_response:
