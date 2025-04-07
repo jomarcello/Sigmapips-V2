@@ -2483,238 +2483,129 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             return MENU
 
     async def button_callback(self, update: Update, context=None) -> int:
-        """Handle button presses from inline keyboards"""
-        query = update.callback_query
-        logger.info(f"Button callback opgeroepen met data: {query.data}")
-        
-        # Beantwoord de callback query met een timeout-afhandeling
+        """Handle button callback queries"""
         try:
-            # Answer without a timeout parameter (it's not supported in python-telegram-bot v20)
+            query = update.callback_query
+            callback_data = query.data
+            
+            # Log the callback data
+            logger.info(f"Button callback opgeroepen met data: {callback_data}")
+            
+            # Answer the callback query to stop the loading indicator
             await query.answer()
-        except Exception as e:
-            # Log de fout, maar ga door met afhandeling (voorkomt blokkering)
-            logger.warning(f"Kon callback query niet beantwoorden: {str(e)}")
-        
-        # Signal flow specific handlers (completely separate flow)
-        if query.data.startswith("signal_flow_technical_"):
-            # Extract instrument and timeframe
-            parts = query.data.split("_")
-            if len(parts) >= 4:
-                instrument = parts[3]
-                timeframe = parts[4] if len(parts) > 4 else "1h"
+            
+            # Handle analyze from signal button
+            if callback_data.startswith("analyze_from_signal_"):
+                return await self.analyze_from_signal_callback(update, context)
                 
-                # Set signal flow context
-                if context and hasattr(context, 'user_data'):
-                    context.user_data['from_signal'] = True
-                    context.user_data['analysis_type'] = 'technical'
+            # Help button
+            if callback_data == "help":
+                await self.help_command(update, context)
+                return MENU
                 
-                # Direct to technical analysis for this instrument
-                return await self.show_technical_analysis(update, context, instrument=instrument, timeframe=timeframe)
+            # Menu navigation
+            if callback_data == CALLBACK_MENU_ANALYSE:
+                return await self.menu_analyse_callback(update, context)
+            elif callback_data == CALLBACK_MENU_SIGNALS:
+                return await self.menu_signals_callback(update, context)
                 
-        if query.data.startswith("signal_flow_sentiment_"):
-            # Extract instrument
-            instrument = query.data.replace("signal_flow_sentiment_", "")
-            
-            # Set signal flow context
-            if context and hasattr(context, 'user_data'):
-                context.user_data['from_signal'] = True
-                context.user_data['analysis_type'] = 'sentiment'
-            
-            # Direct to sentiment analysis for this instrument
-            return await self.show_sentiment_analysis(update, context, instrument=instrument)
-            
-        if query.data.startswith("signal_flow_calendar_"):
-            # Extract instrument
-            instrument = query.data.replace("signal_flow_calendar_", "")
-            
-            # Set signal flow context
-            if context and hasattr(context, 'user_data'):
-                context.user_data['from_signal'] = True
-                context.user_data['analysis_type'] = 'calendar'
-            
-            # Direct to calendar analysis for this instrument
-            return await self.show_calendar_analysis(update, context, instrument=instrument)
-            
-        # Regular flow handlers (old code continues below)
-        # Special signal flow handlers for the dedicated signal analysis
-        if query.data == "signal_technical":
-            return await self.signal_technical_callback(update, context)
-        elif query.data == "signal_sentiment":
-            return await self.signal_sentiment_callback(update, context)
-        elif query.data == "signal_calendar":
-            return await self.signal_calendar_callback(update, context)
-        elif query.data == "back_to_signal_analysis":
-            return await self.back_to_signal_analysis_callback(update, context)
-        
-        # Special signal flow handlers for the regular analysis
-        # Technical analysis from signal
-        if query.data.startswith("analysis_technical_signal_"):
-            return await self.analysis_technical_callback(update, context)
-        
-        # Sentiment analysis from signal
-        if query.data.startswith("analysis_sentiment_signal_"):
-            return await self.analysis_sentiment_callback(update, context)
-        
-        # Calendar analysis from signal
-        if query.data.startswith("analysis_calendar_signal_"):
-            return await self.analysis_calendar_callback(update, context)
-        
-        # Basic analysis types without signal context
-        if query.data == "analysis_technical":
-            return await self.analysis_technical_callback(update, context)
-        
-        if query.data == "analysis_sentiment":
-            return await self.analysis_sentiment_callback(update, context)
-        
-        if query.data == "analysis_calendar":
-            return await self.analysis_calendar_callback(update, context)
-        
-        # Analyze from signal handler
-        if query.data.startswith("analyze_from_signal_"):
-            return await self.analyze_from_signal_callback(update, context)
-        
-        # Back to signal handler
-        if query.data == "back_to_signal":
-            return await self.back_to_signal_callback(update, context)
-        
-        # Handle menu_analyse callback
-        if query.data == "menu_analyse":
-            return await self.menu_analyse_callback(update, context)
-        
-        # Handle menu_signals callback
-        if query.data == "menu_signals":
-            return await self.menu_signals_callback(update, context)
-        
-        # Handle back buttons
-        if query.data == "back_menu":
-            return await self.back_menu_callback(update, context)
-        
-        if query.data == "back_to_analysis" or query.data == "back_analysis":
-            return await self.analysis_callback(update, context)
-        
-        if query.data == "back_market":
-            return await self.back_market_callback(update, context)
-        
-        if query.data == "back_instrument":
-            return await self.back_instrument_callback(update, context)
-        
-        if query.data == "back_instrument_sentiment":
-            # Set the analysis type to sentiment before going back
-            if context and hasattr(context, 'user_data'):
-                context.user_data['analysis_type'] = 'sentiment'
-                logger.info("Setting analysis_type to 'sentiment' for back navigation")
-            return await self.back_instrument_callback(update, context)
-        
-        if query.data == "back_signals":
-            return await self.back_signals_callback(update, context)
-        
-        # Handle refresh sentiment analysis 
-        if query.data.startswith("instrument_") and query.data.endswith("_sentiment"):
-            # Extract the instrument from the callback data
-            parts = query.data.split("_")
-            instrument = "_".join(parts[1:-1]) if len(parts) > 2 else parts[1]
-            logger.info(f"Refreshing sentiment analysis for {instrument}")
-            
-            # Set analysis type to sentiment
-            if context and hasattr(context, 'user_data'):
-                context.user_data['analysis_type'] = 'sentiment'
-            
-            # Call show_sentiment_analysis with the instrument
-            return await self.show_sentiment_analysis(update, context, instrument=instrument)
-        
-        # Verwerk abonnementsacties
-        if query.data == "subscribe_monthly" or query.data == "subscription_info":
-            return await self.handle_subscription_callback(update, context)
-        
-        # Analysis type handlers - other types not already handled above
-        if query.data.startswith("analysis_") and not any([
-            query.data.startswith("analysis_technical_signal_"),
-            query.data.startswith("analysis_sentiment_signal_"),
-            query.data.startswith("analysis_calendar_signal_"),
-            query.data == "analysis_technical",
-            query.data == "analysis_sentiment", 
-            query.data == "analysis_calendar"
-        ]):
-            return await self.analysis_choice(update, context)
-        
-        # Handle show_ta_ callbacks (show technical analysis with specific timeframe)
-        if query.data.startswith("show_ta_"):
-            # Extract instrument and timeframe from callback data
-            parts = query.data.split("_")
-            if len(parts) >= 3:
-                instrument = parts[2]
+            # Direct instrument_timeframe callbacks  
+            if "_timeframe_" in callback_data:
+                # Format: instrument_EURUSD_timeframe_H1
+                parts = callback_data.split("_")
+                instrument = parts[1]
                 timeframe = parts[3] if len(parts) > 3 else "1h"  # Default to 1h
                 return await self.show_technical_analysis(update, context, instrument=instrument, timeframe=timeframe)
-        
-        # Verwerk instrument keuzes met specifiek type (chart, sentiment, calendar)
-        if "_chart" in query.data or "_sentiment" in query.data or "_calendar" in query.data:
-            # Direct doorsturen naar de instrument_callback methode
-            logger.info(f"Specifiek instrument type gedetecteerd in: {query.data}")
-            return await self.instrument_callback(update, context)
-        
-        # Handle instrument signal choices
-        if "_signals" in query.data and query.data.startswith("instrument_"):
-            logger.info(f"Signal instrument selection detected: {query.data}")
-            return await self.instrument_signals_callback(update, context)
-        
-        # Speciale afhandeling voor markt keuzes
-        if query.data.startswith("market_"):
-            return await self.market_callback(update, context)
-        
-        # Signals handlers
-        if query.data == "signals_add" or query.data == CALLBACK_SIGNALS_ADD:
-            return await self.signals_add_callback(update, context)
             
-        # Manage signals handler
-        if query.data == "signals_manage" or query.data == CALLBACK_SIGNALS_MANAGE:
-            return await self.signals_manage_callback(update, context)
+            # Verwerk instrument keuzes met specifiek type (chart, sentiment, calendar)
+            if "_chart" in callback_data or "_sentiment" in callback_data or "_calendar" in callback_data:
+                # Direct doorsturen naar de instrument_callback methode
+                logger.info(f"Specifiek instrument type gedetecteerd in: {callback_data}")
+                return await self.instrument_callback(update, context)
             
-        # Handle delete signal
-        if query.data.startswith("delete_signal_"):
-            # Extract signal ID from callback data
-            signal_id = query.data.replace("delete_signal_", "")
+            # Handle instrument signal choices
+            if "_signals" in callback_data and callback_data.startswith("instrument_"):
+                logger.info(f"Signal instrument selection detected: {callback_data}")
+                return await self.instrument_signals_callback(update, context)
             
-            try:
-                # Delete the signal subscription
-                response = self.db.supabase.table('signal_subscriptions').delete().eq('id', signal_id).execute()
-                
-                if response and response.data:
-                    # Successfully deleted
-                    await query.answer("Signal subscription removed successfully")
-                else:
-                    # Failed to delete
-                    await query.answer("Failed to remove signal subscription")
-                
-                # Refresh the manage signals view
-                return await self.signals_manage_callback(update, context)
-                
-            except Exception as e:
-                logger.error(f"Error deleting signal subscription: {str(e)}")
-                await query.answer("Error removing signal subscription")
-                return await self.signals_manage_callback(update, context)
-                
-        # Handle delete all signals
-        if query.data == "delete_all_signals":
-            user_id = update.effective_user.id
+            # Speciale afhandeling voor markt keuzes
+            if callback_data.startswith("market_"):
+                return await self.market_callback(update, context)
             
-            try:
-                # Delete all signal subscriptions for this user
-                response = self.db.supabase.table('signal_subscriptions').delete().eq('user_id', user_id).execute()
+            # Signals handlers
+            if callback_data == "signals_add" or callback_data == CALLBACK_SIGNALS_ADD:
+                return await self.signals_add_callback(update, context)
                 
-                if response and response.data:
-                    # Successfully deleted
-                    await query.answer("All signal subscriptions removed successfully")
-                else:
-                    # Failed to delete
-                    await query.answer("Failed to remove signal subscriptions")
-                
-                # Refresh the manage signals view
+            # Manage signals handler
+            if callback_data == "signals_manage" or callback_data == CALLBACK_SIGNALS_MANAGE:
                 return await self.signals_manage_callback(update, context)
+            
+            # Back navigation handlers
+            if callback_data == "back_menu" or callback_data == CALLBACK_BACK_MENU:
+                return await self.back_menu_callback(update, context)
+            elif callback_data == "back_analysis" or callback_data == CALLBACK_BACK_ANALYSIS:
+                return await self.analysis_callback(update, context)
+            elif callback_data == "back_signals" or callback_data == CALLBACK_BACK_SIGNALS:
+                return await self.back_signals_callback(update, context)
+            elif callback_data == "back_market" or callback_data == CALLBACK_BACK_MARKET:
+                return await self.back_market_callback(update, context)
                 
-            except Exception as e:
-                logger.error(f"Error deleting all signal subscriptions: {str(e)}")
-                await query.answer("Error removing signal subscriptions")
-                return await self.signals_manage_callback(update, context)
+            # Handle delete signal
+            if callback_data.startswith("delete_signal_"):
+                # Extract signal ID from callback data
+                signal_id = callback_data.replace("delete_signal_", "")
+                
+                try:
+                    # Delete the signal subscription
+                    response = self.db.supabase.table('signal_subscriptions').delete().eq('id', signal_id).execute()
+                    
+                    if response and response.data:
+                        # Successfully deleted
+                        await query.answer("Signal subscription removed successfully")
+                    else:
+                        # Failed to delete
+                        await query.answer("Failed to remove signal subscription")
+                    
+                    # Refresh the manage signals view
+                    return await self.signals_manage_callback(update, context)
+                    
+                except Exception as e:
+                    logger.error(f"Error deleting signal subscription: {str(e)}")
+                    await query.answer("Error removing signal subscription")
+                    return await self.signals_manage_callback(update, context)
+                    
+            # Handle delete all signals
+            if callback_data == "delete_all_signals":
+                user_id = update.effective_user.id
+                
+                try:
+                    # Delete all signal subscriptions for this user
+                    response = self.db.supabase.table('signal_subscriptions').delete().eq('user_id', user_id).execute()
+                    
+                    if response and response.data:
+                        # Successfully deleted
+                        await query.answer("All signal subscriptions removed successfully")
+                    else:
+                        # Failed to delete
+                        await query.answer("Failed to remove signal subscriptions")
+                    
+                    # Refresh the manage signals view
+                    return await self.signals_manage_callback(update, context)
+                    
+                except Exception as e:
+                    logger.error(f"Error deleting all signal subscriptions: {str(e)}")
+                    await query.answer("Error removing signal subscriptions")
+                    return await self.signals_manage_callback(update, context)
+                    
+                    
+            # Default handling if no specific callback found, go back to menu
+            logger.warning(f"Unhandled callback_data: {callback_data}")
+            return MENU
+            
+        except Exception as e:
+            logger.error(f"Error in button_callback: {str(e)}")
+            logger.exception(e)
+            return MENU
 
     async def market_signals_callback(self, update: Update, context=None) -> int:
         """Handle signals market selection"""
@@ -2847,25 +2738,8 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     message_text = f"Unknown market: {market}"
                 message_text = f"Select instrument for technical analysis:"
         
-        # Check if the keyboard already has a back button before adding one
-        has_back_button = False
-        if keyboard and isinstance(keyboard, list):
-            for row in keyboard:
-                for btn in row:
-                    if hasattr(btn, 'callback_data') and btn.callback_data in ["back_signals", "back_analysis", "back_menu"]:
-                        has_back_button = True
-                        break
-                if has_back_button:
-                    break
-                    
-        # Add back button only if not already present
-        if not has_back_button:
-            back_button = [InlineKeyboardButton("⬅️ Back", callback_data="back_signals" if is_signals_context else "back_analysis")]
-            if keyboard and isinstance(keyboard, list) and len(keyboard) > 0:
-                keyboard.append(back_button)
-            else:
-                # If keyboard is empty, just add back button
-                keyboard = [back_button]
+        # Gebruik de keyboard zonder wijzigingen, verwijder de oude back_button logica
+        # De keyboards hebben al back knoppen, we voegen er geen extra meer toe
         
         # Show the keyboard
         try:
@@ -2888,6 +2762,25 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 logger.error(f"Error sending new message in market_callback: {str(e2)}")
         
         return CHOOSE_INSTRUMENT
+        
+    async def back_market_callback(self, update: Update, context=None) -> int:
+        """Handle back_market button press"""
+        query = update.callback_query
+        await query.answer()
+        
+        logger.info("back_market_callback called")
+        
+        # Determine if we need to go back to signals or analysis flow
+        is_signals_context = False
+        if context and hasattr(context, 'user_data'):
+            is_signals_context = context.user_data.get('is_signals_context', False)
+        
+        if is_signals_context:
+            # Go back to signals menu
+            return await self.back_signals_callback(update, context)
+        else:
+            # Go back to analysis selection
+            return await self.analysis_callback(update, context)
 
     async def instrument_signals_callback(self, update: Update, context=None) -> int:
         """Handle instrument selection for signals"""
