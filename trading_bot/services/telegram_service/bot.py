@@ -17,10 +17,10 @@ from telegram import (
     InlineKeyboardButton, 
     InlineKeyboardMarkup, 
     MessageEntity,
+    ParseMode, 
     Bot,
     InputMediaPhoto,
 )
-from telegram.constants import ParseMode
 from telegram.ext import (
     ApplicationBuilder,
     ContextTypes,
@@ -36,7 +36,7 @@ from telegram.ext import (
 )
 from telegram.request import HTTPXRequest
 
-from trading_bot.services.database.db import Database
+from trading_bot.core.database import Database, DatabaseProvider
 from trading_bot.services.telegram_service.states import *
 from trading_bot.services.telegram_service import gif_utils
 from trading_bot.services.chart_service.chart_service import ChartService
@@ -601,30 +601,62 @@ class TelegramService:
     
     # Missing handler implementations
     async def back_signals_callback(self, update: Update, context=None) -> int:
-        """Handle back navigation from signals menus"""
+        """Handle back_signals button press"""
         query = update.callback_query
         await query.answer()
         
-        logger.info("back_signals_callback called")
+        self.logger.info("back_signals_callback called")
         
-        # Create the signals keyboard
-        keyboard = SIGNALS_KEYBOARD
-        
-        try:
-            # Try to edit the message text
-            await query.edit_message_text(
-                text="<b>📈 Signal Management</b>\n\nManage your trading signals",
-                reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode=ParseMode.HTML
-            )
-        except Exception as e:
-            logger.error(f"Error in back_signals_callback: {str(e)}")
+        # Make sure we're in the signals flow context
+        if context and hasattr(context, 'user_data'):
+            # Keep is_signals_context flag but reset from_signal flag
+            context.user_data['is_signals_context'] = True
+            context.user_data['from_signal'] = False
             
-            # Try to send a new message as last resort
-            await query.message.reply_text(
+            # Clear other specific analysis keys but maintain signals context
+            keys_to_remove = [
+                'instrument', 'market', 'analysis_type', 'timeframe', 
+                'signal_id', 'signal_instrument', 'signal_direction', 'signal_timeframe',
+                'loading_message'
+            ]
+            
+            for key in keys_to_remove:
+                if key in context.user_data:
+                    del context.user_data[key]
+            
+            self.logger.info(f"Updated context in back_signals_callback: {context.user_data}")
+        
+        # Create keyboard for signal menu
+        keyboard = [
+            [InlineKeyboardButton("📊 Add Signal", callback_data="signals_add")],
+            [InlineKeyboardButton("⚙️ Manage Signals", callback_data="signals_manage")],
+            [InlineKeyboardButton("⬅️ Back to Menu", callback_data="back_menu")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        # Get the signals GIF URL for better UX
+        signals_gif_url = "https://media.giphy.com/media/gSzIKNrqtotEYrZv7i/giphy.gif"
+        
+        # Try to update with GIF for better visual feedback
+        try:
+            # First try to delete and send new message with GIF
+            await query.message.delete()
+            await context.bot.send_animation(
+                chat_id=update.effective_chat.id,
+                animation=signals_gif_url,
+                caption="<b>📈 Signal Management</b>\n\nManage your trading signals",
+                parse_mode=ParseMode.HTML,
+                reply_markup=reply_markup
+            )
+            return SIGNALS
+        except Exception as delete_error:
+            self.logger.warning(f"Could not delete message: {str(delete_error)}")
+            
+            # Fallback to update message
+            await self.update_message(
+                query=query,
                 text="<b>📈 Signal Management</b>\n\nManage your trading signals",
-                reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode=ParseMode.HTML
+                keyboard=reply_markup
             )
         
         return SIGNALS
@@ -678,96 +710,237 @@ class TelegramService:
             return []
 
     async def process_signal(self, signal_data: Dict[str, Any]) -> bool:
-        """Process an incoming trading signal and deliver to subscribers"""
+        """
+        Process a trading signal from TradingView webhook or API
+        
+        Supports two formats:
+        1. TradingView format: instrument, signal, price, sl, tp1, tp2, tp3, interval
+        2. Custom format: instrument, direction, entry, stop_loss, take_profit, timeframe
+        
+        Returns:
+            bool: True if signal was processed successfully, False otherwise
+        """
         try:
-            # Extract signal information
-            instrument = signal_data.get('instrument')
-            timeframe = signal_data.get('timeframe')
-            direction = signal_data.get('direction')
+            # Log the incoming signal data
+            logger.info(f"Processing signal: {signal_data}")
             
-            if not instrument:
-                logger.error("Missing instrument in signal data")
+            # Check which format we're dealing with and normalize it
+            instrument = signal_data.get('instrument')
+            
+            # Handle TradingView format (price, sl, interval)
+            if 'price' in signal_data and 'sl' in signal_data:
+                price = signal_data.get('price')
+                sl = signal_data.get('sl')
+                tp1 = signal_data.get('tp1')
+                tp2 = signal_data.get('tp2')
+                tp3 = signal_data.get('tp3')
+                interval = signal_data.get('interval', '1h')
+                
+                # Determine signal direction based on price and SL relationship
+                direction = "BUY" if float(sl) < float(price) else "SELL"
+                
+                # Create normalized signal data
+                normalized_data = {
+                    'instrument': instrument,
+                    'direction': direction,
+                    'entry': price,
+                    'stop_loss': sl,
+                    'take_profit': tp1,  # Use first take profit level
+                    'timeframe': interval
+                }
+                
+                # Add optional fields if present
+                normalized_data['tp1'] = tp1
+                normalized_data['tp2'] = tp2
+                normalized_data['tp3'] = tp3
+            
+            # Handle custom format (direction, entry, stop_loss, timeframe)
+            elif 'direction' in signal_data and 'entry' in signal_data:
+                direction = signal_data.get('direction')
+                entry = signal_data.get('entry')
+                stop_loss = signal_data.get('stop_loss')
+                take_profit = signal_data.get('take_profit')
+                timeframe = signal_data.get('timeframe', '1h')
+                
+                # Create normalized signal data
+                normalized_data = {
+                    'instrument': instrument,
+                    'direction': direction,
+                    'entry': entry,
+                    'stop_loss': stop_loss,
+                    'take_profit': take_profit,
+                    'timeframe': timeframe
+                }
+            else:
+                logger.error(f"Missing required signal data")
+                return False
+            
+            # Basic validation
+            if not normalized_data.get('instrument') or not normalized_data.get('direction') or not normalized_data.get('entry'):
+                logger.error(f"Missing required fields in normalized signal data: {normalized_data}")
                 return False
                 
-            # Generate signal ID if not provided
-            signal_id = signal_data.get('id')
-            if not signal_id:
-                signal_id = f"signal_{datetime.now().strftime('%Y%m%d%H%M%S')}"
-                signal_data['id'] = signal_id
+            # Create signal ID for tracking
+            signal_id = f"{normalized_data['instrument']}_{normalized_data['direction']}_{normalized_data['timeframe']}_{int(time.time())}"
             
-            # Format message for subscribers
-            message = self._format_signal_message(signal_data)
+            # Format the signal message
+            message = self._format_signal_message(normalized_data)
             
-            # Get subscribers for this instrument and timeframe
+            # Determine market type for the instrument
+            market_type = _detect_market(instrument)
+            
+            # Store the full signal data for reference
+            normalized_data['id'] = signal_id
+            normalized_data['timestamp'] = datetime.now().isoformat()
+            normalized_data['message'] = message
+            normalized_data['market'] = market_type
+            
+            # Save signal for history tracking
+            if not os.path.exists(self.signals_dir):
+                os.makedirs(self.signals_dir, exist_ok=True)
+                
+            # Save to signals directory
+            with open(f"{self.signals_dir}/{signal_id}.json", 'w') as f:
+                json.dump(normalized_data, f)
+            
+            # FOR TESTING: Always send to admin for testing
+            if hasattr(self, 'admin_users') and self.admin_users:
+                try:
+                    logger.info(f"Sending signal to admin users for testing: {self.admin_users}")
+                    for admin_id in self.admin_users:
+                        # Prepare keyboard with analysis options
+                        keyboard = [
+                            [InlineKeyboardButton("🔍 Analyze Market", callback_data=f"analyze_from_signal_{instrument}_{signal_id}")]
+                        ]
+                        
+                        # Send the signal
+                        await self.bot.send_message(
+                            chat_id=admin_id,
+                            text=message,
+                            parse_mode=ParseMode.HTML,
+                            reply_markup=InlineKeyboardMarkup(keyboard)
+                        )
+                        logger.info(f"Test signal sent to admin {admin_id}")
+                        
+                        # Store signal reference for quick access
+                        if not hasattr(self, 'user_signals'):
+                            self.user_signals = {}
+                            
+                        admin_str_id = str(admin_id)
+                        if admin_str_id not in self.user_signals:
+                            self.user_signals[admin_str_id] = {}
+                        
+                        self.user_signals[admin_str_id][signal_id] = normalized_data
+                except Exception as e:
+                    logger.error(f"Error sending test signal to admin: {str(e)}")
+            
+            # Get subscribers for this instrument
+            timeframe = normalized_data.get('timeframe', '1h')
             subscribers = await self.get_subscribers_for_instrument(instrument, timeframe)
             
-            # Send signal to subscribers
-            sent_count = 0
-            failed_count = 0
+            if not subscribers:
+                logger.warning(f"No subscribers found for {instrument}")
+                return True  # Successfully processed, just no subscribers
             
+            # Send signal to all subscribers
+            logger.info(f"Sending signal {signal_id} to {len(subscribers)} subscribers")
+            
+            sent_count = 0
             for user_id in subscribers:
                 try:
-                    # Create keyboard for this signal
+                    # Prepare keyboard with analysis options
                     keyboard = [
-                        [InlineKeyboardButton("🔍 Analyze", callback_data=f"analyze_from_signal_{signal_id}")],
-                        [InlineKeyboardButton("⬅️ Back", callback_data="back_signals")]
+                        [InlineKeyboardButton("🔍 Analyze Market", callback_data=f"analyze_from_signal_{instrument}_{signal_id}")]
                     ]
-                    reply_markup = InlineKeyboardMarkup(keyboard)
                     
-                    # Send message to subscriber
-                    await self.application.bot.send_message(
+                    # Send the signal
+                    await self.bot.send_message(
                         chat_id=user_id,
                         text=message,
                         parse_mode=ParseMode.HTML,
-                        reply_markup=reply_markup
+                        reply_markup=InlineKeyboardMarkup(keyboard)
                     )
+                    
                     sent_count += 1
                     
+                    # Store signal reference for quick access
+                    if not hasattr(self, 'user_signals'):
+                        self.user_signals = {}
+                        
+                    user_str_id = str(user_id)
+                    if user_str_id not in self.user_signals:
+                        self.user_signals[user_str_id] = {}
+                    
+                    self.user_signals[user_str_id][signal_id] = normalized_data
+                    
                 except Exception as e:
-                    logger.error(f"Failed to send signal to user {user_id}: {str(e)}")
-                    failed_count += 1
+                    logger.error(f"Error sending signal to user {user_id}: {str(e)}")
             
-            logger.info(f"Signal processed: {sent_count} delivered, {failed_count} failed")
-            return sent_count > 0
+            logger.info(f"Successfully sent signal {signal_id} to {sent_count}/{len(subscribers)} subscribers")
+            return True
             
         except Exception as e:
             logger.error(f"Error processing signal: {str(e)}")
+            logger.exception(e)
             return False
-    
-    def _format_signal_message(self, signal_data: Dict[str, Any]) -> str:
-        """Format a signal message for delivery to subscribers"""
-        instrument = signal_data.get('instrument', 'Unknown')
-        direction = signal_data.get('direction', 'Unknown')
-        timeframe = signal_data.get('timeframe', 'Unknown')
-        entry_price = signal_data.get('entry_price', 'Market')
-        stop_loss = signal_data.get('stop_loss', 'None')
-        take_profit = signal_data.get('take_profit', 'None')
-        risk_reward = signal_data.get('risk_reward', 'Unknown')
-        confidence = signal_data.get('confidence', 'Medium')
-        notes = signal_data.get('notes', '')
-        
-        # Determine emoji based on direction
-        direction_emoji = "🟢" if direction.lower() == "buy" else "🔴"
-        
-        # Build the message
-        message = f"""
-<b>{direction_emoji} {direction.upper()} SIGNAL: {instrument}</b> ({timeframe})
 
-<b>Entry:</b> {entry_price}
-<b>Stop Loss:</b> {stop_loss}
-<b>Take Profit:</b> {take_profit}
-<b>Risk/Reward:</b> {risk_reward}
-<b>Confidence:</b> {confidence}
-"""
-        
-        # Add notes if present
-        if notes:
-            message += f"\n<b>Notes:</b> {notes}"
+    def _format_signal_message(self, signal_data: Dict[str, Any]) -> str:
+        """Format signal data into a nice message for Telegram"""
+        try:
+            # Extract fields from signal data
+            instrument = signal_data.get('instrument', 'Unknown')
+            direction = signal_data.get('direction', 'Unknown')
+            entry = signal_data.get('entry', 'Unknown')
+            stop_loss = signal_data.get('stop_loss')
+            take_profit = signal_data.get('take_profit')
+            timeframe = signal_data.get('timeframe', '1h')
             
-        # Add disclaimer
-        message += "\n\n<i>⚠️ This is not financial advice. Always do your own analysis.</i>"
-        
-        return message
+            # Get multiple take profit levels if available
+            tp1 = signal_data.get('tp1', take_profit)
+            tp2 = signal_data.get('tp2')
+            tp3 = signal_data.get('tp3')
+            
+            # Add emoji based on direction
+            direction_emoji = "🟢" if direction.upper() == "BUY" else "🔴"
+            
+            # Format the message with multiple take profits if available
+            message = f"<b>🎯 New Trading Signal 🎯</b>\n\n"
+            message += f"<b>Instrument:</b> {instrument}\n"
+            message += f"<b>Action:</b> {direction.upper()} {direction_emoji}\n\n"
+            message += f"<b>Entry Price:</b> {entry}\n"
+            
+            if stop_loss:
+                message += f"<b>Stop Loss:</b> {stop_loss} 🔴\n"
+            
+            # Add take profit levels
+            if tp1:
+                message += f"<b>Take Profit 1:</b> {tp1} 🎯\n"
+            if tp2:
+                message += f"<b>Take Profit 2:</b> {tp2} 🎯\n"
+            if tp3:
+                message += f"<b>Take Profit 3:</b> {tp3} 🎯\n"
+            
+            message += f"\n<b>Timeframe:</b> {timeframe}\n"
+            message += f"<b>Strategy:</b> TradingView Signal\n\n"
+            
+            message += "————————————————————\n\n"
+            message += "<b>Risk Management:</b>\n"
+            message += "• Position size: 1-2% max\n"
+            message += "• Use proper stop loss\n"
+            message += "• Follow your trading plan\n\n"
+            
+            message += "————————————————————\n\n"
+            
+            # Generate AI verdict
+            ai_verdict = f"The {instrument} {direction.lower()} signal shows a promising setup with defined entry at {entry} and stop loss at {stop_loss}. Multiple take profit levels provide opportunities for partial profit taking."
+            message += f"<b>🤖 SigmaPips AI Verdict:</b>\n{ai_verdict}"
+            
+            return message
+            
+        except Exception as e:
+            logger.error(f"Error formatting signal message: {str(e)}")
+            # Return simple message on error
+            return f"New {signal_data.get('instrument', 'Unknown')} {signal_data.get('direction', 'Unknown')} Signal"
 
     def _register_handlers(self, application):
         """Register event handlers for bot commands and callback queries"""
@@ -2590,7 +2763,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     timeframe = context.user_data.get('timeframe')
             
             # If still no instrument, show error
-            if not instrument:
+        if not instrument:
                 await query.edit_message_text(
                     text="Error: No instrument specified for technical analysis.",
                     reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
@@ -4203,148 +4376,3 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD)
             )
             return SIGNALS
-
-    async def signals_add_callback(self, update: Update, context=None) -> int:
-        """Handle signals_add button press"""
-        query = update.callback_query
-        await query.answer()
-        
-        logger.info("signals_add_callback called")
-        
-        # Set context for signal flow
-        if context and hasattr(context, 'user_data'):
-            context.user_data['is_signals_context'] = True
-            
-        # Show market selection for adding signals
-        keyboard = MARKET_KEYBOARD_SIGNALS
-        
-        try:
-            # First try to edit message text
-            await query.edit_message_text(
-                text="Select market for signal subscription:",
-                reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode=ParseMode.HTML
-            )
-        except Exception as text_error:
-            # If that fails due to caption, try editing caption
-            if "There is no text in the message to edit" in str(text_error):
-                try:
-                    await query.edit_message_caption(
-                        caption="Select market for signal subscription:",
-                        reply_markup=InlineKeyboardMarkup(keyboard),
-                        parse_mode=ParseMode.HTML
-                    )
-                except Exception as e:
-                    logger.error(f"Failed to update caption in signals_add_callback: {str(e)}")
-                    # Try to send a new message as last resort
-                    await query.message.reply_text(
-                        text="Select market for signal subscription:",
-                        reply_markup=InlineKeyboardMarkup(keyboard),
-                        parse_mode=ParseMode.HTML
-                    )
-            else:
-                # Re-raise for other errors
-                raise
-        
-        return CHOOSE_MARKET
-        
-    async def signals_manage_callback(self, update: Update, context=None) -> int:
-        """Handle signals_manage button press"""
-        query = update.callback_query
-        await query.answer()
-        
-        logger.info("signals_manage_callback called")
-        
-        user_id = update.effective_user.id
-        
-        # Try to get user's signal subscriptions
-        try:
-            # Get subscriptions from database
-            response = await self.db.get_user_signal_subscriptions(user_id)
-            
-            if response and len(response) > 0:
-                # User has signal subscriptions
-                message = "<b>Your Signal Subscriptions</b>\n\n"
-                
-                # Build the message with all subscriptions
-                for sub in response:
-                    instrument = sub.get('instrument', 'Unknown')
-                    timeframe = sub.get('timeframe', 'Unknown')
-                    created_at = sub.get('created_at', 'Unknown')
-                    sub_id = sub.get('id', '')
-                    
-                    # Format the date if available
-                    try:
-                        if isinstance(created_at, str) and 'T' in created_at:
-                            created_date = created_at.split('T')[0]
-                        else:
-                            created_date = str(created_at)
-                    except:
-                        created_date = 'Unknown'
-                    
-                    message += f"• <b>{instrument}</b> - {timeframe}\n"
-                    message += f"  Added: {created_date}\n"
-                
-                message += "\nTo remove a subscription, contact support."
-                
-                # Create keyboard with back button
-                keyboard = [
-                    [InlineKeyboardButton("⬅️ Back", callback_data="back_signals")]
-                ]
-                
-                # Show the message
-                await query.edit_message_text(
-                    text=message,
-                    reply_markup=InlineKeyboardMarkup(keyboard),
-                    parse_mode=ParseMode.HTML
-                )
-                
-            else:
-                # No subscriptions found
-                message = """
-<b>No Signal Subscriptions Found</b>
-
-You haven't subscribed to any trading signals yet.
-
-Add your first signal subscription by clicking the button below.
-"""
-                
-                # Create keyboard with add signals button
-                keyboard = [
-                    [InlineKeyboardButton("➕ Add Signal", callback_data="signals_add")],
-                    [InlineKeyboardButton("⬅️ Back", callback_data="back_signals")]
-                ]
-                
-                # Show the message
-                await query.edit_message_text(
-                    text=message,
-                    reply_markup=InlineKeyboardMarkup(keyboard),
-                    parse_mode=ParseMode.HTML
-                )
-                
-        except Exception as e:
-            logger.error(f"Error in signals_manage_callback: {str(e)}")
-            
-            # Error message
-            message = """
-<b>Error Loading Subscriptions</b>
-
-We couldn't load your signal subscriptions. Please try again later.
-"""
-            
-            # Create keyboard with back button
-            keyboard = [
-                [InlineKeyboardButton("⬅️ Back", callback_data="back_signals")]
-            ]
-            
-            # Show error message
-            try:
-                await query.edit_message_text(
-                    text=message,
-                    reply_markup=InlineKeyboardMarkup(keyboard),
-                    parse_mode=ParseMode.HTML
-                )
-            except Exception as inner_e:
-                logger.error(f"Error showing error message: {str(inner_e)}")
-        
-        return SIGNALS
