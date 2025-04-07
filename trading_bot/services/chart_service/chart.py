@@ -145,8 +145,6 @@ class ChartService:
             if hasattr(self, 'tradingview') and self.tradingview and hasattr(self.tradingview, 'take_screenshot_of_url'):
                 try:
                     logger.info(f"Taking screenshot with Node.js service: {tradingview_link}")
-                    # Voeg extra wachttijd toe voor volledig laden (5 seconden)
-                    await asyncio.sleep(5)
                     chart_image = await self.tradingview.take_screenshot_of_url(tradingview_link, fullscreen=True)
                     if chart_image:
                         logger.info("Screenshot taken successfully with Node.js service")
@@ -160,8 +158,6 @@ class ChartService:
             if hasattr(self, 'tradingview_selenium') and self.tradingview_selenium and self.tradingview_selenium.is_initialized:
                 try:
                     logger.info(f"Taking screenshot with Selenium: {tradingview_link}")
-                    # Voeg extra wachttijd toe voor volledig laden (5 seconden)
-                    await asyncio.sleep(5)
                     chart_image = await self.tradingview_selenium.get_screenshot(tradingview_link, fullscreen=True)
                     if chart_image:
                         logger.info("Screenshot taken successfully with Selenium")
