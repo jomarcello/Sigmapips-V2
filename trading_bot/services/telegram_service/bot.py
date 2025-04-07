@@ -2763,7 +2763,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     timeframe = context.user_data.get('timeframe')
             
             # If still no instrument, show error
-        if not instrument:
+            if not instrument:
                 await query.edit_message_text(
                     text="Error: No instrument specified for technical analysis.",
                     reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
