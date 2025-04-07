@@ -22,6 +22,16 @@ HOSTNAME = socket.gethostname()
 logger.info(f"Running on host: {HOSTNAME}")
 logger.info(f"Running in Railway: {RUNNING_IN_RAILWAY}")
 
+# Als we in Railway draaien, gebruik dan ScrapingAnt als default
+if RUNNING_IN_RAILWAY and os.environ.get("USE_SCRAPINGANT") is None:
+    os.environ["USE_SCRAPINGANT"] = "true"
+    logger.info("Running in Railway, setting USE_SCRAPINGANT=true by default")
+
+# ScrapingAnt API key configureren indien niet al gedaan
+if os.environ.get("SCRAPINGANT_API_KEY") is None:
+    os.environ["SCRAPINGANT_API_KEY"] = "e63e79e708d247c798885c0c320f9f30"
+    logger.info("Setting default ScrapingAnt API key")
+
 # Flag om te bepalen welke implementatie we moeten gebruiken
 USE_FALLBACK = os.environ.get("USE_CALENDAR_FALLBACK", "").lower() in ("true", "1", "yes")
 
@@ -42,8 +52,14 @@ else:
             from trading_bot.services.calendar_service.tradingview_calendar import TradingViewCalendarService
             logger.info("Successfully imported TradingViewCalendarService")
             
-            # Log that we're using the real implementation
-            print("✅ Using real TradingView calendar API")
+            # Check if using ScrapingAnt
+            use_scrapingant = os.environ.get("USE_SCRAPINGANT", "").lower() in ("true", "1", "yes")
+            logger.info(f"Using ScrapingAnt for calendar API: {use_scrapingant}")
+            
+            if use_scrapingant:
+                print("✅ Using ScrapingAnt proxy for TradingView calendar API")
+            else:
+                print("✅ Using direct connection for TradingView calendar API")
             
         except Exception as e:
             logger.warning(f"TradingViewCalendarService import failed: {e}")
