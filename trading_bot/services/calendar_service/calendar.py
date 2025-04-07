@@ -9,6 +9,14 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Any, Optional
 from pathlib import Path
 
+# Import onze custom mock data generator
+try:
+    from trading_bot.services.calendar_service._generate_mock_calendar_data import generate_mock_calendar_data
+    HAS_CUSTOM_MOCK_DATA = True
+except ImportError:
+    HAS_CUSTOM_MOCK_DATA = False
+    logging.getLogger(__name__).warning("Custom mock calendar data not available, using default mock data")
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -25,7 +33,40 @@ CURRENCY_COUNTRY_MAP = {
     "CHF": "CH",
     "AUD": "AU",
     "NZD": "NZ",
-    "CAD": "CA"
+    "CAD": "CA",
+    # Extra landen toevoegen die op TradingView worden getoond
+    "CNY": "CN",  # China
+    "HKD": "HK",  # Hong Kong
+    "SGD": "SG",  # Singapore
+    "INR": "IN",  # India
+    "BRL": "BR",  # Brazilië
+    "MXN": "MX",  # Mexico
+    "ZAR": "ZA",  # Zuid-Afrika
+    "SEK": "SE",  # Zweden
+    "NOK": "NO",  # Noorwegen
+    "DKK": "DK",  # Denemarken
+    "PLN": "PL",  # Polen
+    "TRY": "TR",  # Turkije
+    "RUB": "RU",  # Rusland
+    "KRW": "KR",  # Zuid-Korea
+    "ILS": "IL",  # Israël
+    # Ontbrekende landen die op TradingView worden getoond
+    "IDR": "ID",  # Indonesië
+    "SAR": "SA",  # Saudi Arabië
+    "THB": "TH",  # Thailand
+    "MYR": "MY",  # Maleisië
+    "PHP": "PH",  # Filipijnen
+    "VND": "VN",  # Vietnam
+    "UAH": "UA",  # Oekraïne
+    "AED": "AE",  # Verenigde Arabische Emiraten
+    "QAR": "QA",  # Qatar
+    "CZK": "CZ",  # Tsjechië
+    "HUF": "HU",  # Hongarije
+    "RON": "RO",  # Roemenië
+    "CLP": "CL",  # Chili
+    "COP": "CO",  # Colombia
+    "PEN": "PE",  # Peru
+    "ARS": "AR"   # Argentinië
 }
 
 # Map of major currencies to flag emojis
@@ -37,7 +78,40 @@ CURRENCY_FLAG = {
     "CHF": "🇨🇭",
     "AUD": "🇦🇺",
     "NZD": "🇳🇿",
-    "CAD": "🇨🇦"
+    "CAD": "🇨🇦",
+    # Extra vlaggen toevoegen
+    "CNY": "🇨🇳",
+    "HKD": "🇭🇰",
+    "SGD": "🇸🇬",
+    "INR": "🇮🇳",
+    "BRL": "🇧🇷",
+    "MXN": "🇲🇽",
+    "ZAR": "🇿🇦", 
+    "SEK": "🇸🇪",
+    "NOK": "🇳🇴",
+    "DKK": "🇩🇰",
+    "PLN": "🇵🇱",
+    "TRY": "🇹🇷",
+    "RUB": "🇷🇺",
+    "KRW": "🇰🇷",
+    "ILS": "🇮🇱",
+    # Ontbrekende vlaggen toevoegen
+    "IDR": "🇮🇩",  # Indonesië
+    "SAR": "🇸🇦",  # Saudi Arabië
+    "THB": "🇹🇭",  # Thailand
+    "MYR": "🇲🇾",  # Maleisië
+    "PHP": "🇵🇭",  # Filipijnen
+    "VND": "🇻🇳",  # Vietnam
+    "UAH": "🇺🇦",  # Oekraïne  
+    "AED": "🇦🇪",  # Verenigde Arabische Emiraten
+    "QAR": "🇶🇦",  # Qatar
+    "CZK": "🇨🇿",  # Tsjechië
+    "HUF": "🇭🇺",  # Hongarije
+    "RON": "🇷🇴",  # Roemenië
+    "CLP": "🇨🇱",  # Chili
+    "COP": "🇨🇴",  # Colombia
+    "PEN": "🇵🇪",  # Peru
+    "ARS": "🇦🇷"   # Argentinië
 }
 
 # Impact levels and their emoji representations
@@ -53,7 +127,7 @@ class TradingViewCalendarService:
     def __init__(self, use_mock_data: bool = False):
         """Initialize the service"""
         self.logger = logging.getLogger(__name__)
-        self.logger.info("Initializing TradingViewCalendarService")
+        self.logger.info("Initializing TradingViewCalendarService - Using real API data by default")
         
         # Flag to use mock data if needed
         self.use_mock_data = use_mock_data
@@ -130,11 +204,11 @@ class TradingViewCalendarService:
             end_date = today + timedelta(days=days_to_add)
             
             # Prepare parameters for API call
-            country_codes = list(CURRENCY_COUNTRY_MAP.values())
+            # We use all available countries instead of only major currencies
             params = {
                 'from': start_date.isoformat() + '.000Z',
-                'to': end_date.isoformat() + '.000Z',
-                'countries': ','.join(country_codes)
+                'to': end_date.isoformat() + '.000Z'
+                # Geen 'countries' parameter meegeven betekent dat alle landen worden opgehaald
             }
             
             self.logger.info(f"API parameters: {params}")
@@ -182,12 +256,33 @@ class TradingViewCalendarService:
         country_to_currency = {v: k for k, v in CURRENCY_COUNTRY_MAP.items()}
         
         # Map TradingView impact levels to our format
+        # Belangrijk: TradingView API gebruikt een andere waarde voor importance
+        # In de API kan importance -1 zijn voor normale events
         impact_map = {
             3: "High",
             2: "Medium",
             1: "Low",
-            0: "Low"
+            0: "Low",
+            -1: "Low"  # Veel events hebben -1 als importance maar kunnen toch belangrijk zijn
         }
+        
+        # Lijst met woorden die duiden op een High impact event
+        high_impact_keywords = [
+            "interest rate", "rate decision", "fomc", "fed chair", "gdp", 
+            "nonfarm payroll", "employment change", "unemployment", "cpi", "inflation"
+        ]
+        
+        # Lijst met woorden die duiden op een Medium impact event
+        medium_impact_keywords = [
+            "retail sales", "pmi", "manufacturing", "trade balance", "central bank", 
+            "ecb", "boe", "rba", "boc", "snb", "monetary policy", "press conference"
+        ]
+        
+        # Lijst met major currencies - alleen deze worden getoond
+        MAJOR_CURRENCIES = ["USD", "EUR", "GBP", "JPY", "CHF", "AUD", "NZD", "CAD"]
+        
+        # Opslaan van event_time objecten voor betere sortering
+        event_times = {}
         
         for event in events_data:
             try:
@@ -196,8 +291,10 @@ class TradingViewCalendarService:
                 
                 # Map country code to currency
                 currency = country_to_currency.get(country_code, "")
-                if not currency:
-                    continue  # Skip events without a known currency
+                
+                # Skip events without a known currency or not in major currencies
+                if not currency or currency not in MAJOR_CURRENCIES:
+                    continue
                 
                 # Extract time (convert to local time)
                 event_time_str = event.get('date', "")
@@ -208,12 +305,21 @@ class TradingViewCalendarService:
                 try:
                     event_time = datetime.fromisoformat(event_time_str.replace('Z', '+00:00'))
                     time_str = event_time.strftime("%H:%M")
+                    
+                    # Sla het originele datetime object op voor betere sortering
+                    event_id = f"{currency}_{event.get('id', '')}"
+                    event_times[event_id] = event_time
                 except (ValueError, TypeError) as e:
                     self.logger.warning(f"Invalid date format: {event_time_str} - {e}")
                     time_str = ""
                 
-                # Extract impact level - TradingView uses importance field
+                # Extract impact level - TradingView gebruikt verschillende manieren
                 importance_value = event.get('importance')
+                
+                # Standaard is Low impact
+                impact_level = "Low"
+                
+                # Probeer de importance value te bepalen
                 if importance_value is not None:
                     try:
                         importance = int(importance_value)
@@ -221,22 +327,32 @@ class TradingViewCalendarService:
                     except (ValueError, TypeError):
                         self.logger.warning(f"Invalid importance value: {importance_value}")
                         impact_level = "Low"
-                else:
-                    impact_level = "Low"
-                    
-                # Adjust impact level based on indicators we know are important
-                event_title = event.get('title', event.get('indicator', "Unknown Event"))
                 
-                # Check if title contains important keywords
-                if any(keyword.lower() in event_title.lower() for keyword in self.important_indicators):
-                    # Upgrade importance based on keyword match
-                    if impact_level == "Low":
-                        impact_level = "Medium"
-                    # Don't downgrade High to Medium
+                # Haal de titel op voor keyword matching
+                event_title = event.get('title', event.get('indicator', "Unknown Event")).lower()
+                
+                # Check voor High impact keywords
+                if any(keyword in event_title for keyword in high_impact_keywords):
+                    impact_level = "High"
+                # Als het niet High is, check voor Medium impact
+                elif any(keyword in event_title for keyword in medium_impact_keywords):
+                    impact_level = "Medium"
+                
+                # Speciale gevallen op basis van ervaring met TradingView
+                if "fomc" in event_title or "fed" in event_title:
+                    impact_level = "High"
+                elif "pmi" in event_title:
+                    impact_level = "Medium"
+                elif "gdp" in event_title:
+                    impact_level = "High"
+                elif "cpi" in event_title or "inflation" in event_title:
+                    impact_level = "High"
                 
                 # Format title with period
                 if event.get('period'):
-                    event_title = f"{event_title} ({event.get('period')})"
+                    event_title = f"{event.get('title', event.get('indicator', 'Unknown Event'))} ({event.get('period')})"
+                else:
+                    event_title = event.get('title', event.get('indicator', 'Unknown Event'))
                 
                 # Get values, handling None and formatting
                 forecast = event.get('forecast')
@@ -253,7 +369,9 @@ class TradingViewCalendarService:
                     # Additional fields that might be useful
                     "forecast": forecast if forecast is not None else "",
                     "previous": previous if previous is not None else "",
-                    "actual": actual if actual is not None else ""
+                    "actual": actual if actual is not None else "",
+                    # ID voor chronologische sortering
+                    "event_id": event_id
                 }
                 
                 formatted_events.append(formatted_event)
@@ -263,11 +381,13 @@ class TradingViewCalendarService:
                 self.logger.error(f"Event data: {event}")
                 continue
         
-        # Sort events by time
+        # Sort events chronologically using the stored datetime objects
         try:
-            formatted_events = sorted(formatted_events, key=lambda x: x.get('time', '00:00'))
+            formatted_events = sorted(formatted_events, key=lambda x: event_times.get(x.get('event_id'), datetime.min))
         except Exception as e:
             self.logger.error(f"Error sorting events: {e}")
+            # Fallback naar string-based sortering als datetime sortering faalt
+            formatted_events = sorted(formatted_events, key=lambda x: x.get('time', '00:00'))
         
         self.logger.info(f"Extracted {len(formatted_events)} formatted events")
         return formatted_events
@@ -275,6 +395,14 @@ class TradingViewCalendarService:
     def _generate_mock_calendar_data(self) -> List[Dict]:
         """Generate mock calendar data when extraction fails"""
         self.logger.info("Generating mock calendar data")
+        
+        # Gebruik de custom mock data als deze beschikbaar is
+        if HAS_CUSTOM_MOCK_DATA:
+            self.logger.info("Using custom mock calendar data")
+            return generate_mock_calendar_data()
+        
+        # Als de custom mock data niet beschikbaar is, gebruik de standaard mock data
+        self.logger.info("Using default mock calendar data")
         
         # Get today's date
         today = datetime.now().strftime("%Y-%m-%d")
