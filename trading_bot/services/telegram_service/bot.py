@@ -2557,6 +2557,8 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 return await self.back_signals_callback(update, context)
             elif callback_data == "back_market" or callback_data == CALLBACK_BACK_MARKET:
                 return await self.back_market_callback(update, context)
+            elif callback_data == "back_instrument":
+                return await self.back_instrument_callback(update, context)
             elif callback_data == "back_to_signal":
                 return await self.back_to_signal_callback(update, context)
                 
