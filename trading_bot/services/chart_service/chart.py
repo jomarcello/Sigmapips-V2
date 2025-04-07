@@ -416,9 +416,11 @@ class ChartService:
         df['SMA20'] = df['Close'].rolling(window=20).mean()
         df['SMA50'] = df['Close'].rolling(window=50).mean()
         
-        # Maak de chart
-        plt.figure(figsize=(12, 8))
+        # Maak de chart met aangepaste stijl
         plt.style.use('dark_background')
+        fig = plt.figure(figsize=(12, 8), facecolor='none')
+        ax = plt.gca()
+        ax.set_facecolor('none')
         
         # Plot candlesticks
         width = 0.6
@@ -439,15 +441,21 @@ class ChartService:
         plt.plot(df.index, df['SMA50'], color='orange', label='SMA50')
         
         # Voeg labels en titel toe
-        plt.title(f'{instrument} - {timeframe} Chart', fontsize=16)
+        plt.title(f'{instrument} - {timeframe} Chart', fontsize=16, pad=20)
         plt.xlabel('Date', fontsize=12)
         plt.ylabel('Price', fontsize=12)
         plt.grid(True, alpha=0.3)
         plt.legend()
         
-        # Sla de chart op als bytes
+        # Verwijder de border
+        plt.gca().spines['top'].set_visible(False)
+        plt.gca().spines['right'].set_visible(False)
+        plt.gca().spines['bottom'].set_visible(False)
+        plt.gca().spines['left'].set_visible(False)
+        
+        # Sla de chart op als bytes met transparante achtergrond
         buf = io.BytesIO()
-        plt.savefig(buf, format='png', dpi=100, bbox_inches='tight')
+        plt.savefig(buf, format='png', dpi=100, bbox_inches='tight', transparent=True)
         buf.seek(0)
         
         plt.close()
