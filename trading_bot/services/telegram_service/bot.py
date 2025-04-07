@@ -833,7 +833,7 @@ class TelegramService:
         query = update.callback_query
         await query.answer()
         
-        self.logger.info("back_signals_callback called")
+        logger.info("back_signals_callback called")
         
         # Make sure we're in the signals flow context
         if context and hasattr(context, 'user_data'):
@@ -852,7 +852,7 @@ class TelegramService:
                 if key in context.user_data:
                     del context.user_data[key]
             
-            self.logger.info(f"Updated context in back_signals_callback: {context.user_data}")
+            logger.info(f"Updated context in back_signals_callback: {context.user_data}")
         
         # Create keyboard for signal menu
         keyboard = [
@@ -865,27 +865,12 @@ class TelegramService:
         # Get the signals GIF URL for better UX
         signals_gif_url = "https://media.giphy.com/media/gSzIKNrqtotEYrZv7i/giphy.gif"
         
-        # Try to update with GIF for better visual feedback
-        try:
-            # First try to delete and send new message with GIF
-            await query.message.delete()
-            await context.bot.send_animation(
-                chat_id=update.effective_chat.id,
-                animation=signals_gif_url,
-                caption="<b>📈 Signal Management</b>\n\nManage your trading signals",
-                parse_mode=ParseMode.HTML,
-                reply_markup=reply_markup
-            )
-            return SIGNALS
-        except Exception as delete_error:
-            self.logger.warning(f"Could not delete message: {str(delete_error)}")
-            
-            # Fallback to update message
-            await self.update_message(
-                query=query,
-                text="<b>📈 Signal Management</b>\n\nManage your trading signals",
-                keyboard=reply_markup
-            )
+        # Update the message
+        await self.update_message(
+            query=query,
+            text="<b>📈 Signal Management</b>\n\nManage your trading signals",
+            keyboard=reply_markup
+        )
         
         return SIGNALS
         
@@ -2782,6 +2767,244 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     raise
                     
         return CHOOSE_MARKET
+        
+    async def market_callback(self, update: Update, context=None) -> int:
+        """Handle market selection and show appropriate instruments"""
+        query = update.callback_query
+        await query.answer()
+        callback_data = query.data
+        
+        # Parse the market from callback data
+        parts = callback_data.split("_")
+        market = parts[1]  # Extract market type (forex, crypto, etc.)
+        
+        # Check if signal-specific context
+        is_signals_context = False
+        if callback_data.endswith("_signals"):
+            is_signals_context = True
+        elif context and hasattr(context, 'user_data'):
+            is_signals_context = context.user_data.get('is_signals_context', False)
+        
+        # Store market in context
+        if context and hasattr(context, 'user_data'):
+            context.user_data['market'] = market
+            context.user_data['is_signals_context'] = is_signals_context
+        
+        logger.info(f"Market callback: market={market}, signals_context={is_signals_context}")
+        
+        # Determine which keyboard to show based on market and context
+        keyboard = None
+        message_text = f"Select a {market.upper()} instrument:"
+        
+        if is_signals_context:
+            # Signal-specific keyboards
+            if market == 'forex':
+                keyboard = FOREX_KEYBOARD_SIGNALS
+            elif market == 'crypto':
+                keyboard = CRYPTO_KEYBOARD_SIGNALS
+            elif market == 'indices':
+                keyboard = INDICES_KEYBOARD_SIGNALS
+            elif market == 'commodities':
+                keyboard = COMMODITIES_KEYBOARD_SIGNALS
+            else:
+                # Default keyboard for unknown market
+                keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_signals")]]
+                message_text = f"Unknown market: {market}"
+        else:
+            # Analysis-specific keyboards
+            analysis_type = context.user_data.get('analysis_type', 'technical') if context and hasattr(context, 'user_data') else 'technical'
+            
+            if analysis_type == 'sentiment':
+                if market == 'forex':
+                    keyboard = FOREX_SENTIMENT_KEYBOARD
+                elif market == 'crypto':
+                    keyboard = CRYPTO_SENTIMENT_KEYBOARD
+                elif market == 'indices':
+                    keyboard = INDICES_SENTIMENT_KEYBOARD
+                elif market == 'commodities':
+                    keyboard = COMMODITIES_SENTIMENT_KEYBOARD
+                else:
+                    keyboard = MARKET_SENTIMENT_KEYBOARD
+                message_text = f"Select instrument for sentiment analysis:"
+            elif analysis_type == 'calendar':
+                if market == 'forex':
+                    keyboard = FOREX_CALENDAR_KEYBOARD
+                else:
+                    keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_analysis")]]
+                message_text = f"Select currency for economic calendar:"
+            else:
+                # Default to technical analysis
+                if market == 'forex':
+                    keyboard = FOREX_KEYBOARD
+                elif market == 'crypto':
+                    keyboard = CRYPTO_KEYBOARD
+                elif market == 'indices':
+                    keyboard = INDICES_KEYBOARD
+                elif market == 'commodities':
+                    keyboard = COMMODITIES_KEYBOARD
+                else:
+                    keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_analysis")]]
+                    message_text = f"Unknown market: {market}"
+                message_text = f"Select instrument for technical analysis:"
+        
+        # Add back button
+        back_button = [InlineKeyboardButton("⬅️ Back", callback_data="back_signals" if is_signals_context else "back_analysis")]
+        if keyboard and isinstance(keyboard, list) and len(keyboard) > 0:
+            # Check if the last row already has a back button
+            last_row = keyboard[-1]
+            if not any(btn.callback_data in ["back_signals", "back_analysis", "back_menu"] for btn in last_row):
+                keyboard.append(back_button)
+        else:
+            # If keyboard is empty, just add back button
+            keyboard = [back_button]
+        
+        # Show the keyboard
+        try:
+            await self.update_message(
+                query=query,
+                text=message_text,
+                keyboard=InlineKeyboardMarkup(keyboard),
+                parse_mode=ParseMode.HTML
+            )
+        except Exception as e:
+            logger.error(f"Error updating message in market_callback: {str(e)}")
+            # Try to create a new message as fallback
+            try:
+                await query.message.reply_text(
+                    text=message_text,
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.HTML
+                )
+            except Exception as e2:
+                logger.error(f"Error sending new message in market_callback: {str(e2)}")
+        
+        return CHOOSE_INSTRUMENT
+
+    async def instrument_signals_callback(self, update: Update, context=None) -> int:
+        """Handle instrument selection for signals"""
+        query = update.callback_query
+        await query.answer()
+        callback_data = query.data
+        
+        # Extract the instrument from the callback data
+        # Format: "instrument_EURUSD_signals"
+        parts = callback_data.split("_")
+        instrument_parts = []
+        
+        # Find where the "signals" specifier starts
+        for i, part in enumerate(parts[1:], 1):  # Skip "instrument_" prefix
+            if part == "signals":
+                break
+            instrument_parts.append(part)
+        
+        # Join the instrument parts
+        instrument = "_".join(instrument_parts) if instrument_parts else ""
+        
+        # Store instrument in context
+        if context and hasattr(context, 'user_data'):
+            context.user_data['instrument'] = instrument
+            context.user_data['is_signals_context'] = True
+        
+        logger.info(f"Instrument signals callback: instrument={instrument}")
+        
+        if not instrument:
+            logger.error("No instrument found in callback data")
+            await query.edit_message_text(
+                text="Invalid instrument selection. Please try again.",
+                reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD_SIGNALS)
+            )
+            return CHOOSE_MARKET
+        
+        # Get applicable timeframes for this instrument
+        timeframes = []
+        if instrument in INSTRUMENT_TIMEFRAME_MAP:
+            # If the instrument has a predefined timeframe mapping
+            timeframe = INSTRUMENT_TIMEFRAME_MAP[instrument]
+            timeframe_display = TIMEFRAME_DISPLAY_MAP.get(timeframe, timeframe)
+            timeframes = [(timeframe, timeframe_display)]
+        else:
+            # Default timeframes
+            for tf, display in TIMEFRAME_DISPLAY_MAP.items():
+                timeframes.append((tf, display))
+                
+        # Create keyboard for timeframe selection or direct subscription
+        keyboard = []
+        
+        if len(timeframes) == 1:
+            # Only one timeframe, offer direct subscription
+            timeframe, timeframe_display = timeframes[0]
+            
+            # Store in context
+            if context and hasattr(context, 'user_data'):
+                context.user_data['timeframe'] = timeframe
+            
+            # Create a subscription for this instrument/timeframe
+            user_id = update.effective_user.id
+            
+            try:
+                # Check if subscription already exists
+                response = self.db.supabase.table('signal_subscriptions').select('*').eq('user_id', user_id).eq('instrument', instrument).eq('timeframe', timeframe).execute()
+                
+                if response and response.data and len(response.data) > 0:
+                    # Subscription already exists
+                    message = f"✅ You are already subscribed to <b>{instrument}</b> signals on {timeframe_display} timeframe!"
+                else:
+                    # Create new subscription
+                    market = _detect_market(instrument)
+                    
+                    subscription_data = {
+                        'user_id': user_id,
+                        'instrument': instrument,
+                        'timeframe': timeframe,
+                        'market': market,
+                        'created_at': datetime.now().isoformat()
+                    }
+                    
+                    insert_response = self.db.supabase.table('signal_subscriptions').insert(subscription_data).execute()
+                    
+                    if insert_response and insert_response.data:
+                        message = f"✅ Successfully subscribed to <b>{instrument}</b> signals on {timeframe_display} timeframe!"
+                    else:
+                        message = f"❌ Error creating subscription for {instrument} on {timeframe_display} timeframe. Please try again."
+            except Exception as e:
+                logger.error(f"Error creating signal subscription: {str(e)}")
+                message = f"❌ Error creating subscription: {str(e)}"
+                
+            # Show confirmation and options to add more or manage
+            keyboard = [
+                [InlineKeyboardButton("➕ Add More", callback_data="signals_add")],
+                [InlineKeyboardButton("⚙️ Manage Signals", callback_data="signals_manage")],
+                [InlineKeyboardButton("⬅️ Back to Signals", callback_data="back_signals")]
+            ]
+            
+            # Update message
+            await self.update_message(
+                query=query,
+                text=message,
+                keyboard=InlineKeyboardMarkup(keyboard),
+                parse_mode=ParseMode.HTML
+            )
+            
+            return CHOOSE_SIGNALS
+        else:
+            # Multiple timeframes, let user select
+            message = f"Select timeframe for <b>{instrument}</b> signals:"
+            
+            for tf, display in timeframes:
+                keyboard.append([InlineKeyboardButton(display, callback_data=f"timeframe_{instrument}_{tf}")])
+            
+            # Add back button
+            keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="back_signals")])
+            
+            # Update message
+            await self.update_message(
+                query=query,
+                text=message,
+                keyboard=InlineKeyboardMarkup(keyboard),
+                parse_mode=ParseMode.HTML
+            )
+            
+            return CHOOSE_TIMEFRAME
 
     async def instrument_callback(self, update: Update, context=None) -> int:
         """Handle instrument selections with specific types (chart, sentiment, calendar)"""
@@ -4242,7 +4465,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         query = update.callback_query
         await query.answer()
         
-        self.logger.info("back_signals_callback called")
+        logger.info("back_signals_callback called")
         
         # Create keyboard for signal menu
         keyboard = [
