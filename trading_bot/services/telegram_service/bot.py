@@ -2508,6 +2508,14 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 return await self.menu_analyse_callback(update, context)
             elif callback_data == CALLBACK_MENU_SIGNALS:
                 return await self.menu_signals_callback(update, context)
+            
+            # Analysis type selection
+            elif callback_data == CALLBACK_ANALYSIS_TECHNICAL or callback_data == "analysis_technical":
+                return await self.analysis_technical_callback(update, context)
+            elif callback_data == CALLBACK_ANALYSIS_SENTIMENT or callback_data == "analysis_sentiment":
+                return await self.analysis_sentiment_callback(update, context)
+            elif callback_data == CALLBACK_ANALYSIS_CALENDAR or callback_data == "analysis_calendar":
+                return await self.analysis_calendar_callback(update, context)
                 
             # Direct instrument_timeframe callbacks  
             if "_timeframe_" in callback_data:
