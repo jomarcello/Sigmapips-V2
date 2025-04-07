@@ -89,7 +89,7 @@ CURRENCY_FLAG = {
     "BRL": "🇧🇷",
     "MXN": "🇲🇽",
     "ZAR": "🇿🇦", 
-    "SEK": "🇸��",
+    "SEK": "🇸🇪",
     "NOK": "🇳🇴",
     "DKK": "🇩🇰",
     "PLN": "🇵🇱",
@@ -146,6 +146,9 @@ class TradingViewCalendarService:
         # Use ScrapingAnt or direct connection
         self.use_scrapingant = os.environ.get("USE_SCRAPINGANT", "true").lower() in ["true", "1", "yes"]
         
+        # Force real implementation
+        self.force_real_implementation = True
+        
         # Default headers for TradingView API
         self.headers = {
             'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.110 Safari/537.36',
@@ -191,6 +194,7 @@ class TradingViewCalendarService:
     async def fetch_via_scrapingant(self, url: str, params: Dict) -> Dict:
         """Fetch data via ScrapingAnt proxy service"""
         self.logger.info(f"Fetching via ScrapingAnt: {url}")
+        print(f"�� ScrapingAnt: Fetching data from {url}")
         
         # Build the full URL with parameters
         query_string = "&".join([f"{k}={urllib.parse.quote(str(v))}" for k, v in params.items()])
@@ -208,38 +212,152 @@ class TradingViewCalendarService:
                 'return_text': 'true'
             }
             
-            query_string = "&".join([f"{k}={urllib.parse.quote(str(v))}" for k, v in scraping_params.items()])
-            scrapingant_url = f"{api_url}?{query_string}"
+            query_string = "&".join([f"{k}={urllib.parse.quote(str(v))}" for k, v in scraping_params.items() if k != 'x-api-key'])
+            api_key_masked = f"{self.scrapingant_api_key[:5]}...{self.scrapingant_api_key[-3:]}"
+            masked_params = scraping_params.copy()
+            masked_params['x-api-key'] = api_key_masked
             
-            self.logger.info(f"ScrapingAnt request URL: {api_url} (params omitted)")
+            # Log volledig request, maar mask de API key
+            self.logger.info(f"ScrapingAnt request parameters: {masked_params}")
+            print(f"🔑 Using ScrapingAnt API key: {api_key_masked}")
             
-            async with aiohttp.ClientSession() as session:
-                async with session.get(scrapingant_url, timeout=60) as response:
-                    status = response.status
-                    self.logger.info(f"ScrapingAnt response status: {status}")
+            self.logger.info(f"Calling ScrapingAnt API: {api_url}")
+            print(f"📡 Calling ScrapingAnt API...")
+            
+            # Gebruik http.client voor een lager niveau controle over het request
+            try:
+                # Eerst proberen met aiohttp
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(f"{api_url}?{query_string}&x-api-key={self.scrapingant_api_key}", 
+                                   timeout=60) as response:
+                        status = response.status
+                        self.logger.info(f"ScrapingAnt response status: {status}")
+                        print(f"📊 ScrapingAnt response status: {status}")
+                        
+                        if status != 200:
+                            error_text = await response.text()
+                            self.logger.error(f"ScrapingAnt error: {error_text[:500]}")
+                            print(f"❌ ScrapingAnt error: {error_text[:100]}...")
+                            
+                            # Als het een authenticatiefout is, toon dan specifiekere info
+                            if status == 401 or status == 403:
+                                self.logger.error(f"API Authentication error. Check your API key: {api_key_masked}")
+                                print(f"🔐 API Authentication error. Check API key: {api_key_masked}")
+                            return {}
+                        
+                        response_text = await response.text()
+                        self.logger.info(f"ScrapingAnt response length: {len(response_text)} bytes")
+                        print(f"📦 Received {len(response_text)} bytes from ScrapingAnt")
+                        
+                        # Log de eerste deel van de response
+                        if len(response_text) > 0:
+                            self.logger.info(f"First 200 chars: {response_text[:200]}")
+                            
+                            # Een bestandje schrijven voor debugging doeleinden
+                            try:
+                                with open("scrapingant_response.txt", "w") as f:
+                                    f.write(response_text)
+                                self.logger.info("Saved raw ScrapingAnt response to scrapingant_response.txt")
+                            except Exception as e:
+                                self.logger.warning(f"Could not save response text file: {e}")
+                        
+                        # Parse as JSON
+                        try:
+                            self.logger.info("Parsing response as JSON")
+                            data = json.loads(response_text)
+                            
+                            # Controleer of het ScrapingAnt formaat of direct TradingView formaat is
+                            if 'content' in data and 'result' not in data:
+                                self.logger.info("Detected ScrapingAnt response format")
+                                # ScrapingAnt response contains HTML or JSON in 'content' field
+                                content = data.get('content', '{}')
+                                
+                                # Probeer de content te parsen als JSON
+                                try:
+                                    content_data = json.loads(content)
+                                    self.logger.info("Successfully parsed content field as JSON")
+                                    return content_data
+                                except json.JSONDecodeError:
+                                    self.logger.error("Content field is not valid JSON")
+                                    # ScrapingAnt heeft HTML teruggegeven
+                                    self.logger.error("ScrapingAnt returned HTML instead of JSON")
+                                    print("❌ ScrapingAnt returned HTML instead of JSON")
+                                    return {}
+                            else:
+                                # Direct TradingView API formaat
+                                self.logger.info("Detected direct TradingView API response format")
+                                return data
+                        except json.JSONDecodeError as e:
+                            self.logger.error(f"JSON parse error: {e}")
+                            print(f"❌ JSON parse error: {str(e)}")
+                            return {}
+                            
+            except Exception as e:
+                self.logger.error(f"Error with aiohttp: {e}")
+                
+                # Fallback naar http.client als aiohttp faalt
+                self.logger.info("Falling back to http.client for API request")
+                
+                # Parse API URL to get host and path
+                parsed_url = urllib.parse.urlparse(api_url)
+                host = parsed_url.netloc
+                
+                # Build complete path with parameters
+                path = f"{parsed_url.path}?{query_string}&x-api-key={self.scrapingant_api_key}"
+                
+                # Create connection
+                conn = http.client.HTTPSConnection(host, timeout=60)
+                
+                try:
+                    # Make request
+                    self.logger.info(f"Making HTTP request to {host}{path[:100]}...")
+                    conn.request("GET", path)
                     
-                    if status != 200:
-                        error_text = await response.text()
-                        self.logger.error(f"ScrapingAnt error: {error_text[:500]}")
+                    # Get response
+                    response = conn.getresponse()
+                    self.logger.info(f"Response status: {response.status}")
+                    
+                    if response.status != 200:
+                        error_data = response.read().decode('utf-8')
+                        self.logger.error(f"Error response: {error_data[:500]}")
                         return {}
                     
-                    response_text = await response.text()
-                    self.logger.info(f"ScrapingAnt response length: {len(response_text)} bytes")
+                    # Read response data
+                    response_data = response.read().decode('utf-8')
+                    self.logger.info(f"Response length: {len(response_data)} bytes")
                     
-                    # Log the first part of the response
-                    if len(response_text) > 0:
-                        self.logger.info(f"First 200 chars: {response_text[:200]}")
-                    
-                    # Parse as JSON
+                    # Parse JSON
                     try:
-                        data = json.loads(response_text)
-                        return data
-                    except json.JSONDecodeError as e:
-                        self.logger.error(f"JSON parse error: {e}")
+                        data = json.loads(response_data)
+                        
+                        # Check for ScrapingAnt format vs direct TradingView format
+                        if 'content' in data and 'result' not in data:
+                            # ScrapingAnt response contains HTML or JSON in 'content' field
+                            content = data.get('content', '{}')
+                            
+                            # Try to parse content as JSON
+                            try:
+                                content_data = json.loads(content)
+                                return content_data
+                            except json.JSONDecodeError:
+                                # If content is not JSON, return empty dict
+                                self.logger.error("Content field is not valid JSON")
+                                return {}
+                        else:
+                            return data
+                    except json.JSONDecodeError:
+                        self.logger.error("Response is not valid JSON")
                         return {}
+                        
+                except Exception as http_error:
+                    self.logger.error(f"HTTP client error: {http_error}")
+                    return {}
+                finally:
+                    conn.close()
             
         except Exception as e:
             self.logger.error(f"Error using ScrapingAnt: {e}")
+            print(f"❌ Error using ScrapingAnt: {str(e)}")
             return {}
     
     async def debug_api_connection(self):
@@ -354,7 +472,20 @@ class TradingViewCalendarService:
             List of calendar events
         """
         try:
-            self.logger.info(f"Getting economic calendar from TradingView (days_ahead={days_ahead}, min_impact={min_impact})")
+            self.logger.info(f"🔍 TradingViewCalendarService.get_calendar called with days_ahead={days_ahead}, min_impact={min_impact}")
+            print(f"🔍 TradingView Calendar Service: Getting calendar data for {days_ahead} days ahead")
+            print(f"⚙️ Configuration: use_scrapingant={self.use_scrapingant}, use_mock_data={self.use_mock_data}")
+            
+            # Extra ScrapingAnt info
+            if self.use_scrapingant:
+                api_key_masked = f"{self.scrapingant_api_key[:5]}...{self.scrapingant_api_key[-3:]}"
+                print(f"🔑 Using ScrapingAnt API key: {api_key_masked}")
+                self.logger.info(f"Using ScrapingAnt with API key: {api_key_masked}")
+            
+            # Disable mock data in Railway environment
+            if os.environ.get("RAILWAY_ENVIRONMENT") is not None:
+                self.logger.info("Running in Railway environment, forcing real API usage")
+                self.use_mock_data = False
             
             # If mock data is requested, return it directly
             if self.use_mock_data:
@@ -364,25 +495,32 @@ class TradingViewCalendarService:
             
             # First try with ScrapingAnt if enabled
             if self.use_scrapingant:
-                self.logger.info("Trying to fetch calendar data using ScrapingAnt")
+                self.logger.info("💻 Trying to fetch calendar data using ScrapingAnt")
+                print("💻 Fetching economic calendar data via ScrapingAnt proxy...")
                 events = await self._fetch_tradingview_calendar_via_scrapingant(days_ahead=days_ahead)
                 
                 if events and len(events) > 0:
-                    self.logger.info(f"SUCCESS: Got {len(events)} events from TradingView API via ScrapingAnt")
+                    self.logger.info(f"✅ SUCCESS: Got {len(events)} events from TradingView API via ScrapingAnt")
+                    print(f"✅ SUCCESS: Fetched {len(events)} economic events via ScrapingAnt")
                     filtered_events = self._filter_by_impact(events, min_impact)
                     return filtered_events
                 else:
-                    self.logger.warning("No events from TradingView API via ScrapingAnt, trying direct connection")
+                    self.logger.warning("❌ No events from TradingView API via ScrapingAnt, trying direct connection")
+                    print("❌ ScrapingAnt fetch failed, trying direct API connection...")
             
             # If ScrapingAnt failed or is disabled, try direct connection
+            self.logger.info("Trying direct API connection")
+            print("🔌 Attempting direct connection to TradingView API...")
             events = await self._fetch_tradingview_calendar(days_ahead=days_ahead)
             
             if events and len(events) > 0:
-                self.logger.info(f"SUCCESS: Got {len(events)} events from TradingView API via direct connection")
+                self.logger.info(f"✅ SUCCESS: Got {len(events)} events from TradingView API via direct connection")
+                print(f"✅ SUCCESS: Fetched {len(events)} economic events via direct connection")
                 filtered_events = self._filter_by_impact(events, min_impact)
                 return filtered_events
             else:
-                self.logger.warning("No events from TradingView API, using fallback data")
+                self.logger.warning("❌ No events from TradingView API, using fallback data")
+                print("❌ Direct API connection failed, using fallback calendar data")
             
             # If we reached this point, the API call failed or returned empty
             self.logger.info("Using fallback calendar implementation")
@@ -399,8 +537,9 @@ class TradingViewCalendarService:
                 return self._filter_by_impact(calendar_data, min_impact)
             
         except Exception as e:
-            self.logger.error(f"Error getting calendar data: {e}")
+            self.logger.error(f"❌ Error getting calendar data: {e}")
             self.logger.exception(e)
+            print(f"❌ Error in TradingView Calendar Service: {e}")
             
             # Use fallback on any error
             try:
