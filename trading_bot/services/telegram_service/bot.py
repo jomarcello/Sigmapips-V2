@@ -1114,7 +1114,7 @@ class TelegramService:
             tp3 = signal_data.get('tp3')
             
             # Add emoji based on direction
-            direction_emoji = "🟢" if direction.upper() == "BUY" else "🔴"
+            direction_emoji = "📈" if direction.upper() == "BUY" else "📉"
             
             # Format the message with multiple take profits if available
             message = f"<b>🎯 New Trading Signal 🎯</b>\n\n"
@@ -4297,7 +4297,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             tp3 = signal_data.get('tp3')
             
             # Add emoji based on direction
-            direction_emoji = "🟢" if direction.upper() == "BUY" else "🔴"
+            direction_emoji = "📈" if direction.upper() == "BUY" else "📉"
             
             # Format the message with multiple take profits if available
             message = f"<b>🎯 New Trading Signal 🎯</b>\n\n"
