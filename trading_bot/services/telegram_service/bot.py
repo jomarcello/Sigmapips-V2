@@ -791,7 +791,7 @@ class TelegramService:
     async def update_message(self, query, text, keyboard=None, parse_mode=ParseMode.HTML):
         """Utility to update a message with error handling"""
         try:
-            self.logger.info("Updating message")
+            logger.info("Updating message")
             # Try to edit message text first
             await query.edit_message_text(
                 text=text,
@@ -800,7 +800,7 @@ class TelegramService:
             )
             return True
         except Exception as e:
-            self.logger.warning(f"Could not update message text: {str(e)}")
+            logger.warning(f"Could not update message text: {str(e)}")
             
             # If text update fails, try to edit caption
             try:
@@ -811,12 +811,12 @@ class TelegramService:
                 )
                 return True
             except Exception as e2:
-                self.logger.error(f"Could not update caption either: {str(e2)}")
+                logger.error(f"Could not update caption either: {str(e2)}")
                 
                 # As a last resort, send a new message
                 try:
                     chat_id = query.message.chat_id
-                    await self.bot.send_message(
+                    await query.bot.send_message(
                         chat_id=chat_id,
                         text=text,
                         reply_markup=keyboard,
@@ -824,7 +824,7 @@ class TelegramService:
                     )
                     return True
                 except Exception as e3:
-                    self.logger.error(f"Failed to send new message: {str(e3)}")
+                    logger.error(f"Failed to send new message: {str(e3)}")
                     return False
     
     # Missing handler implementations
@@ -4554,3 +4554,122 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD)
             )
             return SIGNALS
+
+    async def signals_add_callback(self, update: Update, context=None) -> int:
+        """Handle signals_add button press to add new signal subscriptions"""
+        query = update.callback_query
+        await query.answer()
+        
+        logger.info("signals_add_callback called")
+        
+        # Make sure we're in the signals flow context
+        if context and hasattr(context, 'user_data'):
+            context.user_data['is_signals_context'] = True
+            context.user_data['from_signal'] = False
+            
+            # Set flag for adding signals
+            context.user_data['adding_signals'] = True
+            
+            logger.info(f"Set signal flow context: {context.user_data}")
+        
+        # Create keyboard for market selection
+        keyboard = MARKET_KEYBOARD_SIGNALS
+        
+        # Update message with market selection
+        await self.update_message(
+            query=query,
+            text="Select a market for trading signals:",
+            keyboard=InlineKeyboardMarkup(keyboard),
+            parse_mode=ParseMode.HTML
+        )
+        
+        return CHOOSE_MARKET
+        
+    async def signals_manage_callback(self, update: Update, context=None) -> int:
+        """Handle signals_manage callback to manage signal preferences"""
+        query = update.callback_query
+        await query.answer()
+        
+        logger.info("signals_manage_callback called")
+        
+        try:
+            # Get user's current subscriptions
+            user_id = update.effective_user.id
+            
+            # Fetch user's signal subscriptions from the database
+            try:
+                response = self.db.supabase.table('signal_subscriptions').select('*').eq('user_id', user_id).execute()
+                preferences = response.data if response and hasattr(response, 'data') else []
+            except Exception as db_error:
+                logger.error(f"Database error fetching signal subscriptions: {str(db_error)}")
+                preferences = []
+            
+            if not preferences:
+                # No subscriptions yet
+                text = "You don't have any signal subscriptions yet. Add some first!"
+                keyboard = [
+                    [InlineKeyboardButton("➕ Add Signal Pairs", callback_data="signals_add")],
+                    [InlineKeyboardButton("⬅️ Back", callback_data="back_signals")]
+                ]
+                
+                await self.update_message(
+                    query=query,
+                    text=text,
+                    keyboard=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.HTML
+                )
+                return CHOOSE_SIGNALS
+            
+            # Format current subscriptions
+            message = "<b>Your Signal Subscriptions:</b>\n\n"
+            
+            for i, pref in enumerate(preferences, 1):
+                market = pref.get('market', 'unknown')
+                instrument = pref.get('instrument', 'unknown')
+                timeframe = pref.get('timeframe', 'ALL')
+                
+                message += f"{i}. {market.upper()} - {instrument} ({timeframe})\n"
+            
+            # Add buttons to manage subscriptions
+            keyboard = [
+                [InlineKeyboardButton("➕ Add More", callback_data="signals_add")],
+                [InlineKeyboardButton("🗑️ Remove All", callback_data="delete_all_signals")],
+                [InlineKeyboardButton("⬅️ Back", callback_data="back_signals")]
+            ]
+            
+            # Add individual delete buttons if there are preferences
+            if preferences:
+                for i, pref in enumerate(preferences):
+                    signal_id = pref.get('id')
+                    if signal_id:
+                        instrument = pref.get('instrument', 'unknown')
+                        keyboard.insert(-1, [InlineKeyboardButton(f"❌ Delete {instrument}", callback_data=f"delete_signal_{signal_id}")])
+            
+            await self.update_message(
+                query=query,
+                text=message,
+                keyboard=InlineKeyboardMarkup(keyboard),
+                parse_mode=ParseMode.HTML
+            )
+            
+            return CHOOSE_SIGNALS
+            
+        except Exception as e:
+            logger.error(f"Error in signals_manage_callback: {str(e)}")
+            
+            # Error recovery - go back to signals menu
+            keyboard = [
+                [InlineKeyboardButton("📊 Add Signal", callback_data="signals_add")],
+                [InlineKeyboardButton("⚙️ Manage Signals", callback_data="signals_manage")],
+                [InlineKeyboardButton("⬅️ Back to Menu", callback_data="back_menu")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await self.update_message(
+                query=query,
+                text="<b>📈 Signal Management</b>\n\nManage your trading signals",
+                keyboard=reply_markup,
+                parse_mode=ParseMode.HTML
+            )
+            
+            return CHOOSE_SIGNALS
