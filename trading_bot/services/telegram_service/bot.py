@@ -1,245 +1,475 @@
-import json
 import os
-import logging
+import json
 import asyncio
-import aiohttp
+import traceback
+from typing import Dict, Any, List, Optional
+from datetime import datetime, timedelta
+import logging
+import copy
+import re
 import time
 import random
-import numpy as np
-import re
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Any, Union, Callable, Awaitable, TypeVar, Set, Tuple
-from html.parser import HTMLParser
-from fastapi import FastAPI
 
-from telegram import (
-    Update, 
-    InlineKeyboardButton, 
-    InlineKeyboardMarkup, 
-    MessageEntity,
-    ParseMode, 
-    Bot,
-    InputMediaPhoto,
-)
+from fastapi import FastAPI, Request, HTTPException, status
+from telegram import Bot, Update, BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery, InputMediaPhoto, InputMediaAnimation, InputMediaDocument, ReplyKeyboardMarkup, ReplyKeyboardRemove, InputFile
+from telegram.constants import ParseMode
+from telegram.request import HTTPXRequest
 from telegram.ext import (
-    ApplicationBuilder,
-    ContextTypes,
+    Application,
     CommandHandler,
-    MessageHandler,
     CallbackQueryHandler,
     ConversationHandler,
-    filters,
-    Application,
+    ContextTypes,
     CallbackContext,
-    TypeHandler,
-    PicklePersistence,
+    MessageHandler,
+    filters,
+    PicklePersistence
 )
-from telegram.request import HTTPXRequest
+from telegram.error import TelegramError, BadRequest
+import httpx
+import telegram.error  # Add this import for BadRequest error handling
 
-from trading_bot.core.database import Database, DatabaseProvider
-from trading_bot.services.telegram_service.states import *
-from trading_bot.services.telegram_service import gif_utils
-from trading_bot.services.chart_service.chart_service import ChartService
-from trading_bot.services.calendar_service.calendar_fix import EconomicCalendarService
-from trading_bot.services.sentiment_service.sentiment_service import MarketSentimentService
-from trading_bot.services.telegram_service.logger import logger
-from trading_bot.services.models import TradingSignal
-import trading_bot.services.telegram_service.keyboards as kb
-from trading_bot.services.telegram_service.keyboards import (
-    START_KEYBOARD,
-    MARKET_KEYBOARD,
-    ANALYSIS_KEYBOARD,
-    SIGNALS_KEYBOARD,
-    MARKET_KEYBOARD_SIGNALS,
-    FOREX_KEYBOARD,
-    CRYPTO_KEYBOARD,
-    INDICES_KEYBOARD,
-    COMMODITIES_KEYBOARD,
-    FOREX_KEYBOARD_SIGNALS,
-    CRYPTO_KEYBOARD_SIGNALS,
-    INDICES_KEYBOARD_SIGNALS,
-    COMMODITIES_KEYBOARD_SIGNALS,
-    TIMEFRAME_KEYBOARD,
-    TIMEFRAME_KEYBOARD_SIGNALS,
-    TECHNICAL_ANALYSIS_KEYBOARD,
-    SENTIMENT_ANALYSIS_KEYBOARD,
-    CALENDAR_ANALYSIS_KEYBOARD,
-    SIGNAL_ANALYSIS_KEYBOARD,
-    SIGNAL_MENU_KEYBOARD,
-    RISK_KEYBOARD,
-    LANGUAGES,
-    CURRENCY_FLAG,
+from trading_bot.services.database.db import Database
+from trading_bot.services.chart_service.chart import ChartService
+from trading_bot.services.sentiment_service.sentiment import MarketSentimentService
+from trading_bot.services.calendar_service import EconomicCalendarService
+from trading_bot.services.payment_service.stripe_service import StripeService
+from trading_bot.services.payment_service.stripe_config import get_subscription_features
+from trading_bot.services.telegram_service.states import (
+    MENU, ANALYSIS, SIGNALS, CHOOSE_MARKET, CHOOSE_INSTRUMENT, CHOOSE_STYLE,
+    CHOOSE_ANALYSIS, SIGNAL_DETAILS,
+    CALLBACK_MENU_ANALYSE, CALLBACK_MENU_SIGNALS, CALLBACK_ANALYSIS_TECHNICAL,
+    CALLBACK_ANALYSIS_SENTIMENT, CALLBACK_ANALYSIS_CALENDAR, CALLBACK_SIGNALS_ADD,
+    CALLBACK_SIGNALS_MANAGE, CALLBACK_BACK_MENU
 )
+import trading_bot.services.telegram_service.gif_utils as gif_utils
 
-class SignalContextManager:
-    """
-    Manages signal context information across different bot conversation flows.
-    
-    This class provides a more robust way to store and retrieve signal information
-    during user navigation, preventing data loss when users switch between different
-    bot conversation flows.
-    """
-    
-    def __init__(self, telegram_service):
-        self.telegram_service = telegram_service
-        self.logger = logging.getLogger(__name__)
-        self.user_signal_context = {}  # user_id -> signal context
-    
-    def store_signal_context(self, user_id, instrument=None, direction=None, timeframe=None, signal_id=None):
-        """Store signal context for a user with proper validation"""
-        user_id = str(user_id)
-        
-        if user_id not in self.user_signal_context:
-            self.user_signal_context[user_id] = {}
-        
-        # Only update fields that are provided (not None)
-        if instrument is not None:
-            self.user_signal_context[user_id]['instrument'] = instrument
-        if direction is not None:
-            self.user_signal_context[user_id]['direction'] = direction
-        if timeframe is not None:
-            self.user_signal_context[user_id]['timeframe'] = timeframe
-        if signal_id is not None:
-            self.user_signal_context[user_id]['signal_id'] = signal_id
-            
-        self.logger.info(f"Stored signal context for user {user_id}: {self.user_signal_context[user_id]}")
-        return self.user_signal_context[user_id]
-    
-    def get_signal_context(self, user_id):
-        """Get the current signal context for a user"""
-        user_id = str(user_id)
-        return self.user_signal_context.get(user_id, {})
-    
-    def clear_signal_context(self, user_id):
-        """Clear the signal context for a user"""
-        user_id = str(user_id)
-        if user_id in self.user_signal_context:
-            del self.user_signal_context[user_id]
-            self.logger.info(f"Cleared signal context for user {user_id}")
-    
-    def update_from_context(self, user_id, context):
-        """Update signal context from the conversation context object"""
-        if not context or not hasattr(context, 'user_data'):
-            return {}
-            
-        user_id = str(user_id)
-        signal_context = {}
-        
-        # Extract data from context with fallbacks
-        instrument = context.user_data.get('signal_instrument_backup') or context.user_data.get('signal_instrument')
-        direction = context.user_data.get('signal_direction_backup') or context.user_data.get('signal_direction')
-        timeframe = context.user_data.get('signal_timeframe_backup') or context.user_data.get('signal_timeframe')
-        signal_id = context.user_data.get('signal_id_backup') or context.user_data.get('signal_id')
-        
-        # Update our context store
-        return self.store_signal_context(
-            user_id, 
-            instrument=instrument,
-            direction=direction, 
-            timeframe=timeframe,
-            signal_id=signal_id
-        )
-    
-    def sync_to_context(self, user_id, context):
-        """Sync our signal context to the conversation context object"""
-        if not context or not hasattr(context, 'user_data'):
-            return
-            
-        user_id = str(user_id)
-        signal_context = self.get_signal_context(user_id)
-        
-        if not signal_context:
-            return
-            
-        # Update context with our stored data
-        context.user_data['signal_instrument'] = signal_context.get('instrument')
-        context.user_data['signal_direction'] = signal_context.get('direction')
-        context.user_data['signal_timeframe'] = signal_context.get('timeframe')
-        context.user_data['signal_id'] = signal_context.get('signal_id')
-        
-        # Also update backup fields
-        context.user_data['signal_instrument_backup'] = signal_context.get('instrument')
-        context.user_data['signal_direction_backup'] = signal_context.get('direction')
-        context.user_data['signal_timeframe_backup'] = signal_context.get('timeframe')
-        context.user_data['signal_id_backup'] = signal_context.get('signal_id')
-        
-        self.logger.info(f"Synced signal context to conversation context for user {user_id}")
-        
-    def find_matching_signal(self, user_id):
-        """Find a matching signal based on stored context"""
-        user_id = str(user_id)
-        signal_context = self.get_signal_context(user_id)
-        
-        if not signal_context:
-            self.logger.warning(f"No signal context found for user {user_id}")
-            return None
-            
-        # Extract context values
-        instrument = signal_context.get('instrument')
-        direction = signal_context.get('direction')
-        timeframe = signal_context.get('timeframe')
-        signal_id = signal_context.get('signal_id')
-        
-        if not instrument:
-            self.logger.warning("No instrument found in signal context")
-            return None
-            
-        # If we have a signal_id and it exists, return it directly
-        if signal_id and user_id in self.telegram_service.user_signals:
-            if signal_id in self.telegram_service.user_signals[user_id]:
-                return self.telegram_service.user_signals[user_id][signal_id]
-        
-        # Otherwise search for matching signals
-        if user_id in self.telegram_service.user_signals:
-            user_signal_dict = self.telegram_service.user_signals[user_id]
-            matching_signals = []
-            
-            for sig_id, sig in user_signal_dict.items():
-                instrument_match = sig.get('instrument') == instrument
-                direction_match = True  # Default to true if we don't have direction data
-                timeframe_match = True  # Default to true if we don't have timeframe data
-                
-                if direction:
-                    direction_match = sig.get('direction') == direction
-                if timeframe:
-                    timeframe_match = sig.get('interval') == timeframe
-                
-                if instrument_match and direction_match and timeframe_match:
-                    matching_signals.append((sig_id, sig))
-            
-            # Sort by timestamp, newest first
-            if matching_signals:
-                matching_signals.sort(key=lambda x: x[1].get('timestamp', ''), reverse=True)
-                signal_id, signal_data = matching_signals[0]
-                
-                # Update the signal_id in our context
-                self.store_signal_context(user_id, signal_id=signal_id)
-                
-                self.logger.info(f"Found matching signal with ID: {signal_id}")
-                return signal_data
-                
-            # If no exact match, try with just the instrument
-            if not matching_signals:
-                self.logger.warning(f"No exact match found, trying with just instrument")
-                matching_signals = []
-                for sig_id, sig in user_signal_dict.items():
-                    if sig.get('instrument') == instrument:
-                        matching_signals.append((sig_id, sig))
-                
-                if matching_signals:
-                    matching_signals.sort(key=lambda x: x[1].get('timestamp', ''), reverse=True)
-                    signal_id, signal_data = matching_signals[0]
-                    
-                    # Update the signal_id in our context
-                    self.store_signal_context(user_id, signal_id=signal_id)
-                    
-                    self.logger.info(f"Found signal with just instrument match, ID: {signal_id}")
-                    return signal_data
-        
-        self.logger.warning(f"No matching signal found for user {user_id}")
-        return None
+# Initialize logger
+logger = logging.getLogger(__name__)
 
-# Additional helper functions for interpreting signals
+# Major currencies to focus on
+MAJOR_CURRENCIES = ["USD", "EUR", "GBP", "JPY", "CHF", "AUD", "NZD", "CAD"]
+
+# Currency to flag emoji mapping
+CURRENCY_FLAG = {
+    "USD": "🇺🇸",
+    "EUR": "🇪🇺",
+    "GBP": "🇬🇧",
+    "JPY": "🇯🇵",
+    "CHF": "🇨🇭",
+    "AUD": "🇦🇺",
+    "NZD": "🇳🇿",
+    "CAD": "🇨🇦"
+}
+
+# Map of instruments to their corresponding currencies
+INSTRUMENT_CURRENCY_MAP = {
+    # Special case for global view
+    "GLOBAL": MAJOR_CURRENCIES,
+    
+    # Forex
+    "EURUSD": ["EUR", "USD"],
+    "GBPUSD": ["GBP", "USD"],
+    "USDJPY": ["USD", "JPY"],
+    "USDCHF": ["USD", "CHF"],
+    "AUDUSD": ["AUD", "USD"],
+    "NZDUSD": ["NZD", "USD"],
+    "USDCAD": ["USD", "CAD"],
+    "EURGBP": ["EUR", "GBP"],
+    "EURJPY": ["EUR", "JPY"],
+    "GBPJPY": ["GBP", "JPY"],
+    
+    # Indices (mapped to their related currencies)
+    "US30": ["USD"],
+    "US100": ["USD"],
+    "US500": ["USD"],
+    "UK100": ["GBP"],
+    "GER40": ["EUR"],
+    "FRA40": ["EUR"],
+    "ESP35": ["EUR"],
+    "JP225": ["JPY"],
+    "AUS200": ["AUD"],
+    
+    # Commodities (mapped to USD primarily)
+    "XAUUSD": ["USD", "XAU"],  # Gold
+    "XAGUSD": ["USD", "XAG"],  # Silver
+    "USOIL": ["USD"],          # Oil (WTI)
+    "UKOIL": ["USD", "GBP"],   # Oil (Brent)
+    
+    # Crypto
+    "BTCUSD": ["USD", "BTC"],
+    "ETHUSD": ["USD", "ETH"],
+    "LTCUSD": ["USD", "LTC"],
+    "XRPUSD": ["USD", "XRP"]
+}
+
+# Callback data constants
+CALLBACK_ANALYSIS_TECHNICAL = "analysis_technical"
+CALLBACK_ANALYSIS_SENTIMENT = "analysis_sentiment"
+CALLBACK_ANALYSIS_CALENDAR = "analysis_calendar"
+CALLBACK_BACK_MENU = "back_menu"
+CALLBACK_BACK_ANALYSIS = "back_to_analysis"
+CALLBACK_BACK_MARKET = "back_market"
+CALLBACK_BACK_INSTRUMENT = "back_instrument"
+CALLBACK_BACK_SIGNALS = "back_signals"
+CALLBACK_SIGNALS_ADD = "signals_add"
+CALLBACK_SIGNALS_MANAGE = "signals_manage"
+CALLBACK_MENU_ANALYSE = "menu_analyse"
+CALLBACK_MENU_SIGNALS = "menu_signals"
+
+# States
+MENU = 0
+CHOOSE_ANALYSIS = 1
+CHOOSE_SIGNALS = 2
+CHOOSE_MARKET = 3
+CHOOSE_INSTRUMENT = 4
+CHOOSE_STYLE = 5
+SHOW_RESULT = 6
+CHOOSE_TIMEFRAME = 7
+SIGNAL_DETAILS = 8
+SIGNAL = 9
+SUBSCRIBE = 10
+BACK_TO_MENU = 11  # Add this line
+
+# Messages
+WELCOME_MESSAGE = """
+🚀 <b>Sigmapips AI - Main Menu</b> 🚀
+
+Choose an option to access advanced trading support:
+
+📊 Services:
+• <b>Technical Analysis</b> – Real-time chart analysis and key levels
+
+• <b>Market Sentiment</b> – Understand market trends and sentiment
+
+• <b>Economic Calendar</b> – Stay updated on market-moving events
+
+• <b>Trading Signals</b> – Get precise entry/exit points for your favorite pairs
+
+Select your option to continue:
+"""
+
+# Abonnementsbericht voor nieuwe gebruikers
+SUBSCRIPTION_WELCOME_MESSAGE = """
+🚀 <b>Welcome to Sigmapips AI!</b> 🚀
+
+To access all features, you need a subscription:
+
+📊 <b>Trading Signals Subscription - $29.99/month</b>
+• Access to all trading signals (Forex, Crypto, Commodities, Indices)
+• Advanced timeframe analysis (1m, 15m, 1h, 4h)
+• Detailed chart analysis for each signal
+
+Click the button below to subscribe:
+"""
+
+MENU_MESSAGE = """
+Welcome to Sigmapips AI!
+
+Choose a command:
+
+/start - Set up new trading pairs
+Add new market/instrument/timeframe combinations to receive signals
+
+/manage - Manage your preferences
+View, edit or delete your saved trading pairs
+
+Need help? Use /help to see all available commands.
+"""
+
+HELP_MESSAGE = """
+Available commands:
+/menu - Show main menu
+/start - Set up new trading pairs
+/help - Show this help message
+"""
+
+# Start menu keyboard
+START_KEYBOARD = [
+    [InlineKeyboardButton("🔍 Analyze Market", callback_data=CALLBACK_MENU_ANALYSE)],
+    [InlineKeyboardButton("📊 Trading Signals", callback_data=CALLBACK_MENU_SIGNALS)]
+]
+
+# Analysis menu keyboard
+ANALYSIS_KEYBOARD = [
+    [InlineKeyboardButton("📈 Technical Analysis", callback_data=CALLBACK_ANALYSIS_TECHNICAL)],
+    [InlineKeyboardButton("🧠 Market Sentiment", callback_data=CALLBACK_ANALYSIS_SENTIMENT)],
+    [InlineKeyboardButton("📅 Economic Calendar", callback_data=CALLBACK_ANALYSIS_CALENDAR)],
+    [InlineKeyboardButton("⬅️ Back", callback_data=CALLBACK_BACK_MENU)]
+]
+
+# Signals menu keyboard
+SIGNALS_KEYBOARD = [
+    [InlineKeyboardButton("➕ Add New Pairs", callback_data=CALLBACK_SIGNALS_ADD)],
+    [InlineKeyboardButton("⚙️ Manage Signals", callback_data=CALLBACK_SIGNALS_MANAGE)],
+    [InlineKeyboardButton("⬅️ Back", callback_data=CALLBACK_BACK_MENU)]
+]
+
+# Market keyboard voor signals
+MARKET_KEYBOARD_SIGNALS = [
+    [InlineKeyboardButton("Forex", callback_data="market_forex_signals")],
+    [InlineKeyboardButton("Crypto", callback_data="market_crypto_signals")],
+    [InlineKeyboardButton("Commodities", callback_data="market_commodities_signals")],
+    [InlineKeyboardButton("Indices", callback_data="market_indices_signals")],
+    [InlineKeyboardButton("⬅️ Back", callback_data="back_signals")]
+]
+
+# Market keyboard voor analyse
+MARKET_KEYBOARD = [
+    [InlineKeyboardButton("Forex", callback_data="market_forex")],
+    [InlineKeyboardButton("Crypto", callback_data="market_crypto")],
+    [InlineKeyboardButton("Commodities", callback_data="market_commodities")],
+    [InlineKeyboardButton("Indices", callback_data="market_indices")],
+    [InlineKeyboardButton("⬅️ Back", callback_data="back_analysis")]
+]
+
+# Market keyboard specifiek voor sentiment analyse
+MARKET_SENTIMENT_KEYBOARD = [
+    [InlineKeyboardButton("Forex", callback_data="market_forex_sentiment")],
+    [InlineKeyboardButton("Crypto", callback_data="market_crypto_sentiment")],
+    [InlineKeyboardButton("Commodities", callback_data="market_commodities_sentiment")],
+    [InlineKeyboardButton("Indices", callback_data="market_indices_sentiment")],
+    [InlineKeyboardButton("⬅️ Back", callback_data="back_analysis")]
+]
+
+# Forex keyboard voor technical analyse
+FOREX_KEYBOARD = [
+    [
+        InlineKeyboardButton("EURUSD", callback_data="instrument_EURUSD_chart"),
+        InlineKeyboardButton("GBPUSD", callback_data="instrument_GBPUSD_chart"),
+        InlineKeyboardButton("USDJPY", callback_data="instrument_USDJPY_chart")
+    ],
+    [
+        InlineKeyboardButton("AUDUSD", callback_data="instrument_AUDUSD_chart"),
+        InlineKeyboardButton("USDCAD", callback_data="instrument_USDCAD_chart"),
+        InlineKeyboardButton("EURGBP", callback_data="instrument_EURGBP_chart")
+    ],
+    [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
+]
+
+# Forex keyboard voor sentiment analyse
+FOREX_SENTIMENT_KEYBOARD = [
+    [
+        InlineKeyboardButton("EURUSD", callback_data="instrument_EURUSD_sentiment"),
+        InlineKeyboardButton("GBPUSD", callback_data="instrument_GBPUSD_sentiment"),
+        InlineKeyboardButton("USDJPY", callback_data="instrument_USDJPY_sentiment")
+    ],
+    [
+        InlineKeyboardButton("AUDUSD", callback_data="instrument_AUDUSD_sentiment"),
+        InlineKeyboardButton("USDCAD", callback_data="instrument_USDCAD_sentiment"),
+        InlineKeyboardButton("EURGBP", callback_data="instrument_EURGBP_sentiment")
+    ],
+    [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
+]
+
+# Forex keyboard voor kalender analyse
+FOREX_CALENDAR_KEYBOARD = [
+    [
+        InlineKeyboardButton("EURUSD", callback_data="instrument_EURUSD_calendar"),
+        InlineKeyboardButton("GBPUSD", callback_data="instrument_GBPUSD_calendar"),
+        InlineKeyboardButton("USDJPY", callback_data="instrument_USDJPY_calendar")
+    ],
+    [
+        InlineKeyboardButton("AUDUSD", callback_data="instrument_AUDUSD_calendar"),
+        InlineKeyboardButton("USDCAD", callback_data="instrument_USDCAD_calendar"),
+        InlineKeyboardButton("EURGBP", callback_data="instrument_EURGBP_calendar")
+    ],
+    [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
+]
+
+# Crypto keyboard voor analyse
+CRYPTO_KEYBOARD = [
+    [
+        InlineKeyboardButton("BTCUSD", callback_data="instrument_BTCUSD_chart"),
+        InlineKeyboardButton("ETHUSD", callback_data="instrument_ETHUSD_chart"),
+        InlineKeyboardButton("XRPUSD", callback_data="instrument_XRPUSD_chart")
+    ],
+    [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
+]
+
+# Signal analysis keyboard
+SIGNAL_ANALYSIS_KEYBOARD = [
+    [InlineKeyboardButton("📈 Technical Analysis", callback_data="signal_technical")],
+    [InlineKeyboardButton("🧠 Market Sentiment", callback_data="signal_sentiment")],
+    [InlineKeyboardButton("📅 Economic Calendar", callback_data="signal_calendar")],
+    [InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal")]
+]
+
+# Crypto keyboard voor sentiment analyse
+CRYPTO_SENTIMENT_KEYBOARD = [
+    [
+        InlineKeyboardButton("BTCUSD", callback_data="instrument_BTCUSD_sentiment"),
+        InlineKeyboardButton("ETHUSD", callback_data="instrument_ETHUSD_sentiment"),
+        InlineKeyboardButton("XRPUSD", callback_data="instrument_XRPUSD_sentiment")
+    ],
+    [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
+]
+
+# Indices keyboard voor analyse
+INDICES_KEYBOARD = [
+    [
+        InlineKeyboardButton("US30", callback_data="instrument_US30_chart"),
+        InlineKeyboardButton("US500", callback_data="instrument_US500_chart"),
+        InlineKeyboardButton("US100", callback_data="instrument_US100_chart")
+    ],
+    [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
+]
+
+# Indices keyboard voor signals - Fix de "Terug" knop naar "Back"
+INDICES_KEYBOARD_SIGNALS = [
+    [
+        InlineKeyboardButton("US30", callback_data="instrument_US30_signals"),
+        InlineKeyboardButton("US500", callback_data="instrument_US500_signals"),
+        InlineKeyboardButton("US100", callback_data="instrument_US100_signals")
+    ],
+    [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
+]
+
+# Commodities keyboard voor analyse
+COMMODITIES_KEYBOARD = [
+    [
+        InlineKeyboardButton("GOLD", callback_data="instrument_XAUUSD_chart"),
+        InlineKeyboardButton("SILVER", callback_data="instrument_XAGUSD_chart"),
+        InlineKeyboardButton("OIL", callback_data="instrument_USOIL_chart")
+    ],
+    [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
+]
+
+# Commodities keyboard voor signals - Fix de "Terug" knop naar "Back"
+COMMODITIES_KEYBOARD_SIGNALS = [
+    [
+        InlineKeyboardButton("XAUUSD", callback_data="instrument_XAUUSD_signals"),
+        InlineKeyboardButton("XAGUSD", callback_data="instrument_XAGUSD_signals"),
+        InlineKeyboardButton("USOIL", callback_data="instrument_USOIL_signals")
+    ],
+    [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
+]
+
+# Forex keyboard for signals
+FOREX_KEYBOARD_SIGNALS = [
+    [
+        InlineKeyboardButton("EURUSD", callback_data="instrument_EURUSD_signals"),
+        InlineKeyboardButton("GBPUSD", callback_data="instrument_GBPUSD_signals"),
+        InlineKeyboardButton("USDJPY", callback_data="instrument_USDJPY_signals")
+    ],
+    [
+        InlineKeyboardButton("USDCAD", callback_data="instrument_USDCAD_signals"),
+        InlineKeyboardButton("EURGBP", callback_data="instrument_EURGBP_signals")
+    ],
+    [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
+]
+
+# Crypto keyboard for signals
+CRYPTO_KEYBOARD_SIGNALS = [
+    [
+        InlineKeyboardButton("BTCUSD", callback_data="instrument_BTCUSD_signals"),
+        InlineKeyboardButton("ETHUSD", callback_data="instrument_ETHUSD_signals"),
+        InlineKeyboardButton("XRPUSD", callback_data="instrument_XRPUSD_signals")
+    ],
+    [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
+]
+
+# Indices keyboard voor sentiment analyse
+INDICES_SENTIMENT_KEYBOARD = [
+    [
+        InlineKeyboardButton("US30", callback_data="instrument_US30_sentiment"),
+        InlineKeyboardButton("US500", callback_data="instrument_US500_sentiment"),
+        InlineKeyboardButton("US100", callback_data="instrument_US100_sentiment")
+    ],
+    [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
+]
+
+# Commodities keyboard voor sentiment analyse
+COMMODITIES_SENTIMENT_KEYBOARD = [
+    [
+        InlineKeyboardButton("GOLD", callback_data="instrument_XAUUSD_sentiment"),
+        InlineKeyboardButton("SILVER", callback_data="instrument_XAGUSD_sentiment"),
+        InlineKeyboardButton("OIL", callback_data="instrument_USOIL_sentiment")
+    ],
+    [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
+]
+
+# Style keyboard
+STYLE_KEYBOARD = [
+    [InlineKeyboardButton("⚡ Test (1m)", callback_data="style_test")],
+    [InlineKeyboardButton("🏃 Scalp (15m)", callback_data="style_scalp")],
+    [InlineKeyboardButton("📊 Intraday (1h)", callback_data="style_intraday")],
+    [InlineKeyboardButton("🌊 Swing (4h)", callback_data="style_swing")],
+    [InlineKeyboardButton("⬅️ Back", callback_data="back_instrument")]
+]
+
+# Timeframe mapping
+STYLE_TIMEFRAME_MAP = {
+    "test": "1m",
+    "scalp": "15m",
+    "intraday": "1h",
+    "swing": "4h"
+}
+
+# Mapping of instruments to their allowed timeframes - updated 2023-03-23
+INSTRUMENT_TIMEFRAME_MAP = {
+    # H1 timeframe only
+    "AUDJPY": "H1", 
+    "AUDCHF": "H1",
+    "EURCAD": "H1",
+    "EURGBP": "H1",
+    "GBPCHF": "H1",
+    "HK50": "H1",
+    "NZDJPY": "H1",
+    "USDCHF": "H1",
+    "USDJPY": "H1",  # USDJPY toegevoegd voor signaalabonnementen
+    "XRPUSD": "H1",
+    
+    # H4 timeframe only
+    "AUDCAD": "H4",
+    "AU200": "H4", 
+    "CADCHF": "H4",
+    "EURCHF": "H4",
+    "EURUSD": "H4",
+    "GBPCAD": "H4",
+    "LINKUSD": "H4",
+    "NZDCHF": "H4",
+    
+    # M15 timeframe only
+    "DOGEUSD": "M15",
+    "GBPNZD": "M15",
+    "NZDUSD": "M15",
+    "SOLUSD": "M15",
+    "UK100": "M15",
+    "XAUUSD": "M15",
+    
+    # M30 timeframe only
+    "BNBUSD": "M30",
+    "DOTUSD": "M30",
+    "ETHUSD": "M30",
+    "EURAUD": "M30",
+    "EURJPY": "M30",
+    "GBPAUD": "M30",
+    "GBPUSD": "M30",
+    "NZDCAD": "M30",
+    "US30": "M30",
+    "US500": "M30",
+    "USDCAD": "M30",
+    "XLMUSD": "M30",
+    "XTIUSD": "M30",
+    "DE40": "M30",
+    "BTCUSD": "M30",  # Added for consistency with CRYPTO_KEYBOARD_SIGNALS
+    "US100": "M30",   # Added for consistency with INDICES_KEYBOARD_SIGNALS
+    "XAGUSD": "M15",  # Added for consistency with COMMODITIES_KEYBOARD_SIGNALS
+    "USOIL": "M30"    # Added for consistency with COMMODITIES_KEYBOARD_SIGNALS
+    
+    # Removed as requested: EU50, FR40, LTCUSD
+}
+
+# Map common timeframe notations
+TIMEFRAME_DISPLAY_MAP = {
+    "M15": "15 Minutes",
+    "M30": "30 Minutes", 
+    "H1": "1 Hour",
+    "H4": "4 Hours"
+}
+
+# Voeg deze functie toe aan het begin van bot.py, na de imports
 def _detect_market(instrument: str) -> str:
     """Detecteer market type gebaseerd op instrument"""
     instrument = instrument.upper()
@@ -275,6 +505,7 @@ def _detect_market(instrument: str) -> str:
     logger.info(f"Detected {instrument} as forex")
     return "forex"
 
+# Voeg dit toe als decorator functie bovenaan het bestand na de imports
 def require_subscription(func):
     """Check if user has an active subscription"""
     async def wrapper(self, update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
@@ -397,9 +628,6 @@ class TelegramService:
         self.polling_started = False
         self.admin_users = [1093307376]  # Add your Telegram ID here for testing
         self._signals_enabled = True  # Enable signals by default
-        
-        # Initialize signal context manager for persistent signal tracking
-        self.signal_contexts = {}  # user_id -> {instrument, direction, timeframe, signal_id}
         
         # Setup logger
         self.logger = logging.getLogger(__name__)
@@ -1283,17 +1511,6 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         query = update.callback_query
         await query.answer()
         
-        # Set proper context to ensure we're in menu flow, not signal flow
-        if context and hasattr(context, 'user_data'):
-            # Reset all context data to ensure clean separation between flows
-            context.user_data.clear()
-            
-            # Explicitly set the signals context flag to False - this is critical
-            context.user_data['is_signals_context'] = False
-            context.user_data['from_signal'] = False
-            
-            logger.info(f"Set menu flow context: {context.user_data}")
-        
         # Gebruik de juiste analyse GIF URL
         gif_url = "https://media.giphy.com/media/gSzIKNrqtotEYrZv7i/giphy.gif"
         
@@ -1995,9 +2212,9 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                             reply_markup=InlineKeyboardMarkup(SIGNAL_ANALYSIS_KEYBOARD),
                             parse_mode=ParseMode.HTML
                         )
-                else:
-                    # Re-raise for other errors
-                    raise
+            else:
+                # Re-raise for other errors
+                raise
         return CHOOSE_ANALYSIS
 
     async def signal_calendar_callback(self, update: Update, context=None) -> int:
@@ -2100,11 +2317,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         
         try:
             # Get the current signal being viewed
-            user_id = str(update.effective_user.id)
-            
-            # Initialize signal context if needed
-            if user_id not in self.signal_contexts:
-                self.signal_contexts[user_id] = {}
+            user_id = update.effective_user.id
             
             # First try to get signal data from backup in context
             signal_instrument = None
@@ -2117,84 +2330,52 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 signal_direction = context.user_data.get('signal_direction_backup') or context.user_data.get('signal_direction')
                 signal_timeframe = context.user_data.get('signal_timeframe_backup') or context.user_data.get('signal_timeframe')
                 
-                # Store in persistent signal context
-                if signal_instrument:
-                    self.signal_contexts[user_id]['instrument'] = signal_instrument
-                if signal_direction:
-                    self.signal_contexts[user_id]['direction'] = signal_direction
-                if signal_timeframe:
-                    self.signal_contexts[user_id]['timeframe'] = signal_timeframe
-                
                 # Reset signal flow flags but keep the signal info
                 context.user_data['from_signal'] = True
                 
                 # Log retrieved values for debugging
                 logger.info(f"Retrieved signal data from context: instrument={signal_instrument}, direction={signal_direction}, timeframe={signal_timeframe}")
-            else:
-                # Try to get from persistent signal context if context is not available
-                signal_instrument = self.signal_contexts[user_id].get('instrument')
-                signal_direction = self.signal_contexts[user_id].get('direction') 
-                signal_timeframe = self.signal_contexts[user_id].get('timeframe')
-                logger.info(f"Retrieved signal data from persistent context: instrument={signal_instrument}, direction={signal_direction}, timeframe={signal_timeframe}")
             
             # Find the most recent signal for this user based on context data
             signal_data = None
             signal_id = None
             
-            # First check if we have a cached signal_id
-            if 'signal_id' in self.signal_contexts[user_id]:
-                cached_signal_id = self.signal_contexts[user_id]['signal_id']
-                if user_id in self.user_signals and cached_signal_id in self.user_signals[user_id]:
-                    signal_data = self.user_signals[user_id][cached_signal_id]
-                    signal_id = cached_signal_id
-                    logger.info(f"Found signal using cached signal_id: {signal_id}")
-            
-            # If no cached signal found, search based on parameters
-            if not signal_data and signal_instrument:
-                # Find matching signal based on instrument and direction
-                if user_id in self.user_signals:
-                    user_signal_dict = self.user_signals[user_id]
-                    # Find signals matching instrument, direction and timeframe
-                    matching_signals = []
+            # Find matching signal based on instrument and direction
+            if str(user_id) in self.user_signals:
+                user_signal_dict = self.user_signals[str(user_id)]
+                # Find signals matching instrument, direction and timeframe
+                matching_signals = []
+                
+                for sig_id, sig in user_signal_dict.items():
+                    instrument_match = sig.get('instrument') == signal_instrument
+                    direction_match = True  # Default to true if we don't have direction data
+                    timeframe_match = True  # Default to true if we don't have timeframe data
                     
+                    if signal_direction:
+                        direction_match = sig.get('direction') == signal_direction
+                    if signal_timeframe:
+                        timeframe_match = sig.get('interval') == signal_timeframe
+                    
+                    if instrument_match and direction_match and timeframe_match:
+                        matching_signals.append((sig_id, sig))
+                
+                # Sort by timestamp, newest first
+                if matching_signals:
+                    matching_signals.sort(key=lambda x: x[1].get('timestamp', ''), reverse=True)
+                    signal_id, signal_data = matching_signals[0]
+                    logger.info(f"Found matching signal with ID: {signal_id}")
+                else:
+                    logger.warning(f"No matching signals found for instrument={signal_instrument}, direction={signal_direction}, timeframe={signal_timeframe}")
+                    # If no exact match, try with just the instrument
+                    matching_signals = []
                     for sig_id, sig in user_signal_dict.items():
-                        instrument_match = sig.get('instrument') == signal_instrument
-                        direction_match = True  # Default to true if we don't have direction data
-                        timeframe_match = True  # Default to true if we don't have timeframe data
-                        
-                        if signal_direction:
-                            direction_match = sig.get('direction') == signal_direction
-                        if signal_timeframe:
-                            timeframe_match = sig.get('interval') == signal_timeframe
-                        
-                        if instrument_match and direction_match and timeframe_match:
+                        if sig.get('instrument') == signal_instrument:
                             matching_signals.append((sig_id, sig))
                     
-                    # Sort by timestamp, newest first
                     if matching_signals:
                         matching_signals.sort(key=lambda x: x[1].get('timestamp', ''), reverse=True)
                         signal_id, signal_data = matching_signals[0]
-                        
-                        # Store the found signal_id in persistent context
-                        self.signal_contexts[user_id]['signal_id'] = signal_id
-                        
-                        logger.info(f"Found matching signal with ID: {signal_id}")
-                    else:
-                        logger.warning(f"No matching signals found for instrument={signal_instrument}, direction={signal_direction}, timeframe={signal_timeframe}")
-                        # If no exact match, try with just the instrument
-                        matching_signals = []
-                        for sig_id, sig in user_signal_dict.items():
-                            if sig.get('instrument') == signal_instrument:
-                                matching_signals.append((sig_id, sig))
-                        
-                        if matching_signals:
-                            matching_signals.sort(key=lambda x: x[1].get('timestamp', ''), reverse=True)
-                            signal_id, signal_data = matching_signals[0]
-                            
-                            # Store the found signal_id in persistent context
-                            self.signal_contexts[user_id]['signal_id'] = signal_id
-                            
-                            logger.info(f"Found signal with just instrument match, ID: {signal_id}")
+                        logger.info(f"Found signal with just instrument match, ID: {signal_id}")
             
             if not signal_data:
                 # Fallback message if signal not found
@@ -2244,64 +2425,40 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         try:
             # Extract signal information from callback data
             parts = query.data.split('_')
-            user_id = str(update.effective_user.id)
-            
-            # Initialize signal context if needed
-            if user_id not in self.signal_contexts:
-                self.signal_contexts[user_id] = {}
             
             # Format: analyze_from_signal_INSTRUMENT_SIGNALID
             if len(parts) >= 4:
                 instrument = parts[3]
                 signal_id = parts[4] if len(parts) >= 5 else None
                 
-                # Store in persistent context
-                self.signal_contexts[user_id]['instrument'] = instrument
-                if signal_id:
-                    self.signal_contexts[user_id]['signal_id'] = signal_id
-                
-                # Store in conversation context too
+                # Store in context for other handlers
                 if context and hasattr(context, 'user_data'):
                     context.user_data['instrument'] = instrument
-                    context.user_data['signal_instrument'] = instrument
-                    context.user_data['signal_instrument_backup'] = instrument
-                    
                     if signal_id:
                         context.user_data['signal_id'] = signal_id
+                    
+                    # Make a backup copy to ensure we can return to signal later
+                    context.user_data['signal_instrument_backup'] = instrument
+                    if signal_id:
                         context.user_data['signal_id_backup'] = signal_id
-                
-                # Also store info from the actual signal if available
-                if signal_id and user_id in self.user_signals and signal_id in self.user_signals[user_id]:
-                    signal = self.user_signals[user_id][signal_id]
-                    if signal:
-                        direction = signal.get('direction')
-                        timeframe = signal.get('interval')
-                        
-                        # Store in persistent context
-                        self.signal_contexts[user_id]['direction'] = direction
-                        self.signal_contexts[user_id]['timeframe'] = timeframe
-                        
-                        # Store in conversation context
-                        if context and hasattr(context, 'user_data'):
-                            context.user_data['signal_direction'] = direction
-                            context.user_data['signal_timeframe'] = timeframe
+                    
+                    # Also store info from the actual signal if available
+                    if str(update.effective_user.id) in self.user_signals and signal_id in self.user_signals[str(update.effective_user.id)]:
+                        signal = self.user_signals[str(update.effective_user.id)][signal_id]
+                        if signal:
+                            context.user_data['signal_direction'] = signal.get('direction')
+                            context.user_data['signal_timeframe'] = signal.get('interval')
                             # Backup copies
-                            context.user_data['signal_direction_backup'] = direction
-                            context.user_data['signal_timeframe_backup'] = timeframe
-                            logger.info(f"Stored signal details: direction={direction}, timeframe={timeframe}")
+                            context.user_data['signal_direction_backup'] = signal.get('direction')
+                            context.user_data['signal_timeframe_backup'] = signal.get('interval')
+                            logger.info(f"Stored signal details: direction={signal.get('direction')}, timeframe={signal.get('interval')}")
             else:
                 # Legacy support - just extract the instrument
                 instrument = parts[3] if len(parts) >= 4 else None
                 
-                if instrument:
-                    # Store in persistent context
-                    self.signal_contexts[user_id]['instrument'] = instrument
-                    
-                    # Store in conversation context
-                    if context and hasattr(context, 'user_data'):
-                        context.user_data['instrument'] = instrument
-                        context.user_data['signal_instrument'] = instrument
-                        context.user_data['signal_instrument_backup'] = instrument
+                if instrument and context and hasattr(context, 'user_data'):
+                    context.user_data['instrument'] = instrument
+                    context.user_data['signal_instrument_backup'] = instrument
             
             # Show analysis options for this instrument
             # Format message
@@ -2763,7 +2920,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     timeframe = context.user_data.get('timeframe')
             
             # If still no instrument, show error
-        if not instrument:
+            if not instrument:
                 await query.edit_message_text(
                     text="Error: No instrument specified for technical analysis.",
                     reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
@@ -2894,8 +3051,6 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         query = update.callback_query
         await query.answer()
         
-        user_id = str(update.effective_user.id)
-        
         # Check if we're in the signal flow
         is_from_signal = False
         if context and hasattr(context, 'user_data'):
@@ -2905,14 +3060,8 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             logger.info(f"Context user_data: {context.user_data}")
         
         # Get instrument from parameter or context
-        if not instrument:
-            # First check persistent signal context
-            if user_id in self.signal_contexts and 'instrument' in self.signal_contexts[user_id]:
-                instrument = self.signal_contexts[user_id]['instrument']
-                logger.info(f"Retrieved instrument from persistent context: {instrument}")
-            # Then check conversation context
-            elif context and hasattr(context, 'user_data'):
-                instrument = context.user_data.get('instrument')
+        if not instrument and context and hasattr(context, 'user_data'):
+            instrument = context.user_data.get('instrument')
         
         if not instrument:
             logger.error("No instrument provided for sentiment analysis")
@@ -2924,11 +3073,6 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             except Exception as e:
                 logger.error(f"Error updating message: {str(e)}")
             return CHOOSE_MARKET
-        
-        # Store the instrument in our persistent context
-        if user_id not in self.signal_contexts:
-            self.signal_contexts[user_id] = {}
-        self.signal_contexts[user_id]['instrument'] = instrument
         
         logger.info(f"Showing sentiment analysis for instrument: {instrument}")
         
@@ -3604,61 +3748,95 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         return mock_data
 
     async def back_to_signal_analysis_callback(self, update: Update, context=None) -> int:
-        """Handle back_to_signal_analysis to return to the signal analysis menu"""
+        """Handle back_to_signal_analysis button press"""
         query = update.callback_query
         await query.answer()
         
+        # Add detailed logging for debugging
+        logger.info("back_to_signal_analysis_callback called")
+        logger.info(f"Query data: {query.data}")
+        if context and hasattr(context, 'user_data'):
+            logger.info(f"Context user_data: {context.user_data}")
+        
         try:
-            user_id = str(update.effective_user.id)
-            logger.info(f"Back to signal analysis for user {user_id}")
-            
-            # Get instrument from persistent context first, then fallback to conversation context
+            # Get instrument from context
             instrument = None
-            
-            # Check persistent context
-            if user_id in self.signal_contexts:
-                instrument = self.signal_contexts[user_id].get('instrument')
-                logger.info(f"Retrieved instrument from persistent context: {instrument}")
-            
-            # If not found in persistent context, check conversation context
-            if not instrument and context and hasattr(context, 'user_data'):
+            if context and hasattr(context, 'user_data'):
                 instrument = context.user_data.get('instrument')
-                logger.info(f"Retrieved instrument from conversation context: {instrument}")
-                
-                # Store in persistent context for future use
-                if instrument and user_id not in self.signal_contexts:
-                    self.signal_contexts[user_id] = {}
-                if instrument:
-                    self.signal_contexts[user_id]['instrument'] = instrument
             
-            # Format message text
-            text = f"Select analysis type for {instrument}:" if instrument else "Select analysis type:"
+            # Check if message has photo or animation
+            has_photo = bool(query.message.photo) or query.message.animation is not None
             
-            # Show analysis options
-            await query.edit_message_text(
-                text=text,
-                reply_markup=InlineKeyboardMarkup(SIGNAL_ANALYSIS_KEYBOARD),
-                parse_mode=ParseMode.HTML
-            )
+            # Use the standard SIGNAL_ANALYSIS_KEYBOARD
+            keyboard = SIGNAL_ANALYSIS_KEYBOARD
             
-            return CHOOSE_ANALYSIS
+            # Format the message text
+            text = f"Select your analysis type:"
+            
+            if has_photo:
+                # Try to delete the message first (if possible)
+                try:
+                    await query.message.delete()
+                    await context.bot.send_message(
+                        chat_id=update.effective_chat.id,
+                        text=text,
+                        reply_markup=InlineKeyboardMarkup(keyboard),
+                        parse_mode=ParseMode.HTML
+                    )
+                    return SIGNAL_DETAILS
+                except Exception as delete_error:
+                    logger.error(f"Could not delete message: {str(delete_error)}")
+                    
+                    # Try to replace the photo with a transparent GIF
+                    try:
+                        transparent_gif_url = "https://upload.wikimedia.org/wikipedia/commons/c/ca/1x1.png"
+                        await query.message.edit_media(
+                            media=InputMediaAnimation(
+                                media=transparent_gif_url,
+                                caption=text
+                            ),
+                            reply_markup=InlineKeyboardMarkup(keyboard)
+                        )
+                        return SIGNAL_DETAILS
+                    except Exception as e:
+                        logger.error(f"Could not replace photo: {str(e)}")
+                        
+                        # Final fallback - try to edit the caption
+                        try:
+                            await query.message.edit_caption(
+                                caption=text,
+                                reply_markup=InlineKeyboardMarkup(keyboard),
+                                parse_mode=ParseMode.HTML
+                            )
+                        except Exception as caption_error:
+                            logger.error(f"Could not edit caption: {str(caption_error)}")
+                            # Just log the error, will try to edit the message text next
+            else:
+                # No photo, just edit the message text
+                try:
+                    await query.edit_message_text(
+                        text=text,
+                        reply_markup=InlineKeyboardMarkup(keyboard),
+                        parse_mode=ParseMode.HTML
+                    )
+                except Exception as e:
+                    logger.error(f"Error updating message: {str(e)}")
+            
+            return SIGNAL_DETAILS
             
         except Exception as e:
             logger.error(f"Error in back_to_signal_analysis_callback: {str(e)}")
-            logger.exception(e)
             
+            # Error recovery - return to signal menu
             try:
                 await query.edit_message_text(
-                    text="An error occurred. Please try again or go back to the signal.",
-                    reply_markup=InlineKeyboardMarkup([[
-                        InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal")
-                    ]]),
-                    parse_mode=ParseMode.HTML
+                    text="An error occurred. Please try again from the signals menu.",
+                    reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD)
                 )
             except Exception:
                 pass
-                
-            return CHOOSE_ANALYSIS
+            
+            return CHOOSE_SIGNALS
 
     async def handle_subscription_callback(self, update: Update, context=None) -> int:
         """Handle subscription button press"""
