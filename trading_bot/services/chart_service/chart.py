@@ -118,13 +118,26 @@ class ChartService:
                 logger.warning(f"No specific link found for {instrument}, using generic link")
                 tradingview_link = f"https://www.tradingview.com/chart/?symbol={instrument}"
             
-            # Voeg fullscreen parameter toe aan de URL als dat nodig is
-            if fullscreen:
-                # Controleer of er al een vraagteken in de URL zit
-                if "?" in tradingview_link:
-                    tradingview_link += "&fullscreen=true&hide_side_toolbar=true&hide_top_toolbar=true&theme=dark"
-                else:
-                    tradingview_link += "?fullscreen=true&hide_side_toolbar=true&hide_top_toolbar=true&theme=dark"
+            # Voeg fullscreen parameters toe aan de URL
+            fullscreen_params = [
+                "fullscreen=true",
+                "hide_side_toolbar=true",
+                "hide_top_toolbar=true",
+                "hide_legend=true",
+                "theme=dark",
+                "toolbar_bg=dark",
+                "scale_position=right",
+                "scale_mode=normal",
+                "studies=[]",
+                "hotlist=false",
+                "calendar=false"
+            ]
+            
+            # Voeg de parameters toe aan de URL
+            if "?" in tradingview_link:
+                tradingview_link += "&" + "&".join(fullscreen_params)
+            else:
+                tradingview_link += "?" + "&".join(fullscreen_params)
             
             logger.info(f"Using exact TradingView link: {tradingview_link}")
             
@@ -132,7 +145,9 @@ class ChartService:
             if hasattr(self, 'tradingview') and self.tradingview and hasattr(self.tradingview, 'take_screenshot_of_url'):
                 try:
                     logger.info(f"Taking screenshot with Node.js service: {tradingview_link}")
-                    chart_image = await self.tradingview.take_screenshot_of_url(tradingview_link, fullscreen=fullscreen)
+                    # Voeg extra wachttijd toe voor volledig laden (5 seconden)
+                    await asyncio.sleep(5)
+                    chart_image = await self.tradingview.take_screenshot_of_url(tradingview_link, fullscreen=True)
                     if chart_image:
                         logger.info("Screenshot taken successfully with Node.js service")
                         return chart_image
@@ -145,7 +160,9 @@ class ChartService:
             if hasattr(self, 'tradingview_selenium') and self.tradingview_selenium and self.tradingview_selenium.is_initialized:
                 try:
                     logger.info(f"Taking screenshot with Selenium: {tradingview_link}")
-                    chart_image = await self.tradingview_selenium.get_screenshot(tradingview_link, fullscreen)
+                    # Voeg extra wachttijd toe voor volledig laden (5 seconden)
+                    await asyncio.sleep(5)
+                    chart_image = await self.tradingview_selenium.get_screenshot(tradingview_link, fullscreen=True)
                     if chart_image:
                         logger.info("Screenshot taken successfully with Selenium")
                         return chart_image
