@@ -12,10 +12,13 @@ class EconomicCalendarService:
     def __init__(self, *args, **kwargs):
         self.logger = logging.getLogger(__name__)
         self.logger.warning("Fallback EconomicCalendarService is being used!")
+        print("⚠️ FALLBACK CALENDAR SERVICE IS ACTIVE - Using mock calendar data ⚠️")
         
     async def get_calendar(self, days_ahead: int = 0, min_impact: str = "Low") -> List[Dict]:
         """Return mock calendar data"""
         self.logger.info(f"Fallback get_calendar called with days_ahead={days_ahead}, min_impact={min_impact}")
+        print(f"⚠️ FALLBACK: Generating calendar data (days_ahead={days_ahead}, min_impact={min_impact}) ⚠️")
+        
         mock_data = self._generate_mock_calendar_data(["USD", "EUR", "GBP", "JPY", "CHF", "AUD", "NZD", "CAD"], 
                                                      datetime.now().strftime("%Y-%m-%d"))
         self.logger.info(f"Generated {len(mock_data)} mock calendar events")
