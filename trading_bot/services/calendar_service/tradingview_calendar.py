@@ -5,6 +5,8 @@ import asyncio
 import json
 import pandas as pd
 import aiohttp
+import http.client
+import urllib.parse
 from datetime import datetime, timedelta
 from typing import Dict, List, Any, Optional
 from pathlib import Path
@@ -87,7 +89,7 @@ CURRENCY_FLAG = {
     "BRL": "🇧🇷",
     "MXN": "🇲🇽",
     "ZAR": "🇿🇦", 
-    "SEK": "🇸🇪",
+    "SEK": "🇸��",
     "NOK": "🇳🇴",
     "DKK": "🇩🇰",
     "PLN": "🇵🇱",
@@ -125,7 +127,7 @@ IMPACT_EMOJI = {
 MAJOR_CURRENCIES = ["USD", "EUR", "GBP", "JPY", "CHF", "AUD", "NZD", "CAD"]
 
 class TradingViewCalendarService:
-    """Service for retrieving economic calendar data from TradingView's API"""
+    """Service for retrieving economic calendar data from TradingView's API using ScrapingAnt as a proxy"""
     
     def __init__(self, use_mock_data: bool = False):
         """Initialize the service"""
@@ -137,6 +139,12 @@ class TradingViewCalendarService:
         
         # URL for TradingView calendar API
         self.calendar_api_url = "https://economic-calendar.tradingview.com/events"
+        
+        # ScrapingAnt API token
+        self.scrapingant_api_key = os.environ.get("SCRAPINGANT_API_KEY", "e63e79e708d247c798885c0c320f9f30")
+        
+        # Use ScrapingAnt or direct connection
+        self.use_scrapingant = os.environ.get("USE_SCRAPINGANT", "true").lower() in ["true", "1", "yes"]
         
         # Default headers for TradingView API
         self.headers = {
@@ -169,11 +177,70 @@ class TradingViewCalendarService:
             "monetary policy", "press conference"
         ]
         
-        # Run debug connection test
+        # Log configuration
+        self.logger.info(f"Using ScrapingAnt: {self.use_scrapingant}")
+        self.logger.info(f"ScrapingAnt API Key: {self.scrapingant_api_key[:5]}..." if self.scrapingant_api_key else "No ScrapingAnt API Key")
+        
+        # Run debug connection test if needed
+        if os.environ.get("DEBUG_TRADINGVIEW_API", "").lower() in ["true", "1", "yes"]:
+            try:
+                asyncio.create_task(self.debug_api_connection())
+            except Exception as e:
+                self.logger.error(f"Could not start debug task: {e}")
+    
+    async def fetch_via_scrapingant(self, url: str, params: Dict) -> Dict:
+        """Fetch data via ScrapingAnt proxy service"""
+        self.logger.info(f"Fetching via ScrapingAnt: {url}")
+        
+        # Build the full URL with parameters
+        query_string = "&".join([f"{k}={urllib.parse.quote(str(v))}" for k, v in params.items()])
+        full_url = f"{url}?{query_string}"
+        self.logger.info(f"Full URL: {full_url}")
+        
+        # Create connection to ScrapingAnt
         try:
-            asyncio.create_task(self.debug_api_connection())
+            # Use aiohttp for async HTTP requests
+            api_url = "https://api.scrapingant.com/v2/general"
+            scraping_params = {
+                'url': full_url,
+                'x-api-key': self.scrapingant_api_key,
+                'browser': 'false',  # API request, no need for browser rendering
+                'return_text': 'true'
+            }
+            
+            query_string = "&".join([f"{k}={urllib.parse.quote(str(v))}" for k, v in scraping_params.items()])
+            scrapingant_url = f"{api_url}?{query_string}"
+            
+            self.logger.info(f"ScrapingAnt request URL: {api_url} (params omitted)")
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.get(scrapingant_url, timeout=60) as response:
+                    status = response.status
+                    self.logger.info(f"ScrapingAnt response status: {status}")
+                    
+                    if status != 200:
+                        error_text = await response.text()
+                        self.logger.error(f"ScrapingAnt error: {error_text[:500]}")
+                        return {}
+                    
+                    response_text = await response.text()
+                    self.logger.info(f"ScrapingAnt response length: {len(response_text)} bytes")
+                    
+                    # Log the first part of the response
+                    if len(response_text) > 0:
+                        self.logger.info(f"First 200 chars: {response_text[:200]}")
+                    
+                    # Parse as JSON
+                    try:
+                        data = json.loads(response_text)
+                        return data
+                    except json.JSONDecodeError as e:
+                        self.logger.error(f"JSON parse error: {e}")
+                        return {}
+            
         except Exception as e:
-            self.logger.error(f"Could not start debug task: {e}")
+            self.logger.error(f"Error using ScrapingAnt: {e}")
+            return {}
     
     async def debug_api_connection(self):
         """Test the TradingView API connection and log detailed results"""
@@ -209,7 +276,27 @@ class TradingViewCalendarService:
         # Log environment info
         self.logger.info(f"DEBUG: Running in environment: {os.environ.get('RAILWAY_ENVIRONMENT', 'local')}")
         
-        # Test each combination
+        # Test ScrapingAnt if enabled
+        if self.use_scrapingant:
+            self.logger.info("DEBUG: Testing ScrapingAnt connection")
+            
+            # Test params
+            test_params = {
+                'from': today.isoformat() + '.000Z',
+                'to': tomorrow.isoformat() + '.000Z'
+            }
+            
+            try:
+                data = await self.fetch_via_scrapingant(self.calendar_api_url, test_params)
+                if data and 'result' in data:
+                    events = data.get('result', [])
+                    self.logger.info(f"DEBUG: ScrapingAnt SUCCESS! Found {len(events)} events in response")
+                else:
+                    self.logger.warning("DEBUG: ScrapingAnt returned invalid data structure")
+            except Exception as e:
+                self.logger.error(f"DEBUG: ScrapingAnt test failed: {e}")
+        
+        # Test each combination for direct API access
         for header_var in header_variations:
             for param_var in param_variations:
                 try:
@@ -275,11 +362,23 @@ class TradingViewCalendarService:
                 calendar_data = self._generate_mock_calendar_data()
                 return self._filter_by_impact(calendar_data, min_impact)
             
-            # First try the TradingView API
+            # First try with ScrapingAnt if enabled
+            if self.use_scrapingant:
+                self.logger.info("Trying to fetch calendar data using ScrapingAnt")
+                events = await self._fetch_tradingview_calendar_via_scrapingant(days_ahead=days_ahead)
+                
+                if events and len(events) > 0:
+                    self.logger.info(f"SUCCESS: Got {len(events)} events from TradingView API via ScrapingAnt")
+                    filtered_events = self._filter_by_impact(events, min_impact)
+                    return filtered_events
+                else:
+                    self.logger.warning("No events from TradingView API via ScrapingAnt, trying direct connection")
+            
+            # If ScrapingAnt failed or is disabled, try direct connection
             events = await self._fetch_tradingview_calendar(days_ahead=days_ahead)
             
             if events and len(events) > 0:
-                self.logger.info(f"SUCCESS: Got {len(events)} events from TradingView API")
+                self.logger.info(f"SUCCESS: Got {len(events)} events from TradingView API via direct connection")
                 filtered_events = self._filter_by_impact(events, min_impact)
                 return filtered_events
             else:
@@ -313,10 +412,56 @@ class TradingViewCalendarService:
                 calendar_data = self._generate_mock_calendar_data()
                 return self._filter_by_impact(calendar_data, min_impact)
     
-    async def _fetch_tradingview_calendar(self, days_ahead: int = 1) -> List[Dict]:
-        """Fetch economic calendar data from TradingView API"""
+    async def _fetch_tradingview_calendar_via_scrapingant(self, days_ahead: int = 1) -> List[Dict]:
+        """Fetch calendar data via ScrapingAnt proxy"""
         try:
-            self.logger.info(f"Fetching calendar data from TradingView API, days ahead: {days_ahead}")
+            self.logger.info(f"Fetching calendar data via ScrapingAnt, days ahead: {days_ahead}")
+            
+            # Calculate date range
+            today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+            start_date = today
+            days_to_add = max(1, days_ahead)
+            end_date = today + timedelta(days=days_to_add)
+            
+            # Prepare parameters
+            params = {
+                'from': start_date.isoformat() + '.000Z',
+                'to': end_date.isoformat() + '.000Z'
+            }
+            
+            # Fetch data via ScrapingAnt
+            data = await self.fetch_via_scrapingant(self.calendar_api_url, params)
+            
+            if not data or 'result' not in data:
+                self.logger.error(f"Invalid API response structure from ScrapingAnt")
+                return []
+            
+            # Process API response
+            events_data = data.get('result', [])
+            self.logger.info(f"Received {len(events_data)} events from TradingView API via ScrapingAnt")
+            
+            # Save raw data for debugging
+            try:
+                with open("tradingview_debug_scrapingant.json", "w") as f:
+                    json.dump(events_data, f, indent=2)
+                self.logger.info("Saved API response data to tradingview_debug_scrapingant.json")
+            except Exception as e:
+                self.logger.warning(f"Could not save debug file: {e}")
+            
+            # Extract and format events
+            events = self._extract_events_from_tradingview(events_data)
+            
+            return events
+            
+        except Exception as e:
+            self.logger.error(f"Error fetching TradingView calendar data via ScrapingAnt: {e}")
+            self.logger.exception(e)
+            return []
+    
+    async def _fetch_tradingview_calendar(self, days_ahead: int = 1) -> List[Dict]:
+        """Fetch economic calendar data from TradingView API directly"""
+        try:
+            self.logger.info(f"Fetching calendar data from TradingView API directly, days ahead: {days_ahead}")
             
             # Calculate date range
             today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
