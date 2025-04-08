@@ -622,10 +622,15 @@ class ChartService:
             }
             
             # Perform OCR analysis on the chart image if available
+            ocr_data = {}
             if img_path and os.path.exists(img_path):
                 try:
                     from trading_bot.services.chart_service.ocr_processor import ChartOCRProcessor
                     logger.info(f"Extracting data from chart image using OCR: {img_path}")
+                    
+                    # Check file details
+                    file_size = os.path.getsize(img_path)
+                    logger.info(f"Chart image size: {file_size} bytes")
                     
                     # Initialize OCR processor
                     ocr_processor = ChartOCRProcessor()
@@ -634,23 +639,47 @@ class ChartService:
                     ocr_data = ocr_processor.process_chart_image(img_path)
                     logger.info(f"OCR data extracted: {ocr_data}")
                     
-                    if not ocr_data or 'current_price' not in ocr_data:
-                        logger.warning("No valid OCR data extracted, using fallback data")
-                        market_data_dict.update(self._generate_synthetic_data(instrument))
-                    else:
-                        # Use OCR data directly
+                    # Altijd OCR data gebruiken, zelfs als het niet volledig is
+                    if ocr_data:
+                        logger.info(f"Using available OCR data: {ocr_data}")
                         market_data_dict.update(ocr_data)
                         
-                        # Calculate support/resistance levels based on OCR price
+                        # Als current_price beschikbaar is, bereken support/resistance
                         if 'current_price' in ocr_data:
+                            logger.info(f"Using OCR detected price: {ocr_data['current_price']}")
                             support_resistance = self._calculate_synthetic_support_resistance(
                                 ocr_data['current_price'], instrument
                             )
                             market_data_dict.update(support_resistance)
+                        else:
+                            logger.warning("No price detected in OCR data, using fallback price")
+                            # Vul alleen de ontbrekende velden aan met synthetische data
+                            base_price = self._get_base_price_for_instrument(instrument)
+                            market_data_dict['current_price'] = base_price
+                            logger.info(f"Using fallback price: {base_price}")
+                            support_resistance = self._calculate_synthetic_support_resistance(
+                                base_price, instrument
+                            )
+                            market_data_dict.update(support_resistance)
+                            
+                        # Controleer of we indicators hebben, zo niet, genereer ze
+                        if not any(key in ocr_data for key in ['rsi', 'macd']):
+                            logger.warning("No indicators detected in OCR data, using synthetic indicators")
+                            # Voeg technische indicatoren toe
+                            market_data_dict.update({
+                                "rsi": round(random.uniform(30, 70), 2),
+                                "macd": round(random.uniform(-0.5, 0.5), 3),
+                                "ema_50": round(market_data_dict['current_price'] * (1 + random.uniform(-0.01, 0.01)), 5),
+                                "ema_200": round(market_data_dict['current_price'] * (1 + random.uniform(-0.03, 0.03)), 5)
+                            })
+                    else:
+                        logger.warning("OCR returned empty data, using complete fallback data")
+                        market_data_dict.update(self._generate_synthetic_data(instrument))
                     
                 except Exception as ocr_error:
                     logger.error(f"Error performing OCR analysis: {str(ocr_error)}")
                     logger.error(traceback.format_exc())
+                    logger.warning("Using synthetic data due to OCR error")
                     market_data_dict.update(self._generate_synthetic_data(instrument))
             else:
                 logger.warning(f"No chart image available at {img_path}, using fallback data")
