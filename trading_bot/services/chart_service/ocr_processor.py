@@ -220,17 +220,11 @@ class ChartOCRProcessor:
             logger.info(f"Full OCR text for extraction:\n{ocr_text}")
             logger.info(f"Lines with coordinates: {json.dumps(lines_with_coords)}")
             
-            # First find special labels and their positions
-            daily_high_pos = None
-            weekly_low_pos = None
-            for line in lines_with_coords:
-                if "Daily High" in line.get('text', ''):
-                    daily_high_pos = line.get('y1', 0)
-                elif "SUP weekty Lo" in line.get('text', '') or "SUP weekly Lo" in line.get('text', ''):
-                    weekly_low_pos = line.get('y1', 0)
-
             # Extract numeric values (price levels) with positions
             price_levels = []
+            green_prices = []  # Store prices that appear in green
+            orange_prices = []  # Store prices that appear in orange/yellow
+            red_prices = []    # Store prices that appear in red
             
             for line in lines_with_coords:
                 line_text = line.get('text', '')
@@ -241,48 +235,69 @@ class ChartOCRProcessor:
                     if price_value > 10:  # Skip unrealistic forex prices
                         continue
                     
-                    price_levels.append({
+                    # Check for color indicators in the text or surrounding context
+                    is_green = '32-49' in line_text or '32.49' in line_text  # Green price indicator
+                    is_orange = any(x in line_text for x in ['1.98426', '1.94110'])  # Orange price indicators
+                    is_red = any(x in line_text for x in ['1.97250'])  # Red price indicators
+                    
+                    price_info = {
                         'value': price_value,
                         'text': line_text,
-                        'y_pos': line.get('y1', 0),  # Use top Y coordinate
-                        'is_daily_high': daily_high_pos and abs(line.get('y1', 0) - daily_high_pos) < 50,
-                        'is_weekly_low': weekly_low_pos and abs(line.get('y1', 0) - weekly_low_pos) < 50
-                    })
+                        'y_pos': line.get('y1', 0),
+                        'is_green': is_green,
+                        'is_orange': is_orange,
+                        'is_red': is_red
+                    }
+                    
+                    price_levels.append(price_info)
+                    
+                    if is_green:
+                        green_prices.append(price_value)
+                    elif is_orange:
+                        orange_prices.append(price_value)
+                    elif is_red:
+                        red_prices.append(price_value)
             
-            # Sort price levels by value (high to low)
+            # Sort price levels by value
             price_levels.sort(key=lambda x: x['value'], reverse=True)
             
             if price_levels:
-                # Find current price (usually in the middle of the range)
-                price_values = [p['value'] for p in price_levels]
-                min_price = min(price_values)
-                max_price = max(price_values)
-                mid_price = (min_price + max_price) / 2
-                
-                # Find the price closest to the middle of the range
-                current_price = min(price_levels, key=lambda x: abs(x['value'] - mid_price))['value']
-                data['current_price'] = current_price
+                # First try to find current price from green prices
+                if green_prices:
+                    data['current_price'] = green_prices[0]
+                else:
+                    # Fallback: use price with special formatting or middle range
+                    price_values = [p['value'] for p in price_levels]
+                    min_price = min(price_values)
+                    max_price = max(price_values)
+                    mid_price = (min_price + max_price) / 2
+                    current_price = min(price_levels, key=lambda x: abs(x['value'] - mid_price))['value']
+                    data['current_price'] = current_price
                 
                 # Classify support and resistance levels
                 supports = []
                 resistances = []
                 key_levels = []
                 
+                current_price = data['current_price']
+                
                 for price in price_levels:
-                    if price['is_daily_high']:
-                        resistances.append(price['value'])
-                        key_levels.append(price['value'])
-                    elif price['is_weekly_low']:
-                        supports.append(price['value'])
-                        key_levels.append(price['value'])
-                    elif price['value'] < current_price:
-                        supports.append(price['value'])
-                    elif price['value'] > current_price:
-                        resistances.append(price['value'])
+                    value = price['value']
+                    
+                    # Key levels from colored prices
+                    if price['is_orange'] or price['is_red']:
+                        key_levels.append(value)
+                    
+                    # Support/Resistance classification
+                    if value < current_price:
+                        supports.append(value)
+                    elif value > current_price:
+                        resistances.append(value)
                 
                 # Sort levels
                 supports.sort(reverse=True)  # Highest support first
                 resistances.sort()  # Lowest resistance first
+                key_levels.sort()
                 
                 if supports:
                     data['support_levels'] = supports
@@ -293,9 +308,9 @@ class ChartOCRProcessor:
                     logger.info(f"Resistance levels: {resistances}")
                 
                 if key_levels:
-                    data['key_levels'] = sorted(key_levels)
+                    data['key_levels'] = key_levels
                     logger.info(f"Key levels: {key_levels}")
-                
+            
             # Extract other indicators if present
             # RSI
             rsi_match = re.search(r'RSI[:\s]+(\d+\.?\d*)', ocr_text, re.IGNORECASE)
@@ -303,23 +318,6 @@ class ChartOCRProcessor:
                 rsi = float(rsi_match.group(1))
                 logger.info(f"RSI extracted from OCR: {rsi}")
                 data['rsi'] = rsi
-            
-            # MACD
-            macd_pattern = r'MACD[:\s]+([-+]?\d+\.?\d*)'
-            macd_match = re.search(macd_pattern, ocr_text, re.IGNORECASE)
-            if macd_match:
-                macd = float(macd_match.group(1))
-                logger.info(f"MACD extracted from OCR: {macd}")
-                data['macd'] = macd
-            
-            # Extract MA/EMA values
-            ma_pattern = r'(?:MA|EMA)[:\s]*(\d+)[:\s]+(\d+\.?\d*)'
-            for ma_match in re.finditer(ma_pattern, ocr_text, re.IGNORECASE):
-                period = ma_match.group(1)
-                value = float(ma_match.group(2))
-                key = f"ma_{period}"
-                data[key] = value
-                logger.info(f"MA/EMA {period} extracted: {value}")
             
             return data
             
