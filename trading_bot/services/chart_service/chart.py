@@ -1091,7 +1091,7 @@ class ChartService:
                 }
             ],
             "temperature": 0.2,
-            "max_tokens": 500  # Verhoogd naar 500 voor uitgebreider formaat
+            "max_tokens": 500
         }
         
         headers = {
@@ -1112,6 +1112,19 @@ class ChartService:
                         logger.info(f"DeepSeek API response received for {instrument}")
                         response_text = result['choices'][0]['message']['content']
                         
+                        # Verwijder eventuele overblijvende vierkante haakjes
+                        response_text = response_text.replace("[", "").replace("]", "")
+                        
+                        # Formateer RSI naar 1 decimaal
+                        import re
+                        rsi_pattern = r'RSI: (\d+\.\d+)'
+                        
+                        def format_rsi(match):
+                            rsi_value = float(match.group(1))
+                            return f"RSI: {rsi_value:.1f}"
+                        
+                        response_text = re.sub(rsi_pattern, format_rsi, response_text)
+                        
                         # Begrens de lengte van het antwoord om binnen Telegram limiet te blijven (1024 tekens)
                         if len(response_text) > 1000:
                             logger.warning(f"DeepSeek response too long ({len(response_text)} chars), truncating to 1000 chars")
@@ -1125,7 +1138,7 @@ class ChartService:
                             
                             # Trend sectie
                             for section in sections:
-                                if "[Trend]" in section or "Bullish" in section or "Bearish" in section:
+                                if "Trend" in section:
                                     essential_sections.append(section)
                                     break
                             
@@ -1158,7 +1171,7 @@ class ChartService:
                             if price_section:
                                 essential_sections.append("\n".join(price_section))
                             
-                            # Voeg verkorte disclaimer toe
+                            # Disclaimer
                             essential_sections.append("Disclaimer: For educational purposes only. Not financial advice.")
                             
                             # Voeg samen en begrens op 1000 tekens
@@ -1187,34 +1200,37 @@ De totale output MOET korter zijn dan 1000 tekens:
 
 [{instrument}] - {timeframe}
 
-[Trend] - [Bullish/Bearish]
+Trend - Bullish/Bearish
 
-Sigmapips AI identifies strong [buy/sell] probability. Key [support/resistance] at [price].
+Sigmapips AI identifies strong buy/sell probability. Key support/resistance at X.XXXX.
 
-Zone Strength [1-5]/5: [kleur-indicators]
+Zone Strength N/5: 🟢/🟡/🔴
 
-• Current Price: [huidige prijs]
-• Support: [support level price]
-• Resistance: [resistance level price]
-• RSI: [RSI value]
-• Probability: [percentage]%
+• Current Price: X.XXXX
+• Support: X.XXXX
+• Resistance: X.XXXX
+• RSI: XX.X (afgerond op 1 decimaal)
+• Probability: XX%
 
 Disclaimer: For educational purposes only. Not financial advice.
 
 BELANGRIJKE RICHTLIJNEN:
-1. Bepaal Bullish/Bearish obv technische indicatoren
-2. Support niveaus MOETEN ONDER de huidige prijs liggen
-3. Resistance niveaus MOETEN BOVEN de huidige prijs liggen
-4. Zone Strength: 🟢 (4-5), 🟡 (2-3), 🔴 (1)
-5. Probability tussen 60-85%
-6. BLIJF BEKNOPT - de totale output moet minder dan 1000 tekens zijn
+1. VERWIJDER ALLE VIERKANTE HAAKJES [] - vul direct de juiste waarden in
+2. Bepaal Bullish/Bearish obv technische indicatoren
+3. Support niveaus MOETEN ONDER de huidige prijs liggen
+4. Resistance niveaus MOETEN BOVEN de huidige prijs liggen
+5. Zone Strength: 🟢 (4-5), 🟡 (2-3), 🔴 (1)
+6. RSI moet worden afgerond op 1 decimaal (XX.X)
+7. Probability tussen 60-85%
+8. BLIJF BEKNOPT - de totale output moet minder dan 1000 tekens zijn
 
 VEREIST:
 - GEBRUIK EXACT DE HUIDIGE PRIJS ("current_price") zonder afronding
 - Support moet LAGER zijn dan de current_price
 - Resistance moet HOGER zijn dan de current_price
-- RSI exact uit de gegevens
+- RSI exact uit de gegevens maar afgerond op 1 decimaal
 - VERMIJD EXTRA TEKST of uitleg, houd het BEKNOPT
+- VERWIJDER ALLE VIERKANTE HAAKJES [] in de output
 """
         return prompt
 
@@ -1252,10 +1268,10 @@ VEREIST:
         formatted_support = f"{support_level:.5f}" if "JPY" not in instrument else f"{support_level:.3f}"
         formatted_resistance = f"{resistance_level:.5f}" if "JPY" not in instrument else f"{resistance_level:.3f}"
         
-        # Generate mock analysis with original format
-        analysis = f"""[{instrument}] - {timeframe}
+        # Generate mock analysis with original format but without brackets
+        analysis = f"""{instrument} - {timeframe}
 
-[Trend] - {trend}
+Trend - {trend}
 
 Sigmapips AI identifies strong {action} probability. Key {'support' if trend == 'Bullish' else 'resistance'} at {formatted_support if trend == 'Bullish' else formatted_resistance}.
 
