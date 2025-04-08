@@ -1,0 +1,318 @@
+import os
+import logging
+import re
+import pytesseract
+from PIL import Image
+from typing import Dict, List, Optional, Union, Tuple
+
+logger = logging.getLogger(__name__)
+
+class ChartOCRProcessor:
+    """
+    Klasse voor het verwerken van chart afbeeldingen met OCR om prijsinformatie en indicatorwaarden
+    te extraheren en deze te combineren met andere data voor analyse.
+    """
+    
+    def __init__(self, tesseract_cmd: str = None):
+        """
+        Initialiseer de OCR processor.
+        
+        Args:
+            tesseract_cmd: Pad naar de Tesseract executable, als deze niet in PATH staat
+        """
+        # Stel pytesseract executable pad in als gespecificeerd
+        if tesseract_cmd:
+            pytesseract.pytesseract.tesseract_cmd = tesseract_cmd
+        
+        # Default regions of interest voor verschillende elementen op de chart
+        # Format: (x1, y1, x2, y2) als percentages van de afbeeldingsgrootte
+        self.roi_regions = {
+            'price_area': (0.75, 0.05, 1.0, 0.2),  # Rechtsboven: huidige prijs
+            'indicator_area': (0.05, 0.8, 0.4, 0.95),  # Linksonder: RSI, MACD, etc.
+            'time_area': (0.05, 0.05, 0.4, 0.15),  # Linksboven: tijdindicatie
+        }
+        
+        logger.info("ChartOCRProcessor geïnitialiseerd")
+    
+    def process_chart_image(self, image_path: str) -> Dict[str, any]:
+        """
+        Verwerk een chart afbeelding met OCR om belangrijke informatie te extraheren.
+        
+        Args:
+            image_path: Pad naar de chart afbeelding
+            
+        Returns:
+            Dictionary met geëxtraheerde informatie
+        """
+        try:
+            logger.info(f"Verwerken van chart afbeelding: {image_path}")
+            
+            # Controleer of het bestand bestaat
+            if not os.path.exists(image_path):
+                logger.error(f"Afbeelding niet gevonden: {image_path}")
+                return {}
+            
+            # Open de afbeelding
+            img = Image.open(image_path)
+            
+            # Extraheer tekst uit de verschillende regions of interest
+            ocr_data = {}
+            
+            # Extraheer prijs
+            price_data = self._extract_text_from_region(img, 'price_area')
+            current_price = self._extract_price(price_data)
+            if current_price:
+                ocr_data['current_price'] = current_price
+            
+            # Extraheer indicator waarden
+            indicator_data = self._extract_text_from_region(img, 'indicator_area')
+            indicators = self._extract_indicators(indicator_data)
+            ocr_data.update(indicators)
+            
+            # Extraheer tijdinformatie
+            time_data = self._extract_text_from_region(img, 'time_area')
+            time_info = self._extract_time_info(time_data)
+            if time_info:
+                ocr_data['time_info'] = time_info
+            
+            logger.info(f"OCR succesvol uitgevoerd, gevonden data: {ocr_data}")
+            return ocr_data
+            
+        except Exception as e:
+            logger.error(f"Fout bij verwerken van chart afbeelding: {str(e)}")
+            return {}
+    
+    def _extract_text_from_region(self, img: Image.Image, region_name: str) -> str:
+        """
+        Extraheer tekst uit een specifieke regio van de afbeelding.
+        
+        Args:
+            img: PIL Image object
+            region_name: Naam van de regio (moet bestaan in self.roi_regions)
+            
+        Returns:
+            Geëxtraheerde tekst uit de regio
+        """
+        try:
+            if region_name not in self.roi_regions:
+                logger.warning(f"Onbekende regio: {region_name}")
+                return ""
+            
+            # Bereken de pixel coördinaten voor de regio
+            width, height = img.size
+            x1, y1, x2, y2 = self.roi_regions[region_name]
+            region = (
+                int(x1 * width),
+                int(y1 * height),
+                int(x2 * width),
+                int(y2 * height)
+            )
+            
+            # Crop de afbeelding tot alleen de regio
+            cropped = img.crop(region)
+            
+            # Voer OCR uit op de cropped afbeelding
+            config = '--psm 6'  # Assume a single text block
+            text = pytesseract.image_to_string(cropped, config=config)
+            
+            logger.debug(f"Geëxtraheerde tekst uit {region_name}: {text}")
+            return text
+            
+        except Exception as e:
+            logger.error(f"Fout bij extraheren tekst uit regio {region_name}: {str(e)}")
+            return ""
+    
+    def _extract_price(self, text: str) -> Optional[float]:
+        """
+        Extraheer de huidige prijs uit OCR tekst.
+        
+        Args:
+            text: Geëxtraheerde tekst uit de prijsregio
+            
+        Returns:
+            Huidige prijs als float, of None als geen prijs gevonden
+        """
+        try:
+            # Zoek naar prijspatronen (zoals 1.0950, 12345.67, etc.)
+            price_pattern = r'(\d+\.\d+)'
+            matches = re.findall(price_pattern, text)
+            
+            if matches:
+                # Neem de eerste match als de prijs
+                price = float(matches[0])
+                logger.info(f"Geëxtraheerde prijs: {price}")
+                return price
+            else:
+                logger.warning("Geen prijs gevonden in tekst")
+                return None
+                
+        except Exception as e:
+            logger.error(f"Fout bij extraheren prijs: {str(e)}")
+            return None
+    
+    def _extract_indicators(self, text: str) -> Dict[str, float]:
+        """
+        Extraheer indicator waarden (RSI, MACD, etc.) uit OCR tekst.
+        
+        Args:
+            text: Geëxtraheerde tekst uit de indicatorregio
+            
+        Returns:
+            Dictionary met indicatornamen en hun waarden
+        """
+        indicators = {}
+        
+        try:
+            # Zoek naar RSI waarden
+            rsi_pattern = r'RSI[:\s]*(\d+\.?\d*)'
+            rsi_matches = re.findall(rsi_pattern, text, re.IGNORECASE)
+            if rsi_matches:
+                indicators['rsi'] = float(rsi_matches[0])
+            
+            # Zoek naar MACD waarden
+            macd_pattern = r'MACD[:\s]*(-?\d+\.?\d*)'
+            macd_matches = re.findall(macd_pattern, text, re.IGNORECASE)
+            if macd_matches:
+                indicators['macd'] = float(macd_matches[0])
+            
+            # Zoek naar volume informatie
+            volume_pattern = r'Vol(?:ume)?[:\s]*(\d+\.?\d*[KMB]?)'
+            volume_matches = re.findall(volume_pattern, text, re.IGNORECASE)
+            if volume_matches:
+                indicators['volume'] = self._parse_volume(volume_matches[0])
+            
+            logger.info(f"Geëxtraheerde indicators: {indicators}")
+            return indicators
+            
+        except Exception as e:
+            logger.error(f"Fout bij extraheren indicators: {str(e)}")
+            return {}
+    
+    def _extract_time_info(self, text: str) -> Optional[str]:
+        """
+        Extraheer tijdinformatie uit OCR tekst.
+        
+        Args:
+            text: Geëxtraheerde tekst uit de tijdregio
+            
+        Returns:
+            Tijdinformatie als string, of None als geen tijdinfo gevonden
+        """
+        try:
+            # Zoek naar datumpatronen (zoals 2023-07-25, Jul 25 2023, etc.)
+            date_pattern = r'(\d{4}-\d{2}-\d{2}|\w{3}\s+\d{1,2}\s+\d{4}|\d{1,2}/\d{1,2}/\d{4})'
+            date_matches = re.findall(date_pattern, text)
+            
+            if date_matches:
+                return date_matches[0]
+            else:
+                return None
+                
+        except Exception as e:
+            logger.error(f"Fout bij extraheren tijdinfo: {str(e)}")
+            return None
+    
+    def _parse_volume(self, volume_str: str) -> float:
+        """
+        Parse een volume string (zoals 1.5M, 2.3K) naar een float waarde.
+        
+        Args:
+            volume_str: Volume als string met mogelijke K, M, B suffixes
+            
+        Returns:
+            Volume als float
+        """
+        try:
+            # Verwijder niet-numerieke tekens behalve '.' en K, M, B suffixes
+            volume_str = volume_str.strip()
+            
+            # Extraheer het numerieke deel
+            numeric_part = re.search(r'(\d+\.?\d*)', volume_str)
+            if not numeric_part:
+                return 0.0
+                
+            value = float(numeric_part.group(1))
+            
+            # Pas vermenigvuldiging toe op basis van suffix
+            if 'K' in volume_str or 'k' in volume_str:
+                value *= 1_000
+            elif 'M' in volume_str or 'm' in volume_str:
+                value *= 1_000_000
+            elif 'B' in volume_str or 'b' in volume_str:
+                value *= 1_000_000_000
+                
+            return value
+            
+        except Exception as e:
+            logger.error(f"Fout bij parsen volume: {str(e)}")
+            return 0.0
+    
+    def enhance_market_data(self, market_data: Dict[str, any], ocr_data: Dict[str, any]) -> Dict[str, any]:
+        """
+        Verbeter marktdata met OCR-geëxtraheerde informatie.
+        
+        Args:
+            market_data: Bestaande marktdata van API's
+            ocr_data: Data geëxtraheerd met OCR
+            
+        Returns:
+            Verbeterde marktdata dictionary
+        """
+        try:
+            # Maak een kopie om de originele data niet te wijzigen
+            enhanced_data = market_data.copy()
+            
+            # Voeg OCR data toe of gebruik het om bestaande data te verbeteren
+            
+            # Update huidige prijs als beschikbaar
+            if 'current_price' in ocr_data:
+                logger.info(f"OCR prijs: {ocr_data['current_price']}, API prijs: {enhanced_data.get('current_price', 'N/A')}")
+                
+                # Gebruik OCR prijs als originele prijs ontbreekt of als we OCR data vertrouwen
+                if 'current_price' not in enhanced_data or self._is_ocr_data_more_reliable(ocr_data, market_data):
+                    enhanced_data['current_price'] = ocr_data['current_price']
+                    logger.info(f"Prijs bijgewerkt met OCR data: {ocr_data['current_price']}")
+            
+            # Update indicators waar nodig
+            for indicator in ['rsi', 'macd', 'volume']:
+                if indicator in ocr_data and (indicator not in enhanced_data or enhanced_data[indicator] is None):
+                    enhanced_data[indicator] = ocr_data[indicator]
+                    logger.info(f"Indicator {indicator} bijgewerkt met OCR data: {ocr_data[indicator]}")
+            
+            return enhanced_data
+            
+        except Exception as e:
+            logger.error(f"Fout bij verbeteren marktdata met OCR: {str(e)}")
+            return market_data  # Return originele data bij fout
+    
+    def _is_ocr_data_more_reliable(self, ocr_data: Dict[str, any], api_data: Dict[str, any]) -> bool:
+        """
+        Beoordeel of OCR data betrouwbaarder is dan API data.
+        Dit is een eenvoudige implementatie en kan worden uitgebreid met meer logica.
+        
+        Args:
+            ocr_data: Data geëxtraheerd met OCR
+            api_data: Data van API's
+            
+        Returns:
+            True als OCR data betrouwbaarder lijkt, anders False
+        """
+        # Eenvoudige heuristiek: Als API prijs sterk afwijkt van OCR prijs (>5%)
+        # of als API data incomplete indicators heeft maar OCR wel
+        if 'current_price' in ocr_data and 'current_price' in api_data:
+            price_diff_pct = abs(ocr_data['current_price'] - api_data['current_price']) / api_data['current_price'] * 100
+            if price_diff_pct > 5:
+                logger.warning(f"Grote prijsafwijking tussen OCR en API: {price_diff_pct:.2f}%, voorkeur voor OCR data")
+                return True
+        
+        # Als API data geen RSI heeft maar OCR wel
+        if 'rsi' not in api_data and 'rsi' in ocr_data:
+            return True
+            
+        return False
+
+
+# Voorbeeld gebruik:
+# ocr_processor = ChartOCRProcessor()
+# ocr_data = ocr_processor.process_chart_image("path/to/chart.png")
+# enhanced_data = ocr_processor.enhance_market_data(api_data, ocr_data) 
