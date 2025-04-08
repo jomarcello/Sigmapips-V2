@@ -1091,7 +1091,7 @@ class ChartService:
                 }
             ],
             "temperature": 0.2,
-            "max_tokens": 400  # Verminderd van 500 naar 400 voor kortere responses
+            "max_tokens": 500  # Verhoogd naar 500 voor uitgebreider formaat
         }
         
         headers = {
@@ -1113,25 +1113,36 @@ class ChartService:
                         response_text = result['choices'][0]['message']['content']
                         
                         # Begrens de lengte van het antwoord om binnen Telegram limiet te blijven (1024 tekens)
-                        if len(response_text) > 800:  # Verlaagd van 1000 naar 800 voor meer marge
-                            logger.warning(f"DeepSeek response too long ({len(response_text)} chars), truncating to 800 chars")
+                        if len(response_text) > 1000:
+                            logger.warning(f"DeepSeek response too long ({len(response_text)} chars), truncating to 1000 chars")
                             # Truncate while preserving key information
                             sections = response_text.split("\n\n")
                             essential_sections = []
                             
-                            # Behoud alleen de meest essentiële informatie
+                            # Behoud de belangrijkste secties in het oorspronkelijke formaat
                             if len(sections) > 0:
                                 essential_sections.append(sections[0])  # Titel
                             
-                            # Voeg trend toe (eerste regels)
+                            # Trend sectie
                             for section in sections:
                                 if "[Trend]" in section or "Bullish" in section or "Bearish" in section:
-                                    lines = section.split("\n")
-                                    essential_sections.append(lines[0])  # Alleen de trendlijn behouden
+                                    essential_sections.append(section)
                                     break
                             
-                            # Voeg de belangrijkste data toe (prijs, support/resistance)
-                            price_info = []
+                            # Sigmapips AI identifies sectie
+                            for section in sections:
+                                if "Sigmapips AI identifies" in section:
+                                    essential_sections.append(section)
+                                    break
+                            
+                            # Zone Strength sectie
+                            for section in sections:
+                                if "Zone Strength" in section and not any(s.startswith("Zone Strength") for s in essential_sections):
+                                    essential_sections.append(section)
+                                    break
+                            
+                            # Belangrijke prijsdata
+                            price_section = []
                             for section in sections:
                                 if "Current Price:" in section or "Support:" in section:
                                     lines = [line for line in section.split("\n") if line.strip() and (
@@ -1141,16 +1152,17 @@ class ChartService:
                                         "RSI:" in line or 
                                         "Probability:" in line
                                     )]
-                                    price_info.extend(lines)
+                                    price_section.extend(lines)
+                                    break
                             
-                            if price_info:
-                                essential_sections.append("\n".join(price_info))
+                            if price_section:
+                                essential_sections.append("\n".join(price_section))
                             
                             # Voeg verkorte disclaimer toe
-                            essential_sections.append("Disclaimer: Educational purposes only.")
+                            essential_sections.append("Disclaimer: For educational purposes only. Not financial advice.")
                             
-                            # Voeg samen en begrens op 800 tekens
-                            response_text = "\n\n".join(essential_sections)[:800]
+                            # Voeg samen en begrens op 1000 tekens
+                            response_text = "\n\n".join(essential_sections)[:1000]
                         
                         return response_text
                     else:
@@ -1165,32 +1177,44 @@ class ChartService:
     def _build_deepseek_prompt(self, instrument, timeframe, market_data):
         """Build prompt for DeepSeek API using market data from Yahoo Finance"""
         prompt = f"""
-Je bent een financiële analist voor SigmaPips AI.
-Gegeven deze marktgegevens over {instrument} op {timeframe} timeframe:
+Je bent een gespecialiseerde financiële analist voor SigmaPips AI, een technische analyse tool.
+Gegeven de volgende marktgegevens over {instrument} op een {timeframe} timeframe:
 
 {market_data}
 
-Genereer een EXTREEM KORTE technische analyse (<800 tekens) in dit format:
+Analyseer deze gegevens en genereer een technische analyse in exact het volgende sjabloon format. 
+De totale output MOET korter zijn dan 1000 tekens:
 
 [{instrument}] - {timeframe}
 
 [Trend] - [Bullish/Bearish]
 
-• Current Price: [prijs]
-• Support: [support price]
-• Resistance: [resistance price]
+Sigmapips AI identifies strong [buy/sell] probability. Key [support/resistance] at [price].
+
+Zone Strength [1-5]/5: [kleur-indicators]
+
+• Current Price: [huidige prijs]
+• Support: [support level price]
+• Resistance: [resistance level price]
 • RSI: [RSI value]
 • Probability: [percentage]%
 
-Disclaimer: Educational purposes only.
+Disclaimer: For educational purposes only. Not financial advice.
 
-VEREISTEN:
-1. Bepaal Bullish/Bearish obv indicatoren
-2. Support ALTIJD ONDER huidige prijs
-3. Resistance ALTIJD BOVEN huidige prijs
-4. Probability tussen 60-85%
-5. TOTALE OUTPUT MOET KORTER DAN 800 TEKENS ZIJN
-6. GEEN extra uitleg of commentaar
+BELANGRIJKE RICHTLIJNEN:
+1. Bepaal Bullish/Bearish obv technische indicatoren
+2. Support niveaus MOETEN ONDER de huidige prijs liggen
+3. Resistance niveaus MOETEN BOVEN de huidige prijs liggen
+4. Zone Strength: 🟢 (4-5), 🟡 (2-3), 🔴 (1)
+5. Probability tussen 60-85%
+6. BLIJF BEKNOPT - de totale output moet minder dan 1000 tekens zijn
+
+VEREIST:
+- GEBRUIK EXACT DE HUIDIGE PRIJS ("current_price") zonder afronding
+- Support moet LAGER zijn dan de current_price
+- Resistance moet HOGER zijn dan de current_price
+- RSI exact uit de gegevens
+- VERMIJD EXTRA TEKST of uitleg, houd het BEKNOPT
 """
         return prompt
 
@@ -1200,6 +1224,8 @@ VEREISTEN:
         trend = "Bullish" if random.random() > 0.5 else "Bearish"
         probability = random.randint(65, 85)
         action = "buy" if trend == "Bullish" else "sell"
+        zone_strength = random.randint(1, 5)
+        strength_color = "🟢" if zone_strength >= 4 else "🟡" if zone_strength >= 2 else "🔴"
         
         # Use more realistic price values based on the instrument
         if "USD" in instrument:
@@ -1226,10 +1252,14 @@ VEREISTEN:
         formatted_support = f"{support_level:.5f}" if "JPY" not in instrument else f"{support_level:.3f}"
         formatted_resistance = f"{resistance_level:.5f}" if "JPY" not in instrument else f"{resistance_level:.3f}"
         
-        # Generate SHORTER mock analysis
+        # Generate mock analysis with original format
         analysis = f"""[{instrument}] - {timeframe}
 
 [Trend] - {trend}
+
+Sigmapips AI identifies strong {action} probability. Key {'support' if trend == 'Bullish' else 'resistance'} at {formatted_support if trend == 'Bullish' else formatted_resistance}.
+
+Zone Strength {zone_strength}/5: {strength_color * zone_strength}
 
 • Current Price: {formatted_price}
 • Support: {formatted_support}
@@ -1237,7 +1267,7 @@ VEREISTEN:
 • RSI: {rsi_value:.1f}
 • Probability: {probability}%
 
-Disclaimer: Educational purposes only."""
+Disclaimer: For educational purposes only. Not financial advice."""
 
         return img_path, analysis
 
