@@ -20,9 +20,18 @@ class ChartOCRProcessor:
         Args:
             tesseract_cmd: Pad naar de Tesseract executable, als deze niet in PATH staat
         """
-        # Stel pytesseract executable pad in als gespecificeerd
-        if tesseract_cmd:
+        # Controleer eerst op environment variable
+        env_tesseract = os.environ.get('TESSERACT_CMD')
+        if env_tesseract:
+            pytesseract.pytesseract.tesseract_cmd = env_tesseract
+            logger.info(f"Using Tesseract from environment: {env_tesseract}")
+        # Dan gebruiker-gespecificeerd pad
+        elif tesseract_cmd:
             pytesseract.pytesseract.tesseract_cmd = tesseract_cmd
+            logger.info(f"Using Tesseract from specified path: {tesseract_cmd}")
+        # Log een waarschuwing als geen pad is opgegeven
+        else:
+            logger.warning("No Tesseract path specified, using system default")
         
         # Default regions of interest voor verschillende elementen op de chart
         # Format: (x1, y1, x2, y2) als percentages van de afbeeldingsgrootte
@@ -264,7 +273,7 @@ class ChartOCRProcessor:
             
             # Voeg OCR data toe of gebruik het om bestaande data te verbeteren
             
-            # Update huidige prijs als beschikbaar
+            # Update huidige prijs als beschikbaarder
             if 'current_price' in ocr_data:
                 logger.info(f"OCR prijs: {ocr_data['current_price']}, API prijs: {enhanced_data.get('current_price', 'N/A')}")
                 
