@@ -93,8 +93,10 @@ RUN playwright install-deps
 # Maak directories voor data opslag
 RUN mkdir -p /app/selenium_data
 RUN mkdir -p /app/playwright_data
+RUN mkdir -p /tmp
 RUN chmod -R 777 /app/selenium_data
 RUN chmod -R 777 /app/playwright_data
+RUN chmod -R 777 /tmp
 
 # Kopieer de rest van de code
 COPY . .
