@@ -27,7 +27,8 @@ webdriver-manager==3.8.6
 playwright==1.40.0
 
 # OCR processing
-pytesseract>=0.3.13
+# Using OCR.space API instead of local Tesseract
+# pytesseract>=0.3.13
 
 # Data fetching
 lxml==4.9.3
