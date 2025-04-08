@@ -659,6 +659,7 @@ class ChartService:
         import aiohttp
         
         query = self._build_tavily_query(instrument, timeframe)
+        logger.info(f"Tavily query for {instrument}: {query}")
         
         data = {
             "query": query,
@@ -674,6 +675,7 @@ class ChartService:
         }
         
         try:
+            logger.info(f"Sending request to Tavily API for {instrument}")
             async with aiohttp.ClientSession() as session:
                 async with session.post(
                     "https://api.tavily.com/search",
@@ -682,6 +684,7 @@ class ChartService:
                 ) as response:
                     if response.status == 200:
                         result = await response.json()
+                        logger.info(f"Tavily API response received for {instrument}")
                         return result
                     else:
                         logger.error(f"Tavily API error: {response.status}")
@@ -696,6 +699,11 @@ class ChartService:
         """Format market data using DeepSeek API"""
         import aiohttp
         
+        # Use fallback API key if none provided
+        if not api_key:
+            api_key = "sk-4vAEJ2DqOLUMibF9X6PqMFtYTqGUfGGkVR2gOemz5LSdcqWA"
+            logger.warning(f"Using fallback DeepSeek API key for {instrument}")
+        
         # Extract relevant data from Tavily response
         answer = tavily_data.get("answer", "")
         content = answer
@@ -706,6 +714,9 @@ class ChartService:
             source_content = source.get("content", "").strip()
             if source_content:
                 content += f"\n\nSource {i+1}:\n{source_content[:1000]}"  # Limit source content
+        
+        # Log content length for debugging
+        logger.info(f"Content length for DeepSeek: {len(content)} characters")
         
         # Build the prompt
         prompt = self._build_deepseek_prompt(instrument, timeframe, content)
@@ -728,6 +739,7 @@ class ChartService:
         }
         
         try:
+            logger.info(f"Sending request to DeepSeek API for {instrument}")
             async with aiohttp.ClientSession() as session:
                 async with session.post(
                     "https://api.deepseek.com/v1/chat/completions",
@@ -736,6 +748,7 @@ class ChartService:
                 ) as response:
                     if response.status == 200:
                         result = await response.json()
+                        logger.info(f"DeepSeek API response received for {instrument}")
                         return result['choices'][0]['message']['content']
                     else:
                         logger.error(f"DeepSeek API error: {response.status}")
