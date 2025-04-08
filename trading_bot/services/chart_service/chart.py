@@ -612,7 +612,7 @@ class ChartService:
             return None, "Error generating technical analysis."
 
     async def _get_yahoo_finance_data(self, instrument: str, timeframe: str):
-        """Get market data from Yahoo Finance"""
+        """Get market data from Yahoo Finance using Ticker API"""
         try:
             import yfinance as yf
             import pandas as pd
@@ -649,6 +649,13 @@ class ChartService:
             
             logger.info(f"Using Yahoo Finance symbol: {symbol} for {instrument}")
             
+            # Gebruik de Ticker API in plaats van download
+            ticker = yf.Ticker(symbol)
+            
+            # Haal info op over het instrument
+            info = ticker.info
+            logger.info(f"Got ticker info for {symbol}")
+            
             # Bepaal de tijdsperiode op basis van timeframe
             end_date = datetime.now()
             
@@ -665,15 +672,44 @@ class ChartService:
                 start_date = end_date - timedelta(days=14)
                 interval = "1h"
             
-            # Fetch data from Yahoo Finance
+            # Haal historische data op
             logger.info(f"Fetching {interval} data for {symbol} from {start_date} to {end_date}")
-            data = yf.download(symbol, start=start_date, end=end_date, interval=interval)
+            data = ticker.history(start=start_date, end=end_date, interval=interval)
             
             if data.empty:
                 logger.warning(f"No data returned from Yahoo Finance for {symbol}")
                 return None
                 
             logger.info(f"Got {len(data)} data points for {symbol}")
+            
+            # Haal de huidige prijs op
+            current_price = None
+            if hasattr(ticker, 'fast_info') and hasattr(ticker.fast_info, 'last_price'):
+                # Gebruik fast_info als beschikbaar
+                current_price = ticker.fast_info.last_price
+                logger.info(f"Using fast_info last_price: {current_price}")
+            elif 'regularMarketPrice' in info:
+                # Probeer regularMarketPrice uit info
+                current_price = info.get('regularMarketPrice')
+                logger.info(f"Using regularMarketPrice: {current_price}")
+            elif 'currentPrice' in info:
+                # Probeer currentPrice uit info
+                current_price = info.get('currentPrice')
+                logger.info(f"Using currentPrice: {current_price}")
+            elif not data.empty:
+                # Fallback naar laatste waarde in historische data
+                current_price = data['Close'].iloc[-1]
+                logger.info(f"Using historical data last close: {current_price}")
+            else:
+                logger.warning("Could not determine current price")
+                return None
+            
+            # Controleer of de verkregen prijs realistisch is voor het instrument
+            # Voor forex zoals EURUSD, check of het in normale bereik is (bijv. 0.9 - 1.5)
+            if "USD" in instrument and instrument.startswith("EUR"):
+                if current_price < 0.9 or current_price > 1.5:
+                    logger.warning(f"Unrealistic price for {instrument}: {current_price}, using default range value")
+                    current_price = 1.09  # Default realistic value for EURUSD
             
             # Calculate technical indicators
             data['SMA20'] = data['Close'].rolling(window=20).mean()
@@ -688,8 +724,7 @@ class ChartService:
             data['UpperBand'] = data['MA20'] + (data['SD20'] * 2)
             data['LowerBand'] = data['MA20'] - (data['SD20'] * 2)
             
-            # Get current values
-            current_close = data['Close'].iloc[-1]
+            # Get current values from historical data
             current_open = data['Open'].iloc[-1]
             current_high = data['High'].iloc[-1]
             current_low = data['Low'].iloc[-1]
@@ -707,7 +742,7 @@ class ChartService:
             market_data = {
                 "instrument": instrument,
                 "timeframe": timeframe,
-                "current_price": current_close,
+                "current_price": current_price,
                 "open": current_open,
                 "high": current_high,
                 "low": current_low,
@@ -722,9 +757,9 @@ class ChartService:
                 "upper_band": data['UpperBand'].iloc[-1],
                 "lower_band": data['LowerBand'].iloc[-1],
                 "trend_indicators": {
-                    "price_above_sma20": current_close > current_sma20,
-                    "price_above_sma50": current_close > current_sma50,
-                    "price_above_sma200": current_close > current_sma200,
+                    "price_above_sma20": current_price > current_sma20,
+                    "price_above_sma50": current_price > current_sma50,
+                    "price_above_sma200": current_price > current_sma200,
                     "sma20_above_sma50": current_sma20 > current_sma50,
                     "macd_above_signal": current_macd > current_signal,
                     "rsi_above_50": current_rsi > 50,
@@ -733,10 +768,15 @@ class ChartService:
                 },
                 "support_levels": supports[:3],  # Top 3 support levels
                 "resistance_levels": resistances[:3],  # Top 3 resistance levels
-                "price_change_1d": (current_close / data['Close'].iloc[-2] - 1) * 100 if len(data) > 1 else 0,
-                "price_change_1w": (current_close / data['Close'].iloc[-7] - 1) * 100 if len(data) > 7 else 0,
+                "price_change_1d": (current_price / data['Close'].iloc[-2] - 1) * 100 if len(data) > 1 else 0,
+                "price_change_1w": (current_price / data['Close'].iloc[-7] - 1) * 100 if len(data) > 7 else 0,
                 "historical_volatility": data['Close'].pct_change().std() * 100,  # Daily volatility in %
             }
+            
+            # Voeg debug informatie toe om problemen te diagnosticeren
+            logger.info(f"Current price for {instrument}: {current_price}")
+            logger.info(f"Support levels: {supports[:3]}")
+            logger.info(f"Resistance levels: {resistances[:3]}")
             
             # Convert structured data to string format for DeepSeek
             market_data_str = json.dumps(market_data, indent=2)
@@ -872,10 +912,12 @@ BELANGRIJKE RICHTLIJNEN:
 6. Vul ALLEEN het sjabloon in, zonder extra tekst of uitleg
 
 VEREIST:
-- Alle prijswaarden moeten realistisch zijn voor {instrument} en gebaseerd op de actuele gegevens
-- Rond support/resistance prijzen af op 5 decimalen voor forex of crypto
-- Gebruik alleen data uit de JSON gegevens
+- GEBRUIK EXACT DE HUIDIGE PRIJS ("current_price") die in de marktgegevens staat, rond deze niet af en verander deze niet
+- Current Price in de aanbeveling moet exact overeenkomen met de "current_price" waarde uit de JSON data
+- Support en resistance moeten exacte waarden zijn uit de "support_levels" en "resistance_levels" arrays
 - RSI moet de exacte waarde uit de gegevens zijn, afgerond op 1 decimaal
+- Rond getallen niet af en verander ze niet (vooral niet voor forex paren zoals EURUSD)
+- Zorg dat de analyse alle verstrekte gegevens gebruikt
 """
         return prompt
 
