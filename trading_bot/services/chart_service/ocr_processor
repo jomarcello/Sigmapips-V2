@@ -2,8 +2,9 @@ import os
 import logging
 import re
 import pytesseract
-from PIL import Image
+from PIL import Image, ImageEnhance, ImageFilter
 from typing import Dict, List, Optional, Union, Tuple
+import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +34,13 @@ class ChartOCRProcessor:
         else:
             logger.warning("No Tesseract path specified, using system default")
         
+        # Tesseract versie checken
+        try:
+            version = pytesseract.get_tesseract_version()
+            logger.info(f"Tesseract version: {version}")
+        except Exception as e:
+            logger.error(f"Error checking Tesseract version: {str(e)}")
+        
         # Default regions of interest voor verschillende elementen op de chart
         # Format: (x1, y1, x2, y2) als percentages van de afbeeldingsgrootte
         self.roi_regions = {
@@ -61,35 +69,151 @@ class ChartOCRProcessor:
                 logger.error(f"Afbeelding niet gevonden: {image_path}")
                 return {}
             
+            # Controleer bestandsgrootte
+            file_size = os.path.getsize(image_path)
+            logger.info(f"Afbeelding grootte: {file_size} bytes")
+            
             # Open de afbeelding
-            img = Image.open(image_path)
+            try:
+                img = Image.open(image_path)
+                logger.info(f"Afbeelding succesvol geopend: {img.format}, {img.size}, {img.mode}")
+                
+                # Converteer afbeelding naar RGB indien nodig
+                if img.mode != 'RGB':
+                    img = img.convert('RGB')
+                    logger.info(f"Afbeelding geconverteerd naar RGB: {img.mode}")
+                
+                # Verbeter contrast voor betere OCR resultaten
+                try:
+                    enhanced = self._enhance_image(img)
+                    enhanced_debug_path = f"{image_path}.enhanced.png"
+                    enhanced.save(enhanced_debug_path)
+                    logger.info(f"Enhanced image saved to: {enhanced_debug_path}")
+                    
+                    # Gebruik de verbeterde afbeelding voor verdere verwerking
+                    img = enhanced
+                except Exception as enhance_error:
+                    logger.error(f"Error enhancing image: {str(enhance_error)}")
+                
+            except Exception as img_error:
+                logger.error(f"Fout bij openen afbeelding: {str(img_error)}")
+                return {}
+            
+            # Debug: sla een test versie op om te controleren of de afbeelding correct is
+            try:
+                debug_path = f"{image_path}.debug.png"
+                img.save(debug_path)
+                logger.info(f"Debug kopie opgeslagen naar: {debug_path}")
+            except Exception as save_error:
+                logger.error(f"Fout bij opslaan debug afbeelding: {str(save_error)}")
             
             # Extraheer tekst uit de verschillende regions of interest
             ocr_data = {}
             
-            # Extraheer prijs
-            price_data = self._extract_text_from_region(img, 'price_area')
-            current_price = self._extract_price(price_data)
-            if current_price:
-                ocr_data['current_price'] = current_price
+            # Probeer de volledige afbeelding met OCR
+            try:
+                # Verschillende OCR configuraties proberen voor beste resultaten
+                configs = [
+                    '--psm 6',  # Asume a single uniform block of text
+                    '--psm 11 --oem 3',  # Sparse text with OEM LSTM engine
+                    '--psm 4',  # Assume a single column of text
+                ]
+                
+                for config in configs:
+                    full_text = pytesseract.image_to_string(img, config=config)
+                    logger.info(f"OCR volledige afbeelding (config: {config}):\n{full_text}")
+                    
+                    # Zoek naar prijs patronen in de volledige tekst
+                    price_pattern = r'(\d+\.\d+)'
+                    price_matches = re.findall(price_pattern, full_text)
+                    if price_matches:
+                        logger.info(f"Found prices in full image text: {price_matches}")
+                        # Probeer de meest waarschijnlijke prijs te kiezen
+                        for price in price_matches:
+                            price_float = float(price)
+                            if 0.5 < price_float < 2.0 or 100 < price_float < 200:  # Typische forex/indices bereiken
+                                ocr_data['current_price'] = price_float
+                                logger.info(f"Selected price from full text: {price_float}")
+                                break
+            except Exception as ocr_error:
+                logger.error(f"Fout bij OCR volledige afbeelding: {str(ocr_error)}")
+            
+            # Extraheer prijs uit specifieke regio als we nog geen prijs hebben
+            if 'current_price' not in ocr_data:
+                price_data = self._extract_text_from_region(img, 'price_area')
+                logger.info(f"Ruwe prijs tekst: '{price_data}'")
+                current_price = self._extract_price(price_data)
+                if current_price:
+                    ocr_data['current_price'] = current_price
+                    logger.info(f"Geëxtraheerde prijs: {current_price}")
+                else:
+                    logger.warning("Geen prijs gedetecteerd in price_area")
             
             # Extraheer indicator waarden
             indicator_data = self._extract_text_from_region(img, 'indicator_area')
+            logger.info(f"Ruwe indicator tekst: '{indicator_data}'")
             indicators = self._extract_indicators(indicator_data)
-            ocr_data.update(indicators)
+            if indicators:
+                ocr_data.update(indicators)
+                logger.info(f"Geëxtraheerde indicators: {indicators}")
+            else:
+                logger.warning("Geen indicators gedetecteerd in indicator_area")
             
             # Extraheer tijdinformatie
             time_data = self._extract_text_from_region(img, 'time_area')
+            logger.info(f"Ruwe tijd tekst: '{time_data}'")
             time_info = self._extract_time_info(time_data)
             if time_info:
                 ocr_data['time_info'] = time_info
+                logger.info(f"Geëxtraheerde tijd info: {time_info}")
+            else:
+                logger.warning("Geen tijdinformatie gedetecteerd in time_area")
             
             logger.info(f"OCR succesvol uitgevoerd, gevonden data: {ocr_data}")
             return ocr_data
             
         except Exception as e:
             logger.error(f"Fout bij verwerken van chart afbeelding: {str(e)}")
+            import traceback
+            logger.error(traceback.format_exc())
             return {}
+    
+    def _enhance_image(self, img: Image.Image) -> Image.Image:
+        """
+        Verbeter de afbeelding voor betere OCR resultaten
+        
+        Args:
+            img: De originele afbeelding
+            
+        Returns:
+            De verbeterde afbeelding
+        """
+        try:
+            logger.info("Enhancing image for better OCR")
+            
+            # Resize indien nodig voor betere OCR
+            if img.width > 1500 or img.height > 1500:
+                ratio = min(1500 / img.width, 1500 / img.height)
+                new_width = int(img.width * ratio)
+                new_height = int(img.height * ratio)
+                img = img.resize((new_width, new_height), Image.LANCZOS)
+                logger.info(f"Resized image to {new_width}x{new_height}")
+            
+            # Verhoog contrast
+            enhancer = ImageEnhance.Contrast(img)
+            img = enhancer.enhance(2.0)
+            
+            # Verhoog scherpte
+            enhancer = ImageEnhance.Sharpness(img)
+            img = enhancer.enhance(2.0)
+            
+            # Voeg wat noise reductie toe
+            img = img.filter(ImageFilter.SHARPEN)
+            
+            return img
+        except Exception as e:
+            logger.error(f"Error enhancing image: {str(e)}")
+            return img  # Return original image if enhancement failed
     
     def _extract_text_from_region(self, img: Image.Image, region_name: str) -> str:
         """
@@ -117,18 +241,54 @@ class ChartOCRProcessor:
                 int(y2 * height)
             )
             
+            logger.info(f"Regio {region_name}: {region}")
+            
             # Crop de afbeelding tot alleen de regio
-            cropped = img.crop(region)
+            try:
+                cropped = img.crop(region)
+                # Verbeter contrast van de gecropte regio
+                enhancer = ImageEnhance.Contrast(cropped)
+                cropped = enhancer.enhance(2.0)
+                
+                # Debug: sla gecropte regio op
+                debug_path = f"{region_name}_crop.png"
+                cropped.save(debug_path)
+                logger.info(f"Gecropte regio {region_name} opgeslagen naar {debug_path}")
+            except Exception as crop_error:
+                logger.error(f"Fout bij croppen van regio {region_name}: {str(crop_error)}")
+                return ""
             
-            # Voer OCR uit op de cropped afbeelding
-            config = '--psm 6'  # Assume a single text block
-            text = pytesseract.image_to_string(cropped, config=config)
+            # Probeer verschillende OCR configuraties
+            configs = [
+                '--psm 6',  # Assume a single uniform block of text
+                '--psm 7',  # Treat the image as a single text line
+                '--psm 8',  # Treat the image as a single word
+                '--psm 10'  # Treat the image as a single character
+            ]
             
-            logger.debug(f"Geëxtraheerde tekst uit {region_name}: {text}")
-            return text
+            extracted_texts = []
+            for config in configs:
+                try:
+                    text = pytesseract.image_to_string(cropped, config=config)
+                    if text.strip():  # Alleen niet-lege tekst toevoegen
+                        extracted_texts.append(text.strip())
+                        logger.info(f"Tekst uit {region_name} (config {config}): '{text.strip()}'")
+                except Exception as ocr_error:
+                    logger.error(f"OCR fout voor regio {region_name} (config {config}): {str(ocr_error)}")
+            
+            # Return de langste geëxtraheerde tekst
+            if extracted_texts:
+                result = max(extracted_texts, key=len)
+                logger.info(f"Geselecteerde tekst uit {region_name}: '{result}'")
+                return result
+            else:
+                logger.warning(f"Geen tekst geëxtraheerd uit {region_name}")
+                return ""
             
         except Exception as e:
             logger.error(f"Fout bij extraheren tekst uit regio {region_name}: {str(e)}")
+            import traceback
+            logger.error(traceback.format_exc())
             return ""
     
     def _extract_price(self, text: str) -> Optional[float]:
