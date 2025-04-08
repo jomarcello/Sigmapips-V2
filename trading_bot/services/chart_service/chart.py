@@ -1091,7 +1091,7 @@ class ChartService:
                 }
             ],
             "temperature": 0.2,
-            "max_tokens": 1000
+            "max_tokens": 400  # Verminderd van 500 naar 400 voor kortere responses
         }
         
         headers = {
@@ -1110,7 +1110,49 @@ class ChartService:
                     if response.status == 200:
                         result = await response.json()
                         logger.info(f"DeepSeek API response received for {instrument}")
-                        return result['choices'][0]['message']['content']
+                        response_text = result['choices'][0]['message']['content']
+                        
+                        # Begrens de lengte van het antwoord om binnen Telegram limiet te blijven (1024 tekens)
+                        if len(response_text) > 800:  # Verlaagd van 1000 naar 800 voor meer marge
+                            logger.warning(f"DeepSeek response too long ({len(response_text)} chars), truncating to 800 chars")
+                            # Truncate while preserving key information
+                            sections = response_text.split("\n\n")
+                            essential_sections = []
+                            
+                            # Behoud alleen de meest essentiële informatie
+                            if len(sections) > 0:
+                                essential_sections.append(sections[0])  # Titel
+                            
+                            # Voeg trend toe (eerste regels)
+                            for section in sections:
+                                if "[Trend]" in section or "Bullish" in section or "Bearish" in section:
+                                    lines = section.split("\n")
+                                    essential_sections.append(lines[0])  # Alleen de trendlijn behouden
+                                    break
+                            
+                            # Voeg de belangrijkste data toe (prijs, support/resistance)
+                            price_info = []
+                            for section in sections:
+                                if "Current Price:" in section or "Support:" in section:
+                                    lines = [line for line in section.split("\n") if line.strip() and (
+                                        "Current Price:" in line or 
+                                        "Support:" in line or 
+                                        "Resistance:" in line or 
+                                        "RSI:" in line or 
+                                        "Probability:" in line
+                                    )]
+                                    price_info.extend(lines)
+                            
+                            if price_info:
+                                essential_sections.append("\n".join(price_info))
+                            
+                            # Voeg verkorte disclaimer toe
+                            essential_sections.append("Disclaimer: Educational purposes only.")
+                            
+                            # Voeg samen en begrens op 800 tekens
+                            response_text = "\n\n".join(essential_sections)[:800]
+                        
+                        return response_text
                     else:
                         logger.error(f"DeepSeek API error: {response.status}")
                         error_text = await response.text()
@@ -1123,60 +1165,32 @@ class ChartService:
     def _build_deepseek_prompt(self, instrument, timeframe, market_data):
         """Build prompt for DeepSeek API using market data from Yahoo Finance"""
         prompt = f"""
-Je bent een gespecialiseerde financiële analist voor SigmaPips AI, een technische analyse tool.
-Gegeven de volgende marktgegevens over {instrument} op een {timeframe} timeframe:
+Je bent een financiële analist voor SigmaPips AI.
+Gegeven deze marktgegevens over {instrument} op {timeframe} timeframe:
 
 {market_data}
 
-Analyseer deze gegevens en genereer een technische analyse in exact het volgende sjabloon format:
+Genereer een EXTREEM KORTE technische analyse (<800 tekens) in dit format:
 
 [{instrument}] - {timeframe}
 
-[Trend] - [Bullish of Bearish]
+[Trend] - [Bullish/Bearish]
 
-Sigmapips AI identifies strong [buy/sell] probability. A key [support/resistance] level was spotted near [price] and a [support/resistance] area around [price]
-
-Zone Strength [1-5]/5: [kleur-indicators]
-
-Sigmapips AI Recommendation:
-• Trend: [Bullish/Bearish]
-• Current Price: [huidige prijs]
-• Support: [support level price]
-• Resistance: [resistance level price]
+• Current Price: [prijs]
+• Support: [support price]
+• Resistance: [resistance price]
 • RSI: [RSI value]
-• Zone Strength: [1-5]/5
 • Probability: [percentage]%
 
-Disclaimer: Please note that the information/analysis provided is strictly for study and educational purposes only. It should not be constructed as financial advice and always do your own analysis.
+Disclaimer: Educational purposes only.
 
-BELANGRIJKE RICHTLIJNEN:
-1. Bepaal Bullish of Bearish op basis van technische indicatoren:
-   - Als prijs boven SMA20/SMA50/SMA200 is, MACD boven signaal, RSI boven 50: Bullish
-   - Als prijs onder SMA20/SMA50/SMA200 is, MACD onder signaal, RSI onder 50: Bearish
-   - Weeg meerdere indicatoren samen voor een eindoordeel
-2. Bepaal buy/sell gebaseerd op de trend (buy voor bullish, sell voor bearish)
-3. Support niveaus MOETEN ALTIJD ONDER de huidige prijs liggen
-4. Resistance niveaus MOETEN ALTIJD BOVEN de huidige prijs liggen
-5. Gebruik voor een bearish trend:
-   - Een resistance niveau van resistance_levels (boven huidige prijs)
-   - Een support niveau van support_levels (onder huidige prijs)
-6. Gebruik voor een bullish trend:
-   - Een resistance niveau van resistance_levels (boven huidige prijs)
-   - Een support niveau van support_levels (onder huidige prijs)
-7. Zone Strength moet een waarde hebben van 1-5:
-   - Gebruik 🟢 voor 4-5 (sterk)
-   - Gebruik 🟡 voor 2-3 (gemiddeld)
-   - Gebruik 🔴 voor 1 (zwak)
-8. Probability moet tussen 60-85% zijn, afhankelijk van de sterkte van de signalen
-
-VEREIST:
-- GEBRUIK EXACT DE HUIDIGE PRIJS ("current_price") die in de marktgegevens staat, rond deze niet af en verander deze niet
-- Current Price in de aanbeveling moet exact de "current_price" waarde uit de JSON data zijn
-- Support moet altijd LAGER zijn dan de current_price (neem het hoogste support niveau uit support_levels)
-- Resistance moet altijd HOGER zijn dan de current_price (neem het laagste resistance niveau uit resistance_levels)
-- RSI moet de exacte waarde uit de gegevens zijn, afgerond op 1 decimaal
-- Rond getallen niet af en verander ze niet (vooral niet voor forex paren zoals EURUSD)
-- Het sjabloon moet exact worden gevolgd, niet afwijken in de tekst
+VEREISTEN:
+1. Bepaal Bullish/Bearish obv indicatoren
+2. Support ALTIJD ONDER huidige prijs
+3. Resistance ALTIJD BOVEN huidige prijs
+4. Probability tussen 60-85%
+5. TOTALE OUTPUT MOET KORTER DAN 800 TEKENS ZIJN
+6. GEEN extra uitleg of commentaar
 """
         return prompt
 
@@ -1204,36 +1218,26 @@ VEREIST:
         support_level = round(current_price * random.uniform(0.95, 0.98), 5)
         resistance_level = round(current_price * random.uniform(1.02, 1.05), 5)
         
-        # Generate zone strength (1-5)
-        zone_strength = random.randint(1, 5)
-        strength_color = "🟢" if zone_strength >= 4 else "🟡" if zone_strength >= 2 else "🔴"
+        # Generate random RSI value
+        rsi_value = random.uniform(30, 70)
         
         # Format currency values
         formatted_price = f"{current_price:.5f}" if "JPY" not in instrument else f"{current_price:.3f}"
         formatted_support = f"{support_level:.5f}" if "JPY" not in instrument else f"{support_level:.3f}"
         formatted_resistance = f"{resistance_level:.5f}" if "JPY" not in instrument else f"{resistance_level:.3f}"
         
-        # Generate mock analysis
-        analysis = f"""
-[{instrument}] - {timeframe}
+        # Generate SHORTER mock analysis
+        analysis = f"""[{instrument}] - {timeframe}
 
 [Trend] - {trend}
 
-Sigmapips AI identifies strong {action} probability ({probability}%). A key {'support' if action == 'buy' else 'resistance'} level was spotted near {formatted_support if action == 'buy' else formatted_resistance} and a {'support' if action == 'buy' else 'resistance'} area around {formatted_price}
-
-Zone Strength {zone_strength}/5: {strength_color * zone_strength}
-
-Sigmapips AI Recommendation:
-• Trend: {trend}
 • Current Price: {formatted_price}
 • Support: {formatted_support}
 • Resistance: {formatted_resistance}
-• RSI: {random.uniform(30, 70):.1f}
-• Zone Strength: {zone_strength}/5
+• RSI: {rsi_value:.1f}
 • Probability: {probability}%
 
-Disclaimer: Please note that the information/analysis provided is strictly for study and educational purposes only. It should not be constructed as financial advice and always do your own analysis.
-"""
+Disclaimer: Educational purposes only."""
 
         return img_path, analysis
 
