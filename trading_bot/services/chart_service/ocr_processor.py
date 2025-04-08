@@ -228,22 +228,30 @@ class ChartOCRProcessor:
     def _get_dominant_color(self, colors, x1, y1, x2, y2):
         """Get the dominant color in a specific region"""
         try:
-            region_colors = []
-            for color in colors:
-                # Check if color is in the region
-                if (x1 <= color.pixel_fraction * 1000 <= x2 and 
-                    y1 <= color.pixel_fraction * 1000 <= y2):
-                    region_colors.append({
-                        'color': color.color,
-                        'score': color.score
-                    })
-            
-            if not region_colors:
+            # Instead of using pixel_fraction, we'll just use the dominant colors
+            # and their scores to determine the most likely color for the text
+            if not colors:
+                logger.warning("No colors found in the image")
                 return None
+                
+            # Get the top 5 most dominant colors
+            top_colors = sorted(colors, key=lambda x: x.score, reverse=True)[:5]
             
-            dominant_color = max(region_colors, key=lambda x: x['score'])['color']
-            logger.info(f"Found color - R:{dominant_color.red} G:{dominant_color.green} B:{dominant_color.blue}")
-            return dominant_color
+            # Log the colors we're considering
+            for idx, color in enumerate(top_colors):
+                logger.debug(f"Color {idx + 1}: R:{color.color.red} G:{color.color.green} B:{color.color.blue} Score:{color.score}")
+            
+            # Use the most dominant color that matches our criteria
+            for color in top_colors:
+                if (self._is_red_color(color.color) or 
+                    self._is_green_color(color.color) or 
+                    self._is_yellow_color(color.color)):
+                    logger.info(f"Found matching color - R:{color.color.red} G:{color.color.green} B:{color.color.blue}")
+                    return color.color
+            
+            # If no color matches our criteria, use the most dominant color
+            logger.info(f"Using most dominant color - R:{top_colors[0].color.red} G:{top_colors[0].color.green} B:{top_colors[0].color.blue}")
+            return top_colors[0].color
             
         except Exception as e:
             logger.error(f"Error getting dominant color: {str(e)}")
@@ -274,27 +282,30 @@ class ChartOCRProcessor:
     
     def _is_red_color(self, color):
         """Check if a color is red"""
-        is_red = (color.red > 150 and 
-                color.green < 100 and 
-                color.blue < 100)
+        is_red = (color.red > 120 and 
+                color.green < 120 and 
+                color.blue < 120 and
+                color.red > max(color.green, color.blue))
         if is_red:
             logger.info(f"Detected RED color - R:{color.red} G:{color.green} B:{color.blue}")
         return is_red
     
     def _is_green_color(self, color):
         """Check if a color is green"""
-        is_green = (color.green > 150 and 
-                color.red < 100 and 
-                color.blue < 100)
+        is_green = (color.green > 120 and 
+                color.red < 120 and 
+                color.blue < 120 and
+                color.green > max(color.red, color.blue))
         if is_green:
             logger.info(f"Detected GREEN color - R:{color.red} G:{color.green} B:{color.blue}")
         return is_green
     
     def _is_yellow_color(self, color):
         """Check if a color is yellow/orange"""
-        is_yellow = (color.red > 150 and 
-                color.green > 150 and 
-                color.blue < 100)
+        is_yellow = (color.red > 120 and 
+                color.green > 120 and 
+                color.blue < 100 and
+                abs(color.red - color.green) < 50)  # Yellow should have similar red and green values
         if is_yellow:
             logger.info(f"Detected YELLOW color - R:{color.red} G:{color.green} B:{color.blue}")
         return is_yellow
