@@ -18,14 +18,48 @@ class ChartOCRProcessor:
         """Initialize the OCR processor"""
         # Initialize Google Vision client
         try:
-            credentials = service_account.Credentials.from_service_account_file(
-                'google_vision_credentials.json',
-                scopes=['https://www.googleapis.com/auth/cloud-platform']
-            )
-            self.vision_client = vision.ImageAnnotatorClient(credentials=credentials)
-            logger.info("Google Vision client initialized successfully")
+            # First check if credentials are provided as env var JSON
+            credentials_json = os.environ.get("GOOGLE_CREDENTIALS_JSON")
+            credentials_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "google_vision_credentials.json")
+            
+            logger.info(f"GOOGLE_APPLICATION_CREDENTIALS path: {credentials_path}")
+            
+            # If we have JSON credentials in env var, write them to a file
+            if credentials_json:
+                logger.info("Found Google credentials in environment variable, writing to file")
+                try:
+                    os.makedirs(os.path.dirname(credentials_path), exist_ok=True)
+                    with open(credentials_path, 'w') as f:
+                        f.write(credentials_json)
+                    logger.info(f"Credentials file created at: {credentials_path}")
+                except Exception as write_error:
+                    logger.error(f"Failed to write credentials file: {str(write_error)}")
+                    logger.error(f"Current working directory: {os.getcwd()}")
+                    logger.error(f"Directory listing of /app: {os.listdir('/app')}")
+            else:
+                logger.warning("No GOOGLE_CREDENTIALS_JSON environment variable found")
+            
+            logger.info(f"Checking if credentials file exists at: {credentials_path}")
+            if os.path.exists(credentials_path):
+                logger.info(f"Credentials file found, size: {os.path.getsize(credentials_path)} bytes")
+                with open(credentials_path, 'r') as f:
+                    logger.info(f"First few characters of credentials file: {f.read()[:50]}...")
+                
+                credentials = service_account.Credentials.from_service_account_file(
+                    credentials_path,
+                    scopes=['https://www.googleapis.com/auth/cloud-platform']
+                )
+                self.vision_client = vision.ImageAnnotatorClient(credentials=credentials)
+                logger.info("Google Vision client initialized successfully")
+            else:
+                logger.error(f"Google Vision credentials file not found at: {credentials_path}")
+                logger.error(f"Current working directory: {os.getcwd()}")
+                logger.error(f"Directory listing of current directory: {os.listdir('.')}")
+                self.vision_client = None
         except Exception as e:
             logger.error(f"Failed to initialize Google Vision client: {str(e)}")
+            import traceback
+            logger.error(f"Full traceback: {traceback.format_exc()}")
             self.vision_client = None
             
         # Fallback to OCR.space if Google Vision fails
