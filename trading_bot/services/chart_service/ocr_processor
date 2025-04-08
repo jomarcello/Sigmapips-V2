@@ -16,8 +16,8 @@ class ChartOCRProcessor:
         """Initialize the OCR processor"""
         self.api_key = os.environ.get("OCR_SPACE_API_KEY")
         if not self.api_key:
-            logger.warning("No OCR.space API key found in environment variables")
-            self.api_key = "K85849887488957"  # Default free tier API key with limited quota
+            logger.warning("No OCR.space API key found in environment variables, using default key")
+            self.api_key = "K89271717488957"  # Using the provided API key
         
         logger.info(f"ChartOCRProcessor initialized with OCR.space API")
         
@@ -82,44 +82,79 @@ class ChartOCRProcessor:
             logger.info(f"Reading image file: {image_path}")
             
             # Read image as base64
-            with open(image_path, 'rb') as image_file:
-                base64_image = base64.b64encode(image_file.read()).decode('utf-8')
+            try:
+                with open(image_path, 'rb') as image_file:
+                    image_data = image_file.read()
+                    file_size = len(image_data)
+                    logger.info(f"Image file size: {file_size} bytes")
+                    
+                    if file_size > 1024 * 1024:
+                        logger.warning(f"Image file is large ({file_size/1024/1024:.2f} MB), may exceed API limits")
+                    
+                    base64_image = base64.b64encode(image_data).decode('utf-8')
+                    logger.info(f"Image successfully encoded to base64, length: {len(base64_image)}")
+            except Exception as file_error:
+                logger.error(f"Error reading image file: {str(file_error)}")
+                return ""
             
             # Send to OCR.space API
             url = 'https://api.ocr.space/parse/image'
-            payload = {
-                'apikey': self.api_key,
-                'base64Image': f'data:image/png;base64,{base64_image}',
-                'language': 'eng',
-                'scale': 'true',
-                'isOverlayRequired': 'false',
-                'OCREngine': '2'  # Use more advanced engine
-            }
             
-            logger.info("Sending image to OCR.space API")
-            async with aiohttp.ClientSession() as session:
-                async with session.post(url, data=payload) as response:
-                    if response.status != 200:
-                        logger.error(f"OCR.space API error: {response.status}")
-                        return ""
-                    
-                    result = await response.json()
-                    
-                    if result.get('IsErroredOnProcessing'):
-                        logger.error(f"OCR processing error: {result.get('ErrorMessage', 'Unknown error')}")
-                        return ""
-                    
-                    parsed_results = result.get('ParsedResults', [])
-                    if not parsed_results:
-                        logger.warning("No OCR results returned")
-                        return ""
-                    
-                    ocr_text = parsed_results[0].get('ParsedText', '')
-                    logger.info(f"OCR.space API returned {len(ocr_text)} chars of text")
-                    return ocr_text
+            try:
+                # Try a direct file upload first - more reliable for larger images
+                # First try with file upload
+                logger.info(f"Sending image to OCR.space API via file upload")
+                form_data = aiohttp.FormData()
+                form_data.add_field('apikey', self.api_key)
+                form_data.add_field('language', 'eng')
+                form_data.add_field('OCREngine', '2')  # Use more advanced engine
+                form_data.add_field('scale', 'true')
+                form_data.add_field('isOverlayRequired', 'false')
+                form_data.add_field('file', image_data, 
+                                   filename=os.path.basename(image_path),
+                                   content_type='image/png')
+                
+                async with aiohttp.ClientSession() as session:
+                    async with session.post(url, data=form_data) as response:
+                        logger.info(f"OCR.space API response status: {response.status}")
+                        if response.status != 200:
+                            error_text = await response.text()
+                            logger.error(f"OCR.space API error: {response.status}, Response: {error_text}")
+                            return ""
+                        
+                        try:
+                            result = await response.json()
+                            logger.info(f"OCR.space API response: {json.dumps(result)[:200]}...")
+                        except Exception as json_error:
+                            logger.error(f"Error parsing JSON response: {str(json_error)}")
+                            response_text = await response.text()
+                            logger.error(f"Raw response: {response_text[:500]}")
+                            return ""
+                        
+                        if result.get('IsErroredOnProcessing'):
+                            logger.error(f"OCR processing error: {result.get('ErrorMessage', 'Unknown error')}")
+                            logger.error(f"Full error details: {json.dumps(result)}")
+                            return ""
+                        
+                        parsed_results = result.get('ParsedResults', [])
+                        if not parsed_results:
+                            logger.warning("No OCR results returned")
+                            return ""
+                        
+                        ocr_text = parsed_results[0].get('ParsedText', '')
+                        logger.info(f"OCR.space API returned {len(ocr_text)} chars of text")
+                        return ocr_text
+            
+            except Exception as api_error:
+                logger.error(f"Error calling OCR.space API: {str(api_error)}")
+                import traceback
+                logger.error(f"API call traceback: {traceback.format_exc()}")
+                return ""
         
         except Exception as e:
             logger.error(f"Error in OCR processing: {str(e)}")
+            import traceback
+            logger.error(traceback.format_exc())
             return ""
     
     def _extract_data_from_ocr_text(self, ocr_text: str) -> Dict[str, Any]:
@@ -135,6 +170,9 @@ class ChartOCRProcessor:
         data = {}
         
         try:
+            # Log the full OCR text for debugging
+            logger.info(f"Full OCR text for extraction:\n{ocr_text}")
+            
             # Extract price
             price_patterns = [
                 r'(?:price|current)[:\s]+?(\d+\.\d+)',  # "price: 1.2345" or "current: 1.2345"
@@ -178,6 +216,8 @@ class ChartOCRProcessor:
             
         except Exception as e:
             logger.error(f"Error extracting data from OCR text: {str(e)}")
+            import traceback
+            logger.error(traceback.format_exc())
             return {}
 
 
