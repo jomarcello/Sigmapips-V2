@@ -68,15 +68,7 @@ class ChartOCRProcessor:
         logger.info(f"ChartOCRProcessor initialized with Google Vision API")
 
     async def process_chart_image(self, image_path: str) -> Dict[str, Any]:
-        """
-        Process a chart image to extract price and indicator data using Google Vision API
-        
-        Args:
-            image_path: Path to the chart image
-            
-        Returns:
-            Dict with extracted data (price, indicators, etc.)
-        """
+        """Process chart image to extract specific price levels based on color and context"""
         if not os.path.exists(image_path):
             logger.error(f"Image file not found: {image_path}")
             return {}
@@ -91,90 +83,99 @@ class ChartOCRProcessor:
             # Create image object for Google Vision
             image = vision.Image(content=content)
             
-            # Perform text detection
-            response = self.vision_client.text_detection(image=image)
-            texts = response.text_annotations
-
-            if not texts:
+            # Get both text detection and image properties
+            text_response = self.vision_client.text_detection(image=image)
+            color_response = self.vision_client.image_properties(image=image)
+            
+            if not text_response.text_annotations:
                 logger.warning("No text detected in image")
                 return {}
             
-            # Get the full text
-            ocr_text = texts[0].description
-            logger.info(f"Full OCR text: {ocr_text}")
+            # Get all detected text blocks with their positions
+            texts = text_response.text_annotations[1:]  # Skip first one as it contains all text
+            colors = color_response.image_properties_annotation.dominant_colors.colors
             
-            # Extract price levels
+            # Extract price levels with their context
             price_levels = []
-            for text in texts[1:]:  # Skip the first one as it contains all text
+            current_price = None
+            key_levels = []
+            support_resistance = []
+            
+            for text in texts:
                 description = text.description
                 price_match = re.search(r'(\d+\.\d+)', description)
-                if price_match:
-                    price_value = float(price_match.group(1))
-                    if price_value > 10:  # Skip unrealistic forex prices
-                        continue
+                if not price_match:
+                    continue
                     
-                    # Get the bounding box vertices
-                    vertices = [(vertex.x, vertex.y) for vertex in text.bounding_poly.vertices]
-                    x1 = min(v[0] for v in vertices)
-                    y1 = min(v[1] for v in vertices)
-                    x2 = max(v[0] for v in vertices)
-                    y2 = max(v[1] for v in vertices)
-                    
-                    price_info = {
-                        'value': price_value,
-                        'text': description,
-                        'x1': x1,
-                        'y1': y1,
-                        'x2': x2,
-                        'y2': y2
-                    }
-                    
-                    price_levels.append(price_info)
+                price_value = float(price_match.group(1))
+                if price_value > 10:  # Skip unrealistic forex prices
+                    continue
+                
+                # Get bounding box
+                vertices = [(vertex.x, vertex.y) for vertex in text.bounding_poly.vertices]
+                x1 = min(v[0] for v in vertices)
+                y1 = min(v[1] for v in vertices)
+                x2 = max(v[0] for v in vertices)
+                y2 = max(v[1] for v in vertices)
+                
+                # Get the dominant color in this region
+                region_color = self._get_dominant_color(colors, x1, y1, x2, y2)
+                if not region_color:
+                    continue
+                
+                # Check if there's a timestamp below this price
+                has_timestamp = self._has_timestamp_below(texts, x1, x2, y2)
+                
+                price_info = {
+                    'value': price_value,
+                    'color': region_color,
+                    'has_timestamp': has_timestamp,
+                    'y_pos': y1  # Store y-position for sorting
+                }
+                
+                # Classify the price based on color and timestamp
+                if has_timestamp and (self._is_red_color(region_color) or self._is_green_color(region_color)):
+                    current_price = price_info
+                elif self._is_red_color(region_color) and not has_timestamp:
+                    key_levels.append(price_info)
+                elif self._is_yellow_color(region_color):
+                    support_resistance.append(price_info)
             
-            # Sort price levels by value
-            price_levels.sort(key=lambda x: x['value'], reverse=True)
-            
-            # Process the extracted data
+            # Process the collected data
             data = {}
             
-            if price_levels:
-                # Find current price (usually in the middle)
-                price_values = [p['value'] for p in price_levels]
-                min_price = min(price_values)
-                max_price = max(price_values)
-                mid_price = (min_price + max_price) / 2
-                current_price = min(price_levels, key=lambda x: abs(x['value'] - mid_price))['value']
-                data['current_price'] = current_price
+            if current_price:
+                data['current_price'] = current_price['value']
+                logger.info(f"Current price: {current_price['value']}")
                 
-                # Classify support and resistance levels
+                # Classify support/resistance levels based on current price
                 supports = []
                 resistances = []
                 
-                for price in price_levels:
-                    value = price['value']
-                    if value < current_price:
-                        supports.append(value)
-                    elif value > current_price:
-                        resistances.append(value)
+                # Add key levels (red without timestamp)
+                for level in key_levels:
+                    if level['value'] < current_price['value']:
+                        supports.append(level['value'])
+                    else:
+                        resistances.append(level['value'])
                 
-                # Sort levels
-                supports.sort(reverse=True)  # Highest support first
-                resistances.sort()  # Lowest resistance first
+                # Add yellow support/resistance levels
+                for level in support_resistance:
+                    if level['value'] < current_price['value']:
+                        supports.append(level['value'])
+                    else:
+                        resistances.append(level['value'])
                 
+                # Sort and store the levels
                 if supports:
-                    data['support_levels'] = supports[:3]  # Take top 3
-                    logger.info(f"Support levels: {supports[:3]}")
+                    supports.sort(reverse=True)
+                    data['support_levels'] = supports
+                    logger.info(f"Support levels: {supports}")
                 
                 if resistances:
-                    data['resistance_levels'] = resistances[:3]  # Take top 3
-                    logger.info(f"Resistance levels: {resistances[:3]}")
-            
-            # Extract RSI if present
-            rsi_match = re.search(r'RSI[:\s]+(\d+\.?\d*)', ocr_text, re.IGNORECASE)
-            if rsi_match:
-                rsi = float(rsi_match.group(1))
-                logger.info(f"RSI extracted from OCR: {rsi}")
-                data['rsi'] = rsi
+                    resistances.sort()
+                    data['resistance_levels'] = resistances
+                    logger.info(f"Resistance levels: {resistances}")
             
             return data
             
@@ -183,6 +184,69 @@ class ChartOCRProcessor:
             import traceback
             logger.error(f"Full traceback: {traceback.format_exc()}")
             return {}
+    
+    def _get_dominant_color(self, colors, x1, y1, x2, y2):
+        """Get the dominant color in a specific region"""
+        try:
+            region_colors = []
+            for color in colors:
+                # Check if color is in the region
+                if (x1 <= color.pixel_fraction * 1000 <= x2 and 
+                    y1 <= color.pixel_fraction * 1000 <= y2):
+                    region_colors.append({
+                        'color': color.color,
+                        'score': color.score
+                    })
+            
+            if not region_colors:
+                return None
+            
+            return max(region_colors, key=lambda x: x['score'])['color']
+            
+        except Exception as e:
+            logger.error(f"Error getting dominant color: {str(e)}")
+            return None
+    
+    def _has_timestamp_below(self, texts, x1, x2, y2, max_distance=20):
+        """Check if there's a timestamp-like text below the price"""
+        try:
+            for text in texts:
+                # Get text position
+                vertices = [(vertex.x, vertex.y) for vertex in text.bounding_poly.vertices]
+                text_x1 = min(v[0] for v in vertices)
+                text_x2 = max(v[0] for v in vertices)
+                text_y1 = min(v[1] for v in vertices)
+                
+                # Check if text is below the price and horizontally aligned
+                if (text_y1 > y2 and text_y1 <= y2 + max_distance and
+                    text_x1 >= x1 - max_distance and text_x2 <= x2 + max_distance):
+                    # Check if text matches timestamp pattern (e.g., "32:49")
+                    if re.match(r'\d{2}:\d{2}', text.description):
+                        return True
+            
+            return False
+            
+        except Exception as e:
+            logger.error(f"Error checking for timestamp: {str(e)}")
+            return False
+    
+    def _is_red_color(self, color):
+        """Check if a color is red"""
+        return (color.red > 150 and 
+                color.green < 100 and 
+                color.blue < 100)
+    
+    def _is_green_color(self, color):
+        """Check if a color is green"""
+        return (color.green > 150 and 
+                color.red < 100 and 
+                color.blue < 100)
+    
+    def _is_yellow_color(self, color):
+        """Check if a color is yellow/orange"""
+        return (color.red > 150 and 
+                color.green > 150 and 
+                color.blue < 100)
 
 
 # Voorbeeld gebruik:
