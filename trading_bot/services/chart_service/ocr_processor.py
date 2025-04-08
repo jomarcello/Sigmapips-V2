@@ -195,7 +195,7 @@ class ChartOCRProcessor:
                 import traceback
                 logger.error(f"API call traceback: {traceback.format_exc()}")
                 return {}
-        
+            
         except Exception as e:
             logger.error(f"Error in OCR processing: {str(e)}")
             import traceback
@@ -220,6 +220,15 @@ class ChartOCRProcessor:
             logger.info(f"Full OCR text for extraction:\n{ocr_text}")
             logger.info(f"Lines with coordinates: {json.dumps(lines_with_coords)}")
             
+            # First find special labels and their positions
+            daily_high_pos = None
+            weekly_low_pos = None
+            for line in lines_with_coords:
+                if "Daily High" in line.get('text', ''):
+                    daily_high_pos = line.get('y1', 0)
+                elif "SUP weekty Lo" in line.get('text', '') or "SUP weekly Lo" in line.get('text', ''):
+                    weekly_low_pos = line.get('y1', 0)
+
             # Extract numeric values (price levels) with positions
             price_levels = []
             
@@ -228,64 +237,65 @@ class ChartOCRProcessor:
                 price_match = re.search(r'(\d+\.\d+)', line_text)
                 if price_match:
                     price_value = float(price_match.group(1))
+                    # Filter out obviously wrong values (like 11.98426)
+                    if price_value > 10:  # Skip unrealistic forex prices
+                        continue
+                    
                     price_levels.append({
                         'value': price_value,
                         'text': line_text,
-                        'y_pos': line.get('y1', 0)  # Use top Y coordinate
+                        'y_pos': line.get('y1', 0),  # Use top Y coordinate
+                        'is_daily_high': daily_high_pos and abs(line.get('y1', 0) - daily_high_pos) < 50,
+                        'is_weekly_low': weekly_low_pos and abs(line.get('y1', 0) - weekly_low_pos) < 50
                     })
             
-            # Sort price levels by Y position (top to bottom)
-            price_levels.sort(key=lambda x: x['y_pos'])
-            
-            logger.info(f"Extracted price levels with positions: {json.dumps(price_levels)}")
+            # Sort price levels by value (high to low)
+            price_levels.sort(key=lambda x: x['value'], reverse=True)
             
             if price_levels:
-                # Analyze price levels to identify:
-                # 1. Current price (typically green or in the middle)
-                # 2. Support levels (below current price)
-                # 3. Resistance levels (above current price)
-                # 4. Key levels (may be highlighted in red)
+                # Find current price (usually in the middle of the range)
+                price_values = [p['value'] for p in price_levels]
+                min_price = min(price_values)
+                max_price = max(price_values)
+                mid_price = (min_price + max_price) / 2
                 
-                # Identify current price (we'll assume it's in the middle or has special formatting)
-                # For simplicity, we'll use a heuristic approach
-                if len(price_levels) >= 3:
-                    # First detect unique prices (avoid duplicates)
-                    unique_prices = []
-                    for p in price_levels:
-                        if not any(abs(p['value'] - up['value']) < 0.0001 for up in unique_prices):
-                            unique_prices.append(p)
-                    
-                    # Sort by value
-                    sorted_prices = sorted(unique_prices, key=lambda x: x['value'])
-                    
-                    # If we have enough price levels, find middle one as current price
-                    middle_idx = len(sorted_prices) // 2
-                    current_price = sorted_prices[middle_idx]['value']
-                    data['current_price'] = current_price
-                    logger.info(f"Selected current price: {current_price}")
-                    
-                    # Find support and resistance levels
-                    support_levels = [p['value'] for p in sorted_prices if p['value'] < current_price]
-                    resistance_levels = [p['value'] for p in sorted_prices if p['value'] > current_price]
-                    
-                    # If we have enough levels, use them
-                    if support_levels:
-                        data['support_levels'] = support_levels
-                        logger.info(f"Support levels: {support_levels}")
-                    
-                    if resistance_levels:
-                        data['resistance_levels'] = resistance_levels
-                        logger.info(f"Resistance levels: {resistance_levels}")
-                    
-                    # Try to detect key levels (may be the highest or lowest values)
-                    if len(sorted_prices) >= 2:
-                        data['key_levels'] = [sorted_prices[0]['value'], sorted_prices[-1]['value']]
-                        logger.info(f"Key levels: {data['key_levels']}")
-                else:
-                    # If we don't have enough price levels, use the first one as current price
-                    data['current_price'] = price_levels[0]['value']
-                    logger.info(f"Only one price level, using as current price: {data['current_price']}")
-            
+                # Find the price closest to the middle of the range
+                current_price = min(price_levels, key=lambda x: abs(x['value'] - mid_price))['value']
+                data['current_price'] = current_price
+                
+                # Classify support and resistance levels
+                supports = []
+                resistances = []
+                key_levels = []
+                
+                for price in price_levels:
+                    if price['is_daily_high']:
+                        resistances.append(price['value'])
+                        key_levels.append(price['value'])
+                    elif price['is_weekly_low']:
+                        supports.append(price['value'])
+                        key_levels.append(price['value'])
+                    elif price['value'] < current_price:
+                        supports.append(price['value'])
+                    elif price['value'] > current_price:
+                        resistances.append(price['value'])
+                
+                # Sort levels
+                supports.sort(reverse=True)  # Highest support first
+                resistances.sort()  # Lowest resistance first
+                
+                if supports:
+                    data['support_levels'] = supports
+                    logger.info(f"Support levels: {supports}")
+                
+                if resistances:
+                    data['resistance_levels'] = resistances
+                    logger.info(f"Resistance levels: {resistances}")
+                
+                if key_levels:
+                    data['key_levels'] = sorted(key_levels)
+                    logger.info(f"Key levels: {key_levels}")
+                
             # Extract other indicators if present
             # RSI
             rsi_match = re.search(r'RSI[:\s]+(\d+\.?\d*)', ocr_text, re.IGNORECASE)
