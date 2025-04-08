@@ -30,7 +30,6 @@ playwright==1.40.0
 pytesseract>=0.3.13
 
 # Data fetching
-yfinance==0.2.35
 lxml==4.9.3
 
 # Vector database
