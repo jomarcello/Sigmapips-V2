@@ -571,32 +571,31 @@ class ChartService:
 
     async def get_technical_analysis(self, instrument: str, timeframe: str = "1h") -> Union[bytes, str]:
         """
-        Get technical analysis for an instrument with timeframe using Tavily and DeepSeek APIs.
+        Get technical analysis for an instrument with timeframe using Yahoo Finance and DeepSeek APIs.
         """
         try:
             # First get the chart image
             img_path = await self.get_chart(instrument, timeframe)
             
-            # Get the API keys
-            tavily_api_key = os.getenv("TAVILY_API_KEY", "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")
+            # Get the DeepSeek API key
             deepseek_api_key = os.getenv("DEEPSEEK_API_KEY")
             
-            if not tavily_api_key or not deepseek_api_key:
-                logger.warning("API keys missing, falling back to mock data")
+            if not deepseek_api_key:
+                logger.warning("DeepSeek API key missing, falling back to mock data")
                 return await self._generate_mock_analysis(instrument, timeframe, img_path)
             
-            # Get market data using Tavily API
+            # Get market data using Yahoo Finance
             try:
-                logger.info(f"Getting market data for {instrument} from Tavily")
-                tavily_data = await self._get_tavily_data(tavily_api_key, instrument, timeframe)
+                logger.info(f"Getting market data for {instrument} from Yahoo Finance")
+                yahoo_data = await self._get_yahoo_finance_data(instrument, timeframe)
                 
-                if not tavily_data:
-                    logger.warning("No data from Tavily, falling back to mock data")
+                if not yahoo_data:
+                    logger.warning("No data from Yahoo Finance, falling back to mock data")
                     return await self._generate_mock_analysis(instrument, timeframe, img_path)
                 
                 # Format data using DeepSeek API
                 logger.info(f"Formatting data with DeepSeek for {instrument}")
-                analysis = await self._format_with_deepseek(deepseek_api_key, instrument, timeframe, tavily_data)
+                analysis = await self._format_with_deepseek(deepseek_api_key, instrument, timeframe, yahoo_data)
                 
                 if not analysis:
                     logger.warning("Failed to format with DeepSeek, falling back to mock data")
@@ -612,90 +611,175 @@ class ChartService:
             logger.error(f"Error in get_technical_analysis: {str(e)}")
             return None, "Error generating technical analysis."
 
-    async def get_technical_chart(self, instrument: str, timeframe: str = "1h") -> str:
-        """
-        Get a chart image for technical analysis.
-        This is a wrapper around get_chart that ensures a file path is returned.
-        
-        Args:
-            instrument: The trading instrument (e.g., 'EURUSD')
-            timeframe: The timeframe to use (default '1h')
-            
-        Returns:
-            str: Path to the saved chart image
-        """
+    async def _get_yahoo_finance_data(self, instrument: str, timeframe: str):
+        """Get market data from Yahoo Finance"""
         try:
-            logger.info(f"Getting technical chart for {instrument} ({timeframe})")
+            import yfinance as yf
+            import pandas as pd
+            import numpy as np
+            import json
+            from datetime import datetime, timedelta
             
-            # Get the chart image using the existing method
-            chart_data = await self.get_chart(instrument, timeframe)
+            # Map instrument naar Yahoo Finance symbool
+            yahoo_symbols = {
+                # Forex
+                "EURUSD": "EURUSD=X", "GBPUSD": "GBPUSD=X", "USDJPY": "USDJPY=X",
+                "AUDUSD": "AUDUSD=X", "USDCAD": "USDCAD=X", "NZDUSD": "NZDUSD=X",
+                "EURGBP": "EURGBP=X", "EURJPY": "EURJPY=X", "GBPJPY": "GBPJPY=X",
+                "USDCHF": "USDCHF=X", "EURCHF": "EURCHF=X", "GBPCHF": "GBPCHF=X",
+                # Crypto
+                "BTCUSD": "BTC-USD", "ETHUSD": "ETH-USD", "XRPUSD": "XRP-USD",
+                "SOLUSD": "SOL-USD", "BNBUSD": "BNB-USD", "ADAUSD": "ADA-USD",
+                "DOGUSD": "DOGE-USD", "DOTUSD": "DOT-USD", "LNKUSD": "LINK-USD",
+                # Indices
+                "US500": "^GSPC", "US30": "^DJI", "US100": "^NDX", 
+                "UK100": "^FTSE", "DE40": "^GDAXI", "FR40": "^FCHI",
+                "JP225": "^N225", "AU200": "^AXJO", 
+                # Commodities
+                "XAUUSD": "GC=F", "XTIUSD": "CL=F"
+            }
             
-            if not chart_data:
-                logger.error(f"Failed to get chart for {instrument}")
-                return None
-                
-            # Save the chart to a file
-            timestamp = int(datetime.now().timestamp())
-            os.makedirs('data/charts', exist_ok=True)
-            file_path = f"data/charts/{instrument.lower()}_{timeframe}_{timestamp}.png"
+            # Bepaal het Yahoo Finance symbool
+            symbol = yahoo_symbols.get(instrument)
+            if not symbol:
+                # Als het instrument niet in de mapping staat, probeer het direct
+                symbol = instrument.replace("/", "-")
+                if "USD" in symbol and not symbol.endswith("USD"):
+                    symbol = symbol + "-USD"
             
-            # Ensure chart_data is in the correct format (bytes)
-            if isinstance(chart_data, bytes):
-                with open(file_path, 'wb') as f:
-                    f.write(chart_data)
+            logger.info(f"Using Yahoo Finance symbol: {symbol} for {instrument}")
+            
+            # Bepaal de tijdsperiode op basis van timeframe
+            end_date = datetime.now()
+            
+            if timeframe == "1h":
+                start_date = end_date - timedelta(days=14)  # 2 weeks for hourly data
+                interval = "1h"
+            elif timeframe == "4h":
+                start_date = end_date - timedelta(days=60)  # 60 days for 4h data
+                interval = "1h"  # Yahoo has no 4h, so we use 1h
+            elif timeframe == "1d":
+                start_date = end_date - timedelta(days=180)  # 6 months for daily data
+                interval = "1d"
             else:
-                logger.error(f"Chart data is not in bytes format: {type(chart_data)}")
+                start_date = end_date - timedelta(days=14)
+                interval = "1h"
+            
+            # Fetch data from Yahoo Finance
+            logger.info(f"Fetching {interval} data for {symbol} from {start_date} to {end_date}")
+            data = yf.download(symbol, start=start_date, end=end_date, interval=interval)
+            
+            if data.empty:
+                logger.warning(f"No data returned from Yahoo Finance for {symbol}")
                 return None
                 
-            logger.info(f"Saved technical chart to {file_path}")
-            return file_path
+            logger.info(f"Got {len(data)} data points for {symbol}")
+            
+            # Calculate technical indicators
+            data['SMA20'] = data['Close'].rolling(window=20).mean()
+            data['SMA50'] = data['Close'].rolling(window=50).mean()
+            data['SMA200'] = data['Close'].rolling(window=200).mean()
+            data['RSI'] = self._calculate_rsi(data['Close'])
+            data['MACD'], data['Signal'], data['Hist'] = self._calculate_macd(data['Close'])
+            
+            # Calculate Bollinger Bands
+            data['MA20'] = data['Close'].rolling(window=20).mean()
+            data['SD20'] = data['Close'].rolling(window=20).std()
+            data['UpperBand'] = data['MA20'] + (data['SD20'] * 2)
+            data['LowerBand'] = data['MA20'] - (data['SD20'] * 2)
+            
+            # Get current values
+            current_close = data['Close'].iloc[-1]
+            current_open = data['Open'].iloc[-1]
+            current_high = data['High'].iloc[-1]
+            current_low = data['Low'].iloc[-1]
+            current_sma20 = data['SMA20'].iloc[-1]
+            current_sma50 = data['SMA50'].iloc[-1]
+            current_sma200 = data['SMA200'].iloc[-1]
+            current_rsi = data['RSI'].iloc[-1]
+            current_macd = data['MACD'].iloc[-1]
+            current_signal = data['Signal'].iloc[-1]
+            
+            # Determine support and resistance levels
+            supports, resistances = self._find_support_resistance(data, lookback=20)
+            
+            # Prepare the analysis results in a structured format
+            market_data = {
+                "instrument": instrument,
+                "timeframe": timeframe,
+                "current_price": current_close,
+                "open": current_open,
+                "high": current_high,
+                "low": current_low,
+                "volume": data['Volume'].iloc[-1] if 'Volume' in data.columns else None,
+                "sma20": current_sma20,
+                "sma50": current_sma50,
+                "sma200": current_sma200,
+                "rsi": current_rsi,
+                "macd": current_macd,
+                "macd_signal": current_signal,
+                "macd_hist": data['Hist'].iloc[-1],
+                "upper_band": data['UpperBand'].iloc[-1],
+                "lower_band": data['LowerBand'].iloc[-1],
+                "trend_indicators": {
+                    "price_above_sma20": current_close > current_sma20,
+                    "price_above_sma50": current_close > current_sma50,
+                    "price_above_sma200": current_close > current_sma200,
+                    "sma20_above_sma50": current_sma20 > current_sma50,
+                    "macd_above_signal": current_macd > current_signal,
+                    "rsi_above_50": current_rsi > 50,
+                    "rsi_oversold": current_rsi < 30,
+                    "rsi_overbought": current_rsi > 70
+                },
+                "support_levels": supports[:3],  # Top 3 support levels
+                "resistance_levels": resistances[:3],  # Top 3 resistance levels
+                "price_change_1d": (current_close / data['Close'].iloc[-2] - 1) * 100 if len(data) > 1 else 0,
+                "price_change_1w": (current_close / data['Close'].iloc[-7] - 1) * 100 if len(data) > 7 else 0,
+                "historical_volatility": data['Close'].pct_change().std() * 100,  # Daily volatility in %
+            }
+            
+            # Convert structured data to string format for DeepSeek
+            market_data_str = json.dumps(market_data, indent=2)
+            logger.info(f"Prepared market data for {instrument} with {len(market_data_str)} characters")
+            
+            return market_data_str
             
         except Exception as e:
-            logger.error(f"Error getting technical chart: {str(e)}")
+            logger.error(f"Error getting Yahoo Finance data: {str(e)}")
+            import traceback
+            logger.error(traceback.format_exc())
             return None
 
-    async def _get_tavily_data(self, api_key, instrument, timeframe):
-        """Get market data from Tavily API"""
-        import aiohttp
+    def _find_support_resistance(self, df, lookback=20):
+        """Find support and resistance levels from price data"""
+        supports = []
+        resistances = []
         
-        query = self._build_tavily_query(instrument, timeframe)
-        logger.info(f"Tavily query for {instrument}: {query}")
+        for i in range(lookback, len(df)):
+            # Check if this point is a support (low point)
+            if df['Low'].iloc[i] <= df['Low'].iloc[i-1] and df['Low'].iloc[i] <= df['Low'].iloc[i+1 if i+1 < len(df) else i]:
+                supports.append(df['Low'].iloc[i])
+            
+            # Check if this point is a resistance (high point)
+            if df['High'].iloc[i] >= df['High'].iloc[i-1] and df['High'].iloc[i] >= df['High'].iloc[i+1 if i+1 < len(df) else i]:
+                resistances.append(df['High'].iloc[i])
         
-        data = {
-            "query": query,
-            "search_depth": "advanced",
-            "include_answer": True,
-            "include_raw_content": True,
-            "max_results": 8
-        }
+        # Sort levels and remove duplicates within a small margin
+        supports = sorted(set([round(s, 5) for s in supports]), reverse=True)
+        resistances = sorted(set([round(r, 5) for r in resistances]))
         
-        headers = {
-            "Content-Type": "application/json",
-            "X-API-Key": api_key
-        }
-        
-        try:
-            logger.info(f"Sending request to Tavily API for {instrument}")
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    "https://api.tavily.com/search",
-                    headers=headers,
-                    json=data
-                ) as response:
-                    if response.status == 200:
-                        result = await response.json()
-                        logger.info(f"Tavily API response received for {instrument}")
-                        return result
-                    else:
-                        logger.error(f"Tavily API error: {response.status}")
-                        error_text = await response.text()
-                        logger.error(f"Error details: {error_text}")
-                        return None
-        except Exception as e:
-            logger.error(f"Error calling Tavily API: {str(e)}")
-            return None
+        return supports, resistances
 
-    async def _format_with_deepseek(self, api_key, instrument, timeframe, tavily_data):
+    def _calculate_macd(self, prices, slow=26, fast=12, signal=9):
+        """Calculate MACD indicator"""
+        exp1 = prices.ewm(span=fast, adjust=False).mean()
+        exp2 = prices.ewm(span=slow, adjust=False).mean()
+        macd = exp1 - exp2
+        signal_line = macd.ewm(span=signal, adjust=False).mean()
+        histogram = macd - signal_line
+        return macd, signal_line, histogram
+
+    async def _format_with_deepseek(self, api_key, instrument, timeframe, market_data):
         """Format market data using DeepSeek API"""
         import aiohttp
         
@@ -704,22 +788,8 @@ class ChartService:
             api_key = "sk-4vAEJ2DqOLUMibF9X6PqMFtYTqGUfGGkVR2gOemz5LSdcqWA"
             logger.warning(f"Using fallback DeepSeek API key for {instrument}")
         
-        # Extract relevant data from Tavily response
-        answer = tavily_data.get("answer", "")
-        content = answer
-        
-        # Also include raw content from sources
-        sources = tavily_data.get("sources", [])
-        for i, source in enumerate(sources[:3]):  # Use first 3 sources max
-            source_content = source.get("content", "").strip()
-            if source_content:
-                content += f"\n\nSource {i+1}:\n{source_content[:1000]}"  # Limit source content
-        
-        # Log content length for debugging
-        logger.info(f"Content length for DeepSeek: {len(content)} characters")
-        
         # Build the prompt
-        prompt = self._build_deepseek_prompt(instrument, timeframe, content)
+        prompt = self._build_deepseek_prompt(instrument, timeframe, market_data)
         
         data = {
             "model": "deepseek-chat",
@@ -759,44 +829,8 @@ class ChartService:
             logger.error(f"Error calling DeepSeek API: {str(e)}")
             return None
 
-    def _build_tavily_query(self, instrument, timeframe):
-        """Build query for Tavily API"""
-        base_query = f"Latest technical analysis for {instrument} forex pair"
-        
-        if instrument.endswith("USD") and len(instrument) <= 7:
-            if instrument.startswith("BTC") or instrument.startswith("ETH"):
-                base_query = f"Latest technical analysis for {instrument} cryptocurrency price prediction"
-            else:
-                base_query = f"Latest technical analysis for {instrument} forex pair price prediction"
-        elif "USD" in instrument:
-            base_query = f"Latest technical analysis for {instrument} cryptocurrency price prediction"
-        elif instrument in ["US30", "US500", "US100"]:
-            base_query = f"Latest technical analysis for {instrument} index price prediction"
-        elif instrument in ["XAUUSD", "XTIUSD"]:
-            base_query = f"Latest technical analysis for {instrument} commodity price prediction"
-
-        # Add timeframe to query
-        timeframe_text = "hourly" if timeframe == "1h" else "4-hour" if timeframe == "4h" else "daily"
-        query = f"{base_query} {timeframe_text} chart support resistance levels trend direction RSI indicators"
-        
-        # Add specific details we want to find
-        details = [
-            "current price",
-            "bullish or bearish trend", 
-            "support levels",
-            "resistance levels", 
-            "key price targets",
-            "RSI value",
-            "trading recommendation",
-            "buy or sell signals",
-            "technical indicators analysis"
-        ]
-        
-        query += " " + " ".join(details)
-        return query
-
     def _build_deepseek_prompt(self, instrument, timeframe, market_data):
-        """Build prompt for DeepSeek API"""
+        """Build prompt for DeepSeek API using market data from Yahoo Finance"""
         prompt = f"""
 Je bent een gespecialiseerde financiële analist voor SigmaPips AI, een technische analyse tool.
 Gegeven de volgende marktgegevens over {instrument} op een {timeframe} timeframe:
@@ -824,7 +858,10 @@ Sigmapips AI Recommendation:
 Disclaimer: Please note that the information/analysis provided is strictly for study and educational purposes only. It should not be constructed as financial advice and always do your own analysis.
 
 BELANGRIJKE RICHTLIJNEN:
-1. Bepaal Bullish of Bearish op basis van technische indicatoren
+1. Bepaal Bullish of Bearish op basis van technische indicatoren:
+   - Als prijs boven SMA20/SMA50/SMA200 is, MACD boven signaal, RSI boven 50: Bullish
+   - Als prijs onder SMA20/SMA50/SMA200 is, MACD onder signaal, RSI onder 50: Bearish
+   - Weeg meerdere indicatoren samen voor een eindoordeel
 2. Bepaal buy/sell gebaseerd op de trend (buy voor bullish, sell voor bearish)
 3. Identificeer daadwerkelijke support/resistance levels uit de marktgegevens
 4. Zone Strength moet een waarde hebben van 1-5:
@@ -835,9 +872,10 @@ BELANGRIJKE RICHTLIJNEN:
 6. Vul ALLEEN het sjabloon in, zonder extra tekst of uitleg
 
 VEREIST:
-- Alle prijswaarden moeten realistisch zijn voor {instrument} en gebaseerd op de huidige marktgegevens
+- Alle prijswaarden moeten realistisch zijn voor {instrument} en gebaseerd op de actuele gegevens
 - Rond support/resistance prijzen af op 5 decimalen voor forex of crypto
-- Gebruik alleen data die in de marktgegevens staat
+- Gebruik alleen data uit de JSON gegevens
+- RSI moet de exacte waarde uit de gegevens zijn, afgerond op 1 decimaal
 """
         return prompt
 
@@ -897,3 +935,45 @@ Disclaimer: Please note that the information/analysis provided is strictly for s
 """
 
         return img_path, analysis
+
+    async def get_technical_chart(self, instrument: str, timeframe: str = "1h") -> str:
+        """
+        Get a chart image for technical analysis.
+        This is a wrapper around get_chart that ensures a file path is returned.
+        
+        Args:
+            instrument: The trading instrument (e.g., 'EURUSD')
+            timeframe: The timeframe to use (default '1h')
+            
+        Returns:
+            str: Path to the saved chart image
+        """
+        try:
+            logger.info(f"Getting technical chart for {instrument} ({timeframe})")
+            
+            # Get the chart image using the existing method
+            chart_data = await self.get_chart(instrument, timeframe)
+            
+            if not chart_data:
+                logger.error(f"Failed to get chart for {instrument}")
+                return None
+                
+            # Save the chart to a file
+            timestamp = int(datetime.now().timestamp())
+            os.makedirs('data/charts', exist_ok=True)
+            file_path = f"data/charts/{instrument.lower()}_{timeframe}_{timestamp}.png"
+            
+            # Ensure chart_data is in the correct format (bytes)
+            if isinstance(chart_data, bytes):
+                with open(file_path, 'wb') as f:
+                    f.write(chart_data)
+            else:
+                logger.error(f"Chart data is not in bytes format: {type(chart_data)}")
+                return None
+                
+            logger.info(f"Saved technical chart to {file_path}")
+            return file_path
+            
+        except Exception as e:
+            logger.error(f"Error getting technical chart: {str(e)}")
+            return None
