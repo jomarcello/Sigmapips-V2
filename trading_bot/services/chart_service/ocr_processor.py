@@ -214,13 +214,22 @@ class ChartOCRProcessor:
                         'y_pos': y_position
                     }
                     
-                    # Classify the price based on position
-                    if 0.3 <= y_position <= 0.7:  # Middle of chart
-                        logger.info(f"Found key level: {price_value}")
-                        key_levels.append(price_info)
-                    else:  # Top or bottom of chart
-                        logger.info(f"Found support/resistance: {price_value}")
+                    # Classify prices based on their value relative to current price
+                    price_diff = abs(price_value - current_price['value'])
+                    price_diff_percent = price_diff / current_price['value']
+                    
+                    # If price is very close to current price (within 0.1%), skip it
+                    if price_diff_percent < 0.001:
+                        continue
+                        
+                    # If price is higher than current price, it's a resistance
+                    if price_value > current_price['value']:
+                        logger.info(f"Found resistance level: {price_value}")
                         support_resistance.append(price_info)
+                    # If price is lower than current price, it's a support
+                    else:
+                        logger.info(f"Found support level: {price_value}")
+                        key_levels.append(price_info)
                 
                 except Exception as e:
                     logger.error(f"Error in second pass processing price: {str(e)}")
@@ -237,28 +246,28 @@ class ChartOCRProcessor:
                 supports = []
                 resistances = []
                 
-                # Add key levels (middle of chart)
+                # Add all lower prices as supports
                 for level in key_levels:
                     if level['value'] < current_price['value']:
                         supports.append(level['value'])
-                    else:
-                        resistances.append(level['value'])
                 
-                # Add support/resistance levels (edges of chart)
+                # Add all higher prices as resistances
                 for level in support_resistance:
-                    if level['value'] < current_price['value']:
-                        supports.append(level['value'])
-                    else:
+                    if level['value'] > current_price['value']:
                         resistances.append(level['value'])
                 
                 # Sort and deduplicate levels
                 if supports:
+                    # Take only the 3 closest support levels
                     supports = sorted(set(supports), reverse=True)
+                    supports = [s for s in supports if abs(s - current_price['value']) / current_price['value'] <= 0.02][:3]
                     data['support_levels'] = supports
                     logger.info(f"Support levels: {supports}")
                 
                 if resistances:
+                    # Take only the 3 closest resistance levels
                     resistances = sorted(set(resistances))
+                    resistances = [r for r in resistances if abs(r - current_price['value']) / current_price['value'] <= 0.02][:3]
                     data['resistance_levels'] = resistances
                     logger.info(f"Resistance levels: {resistances}")
             
