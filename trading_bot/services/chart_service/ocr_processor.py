@@ -121,21 +121,81 @@ class ChartOCRProcessor:
             key_levels = []
             support_resistance = []
             
+            # Track seen prices to avoid duplicates
+            seen_prices = set()
+            
+            # Track min/max valid prices to filter outliers
+            valid_prices = []
+            
+            # First pass - collect valid prices and find current price
             for text in texts:
                 description = text.description
-                logger.debug(f"Analyzing text block: {description}")
-                # Updated regex to handle more number formats
                 price_match = re.search(r'(\d*\.?\d+)', description)
                 if not price_match:
                     continue
                     
                 try:
                     price_value = float(price_match.group(1))
-                    logger.debug(f"Found potential price value: {price_value}")
                     if price_value > 10:  # Skip unrealistic forex prices
-                        logger.debug(f"Skipping unrealistic forex price: {price_value}")
                         continue
+                        
+                    # Get bounding box
+                    x_coords = [vertex.x for vertex in text.bounding_poly.vertices]
+                    y_coords = [vertex.y for vertex in text.bounding_poly.vertices]
+                    x1 = min(x_coords)
+                    y1 = min(y_coords)
+                    x2 = max(x_coords)
+                    y2 = max(y_coords)
+                    
+                    # Check if there's a timestamp below this price
+                    has_timestamp = self._has_timestamp_below(texts, x1, x2, y2)
+                    
+                    # If this is a current price (has timestamp), use it to validate other prices
+                    if has_timestamp:
+                        logger.info(f"Found current price candidate: {price_value}")
+                        if current_price is None or abs(price_value - 1.95) < abs(current_price['value'] - 1.95):
+                            current_price = {
+                                'value': price_value,
+                                'has_timestamp': True,
+                                'y_pos': y1 / chart_height if chart_height > 0 else 0
+                            }
+                    else:
+                        valid_prices.append(price_value)
+                        
+                except Exception as e:
+                    logger.error(f"Error in first pass processing price: {str(e)}")
+                    continue
+            
+            if not current_price:
+                logger.error("No current price found with timestamp")
+                return {}
                 
+            # Calculate valid price range based on current price
+            current_value = current_price['value']
+            max_deviation = 0.05  # Maximum 5% deviation from current price
+            min_valid_price = current_value * (1 - max_deviation)
+            max_valid_price = current_value * (1 + max_deviation)
+            
+            logger.info(f"Valid price range: {min_valid_price:.5f} - {max_valid_price:.5f}")
+            
+            # Second pass - classify valid prices
+            for text in texts:
+                description = text.description
+                price_match = re.search(r'(\d*\.?\d+)', description)
+                if not price_match:
+                    continue
+                    
+                try:
+                    price_value = float(price_match.group(1))
+                    
+                    # Skip if price is outside valid range or already seen
+                    if (price_value > max_valid_price or 
+                        price_value < min_valid_price or 
+                        price_value in seen_prices):
+                        continue
+                    
+                    seen_prices.add(price_value)
+                    
                     # Get bounding box
                     x_coords = [vertex.x for vertex in text.bounding_poly.vertices]
                     y_coords = [vertex.y for vertex in text.bounding_poly.vertices]
@@ -146,24 +206,16 @@ class ChartOCRProcessor:
                     
                     logger.info(f"Analyzing price {price_value} at position ({x1}, {y1}) to ({x2}, {y2})")
                     
-                    # Check if there's a timestamp below this price
-                    has_timestamp = self._has_timestamp_below(texts, x1, x2, y2)
-                    logger.info(f"Price {price_value} - Has timestamp: {has_timestamp}")
-                    
                     # Calculate relative position on chart
                     y_position = y1 / chart_height if chart_height > 0 else 0
                     
                     price_info = {
                         'value': price_value,
-                        'has_timestamp': has_timestamp,
                         'y_pos': y_position
                     }
                     
-                    # Classify the price based on position and timestamp
-                    if has_timestamp:
-                        logger.info(f"Found current price: {price_value}")
-                        current_price = price_info
-                    elif 0.3 <= y_position <= 0.7:  # Middle of chart
+                    # Classify the price based on position
+                    if 0.3 <= y_position <= 0.7:  # Middle of chart
                         logger.info(f"Found key level: {price_value}")
                         key_levels.append(price_info)
                     else:  # Top or bottom of chart
@@ -171,7 +223,7 @@ class ChartOCRProcessor:
                         support_resistance.append(price_info)
                 
                 except Exception as e:
-                    logger.error(f"Error processing price: {str(e)}")
+                    logger.error(f"Error in second pass processing price: {str(e)}")
                     continue
             
             # Process the collected data
@@ -199,14 +251,14 @@ class ChartOCRProcessor:
                     else:
                         resistances.append(level['value'])
                 
-                # Sort and store the levels
+                # Sort and deduplicate levels
                 if supports:
-                    supports.sort(reverse=True)
+                    supports = sorted(set(supports), reverse=True)
                     data['support_levels'] = supports
                     logger.info(f"Support levels: {supports}")
                 
                 if resistances:
-                    resistances.sort()
+                    resistances = sorted(set(resistances))
                     data['resistance_levels'] = resistances
                     logger.info(f"Resistance levels: {resistances}")
             
