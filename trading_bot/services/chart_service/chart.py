@@ -29,6 +29,19 @@ YAHOO_CACHE_DIR = os.path.join('data', 'cache', 'yahoo')
 YAHOO_CACHE_EXPIRY = 60 * 5  # 5 minuten
 YAHOO_REQUEST_DELAY = 2  # 2 seconden tussen requests
 
+# JSON encoder voor NumPy datatypes
+class NumpyJSONEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        elif isinstance(obj, np.floating):
+            return float(obj)
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+        elif isinstance(obj, pd.Series):
+            return obj.tolist()
+        return super(NumpyJSONEncoder, self).default(obj)
+
 class ChartService:
     def __init__(self):
         """Initialize chart service"""
@@ -852,7 +865,7 @@ class ChartService:
                     logger.info(f"Using regularMarketPrice: {current_price}")
                 elif not data.empty:
                     # Fallback naar laatste waarde in historische data
-                    current_price = data['Close'].iloc[-1]
+                    current_price = float(data['Close'].iloc[-1])  # Convert to float to avoid int64/float64 issues
                     logger.info(f"Using historical data last close: {current_price}")
                 else:
                     # Hardcoded fallback
@@ -873,6 +886,9 @@ class ChartService:
                     logger.warning(f"Unrealistic price for {instrument}: {current_price}, using default range value")
                     current_price = 1.095  # Default realistic value for EURUSD
             
+            # Zorg ervoor dat alles als Python native types wordt opgeslagen (float, int, etc.) 
+            # om problemen met JSON serialisatie te voorkomen
+            
             # Calculate technical indicators
             if not data.empty:
                 data['SMA20'] = data['Close'].rolling(window=20).mean()
@@ -887,68 +903,92 @@ class ChartService:
                 data['UpperBand'] = data['MA20'] + (data['SD20'] * 2)
                 data['LowerBand'] = data['MA20'] - (data['SD20'] * 2)
                 
-                # Get current values from historical data
-                current_open = data['Open'].iloc[-1]
-                current_high = data['High'].iloc[-1]
-                current_low = data['Low'].iloc[-1]
-                current_sma20 = data['SMA20'].iloc[-1]
-                current_sma50 = data['SMA50'].iloc[-1]
-                current_sma200 = data['SMA200'].iloc[-1]
-                current_rsi = data['RSI'].iloc[-1]
-                current_macd = data['MACD'].iloc[-1]
-                current_signal = data['Signal'].iloc[-1]
+                # Get current values from historical data and convert to Python native types
+                current_open = float(data['Open'].iloc[-1])
+                current_high = float(data['High'].iloc[-1])
+                current_low = float(data['Low'].iloc[-1])
+                current_sma20 = float(data['SMA20'].iloc[-1]) if not pd.isna(data['SMA20'].iloc[-1]) else float(current_price)
+                current_sma50 = float(data['SMA50'].iloc[-1]) if not pd.isna(data['SMA50'].iloc[-1]) else float(current_price * 0.99)
+                current_sma200 = float(data['SMA200'].iloc[-1]) if not pd.isna(data['SMA200'].iloc[-1]) else float(current_price * 0.98)
+                current_rsi = float(data['RSI'].iloc[-1]) if not pd.isna(data['RSI'].iloc[-1]) else 50.0
+                current_macd = float(data['MACD'].iloc[-1]) if not pd.isna(data['MACD'].iloc[-1]) else 0.001
+                current_signal = float(data['Signal'].iloc[-1]) if not pd.isna(data['Signal'].iloc[-1]) else 0.0
+                current_hist = float(data['Hist'].iloc[-1]) if not pd.isna(data['Hist'].iloc[-1]) else 0.001
+                current_upper_band = float(data['UpperBand'].iloc[-1]) if not pd.isna(data['UpperBand'].iloc[-1]) else float(current_price * 1.02)
+                current_lower_band = float(data['LowerBand'].iloc[-1]) if not pd.isna(data['LowerBand'].iloc[-1]) else float(current_price * 0.98)
+                
+                if 'Volume' in data.columns:
+                    current_volume = int(data['Volume'].iloc[-1]) if not pd.isna(data['Volume'].iloc[-1]) else 1000000
+                else:
+                    current_volume = 1000000
                 
                 # Determine support and resistance levels
                 supports, resistances = self._find_support_resistance(data, lookback=20)
+                
+                # Converteer numpy arrays naar Python lists
+                supports = [float(s) for s in supports[:3]] if supports else [float(current_price * 0.98), float(current_price * 0.97), float(current_price * 0.96)]
+                resistances = [float(r) for r in resistances[:3]] if resistances else [float(current_price * 1.02), float(current_price * 1.03), float(current_price * 1.04)]
+                
+                # Bereken prijsveranderingen
+                price_change_1d = float((current_price / float(data['Close'].iloc[-2]) - 1) * 100) if len(data) > 1 else 0.0
+                price_change_1w = float((current_price / float(data['Close'].iloc[-7]) - 1) * 100) if len(data) > 7 else 0.0
+                historical_volatility = float(data['Close'].pct_change().std() * 100)
             else:
                 # Fallback waarden als we geen historische data hebben
-                current_open = current_price * 0.99
-                current_high = current_price * 1.01
-                current_low = current_price * 0.98
-                current_sma20 = current_price * 0.995
-                current_sma50 = current_price * 0.99
-                current_sma200 = current_price * 0.98
+                current_open = float(current_price * 0.99)
+                current_high = float(current_price * 1.01)
+                current_low = float(current_price * 0.98)
+                current_sma20 = float(current_price * 0.995)
+                current_sma50 = float(current_price * 0.99)
+                current_sma200 = float(current_price * 0.98)
                 current_rsi = 50.0  # Neutraal
                 current_macd = 0.001
                 current_signal = 0.0
+                current_hist = 0.001
+                current_volume = 1000000
+                current_upper_band = float(current_price * 1.02)
+                current_lower_band = float(current_price * 0.98)
                 
                 # Genereer realistische support/resistance
-                supports = [current_price * 0.98, current_price * 0.97, current_price * 0.96]
-                resistances = [current_price * 1.02, current_price * 1.03, current_price * 1.04]
+                supports = [float(current_price * 0.98), float(current_price * 0.97), float(current_price * 0.96)]
+                resistances = [float(current_price * 1.02), float(current_price * 1.03), float(current_price * 1.04)]
+                price_change_1d = 0.2
+                price_change_1w = 0.8
+                historical_volatility = 1.2
             
-            # Prepare the analysis results in a structured format
+            # Prepare the analysis results in a structured format with native Python types
             market_data = {
                 "instrument": instrument,
                 "timeframe": timeframe,
-                "current_price": current_price,
+                "current_price": float(current_price),
                 "open": current_open,
                 "high": current_high,
                 "low": current_low,
-                "volume": data['Volume'].iloc[-1] if not data.empty and 'Volume' in data.columns else 1000000,
+                "volume": current_volume,
                 "sma20": current_sma20,
                 "sma50": current_sma50,
                 "sma200": current_sma200,
                 "rsi": current_rsi,
                 "macd": current_macd,
                 "macd_signal": current_signal,
-                "macd_hist": data['Hist'].iloc[-1] if not data.empty else 0.001,
-                "upper_band": data['UpperBand'].iloc[-1] if not data.empty else current_price * 1.02,
-                "lower_band": data['LowerBand'].iloc[-1] if not data.empty else current_price * 0.98,
+                "macd_hist": current_hist,
+                "upper_band": current_upper_band,
+                "lower_band": current_lower_band,
                 "trend_indicators": {
-                    "price_above_sma20": current_price > current_sma20,
-                    "price_above_sma50": current_price > current_sma50,
-                    "price_above_sma200": current_price > current_sma200,
-                    "sma20_above_sma50": current_sma20 > current_sma50,
-                    "macd_above_signal": current_macd > current_signal,
-                    "rsi_above_50": current_rsi > 50,
-                    "rsi_oversold": current_rsi < 30,
-                    "rsi_overbought": current_rsi > 70
+                    "price_above_sma20": bool(current_price > current_sma20),
+                    "price_above_sma50": bool(current_price > current_sma50),
+                    "price_above_sma200": bool(current_price > current_sma200),
+                    "sma20_above_sma50": bool(current_sma20 > current_sma50),
+                    "macd_above_signal": bool(current_macd > current_signal),
+                    "rsi_above_50": bool(current_rsi > 50),
+                    "rsi_oversold": bool(current_rsi < 30),
+                    "rsi_overbought": bool(current_rsi > 70)
                 },
-                "support_levels": supports[:3],  # Top 3 support levels
-                "resistance_levels": resistances[:3],  # Top 3 resistance levels
-                "price_change_1d": 0.2 if data.empty else (current_price / data['Close'].iloc[-2] - 1) * 100 if len(data) > 1 else 0,
-                "price_change_1w": 0.8 if data.empty else (current_price / data['Close'].iloc[-7] - 1) * 100 if len(data) > 7 else 0,
-                "historical_volatility": 1.2 if data.empty else data['Close'].pct_change().std() * 100,  # Daily volatility in %
+                "support_levels": supports,  # Top 3 support levels
+                "resistance_levels": resistances,  # Top 3 resistance levels
+                "price_change_1d": price_change_1d,
+                "price_change_1w": price_change_1w,
+                "historical_volatility": historical_volatility,
             }
             
             # Voeg debug informatie toe om problemen te diagnosticeren
@@ -956,11 +996,24 @@ class ChartService:
             logger.info(f"Support levels: {supports[:3]}")
             logger.info(f"Resistance levels: {resistances[:3]}")
             
-            # Convert structured data to string format for DeepSeek
-            market_data_str = json.dumps(market_data, indent=2)
-            logger.info(f"Prepared market data for {instrument} with {len(market_data_str)} characters")
-            
-            return market_data_str
+            # Convert structured data to string format for DeepSeek using custom encoder
+            try:
+                market_data_str = json.dumps(market_data, indent=2, cls=NumpyJSONEncoder)
+                logger.info(f"Prepared market data for {instrument} with {len(market_data_str)} characters")
+                return market_data_str
+            except Exception as e:
+                logger.error(f"JSON serialization error: {str(e)}")
+                # Als er een fout optreedt met de JSON serialisatie, probeer een simpeler object
+                simplified_data = {
+                    "instrument": instrument,
+                    "timeframe": timeframe,
+                    "current_price": float(current_price),
+                    "rsi": float(current_rsi),
+                    "support_levels": [float(s) for s in supports[:3]],
+                    "resistance_levels": [float(r) for r in resistances[:3]],
+                    "trend": "Bullish" if current_price > current_sma50 else "Bearish"
+                }
+                return json.dumps(simplified_data, indent=2)
             
         except Exception as e:
             logger.error(f"Error getting Yahoo Finance data: {str(e)}")
