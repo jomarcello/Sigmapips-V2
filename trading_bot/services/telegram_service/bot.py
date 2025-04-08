@@ -3063,7 +3063,6 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             logger.info(f"Calling get_technical_analysis for {instrument} with timeframe {timeframe}")
             
             # Get chart and analysis from chart service
-            # This will use Tavily and DeepSeek APIs as implemented in chart.py
             chart_data, analysis = await self.chart_service.get_technical_analysis(instrument, timeframe)
             
             logger.info(f"Technical analysis received for {instrument}. Chart data: {type(chart_data)}, Analysis length: {len(analysis) if analysis else 0}")
@@ -3077,6 +3076,12 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 [InlineKeyboardButton("🏠 Main Menu", callback_data="back_menu")]
             ]
             
+            # Check if the analysis is too long for a Telegram caption (max 1024 chars)
+            if analysis and len(analysis) > 1000:
+                logger.warning(f"Analysis too long for Telegram caption ({len(analysis)} chars), truncating")
+                # Truncate to ensure it fits within Telegram's limits
+                analysis = analysis[:990] + "..."
+            
             # Update message with chart and analysis
             try:
                 logger.info(f"Sending chart and analysis for {instrument}")
@@ -3089,16 +3094,70 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
                 logger.info(f"Successfully sent chart and analysis for {instrument}")
+            except telegram.error.BadRequest as e:
+                # Specific handling for "Message caption is too long" error
+                if "caption is too long" in str(e).lower():
+                    logger.warning("Caption too long error, sending as separate messages")
+                    # First send just the chart with a simple caption
+                    try:
+                        # Send the image first
+                        await query.edit_message_media(
+                            media=InputMediaPhoto(
+                                media=chart_data,
+                                caption=f"{instrument} - {timeframe} Analysis"
+                            ),
+                            reply_markup=InlineKeyboardMarkup(keyboard)
+                        )
+                        
+                        # Then send the analysis as a separate text message
+                        await query.message.reply_text(
+                            text=analysis,
+                            reply_markup=None,
+                            parse_mode=ParseMode.HTML
+                        )
+                        
+                        logger.info("Successfully sent chart and analysis as separate messages")
+                    except Exception as inner_e:
+                        logger.error(f"Error sending separate messages: {str(inner_e)}")
+                        await query.message.reply_text(
+                            text="Error sending analysis. Please try again.",
+                            reply_markup=InlineKeyboardMarkup(keyboard)
+                        )
+                else:
+                    # For other types of BadRequest errors, fallback to a new message
+                    logger.error(f"Error updating message with chart: {str(e)}")
+                    try:
+                        await query.message.reply_photo(
+                            photo=chart_data,
+                            caption=analysis[:1000] if analysis and len(analysis) > 1000 else analysis,
+                            parse_mode=ParseMode.HTML,
+                            reply_markup=InlineKeyboardMarkup(keyboard)
+                        )
+                    except Exception as photo_e:
+                        logger.error(f"Error sending photo: {str(photo_e)}")
+                        await query.message.reply_text(
+                            text="Error sending analysis. Please try again.",
+                            reply_markup=InlineKeyboardMarkup(keyboard)
+                        )
             except Exception as e:
                 logger.error(f"Error updating message with chart: {str(e)}")
                 # Try to send a new message as fallback
                 logger.info("Trying fallback: sending as new message")
-                await query.message.reply_photo(
-                    photo=chart_data,
-                    caption=analysis,
-                    parse_mode=ParseMode.HTML,
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
+                try:
+                    # Ensure we don't exceed caption length
+                    safe_caption = analysis[:1000] if analysis and len(analysis) > 1000 else analysis
+                    await query.message.reply_photo(
+                        photo=chart_data,
+                        caption=safe_caption,
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+                except Exception as fallback_e:
+                    logger.error(f"Fallback also failed: {str(fallback_e)}")
+                    await query.message.reply_text(
+                        text="Error showing analysis. Please try again later.",
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
             
             return CHOOSE_ANALYSIS
             
@@ -3113,6 +3172,13 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 )
             except Exception as e:
                 logger.error(f"Error updating error message: {str(e)}")
+                try:
+                    await query.message.reply_text(
+                        text=error_message,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+                except Exception as text_e:
+                    logger.error(f"Error sending error message: {str(text_e)}")
             return CHOOSE_ANALYSIS
 
     async def show_sentiment_analysis(self, update: Update, context=None, instrument=None) -> int:
