@@ -6,6 +6,8 @@ import json
 import aiohttp
 from typing import Dict, Any, Optional, List
 import random
+from google.cloud import vision
+from google.oauth2 import service_account
 
 logger = logging.getLogger(__name__)
 
@@ -14,16 +16,29 @@ class ChartOCRProcessor:
     
     def __init__(self):
         """Initialize the OCR processor"""
+        # Initialize Google Vision client
+        try:
+            credentials = service_account.Credentials.from_service_account_file(
+                'google_vision_credentials.json',
+                scopes=['https://www.googleapis.com/auth/cloud-platform']
+            )
+            self.vision_client = vision.ImageAnnotatorClient(credentials=credentials)
+            logger.info("Google Vision client initialized successfully")
+        except Exception as e:
+            logger.error(f"Failed to initialize Google Vision client: {str(e)}")
+            self.vision_client = None
+            
+        # Fallback to OCR.space if Google Vision fails
         self.api_key = os.environ.get("OCR_SPACE_API_KEY")
         if not self.api_key:
             logger.warning("No OCR.space API key found in environment variables, using default key")
             self.api_key = "K89271717488957"  # Using the provided API key
         
-        logger.info(f"ChartOCRProcessor initialized with OCR.space API")
+        logger.info(f"ChartOCRProcessor initialized with Google Vision and OCR.space API")
         
     async def process_chart_image(self, image_path: str) -> Dict[str, Any]:
         """
-        Process a chart image to extract price and indicator data using OCR.space API
+        Process a chart image to extract price and indicator data using Google Vision API
         
         Args:
             image_path: Path to the chart image
@@ -38,27 +53,76 @@ class ChartOCRProcessor:
         try:
             logger.info(f"Processing chart image: {image_path}")
             
-            # Get OCR text using OCR.space API
-            ocr_result = await self._get_ocr_text_from_image(image_path)
+            # Read the image file
+            with open(image_path, 'rb') as image_file:
+                content = image_file.read()
             
-            if not ocr_result:
-                logger.warning("OCR returned no result, cannot extract data")
+            # Create image object for Google Vision
+            image = vision.Image(content=content)
+            
+            # Perform multiple detections in parallel
+            response = self.vision_client.annotate_image({
+                'image': image,
+                'features': [
+                    {'type_': vision.Feature.Type.TEXT_DETECTION},
+                    {'type_': vision.Feature.Type.IMAGE_PROPERTIES}
+                ]
+            })
+            
+            if not response:
+                logger.warning("Google Vision returned no result, falling back to OCR.space")
+                return await self._fallback_to_ocr_space(image_path)
+            
+            # Extract text and color information
+            text_annotations = response.text_annotations
+            color_info = response.image_properties_annotation.dominant_colors.colors
+            
+            if not text_annotations:
+                logger.warning("No text detected in image")
                 return {}
             
-            ocr_text = ocr_result.get('text', '')
-            if not ocr_text:
-                logger.warning("OCR returned empty text, cannot extract data")
-                return {}
-                
-            lines_with_coords = ocr_result.get('lines_with_coords', [])
+            # Get the full text
+            ocr_text = text_annotations[0].description
             
-            logger.info(f"OCR text extracted: {ocr_text[:200]}...")
+            # Extract price levels with their colors
+            price_levels = []
+            for annotation in text_annotations[1:]:  # Skip the first one as it contains all text
+                text = annotation.description
+                price_match = re.search(r'(\d+\.\d+)', text)
+                if price_match:
+                    price_value = float(price_match.group(1))
+                    if price_value > 10:  # Skip unrealistic forex prices
+                        continue
+                    
+                    # Get the bounding box
+                    vertices = annotation.bounding_box.vertices
+                    x1 = min(v.x for v in vertices)
+                    y1 = min(v.y for v in vertices)
+                    x2 = max(v.x for v in vertices)
+                    y2 = max(v.y for v in vertices)
+                    
+                    # Find dominant color in this region
+                    region_color = self._get_dominant_color_in_region(
+                        color_info, x1, y1, x2, y2
+                    )
+                    
+                    price_info = {
+                        'value': price_value,
+                        'text': text,
+                        'x1': x1,
+                        'y1': y1,
+                        'x2': x2,
+                        'y2': y2,
+                        'color': region_color
+                    }
+                    
+                    price_levels.append(price_info)
             
-            # Extract data from OCR text and coordinates
-            data = self._extract_data_from_ocr_result(ocr_text, lines_with_coords)
+            # Process the extracted data
+            data = self._extract_data_from_vision_result(price_levels, ocr_text)
             
             if not data:
-                logger.warning("Failed to extract data from OCR text")
+                logger.warning("Failed to extract data from Vision result")
                 return {}
                 
             logger.info(f"Extracted data: {data}")
@@ -68,6 +132,159 @@ class ChartOCRProcessor:
             logger.error(f"Error processing chart image: {str(e)}")
             import traceback
             logger.error(traceback.format_exc())
+            return {}
+    
+    def _get_dominant_color_in_region(self, color_info, x1, y1, x2, y2):
+        """Get the dominant color in a specific region of the image"""
+        try:
+            # Find colors that are in the region
+            region_colors = []
+            for color in color_info:
+                # Check if color is in the region
+                if (x1 <= color.pixel_fraction * 100 <= x2 and 
+                    y1 <= color.color.red <= y2):
+                    region_colors.append({
+                        'color': color.color,
+                        'score': color.score
+                    })
+            
+            if not region_colors:
+                return None
+            
+            # Return the color with highest score
+            return max(region_colors, key=lambda x: x['score'])['color']
+            
+        except Exception as e:
+            logger.error(f"Error getting dominant color: {str(e)}")
+            return None
+    
+    def _extract_data_from_vision_result(self, price_levels: List[Dict], ocr_text: str) -> Dict[str, Any]:
+        """Extract data from Google Vision result"""
+        data = {}
+        
+        try:
+            # Sort price levels by value
+            price_levels.sort(key=lambda x: x['value'], reverse=True)
+            
+            if price_levels:
+                # Find current price (usually the one with green color)
+                green_prices = [p for p in price_levels if self._is_green_color(p.get('color'))]
+                if green_prices:
+                    data['current_price'] = green_prices[0]['value']
+                else:
+                    # Fallback: use middle price
+                    price_values = [p['value'] for p in price_levels]
+                    min_price = min(price_values)
+                    max_price = max(price_values)
+                    mid_price = (min_price + max_price) / 2
+                    current_price = min(price_levels, key=lambda x: abs(x['value'] - mid_price))['value']
+                    data['current_price'] = current_price
+                
+                # Classify support and resistance levels
+                supports = []
+                resistances = []
+                key_levels = []
+                
+                current_price = data['current_price']
+                
+                for price in price_levels:
+                    value = price['value']
+                    color = price.get('color')
+                    
+                    # Add to key levels if it's a colored price
+                    if color and (self._is_green_color(color) or 
+                                self._is_orange_color(color) or 
+                                self._is_red_color(color)):
+                        key_levels.append(value)
+                    
+                    # Support/Resistance classification
+                    if value < current_price:
+                        supports.append(value)
+                    elif value > current_price:
+                        resistances.append(value)
+                
+                # Sort levels
+                supports.sort(reverse=True)  # Highest support first
+                resistances.sort()  # Lowest resistance first
+                key_levels.sort()
+                
+                if supports:
+                    data['support_levels'] = supports
+                    logger.info(f"Support levels: {supports}")
+                
+                if resistances:
+                    data['resistance_levels'] = resistances
+                    logger.info(f"Resistance levels: {resistances}")
+                
+                if key_levels:
+                    data['key_levels'] = key_levels
+                    logger.info(f"Key levels: {key_levels}")
+            
+            # Extract other indicators if present
+            # RSI
+            rsi_match = re.search(r'RSI[:\s]+(\d+\.?\d*)', ocr_text, re.IGNORECASE)
+            if rsi_match:
+                rsi = float(rsi_match.group(1))
+                logger.info(f"RSI extracted from OCR: {rsi}")
+                data['rsi'] = rsi
+            
+            return data
+            
+        except Exception as e:
+            logger.error(f"Error extracting data from Vision result: {str(e)}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return {}
+    
+    def _is_green_color(self, color) -> bool:
+        """Check if a color is green"""
+        if not color:
+            return False
+        # Green colors have high green component and lower red/blue
+        return (color.green > 150 and 
+                color.red < 100 and 
+                color.blue < 100)
+    
+    def _is_orange_color(self, color) -> bool:
+        """Check if a color is orange"""
+        if not color:
+            return False
+        # Orange colors have high red and green components
+        return (color.red > 150 and 
+                color.green > 100 and 
+                color.blue < 100)
+    
+    def _is_red_color(self, color) -> bool:
+        """Check if a color is red"""
+        if not color:
+            return False
+        # Red colors have high red component and lower green/blue
+        return (color.red > 150 and 
+                color.green < 100 and 
+                color.blue < 100)
+    
+    async def _fallback_to_ocr_space(self, image_path: str) -> Dict[str, Any]:
+        """Fallback to OCR.space API if Google Vision fails"""
+        try:
+            # Get OCR text using OCR.space API
+            ocr_result = await self._get_ocr_text_from_image(image_path)
+            
+            if not ocr_result:
+                logger.warning("OCR.space returned no result")
+                return {}
+            
+            ocr_text = ocr_result.get('text', '')
+            if not ocr_text:
+                logger.warning("OCR.space returned empty text")
+                return {}
+                
+            lines_with_coords = ocr_result.get('lines_with_coords', [])
+            
+            # Extract data using the existing method
+            return self._extract_data_from_ocr_result(ocr_text, lines_with_coords)
+            
+        except Exception as e:
+            logger.error(f"Error in OCR.space fallback: {str(e)}")
             return {}
     
     async def _get_ocr_text_from_image(self, image_path: str) -> Dict[str, Any]:
@@ -222,9 +439,18 @@ class ChartOCRProcessor:
             
             # Extract numeric values (price levels) with positions
             price_levels = []
-            green_prices = []  # Store prices that appear in green
-            orange_prices = []  # Store prices that appear in orange/yellow
-            red_prices = []    # Store prices that appear in red
+            
+            # Find the chart boundaries
+            min_y = float('inf')
+            max_y = 0
+            for line in lines_with_coords:
+                min_y = min(min_y, line.get('y1', float('inf')))
+                max_y = max(max_y, line.get('y2', 0))
+            
+            # Calculate chart height and key zones
+            chart_height = max_y - min_y
+            top_zone = min_y + (chart_height * 0.2)  # Top 20%
+            bottom_zone = max_y - (chart_height * 0.2)  # Bottom 20%
             
             for line in lines_with_coords:
                 line_text = line.get('text', '')
@@ -235,57 +461,56 @@ class ChartOCRProcessor:
                     if price_value > 10:  # Skip unrealistic forex prices
                         continue
                     
-                    # Check for color indicators in the text or surrounding context
-                    is_green = '32-49' in line_text or '32.49' in line_text  # Green price indicator
-                    is_orange = any(x in line_text for x in ['1.98426', '1.94110'])  # Orange price indicators
-                    is_red = any(x in line_text for x in ['1.97250'])  # Red price indicators
+                    # Get line position
+                    y_pos = line.get('y1', 0)
+                    
+                    # Determine if this is a key level based on position and context
+                    is_key_level = False
+                    
+                    # Check if price is in top or bottom zone
+                    if y_pos <= top_zone or y_pos >= bottom_zone:
+                        is_key_level = True
+                    
+                    # Check for special price patterns (like round numbers)
+                    if re.match(r'\d+\.\d{2}0{2,3}', str(price_value)):
+                        is_key_level = True
+                    
+                    # Check for price levels near important text
+                    important_texts = ['Daily High', 'SUP', 'RES', 'Key', 'Level']
+                    if any(text.lower() in line_text.lower() for text in important_texts):
+                        is_key_level = True
                     
                     price_info = {
                         'value': price_value,
                         'text': line_text,
-                        'y_pos': line.get('y1', 0),
-                        'is_green': is_green,
-                        'is_orange': is_orange,
-                        'is_red': is_red
+                        'y_pos': y_pos,
+                        'is_key_level': is_key_level
                     }
                     
                     price_levels.append(price_info)
-                    
-                    if is_green:
-                        green_prices.append(price_value)
-                    elif is_orange:
-                        orange_prices.append(price_value)
-                    elif is_red:
-                        red_prices.append(price_value)
             
             # Sort price levels by value
             price_levels.sort(key=lambda x: x['value'], reverse=True)
             
             if price_levels:
-                # First try to find current price from green prices
-                if green_prices:
-                    data['current_price'] = green_prices[0]
-                else:
-                    # Fallback: use price with special formatting or middle range
-                    price_values = [p['value'] for p in price_levels]
-                    min_price = min(price_values)
-                    max_price = max(price_values)
-                    mid_price = (min_price + max_price) / 2
-                    current_price = min(price_levels, key=lambda x: abs(x['value'] - mid_price))['value']
-                    data['current_price'] = current_price
+                # Find current price (middle of the chart)
+                price_values = [p['value'] for p in price_levels]
+                min_price = min(price_values)
+                max_price = max(price_values)
+                mid_price = (min_price + max_price) / 2
+                current_price = min(price_levels, key=lambda x: abs(x['value'] - mid_price))['value']
+                data['current_price'] = current_price
                 
                 # Classify support and resistance levels
                 supports = []
                 resistances = []
                 key_levels = []
                 
-                current_price = data['current_price']
-                
                 for price in price_levels:
                     value = price['value']
                     
-                    # Key levels from colored prices
-                    if price['is_orange'] or price['is_red']:
+                    # Add to key levels if marked as important
+                    if price['is_key_level']:
                         key_levels.append(value)
                     
                     # Support/Resistance classification
