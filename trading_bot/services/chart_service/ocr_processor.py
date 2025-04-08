@@ -107,6 +107,14 @@ class ChartOCRProcessor:
             
             logger.info(f"Found {len(texts)} text blocks")
             
+            # Calculate chart height first
+            chart_height = 0
+            for text in texts:
+                for vertex in text.bounding_poly.vertices:
+                    chart_height = max(chart_height, vertex.y)
+            
+            logger.info(f"Chart height: {chart_height}")
+            
             # Extract price levels with their context
             price_levels = []
             current_price = None
@@ -129,11 +137,12 @@ class ChartOCRProcessor:
                         continue
                 
                     # Get bounding box
-                    vertices = [(vertex.x, vertex.y) for vertex in text.bounding_poly.vertices]
-                    x1 = min(v[0] for v in vertices)
-                    y1 = min(v[1] for v in vertices)
-                    x2 = max(v[0] for v in vertices)
-                    y2 = max(v[1] for v in vertices)
+                    x_coords = [vertex.x for vertex in text.bounding_poly.vertices]
+                    y_coords = [vertex.y for vertex in text.bounding_poly.vertices]
+                    x1 = min(x_coords)
+                    y1 = min(y_coords)
+                    x2 = max(x_coords)
+                    y2 = max(y_coords)
                     
                     logger.info(f"Analyzing price {price_value} at position ({x1}, {y1}) to ({x2}, {y2})")
                     
@@ -141,12 +150,8 @@ class ChartOCRProcessor:
                     has_timestamp = self._has_timestamp_below(texts, x1, x2, y2)
                     logger.info(f"Price {price_value} - Has timestamp: {has_timestamp}")
                     
-                    # Classify the price based on position and timestamp
-                    # Prices with timestamps are current prices
-                    # Prices in the middle of the chart are key levels
-                    # Prices at the edges are support/resistance
-                    chart_height = max(v[1] for text in texts for v in text.bounding_poly.vertices)
-                    y_position = y1 / chart_height
+                    # Calculate relative position on chart
+                    y_position = y1 / chart_height if chart_height > 0 else 0
                     
                     price_info = {
                         'value': price_value,
@@ -218,16 +223,18 @@ class ChartOCRProcessor:
         try:
             for text in texts:
                 # Get text position
-                vertices = [(vertex.x, vertex.y) for vertex in text.bounding_poly.vertices]
-                text_x1 = min(v[0] for v in vertices)
-                text_x2 = max(v[0] for v in vertices)
-                text_y1 = min(v[1] for v in vertices)
+                x_coords = [vertex.x for vertex in text.bounding_poly.vertices]
+                y_coords = [vertex.y for vertex in text.bounding_poly.vertices]
+                text_x1 = min(x_coords)
+                text_x2 = max(x_coords)
+                text_y1 = min(y_coords)
                 
                 # Check if text is below the price and horizontally aligned
                 if (text_y1 > y2 and text_y1 <= y2 + max_distance and
                     text_x1 >= x1 - max_distance and text_x2 <= x2 + max_distance):
                     # Check if text matches timestamp pattern (e.g., "32:49")
                     if re.match(r'\d{2}:\d{2}', text.description):
+                        logger.debug(f"Found timestamp: {text.description} below price at y={y2}")
                         return True
             
             return False
