@@ -9,6 +9,7 @@ import copy
 import re
 import time
 import random
+import uuid
 
 from fastapi import FastAPI, Request, HTTPException, status
 from telegram import Bot, Update, BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery, InputMediaPhoto, InputMediaAnimation, InputMediaDocument, ReplyKeyboardMarkup, ReplyKeyboardRemove, InputFile
@@ -3082,82 +3083,119 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 # Truncate to ensure it fits within Telegram's limits
                 analysis = analysis[:990] + "..."
             
-            # Update message with chart and analysis
-            try:
-                logger.info(f"Sending chart and analysis for {instrument}")
-                await query.edit_message_media(
-                    media=InputMediaPhoto(
-                        media=chart_data,
-                        caption=analysis,
-                        parse_mode=ParseMode.HTML
-                    ),
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
-                logger.info(f"Successfully sent chart and analysis for {instrument}")
-            except telegram.error.BadRequest as e:
-                # Specific handling for "Message caption is too long" error
-                if "caption is too long" in str(e).lower():
-                    logger.warning("Caption too long error, sending as separate messages")
-                    # First send just the chart with a simple caption
-                    try:
-                        # Send the image first
+            # Handle local file paths by opening and sending the file directly
+            if isinstance(chart_data, str) and os.path.exists(chart_data):
+                logger.info(f"Chart data is a local file path: {chart_data}")
+                try:
+                    # Open the file and send it as a photo
+                    with open(chart_data, 'rb') as file:
+                        photo_file = file.read()
+                        
+                        # Update message with photo file
                         await query.edit_message_media(
                             media=InputMediaPhoto(
-                                media=chart_data,
-                                caption=f"{instrument} - {timeframe} Analysis"
+                                media=photo_file,
+                                caption=analysis,
+                                parse_mode=ParseMode.HTML
                             ),
                             reply_markup=InlineKeyboardMarkup(keyboard)
                         )
-                        
-                        # Then send the analysis as a separate text message
+                        logger.info(f"Successfully sent chart file and analysis for {instrument}")
+                except Exception as file_error:
+                    logger.error(f"Error sending local file: {str(file_error)}")
+                    # Try to send as a new message
+                    try:
+                        with open(chart_data, 'rb') as file:
+                            await query.message.reply_photo(
+                                photo=file,
+                                caption=analysis[:1000] if analysis and len(analysis) > 1000 else analysis,
+                                parse_mode=ParseMode.HTML,
+                                reply_markup=InlineKeyboardMarkup(keyboard)
+                            )
+                    except Exception as fallback_error:
+                        logger.error(f"Failed to send local file as fallback: {str(fallback_error)}")
                         await query.message.reply_text(
-                            text=analysis,
-                            reply_markup=None,
+                            text=f"Error sending chart. Analysis: {analysis[:1000] if analysis else 'Not available'}",
+                            reply_markup=InlineKeyboardMarkup(keyboard),
                             parse_mode=ParseMode.HTML
                         )
-                        
-                        logger.info("Successfully sent chart and analysis as separate messages")
-                    except Exception as inner_e:
-                        logger.error(f"Error sending separate messages: {str(inner_e)}")
-                        await query.message.reply_text(
-                            text="Error sending analysis. Please try again.",
-                            reply_markup=InlineKeyboardMarkup(keyboard)
-                        )
-                else:
-                    # For other types of BadRequest errors, fallback to a new message
+            else:
+                # Update message with chart and analysis (for URL or bytes)
+                try:
+                    logger.info(f"Sending chart and analysis for {instrument}")
+                    await query.edit_message_media(
+                        media=InputMediaPhoto(
+                            media=chart_data,
+                            caption=analysis,
+                            parse_mode=ParseMode.HTML
+                        ),
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+                    logger.info(f"Successfully sent chart and analysis for {instrument}")
+                except telegram.error.BadRequest as e:
+                    # Specific handling for "Message caption is too long" error
+                    if "caption is too long" in str(e).lower():
+                        logger.warning("Caption too long error, sending as separate messages")
+                        # First send just the chart with a simple caption
+                        try:
+                            # Send the image first
+                            await query.edit_message_media(
+                                media=InputMediaPhoto(
+                                    media=chart_data,
+                                    caption=f"{instrument} - {timeframe} Analysis"
+                                ),
+                                reply_markup=InlineKeyboardMarkup(keyboard)
+                            )
+                            
+                            # Then send the analysis as a separate text message
+                            await query.message.reply_text(
+                                text=analysis,
+                                reply_markup=None,
+                                parse_mode=ParseMode.HTML
+                            )
+                            
+                            logger.info("Successfully sent chart and analysis as separate messages")
+                        except Exception as inner_e:
+                            logger.error(f"Error sending separate messages: {str(inner_e)}")
+                            await query.message.reply_text(
+                                text="Error sending analysis. Please try again.",
+                                reply_markup=InlineKeyboardMarkup(keyboard)
+                            )
+                    else:
+                        # For other types of BadRequest errors, fallback to a new message
+                        logger.error(f"Error updating message with chart: {str(e)}")
+                        try:
+                            await query.message.reply_photo(
+                                photo=chart_data,
+                                caption=analysis[:1000] if analysis and len(analysis) > 1000 else analysis,
+                                parse_mode=ParseMode.HTML,
+                                reply_markup=InlineKeyboardMarkup(keyboard)
+                            )
+                        except Exception as photo_e:
+                            logger.error(f"Error sending photo: {str(photo_e)}")
+                            await query.message.reply_text(
+                                text="Error sending analysis. Please try again.",
+                                reply_markup=InlineKeyboardMarkup(keyboard)
+                            )
+                except Exception as e:
                     logger.error(f"Error updating message with chart: {str(e)}")
+                    # Try to send a new message as fallback
+                    logger.info("Trying fallback: sending as new message")
                     try:
+                        # Ensure we don't exceed caption length
+                        safe_caption = analysis[:1000] if analysis and len(analysis) > 1000 else analysis
                         await query.message.reply_photo(
                             photo=chart_data,
-                            caption=analysis[:1000] if analysis and len(analysis) > 1000 else analysis,
+                            caption=safe_caption,
                             parse_mode=ParseMode.HTML,
                             reply_markup=InlineKeyboardMarkup(keyboard)
                         )
-                    except Exception as photo_e:
-                        logger.error(f"Error sending photo: {str(photo_e)}")
+                    except Exception as fallback_e:
+                        logger.error(f"Fallback also failed: {str(fallback_e)}")
                         await query.message.reply_text(
-                            text="Error sending analysis. Please try again.",
+                            text="Error showing analysis. Please try again later.",
                             reply_markup=InlineKeyboardMarkup(keyboard)
                         )
-            except Exception as e:
-                logger.error(f"Error updating message with chart: {str(e)}")
-                # Try to send a new message as fallback
-                logger.info("Trying fallback: sending as new message")
-                try:
-                    # Ensure we don't exceed caption length
-                    safe_caption = analysis[:1000] if analysis and len(analysis) > 1000 else analysis
-                    await query.message.reply_photo(
-                        photo=chart_data,
-                        caption=safe_caption,
-                        parse_mode=ParseMode.HTML,
-                        reply_markup=InlineKeyboardMarkup(keyboard)
-                    )
-                except Exception as fallback_e:
-                    logger.error(f"Fallback also failed: {str(fallback_e)}")
-                    await query.message.reply_text(
-                        text="Error showing analysis. Please try again later.",
-                        reply_markup=InlineKeyboardMarkup(keyboard)
-                    )
             
             return CHOOSE_ANALYSIS
             
