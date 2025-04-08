@@ -18,18 +18,18 @@ import time
 import json
 import pickle
 import hashlib
+import traceback
+import re
 
 # Importeer alleen de base class
 from trading_bot.services.chart_service.base import TradingViewService
 
 logger = logging.getLogger(__name__)
 
-# Rate limiting en caching configuratie
-YAHOO_CACHE_DIR = os.path.join('data', 'cache', 'yahoo')
-YAHOO_CACHE_EXPIRY = 60 * 5  # 5 minuten
-YAHOO_REQUEST_DELAY = 2  # 2 seconden tussen requests
+# Verwijder alle Yahoo Finance gerelateerde constanten
+OCR_CACHE_DIR = os.path.join('data', 'cache', 'ocr')
 
-# JSON encoder voor NumPy datatypes
+# JSON Encoder voor NumPy types
 class NumpyJSONEncoder(json.JSONEncoder):
     def default(self, obj):
         if isinstance(obj, np.integer):
@@ -38,8 +38,10 @@ class NumpyJSONEncoder(json.JSONEncoder):
             return float(obj)
         elif isinstance(obj, np.ndarray):
             return obj.tolist()
-        elif isinstance(obj, pd.Series):
-            return obj.tolist()
+        elif isinstance(obj, pd.Timestamp):
+            return obj.isoformat()
+        elif isinstance(obj, datetime):
+            return obj.isoformat()
         return super(NumpyJSONEncoder, self).default(obj)
 
 class ChartService:
@@ -48,7 +50,7 @@ class ChartService:
         print("ChartService initialized")
         try:
             # Maak cache directory aan als die niet bestaat
-            os.makedirs(YAHOO_CACHE_DIR, exist_ok=True)
+            os.makedirs(OCR_CACHE_DIR, exist_ok=True)
             
             # Houd bij wanneer de laatste request naar Yahoo is gedaan
             self.last_yahoo_request = 0
@@ -599,7 +601,7 @@ class ChartService:
 
     async def get_technical_analysis(self, instrument: str, timeframe: str = "1h") -> Union[bytes, str]:
         """
-        Get technical analysis for an instrument with timeframe using combined Yahoo Finance, OCR, and DeepSeek APIs.
+        Get technical analysis for an instrument with timeframe using OCR and DeepSeek APIs.
         """
         try:
             # First get the chart image
@@ -612,541 +614,207 @@ class ChartService:
                 logger.warning("DeepSeek API key missing, falling back to mock data")
                 return await self._generate_mock_analysis(instrument, timeframe, img_path)
             
-            # Get market data using Yahoo Finance
-            try:
-                logger.info(f"Getting market data for {instrument} from Yahoo Finance")
-                yahoo_data_json = await self._get_yahoo_finance_data(instrument, timeframe)
-                
-                if not yahoo_data_json:
-                    logger.warning("No data from Yahoo Finance, falling back to mock data")
-                    return await self._generate_mock_analysis(instrument, timeframe, img_path)
-                
-                # Parse JSON string to dictionary for OCR enhancement
-                import json
-                yahoo_data_dict = json.loads(yahoo_data_json)
-                
-                # Perform OCR analysis on the chart image if available
-                ocr_data = {}
-                if img_path and os.path.exists(img_path):
-                    try:
-                        from trading_bot.services.chart_service.ocr_processor import ChartOCRProcessor
-                        logger.info(f"Performing OCR analysis on chart image: {img_path}")
+            # Initialize empty market data dictionary
+            market_data_dict = {
+                "instrument": instrument,
+                "timeframe": timeframe,
+                "timestamp": datetime.now().isoformat(),
+            }
+            
+            # Perform OCR analysis on the chart image if available
+            if img_path and os.path.exists(img_path):
+                try:
+                    from trading_bot.services.chart_service.ocr_processor import ChartOCRProcessor
+                    logger.info(f"Extracting data from chart image using OCR: {img_path}")
+                    
+                    # Initialize OCR processor
+                    ocr_processor = ChartOCRProcessor()
+                    
+                    # Process chart image with OCR
+                    ocr_data = ocr_processor.process_chart_image(img_path)
+                    logger.info(f"OCR data extracted: {ocr_data}")
+                    
+                    if not ocr_data or 'current_price' not in ocr_data:
+                        logger.warning("No valid OCR data extracted, using fallback data")
+                        market_data_dict.update(self._generate_synthetic_data(instrument))
+                    else:
+                        # Use OCR data directly
+                        market_data_dict.update(ocr_data)
                         
-                        # Initialize OCR processor
-                        ocr_processor = ChartOCRProcessor()
-                        
-                        # Process chart image with OCR
-                        ocr_data = ocr_processor.process_chart_image(img_path)
-                        logger.info(f"OCR data extracted: {ocr_data}")
-                        
-                        # Enhance Yahoo data with OCR data if available
-                        if ocr_data:
-                            enhanced_data = ocr_processor.enhance_market_data(yahoo_data_dict, ocr_data)
-                            logger.info(f"Enhanced market data with OCR: {enhanced_data}")
-                            
-                            # Convert enhanced data back to JSON for DeepSeek
-                            yahoo_data_json = json.dumps(enhanced_data, indent=2, cls=NumpyJSONEncoder)
-                        
-                    except Exception as ocr_error:
-                        logger.error(f"Error performing OCR analysis: {str(ocr_error)}")
-                        # Continue with Yahoo data only
-                
-                # Format data using DeepSeek API
-                logger.info(f"Formatting data with DeepSeek for {instrument}")
-                analysis = await self._format_with_deepseek(deepseek_api_key, instrument, timeframe, yahoo_data_json)
-                
-                if not analysis:
-                    logger.warning("Failed to format with DeepSeek, falling back to mock data")
-                    return await self._generate_mock_analysis(instrument, timeframe, img_path)
-                
-                # Add OCR confidence note if OCR data was used
-                if ocr_data and 'current_price' in ocr_data:
-                    # Check if the OCR price was significantly different from Yahoo price
-                    if 'current_price' in yahoo_data_dict:
-                        price_diff_pct = abs(ocr_data['current_price'] - yahoo_data_dict['current_price']) / yahoo_data_dict['current_price'] * 100
-                        if price_diff_pct > 2:  # If more than 2% difference
-                            logger.info(f"OCR price differed by {price_diff_pct:.2f}% from Yahoo price")
-                            # Could add a note to the analysis, but keeping it clean for now
-                
-                return img_path, analysis
-                
-            except Exception as e:
-                logger.error(f"Error getting technical analysis data: {str(e)}")
-                import traceback
-                logger.error(traceback.format_exc())
+                        # Calculate support/resistance levels based on OCR price
+                        if 'current_price' in ocr_data:
+                            support_resistance = self._calculate_synthetic_support_resistance(
+                                ocr_data['current_price'], instrument
+                            )
+                            market_data_dict.update(support_resistance)
+                    
+                except Exception as ocr_error:
+                    logger.error(f"Error performing OCR analysis: {str(ocr_error)}")
+                    logger.error(traceback.format_exc())
+                    market_data_dict.update(self._generate_synthetic_data(instrument))
+            else:
+                logger.warning(f"No chart image available at {img_path}, using fallback data")
+                market_data_dict.update(self._generate_synthetic_data(instrument))
+            
+            # Convert data to JSON for DeepSeek
+            market_data_json = json.dumps(market_data_dict, indent=2, cls=NumpyJSONEncoder)
+            
+            # Format data using DeepSeek API
+            logger.info(f"Formatting data with DeepSeek for {instrument}")
+            analysis = await self._format_with_deepseek(deepseek_api_key, instrument, timeframe, market_data_json)
+            
+            if not analysis:
+                logger.warning("Failed to format with DeepSeek, falling back to mock data")
                 return await self._generate_mock_analysis(instrument, timeframe, img_path)
+            
+            return img_path, analysis
                 
         except Exception as e:
             logger.error(f"Error in get_technical_analysis: {str(e)}")
-            return None, "Error generating technical analysis."
-
-    def _get_cache_key(self, symbol, data_type, timeframe=None):
-        """Genereer een unieke cache key voor Yahoo Finance data"""
-        components = [symbol, data_type]
-        if timeframe:
-            components.append(timeframe)
-        
-        key = "_".join(components)
-        hashed = hashlib.md5(key.encode()).hexdigest()
-        return hashed
-
-    def _get_cached_data(self, cache_key):
-        """Haal gecachte data op als die bestaat en nog geldig is"""
-        cache_file = os.path.join(YAHOO_CACHE_DIR, f"{cache_key}.pkl")
-        if os.path.exists(cache_file):
-            try:
-                # Controleer of de cache nog geldig is
-                file_time = os.path.getmtime(cache_file)
-                if time.time() - file_time < YAHOO_CACHE_EXPIRY:
-                    with open(cache_file, 'rb') as f:
-                        return pickle.load(f)
-                else:
-                    logger.info(f"Cache expired for {cache_key}")
-            except Exception as e:
-                logger.warning(f"Error reading cache: {str(e)}")
-        return None
-
-    def _save_to_cache(self, cache_key, data):
-        """Sla data op in de cache"""
-        try:
-            cache_file = os.path.join(YAHOO_CACHE_DIR, f"{cache_key}.pkl")
-            with open(cache_file, 'wb') as f:
-                pickle.dump(data, f)
-            logger.info(f"Saved data to cache: {cache_key}")
-        except Exception as e:
-            logger.warning(f"Error saving to cache: {str(e)}")
-
-    async def _get_ticker_info(self, symbol):
-        """Haal ticker info op met rate limiting en caching"""
-        import yfinance as yf
-        
-        # Controleer cache eerst
-        cache_key = self._get_cache_key(symbol, "info")
-        cached_data = self._get_cached_data(cache_key)
-        if cached_data:
-            logger.info(f"Using cached info for {symbol}")
-            return cached_data
-        
-        # Rate limiting
-        time_since_last = time.time() - self.last_yahoo_request
-        if time_since_last < YAHOO_REQUEST_DELAY:
-            delay = YAHOO_REQUEST_DELAY - time_since_last
-            logger.info(f"Rate limiting: waiting {delay:.2f}s before Yahoo Finance request")
-            await asyncio.sleep(delay)
-        
-        # Update timestamp
-        self.last_yahoo_request = time.time()
-        
-        try:
-            ticker = yf.Ticker(symbol)
-            info = ticker.fast_info  # Gebruik fast_info om quota te sparen
-            
-            # Vul aan met basis info zonder volledige quota te gebruiken
-            basic_info = {
-                'symbol': symbol,
-                'regularMarketPrice': getattr(info, 'last_price', None),
-                'currency': getattr(info, 'currency', None),
-                'exchange': getattr(info, 'exchange', None)
-            }
-            
-            # Sla op in cache
-            self._save_to_cache(cache_key, basic_info)
-            return basic_info
-        except Exception as e:
-            logger.error(f"Error getting ticker info: {str(e)}")
-            return None
-
-    async def _get_ticker_history(self, symbol, start_date, end_date, interval):
-        """Haal ticker history op met rate limiting en caching"""
-        import yfinance as yf
-        
-        # Controleer cache eerst
-        cache_key = self._get_cache_key(symbol, "history", f"{interval}_{start_date.strftime('%Y%m%d')}_{end_date.strftime('%Y%m%d')}")
-        cached_data = self._get_cached_data(cache_key)
-        if cached_data is not None:
-            logger.info(f"Using cached history for {symbol}")
-            return cached_data
-        
-        # Rate limiting
-        time_since_last = time.time() - self.last_yahoo_request
-        if time_since_last < YAHOO_REQUEST_DELAY:
-            delay = YAHOO_REQUEST_DELAY - time_since_last
-            logger.info(f"Rate limiting: waiting {delay:.2f}s before Yahoo Finance request")
-            await asyncio.sleep(delay)
-        
-        # Update timestamp
-        self.last_yahoo_request = time.time()
-        
-        try:
-            data = yf.download(symbol, start=start_date, end=end_date, interval=interval, progress=False)
-            
-            # Sla op in cache als data niet leeg is
-            if not data.empty:
-                self._save_to_cache(cache_key, data)
-            return data
-        except Exception as e:
-            logger.error(f"Error getting ticker history: {str(e)}")
-            return pd.DataFrame()
-            
-    async def _get_yahoo_finance_data(self, instrument: str, timeframe: str):
-        """Get market data from Yahoo Finance using Ticker API with rate limiting and caching"""
-        try:
-            import yfinance as yf
-            import pandas as pd
-            import numpy as np
-            import json
-            from datetime import datetime, timedelta
-            
-            # Map instrument naar Yahoo Finance symbool
-            yahoo_symbols = {
-                # Forex
-                "EURUSD": "EURUSD=X", "GBPUSD": "GBPUSD=X", "USDJPY": "USDJPY=X",
-                "AUDUSD": "AUDUSD=X", "USDCAD": "USDCAD=X", "NZDUSD": "NZDUSD=X",
-                "EURGBP": "EURGBP=X", "EURJPY": "EURJPY=X", "GBPJPY": "GBPJPY=X",
-                "USDCHF": "USDCHF=X", "EURCHF": "EURCHF=X", "GBPCHF": "GBPCHF=X",
-                # Crypto
-                "BTCUSD": "BTC-USD", "ETHUSD": "ETH-USD", "XRPUSD": "XRP-USD",
-                "SOLUSD": "SOL-USD", "BNBUSD": "BNB-USD", "ADAUSD": "ADA-USD",
-                "DOGUSD": "DOGE-USD", "DOTUSD": "DOT-USD", "LNKUSD": "LINK-USD",
-                # Indices
-                "US500": "^GSPC", "US30": "^DJI", "US100": "^NDX", 
-                "UK100": "^FTSE", "DE40": "^GDAXI", "FR40": "^FCHI",
-                "JP225": "^N225", "AU200": "^AXJO", 
-                # Commodities
-                "XAUUSD": "GC=F", "XTIUSD": "CL=F"
-            }
-            
-            # Bepaal het Yahoo Finance symbool
-            symbol = yahoo_symbols.get(instrument)
-            if not symbol:
-                # Als het instrument niet in de mapping staat, probeer het direct
-                symbol = instrument.replace("/", "-")
-                if "USD" in symbol and not symbol.endswith("USD"):
-                    symbol = symbol + "-USD"
-            
-            logger.info(f"Using Yahoo Finance symbol: {symbol} for {instrument}")
-            
-            # Bepaal de tijdsperiode op basis van timeframe
-            end_date = datetime.now()
-            
-            # Pas de hoeveelheid historische data aan op basis van timeframe
-            # voor betere support/resistance berekening
-            if timeframe == "1h":
-                # Meer historische data om betere S/R lijnen te vinden
-                start_date = end_date - timedelta(days=30)  # 30 dagen voor betere S/R analyse
-                interval = "1h"
-            elif timeframe == "4h":
-                start_date = end_date - timedelta(days=90)  # 90 dagen voor 4h
-                interval = "1h"  # Yahoo has no 4h, so we use 1h
-            elif timeframe == "1d":
-                start_date = end_date - timedelta(days=365)  # 1 jaar voor dagelijkse data
-                interval = "1d"
-            else:
-                start_date = end_date - timedelta(days=30)
-                interval = "1h"
-            
-            # Haal info op met rate limiting en caching
-            info = await self._get_ticker_info(symbol)
-            
-            # Haal historische data op met rate limiting en caching
-            data = await self._get_ticker_history(symbol, start_date, end_date, interval)
-            
-            # Gebruik een fallback voor hardcoded realistische prijzen voor bekende instrumenten
-            # als we geen data kunnen ophalen van Yahoo Finance
-            if info is None or data.empty:
-                logger.warning(f"Failed to get data from Yahoo Finance for {symbol}, using fallback data")
-                
-                # Hardcoded values for common instruments
-                fallback_prices = {
-                    "EURUSD": 1.095,
-                    "GBPUSD": 1.28,
-                    "USDJPY": 148.5,
-                    "BTCUSD": 68000,
-                    "ETHUSD": 3500
-                }
-                
-                current_price = fallback_prices.get(instrument)
-                
-                if current_price is None:
-                    # Genereer een realistische prijs als fallback
-                    if "USD" in instrument:
-                        if instrument.startswith("BTC"):
-                            current_price = 68000
-                        elif instrument.startswith("ETH"):
-                            current_price = 3500
-                        elif "JPY" in instrument:
-                            current_price = 148.5
-                        else:
-                            current_price = 1.1  # Default for forex
-                    else:
-                        current_price = 1.1  # Default
-                
-                # Als we geen data hebben, genereer een mock data set
-                if data.empty:
-                    # Maak een synthetische dataset
-                    dates = pd.date_range(start=start_date, end=end_date, periods=100)
-                    
-                    # Basisprijs met wat random fluctuaties
-                    close_prices = [current_price * (1 + 0.0001 * i + 0.001 * np.random.randn()) for i in range(100)]
-                    
-                    # Genereer OHLC data
-                    data = pd.DataFrame({
-                        'Open': [price * (1 - 0.001 * np.random.rand()) for price in close_prices],
-                        'High': [price * (1 + 0.002 * np.random.rand()) for price in close_prices],
-                        'Low': [price * (1 - 0.002 * np.random.rand()) for price in close_prices],
-                        'Close': close_prices,
-                        'Volume': [int(1000000 * np.random.rand()) for _ in range(100)]
-                    }, index=dates)
-                    
-                    logger.info(f"Generated synthetic data for {instrument} with price {current_price}")
-            else:
-                # Haal huidige prijs op
-                current_price = None
-                
-                # Probeer eerst uit info
-                if info and 'regularMarketPrice' in info and info['regularMarketPrice']:
-                    current_price = info['regularMarketPrice']
-                    logger.info(f"Using regularMarketPrice: {current_price}")
-                elif not data.empty:
-                    # Fallback naar laatste waarde in historische data
-                    current_price = float(data['Close'].iloc[-1])  # Convert to float to avoid int64/float64 issues
-                    logger.info(f"Using historical data last close: {current_price}")
-                else:
-                    # Hardcoded fallback
-                    if instrument == "EURUSD":
-                        current_price = 1.095
-                    elif instrument == "GBPUSD":
-                        current_price = 1.28
-                    elif instrument == "BTCUSD":
-                        current_price = 68000
-                    else:
-                        current_price = 1.0  # Default
-                    logger.info(f"Using hardcoded fallback price: {current_price}")
-            
-            # Controleer of de verkregen prijs realistisch is voor het instrument
-            # Voor forex zoals EURUSD, check of het in normale bereik is (bijv. 0.9 - 1.5)
-            if "USD" in instrument and instrument.startswith("EUR"):
-                if current_price < 0.9 or current_price > 1.5:
-                    logger.warning(f"Unrealistic price for {instrument}: {current_price}, using default range value")
-                    current_price = 1.095  # Default realistic value for EURUSD
-            
-            # Zorg ervoor dat alles als Python native types wordt opgeslagen (float, int, etc.) 
-            # om problemen met JSON serialisatie te voorkomen
-            
-            # Calculate technical indicators
-            if not data.empty:
-                data['SMA20'] = data['Close'].rolling(window=20).mean()
-                data['SMA50'] = data['Close'].rolling(window=50).mean()
-                data['SMA200'] = data['Close'].rolling(window=200).mean()
-                data['RSI'] = self._calculate_rsi(data['Close'])
-                data['MACD'], data['Signal'], data['Hist'] = self._calculate_macd(data['Close'])
-                
-                # Calculate Bollinger Bands
-                data['MA20'] = data['Close'].rolling(window=20).mean()
-                data['SD20'] = data['Close'].rolling(window=20).std()
-                data['UpperBand'] = data['MA20'] + (data['SD20'] * 2)
-                data['LowerBand'] = data['MA20'] - (data['SD20'] * 2)
-                
-                # Get current values from historical data and convert to Python native types
-                current_open = float(data['Open'].iloc[-1])
-                current_high = float(data['High'].iloc[-1])
-                current_low = float(data['Low'].iloc[-1])
-                current_sma20 = float(data['SMA20'].iloc[-1]) if not pd.isna(data['SMA20'].iloc[-1]) else float(current_price)
-                current_sma50 = float(data['SMA50'].iloc[-1]) if not pd.isna(data['SMA50'].iloc[-1]) else float(current_price * 0.99)
-                current_sma200 = float(data['SMA200'].iloc[-1]) if not pd.isna(data['SMA200'].iloc[-1]) else float(current_price * 0.98)
-                current_rsi = float(data['RSI'].iloc[-1]) if not pd.isna(data['RSI'].iloc[-1]) else 50.0
-                current_macd = float(data['MACD'].iloc[-1]) if not pd.isna(data['MACD'].iloc[-1]) else 0.001
-                current_signal = float(data['Signal'].iloc[-1]) if not pd.isna(data['Signal'].iloc[-1]) else 0.0
-                current_hist = float(data['Hist'].iloc[-1]) if not pd.isna(data['Hist'].iloc[-1]) else 0.001
-                current_upper_band = float(data['UpperBand'].iloc[-1]) if not pd.isna(data['UpperBand'].iloc[-1]) else float(current_price * 1.02)
-                current_lower_band = float(data['LowerBand'].iloc[-1]) if not pd.isna(data['LowerBand'].iloc[-1]) else float(current_price * 0.98)
-                
-                if 'Volume' in data.columns:
-                    current_volume = int(data['Volume'].iloc[-1]) if not pd.isna(data['Volume'].iloc[-1]) else 1000000
-                else:
-                    current_volume = 1000000
-                
-                # Zoek meer accurate support en resistance levels met verbeterde methode
-                supports, resistances = self._find_support_resistance(data)
-                
-                # Converteer numpy arrays naar Python lists
-                supports = [float(s) for s in supports] if supports else [float(current_price * 0.99), float(current_price * 0.98), float(current_price * 0.97)]
-                resistances = [float(r) for r in resistances] if resistances else [float(current_price * 1.01), float(current_price * 1.02), float(current_price * 1.03)]
-                
-                # Bereken prijsveranderingen
-                price_change_1d = float((current_price / float(data['Close'].iloc[-2]) - 1) * 100) if len(data) > 1 else 0.0
-                price_change_1w = float((current_price / float(data['Close'].iloc[-7]) - 1) * 100) if len(data) > 7 else 0.0
-                historical_volatility = float(data['Close'].pct_change().std() * 100)
-            else:
-                # Fallback waarden als we geen historische data hebben
-                current_open = float(current_price * 0.99)
-                current_high = float(current_price * 1.01)
-                current_low = float(current_price * 0.98)
-                current_sma20 = float(current_price * 0.995)
-                current_sma50 = float(current_price * 0.99)
-                current_sma200 = float(current_price * 0.98)
-                current_rsi = 50.0  # Neutraal
-                current_macd = 0.001
-                current_signal = 0.0
-                current_hist = 0.001
-                current_volume = 1000000
-                current_upper_band = float(current_price * 1.02)
-                current_lower_band = float(current_price * 0.98)
-                
-                # Genereer realistische support/resistance op basis van typische prijs spreads voor het instrument
-                if instrument in ["EURUSD", "GBPUSD", "EURGBP"]: 
-                    # Voor major forex: kleinere spread (0.3%, 0.6%, 0.9%)
-                    supports = [
-                        float(round(current_price * 0.997, 5)),
-                        float(round(current_price * 0.994, 5)),
-                        float(round(current_price * 0.991, 5))
-                    ]
-                    resistances = [
-                        float(round(current_price * 1.003, 5)),
-                        float(round(current_price * 1.006, 5)),
-                        float(round(current_price * 1.009, 5))
-                    ]
-                elif "USD" in instrument and instrument.startswith("BTC"):
-                    # Voor Bitcoin: grotere spread (2%, 4%, 6%)
-                    supports = [
-                        float(round(current_price * 0.98, 1)),
-                        float(round(current_price * 0.96, 1)),
-                        float(round(current_price * 0.94, 1))
-                    ]
-                    resistances = [
-                        float(round(current_price * 1.02, 1)),
-                        float(round(current_price * 1.04, 1)),
-                        float(round(current_price * 1.06, 1))
-                    ]
-                else:
-                    # Voor overige instrumenten: gemiddelde spread (0.5%, 1%, 1.5%)
-                    supports = [
-                        float(round(current_price * 0.995, 5)),
-                        float(round(current_price * 0.99, 5)),
-                        float(round(current_price * 0.985, 5))
-                    ]
-                    resistances = [
-                        float(round(current_price * 1.005, 5)),
-                        float(round(current_price * 1.01, 5)),
-                        float(round(current_price * 1.015, 5))
-                    ]
-                
-                price_change_1d = 0.2
-                price_change_1w = 0.8
-                historical_volatility = 1.2
-            
-            # Prepare the analysis results in a structured format with native Python types
-            market_data = {
-                "instrument": instrument,
-                "timeframe": timeframe,
-                "current_price": float(current_price),
-                "open": current_open,
-                "high": current_high,
-                "low": current_low,
-                "volume": current_volume,
-                "sma20": current_sma20,
-                "sma50": current_sma50,
-                "sma200": current_sma200,
-                "rsi": current_rsi,
-                "macd": current_macd,
-                "macd_signal": current_signal,
-                "macd_hist": current_hist,
-                "upper_band": current_upper_band,
-                "lower_band": current_lower_band,
-                "trend_indicators": {
-                    "price_above_sma20": bool(current_price > current_sma20),
-                    "price_above_sma50": bool(current_price > current_sma50),
-                    "price_above_sma200": bool(current_price > current_sma200),
-                    "sma20_above_sma50": bool(current_sma20 > current_sma50),
-                    "macd_above_signal": bool(current_macd > current_signal),
-                    "rsi_above_50": bool(current_rsi > 50),
-                    "rsi_oversold": bool(current_rsi < 30),
-                    "rsi_overbought": bool(current_rsi > 70)
-                },
-                "support_levels": supports,  # Top 3 support levels
-                "resistance_levels": resistances,  # Top 3 resistance levels
-                "price_change_1d": price_change_1d,
-                "price_change_1w": price_change_1w,
-                "historical_volatility": historical_volatility,
-            }
-            
-            # Voeg debug informatie toe om problemen te diagnosticeren
-            logger.info(f"Current price for {instrument}: {current_price}")
-            logger.info(f"Support levels: {supports[:3]}")
-            logger.info(f"Resistance levels: {resistances[:3]}")
-            
-            # Zorg ervoor dat support/resistance correct gesorteerd zijn t.o.v. de huidige prijs
-            # Support niveaus moeten altijd onder de huidige prijs liggen
-            # Resistance niveaus moeten altijd boven de huidige prijs liggen
-            sorted_supports = [s for s in supports if s < current_price]
-            sorted_resistances = [r for r in resistances if r > current_price]
-            
-            # Als er geen supports onder de prijs zijn, gebruik dan een aantal procent onder de prijs
-            if not sorted_supports:
-                # Gebruik instrument-specifieke aanpassingen
-                if "USD" in instrument and instrument.startswith("EUR"):
-                    # EURUSD heeft typisch kleinere bewegingen (0.3%, 0.6%, 0.9%)
-                    sorted_supports = [
-                        round(current_price * 0.997, 5),
-                        round(current_price * 0.994, 5),
-                        round(current_price * 0.991, 5)
-                    ]
-                else:
-                    # Standaard levels
-                    sorted_supports = [
-                        round(current_price * 0.995, 5),
-                        round(current_price * 0.99, 5),
-                        round(current_price * 0.985, 5)
-                    ]
-                logger.warning(f"No valid supports found below price, using generated supports: {sorted_supports}")
-            
-            # Als er geen resistances boven de prijs zijn, gebruik dan een aantal procent boven de prijs
-            if not sorted_resistances:
-                # Gebruik instrument-specifieke aanpassingen
-                if "USD" in instrument and instrument.startswith("EUR"):
-                    # EURUSD heeft typisch kleinere bewegingen (0.3%, 0.6%, 0.9%)
-                    sorted_resistances = [
-                        round(current_price * 1.003, 5),
-                        round(current_price * 1.006, 5),
-                        round(current_price * 1.009, 5)
-                    ]
-                else:
-                    # Standaard levels
-                    sorted_resistances = [
-                        round(current_price * 1.005, 5),
-                        round(current_price * 1.01, 5),
-                        round(current_price * 1.015, 5)
-                    ]
-                logger.warning(f"No valid resistances found above price, using generated resistances: {sorted_resistances}")
-            
-            # Update de market_data met de gesorteerde support/resistance niveaus
-            market_data["support_levels"] = sorted_supports
-            market_data["resistance_levels"] = sorted_resistances
-            
-            # Convert structured data to string format for DeepSeek using custom encoder
-            try:
-                market_data_str = json.dumps(market_data, indent=2, cls=NumpyJSONEncoder)
-                logger.info(f"Prepared market data for {instrument} with {len(market_data_str)} characters")
-                return market_data_str
-            except Exception as e:
-                logger.error(f"JSON serialization error: {str(e)}")
-                # Als er een fout optreedt met de JSON serialisatie, probeer een simpeler object
-                simplified_data = {
-                    "instrument": instrument,
-                    "timeframe": timeframe,
-                    "current_price": float(current_price),
-                    "rsi": float(current_rsi),
-                    "support_levels": sorted_supports[:3],
-                    "resistance_levels": sorted_resistances[:3],
-                    "trend": "Bullish" if current_price > current_sma50 else "Bearish"
-                }
-                return json.dumps(simplified_data, indent=2)
-            
-        except Exception as e:
-            logger.error(f"Error getting Yahoo Finance data: {str(e)}")
-            import traceback
             logger.error(traceback.format_exc())
-            return None
+            return None, "Error generating technical analysis."
+            
+    def _generate_synthetic_data(self, instrument: str) -> Dict:
+        """
+        Generate synthetic market data when OCR extraction fails
+        """
+        # Maak een dict met basis market data
+        base_price = self._get_base_price_for_instrument(instrument)
+        volatility = self._get_volatility_for_instrument(instrument)
+        
+        # Genereer een random prijs rond de basis prijs
+        current_price = round(base_price * (1 + random.uniform(-0.005, 0.005)), 5)
+        
+        logger.info(f"Generated synthetic data for {instrument} with price {current_price}")
+        
+        # Bereken support/resistance levels
+        support_resistance = self._calculate_synthetic_support_resistance(current_price, instrument)
+        
+        # Basis market data
+        market_data = {
+            "current_price": current_price,
+            "open": round(current_price * (1 - random.uniform(0, 0.002)), 5),
+            "high": round(current_price * (1 + random.uniform(0.001, 0.003)), 5),
+            "low": round(current_price * (1 - random.uniform(0.001, 0.003)), 5),
+            "volume": int(random.uniform(1000, 10000)),
+            "volatility": volatility
+        }
+        
+        # Voeg support/resistance toe
+        market_data.update(support_resistance)
+        
+        # Voeg technische indicatoren toe
+        market_data.update({
+            "rsi": round(random.uniform(30, 70), 2),
+            "macd": round(random.uniform(-0.5, 0.5), 3),
+            "ema_50": round(current_price * (1 + random.uniform(-0.01, 0.01)), 5),
+            "ema_200": round(current_price * (1 + random.uniform(-0.03, 0.03)), 5)
+        })
+        
+        return market_data
+    
+    def _get_base_price_for_instrument(self, instrument: str) -> float:
+        """
+        Get a realistic base price for an instrument
+        """
+        base_prices = {
+            # Forex
+            "EURUSD": 1.095, "GBPUSD": 1.269, "USDJPY": 153.50,
+            "AUDUSD": 0.663, "USDCAD": 1.364, "NZDUSD": 0.606,
+            "EURGBP": 0.858, "EURJPY": 168.05, "GBPJPY": 194.76,
+            "USDCHF": 0.897, "EURCHF": 0.986, "GBPCHF": 1.140,
+            # Crypto
+            "BTCUSD": 67500, "ETHUSD": 3525, "XRPUSD": 0.56,
+            "SOLUSD": 158, "BNBUSD": 600, "ADAUSD": 0.48,
+            "DOGUSD": 0.126, "DOTUSD": 7.50, "LNKUSD": 14.30,
+            # Indices
+            "US500": 5250, "US30": 39500, "US100": 18300, 
+            "UK100": 8200, "DE40": 18200, "FR40": 8000,
+            "JP225": 38900, "AU200": 7800, 
+            # Commodities
+            "XAUUSD": 2340, "XTIUSD": 82.50
+        }
+        
+        return base_prices.get(instrument, 100.0)  # Default voor onbekende instrumenten
+    
+    def _get_volatility_for_instrument(self, instrument: str) -> float:
+        """
+        Get realistic volatility percentage for an instrument
+        """
+        volatilities = {
+            # Forex (meestal lage volatiliteit)
+            "EURUSD": 0.12, "GBPUSD": 0.14, "USDJPY": 0.18,
+            "AUDUSD": 0.20, "USDCAD": 0.15, "NZDUSD": 0.22,
+            "EURGBP": 0.10, "EURJPY": 0.20, "GBPJPY": 0.22,
+            "USDCHF": 0.12, "EURCHF": 0.11, "GBPCHF": 0.14,
+            # Crypto (hoge volatiliteit)
+            "BTCUSD": 2.5, "ETHUSD": 3.0, "XRPUSD": 4.0,
+            "SOLUSD": 5.0, "BNBUSD": 3.5, "ADAUSD": 3.8,
+            "DOGUSD": 5.5, "DOTUSD": 4.2, "LNKUSD": 4.0,
+            # Indices (gemiddelde volatiliteit)
+            "US500": 0.8, "US30": 0.7, "US100": 0.9, 
+            "UK100": 0.65, "DE40": 0.85, "FR40": 0.75,
+            "JP225": 0.80, "AU200": 0.70, 
+            # Commodities
+            "XAUUSD": 0.6, "XTIUSD": 1.2
+        }
+        
+        return volatilities.get(instrument, 1.0)  # Default voor onbekende instrumenten
+        
+    def _calculate_synthetic_support_resistance(self, price: float, instrument: str) -> Dict:
+        """
+        Bereken realistische support/resistance levels op basis van de huidige prijs
+        """
+        logger.info(f"Berekenen van support/resistance levels met verbeterde methode")
+        
+        # Bereken volatiliteit als percentage van de prijs
+        volatility_pct = self._get_volatility_for_instrument(instrument) / 100
+        
+        # Genereer realistische support/resistance levels
+        supports = []
+        resistances = []
+        
+        try:
+            # Support levels onder de huidige prijs
+            support1 = round(price * (1 - volatility_pct * 3), 5)
+            support2 = round(price * (1 - volatility_pct * 5), 5)
+            support3 = round(price * (1 - volatility_pct * 7), 5)
+            
+            # Resistance levels boven de huidige prijs
+            resistance1 = round(price * (1 + volatility_pct * 3), 5)
+            resistance2 = round(price * (1 + volatility_pct * 5), 5)
+            resistance3 = round(price * (1 + volatility_pct * 7), 5)
+            
+            supports = [support1, support2, support3]
+            resistances = [resistance1, resistance2, resistance3]
+            
+            logger.info(f"Gevonden supports: {supports}")
+            logger.info(f"Gevonden resistances: {resistances}")
+        except Exception as e:
+            logger.error(f"Fout bij berekenen van support/resistance: {str(e)}")
+            # Fallback - genereer wat standaard levels als percentage van de prijs
+            logger.warning(f"Geen geldige resistances gevonden, genereer synthetische levels met volatiliteit {volatility_pct*100:.2f}%")
+            
+            supports = [
+                round(price * (1 - volatility_pct * 3), 5),
+                round(price * (1 - volatility_pct * 6), 5),
+                round(price * (1 - volatility_pct * 9), 5)
+            ]
+            
+            resistances = [
+                round(price * (1 + volatility_pct * 3), 5),
+                round(price * (1 + volatility_pct * 6), 5),
+                round(price * (1 + volatility_pct * 9), 5)
+            ]
+        
+        logger.info(f"Current price for {instrument}: {price}")
+        logger.info(f"Support levels: {supports}")
+        logger.info(f"Resistance levels: {resistances}")
+        
+        return {
+            "support_levels": supports,
+            "resistance_levels": resistances
+        }
 
     def _find_support_resistance(self, df, lookback=20):
         """Find support and resistance levels from price data using improved methods"""
@@ -1427,10 +1095,10 @@ class ChartService:
             return None
 
     def _build_deepseek_prompt(self, instrument, timeframe, market_data):
-        """Build prompt for DeepSeek API using market data from Yahoo Finance"""
+        """Build prompt for DeepSeek API using market data extracted from chart via OCR"""
         prompt = f"""
 Je bent een gespecialiseerde financiële analist voor SigmaPips AI, een technische analyse tool.
-Gegeven de volgende marktgegevens over {instrument} op een {timeframe} timeframe:
+Gegeven de volgende marktgegevens over {instrument} op een {timeframe} timeframe, geëxtraheerd via OCR:
 
 {market_data}
 
