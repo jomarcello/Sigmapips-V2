@@ -1042,6 +1042,7 @@ Zone Strength N/5: 🟢/🟡/🔴
 • Current Price: X.XXXX
 • Support: X.XXXX
 • Resistance: X.XXXX
+• Key Level: X.XXXX (markeer dit als 'Key Support' of 'Key Resistance' afhankelijk van of het boven of onder de huidige prijs is)
 • RSI: XX.X (afgerond op 1 decimaal)
 • Probability: XX%
 
@@ -1049,18 +1050,23 @@ Disclaimer: For educational purposes only. Not financial advice.
 
 BELANGRIJKE RICHTLIJNEN:
 1. VERWIJDER ALLE VIERKANTE HAAKJES [] - vul direct de juiste waarden in
-2. Bepaal Bullish/Bearish obv technische indicatoren
-3. Support niveaus MOETEN ONDER de huidige prijs liggen
-4. Resistance niveaus MOETEN BOVEN de huidige prijs liggen
-5. Zone Strength: 🟢 (4-5), 🟡 (2-3), 🔴 (1)
-6. RSI moet worden afgerond op 1 decimaal (XX.X)
-7. Probability tussen 60-85%
-8. BLIJF BEKNOPT - de totale output moet minder dan 1000 tekens zijn
+2. Bepaal Bullish/Bearish op basis van de prijsposities:
+   - Als de huidige prijs dichter bij resistance zit en er movement omhoog is: Bullish
+   - Als de huidige prijs dichter bij support zit en er movement omlaag is: Bearish
+3. Support niveaus MOETEN ONDER de huidige prijs liggen (gebruik 'support_levels' uit de data)
+4. Resistance niveaus MOETEN BOVEN de huidige prijs liggen (gebruik 'resistance_levels' uit de data)
+5. Indien 'key_levels' aanwezig is, neem dit op als 'Key Support' of 'Key Resistance'
+6. Zone Strength: 🟢 (4-5), 🟡 (2-3), 🔴 (1) - bepaal op basis van de afstand tussen prijzen
+7. RSI moet worden afgerond op 1 decimaal (XX.X)
+8. Probability tussen 60-85%
+9. BLIJF BEKNOPT - de totale output moet minder dan 1000 tekens zijn
+
+Als er geen key levels aanwezig zijn in de data, laat dat deel weg in de output.
 
 VEREIST:
 - GEBRUIK EXACT DE HUIDIGE PRIJS ("current_price") zonder afronding
-- Support moet LAGER zijn dan de current_price
-- Resistance moet HOGER zijn dan de current_price
+- Support moet LAGER zijn dan de current_price (kies de hoogste support uit 'support_levels')
+- Resistance moet HOGER zijn dan de current_price (kies de laagste resistance uit 'resistance_levels')
 - RSI exact uit de gegevens maar afgerond op 1 decimaal
 - VERMIJD EXTRA TEKST of uitleg, houd het BEKNOPT
 - VERWIJDER ALLE VIERKANTE HAAKJES [] in de output
