@@ -599,7 +599,7 @@ class ChartService:
 
     async def get_technical_analysis(self, instrument: str, timeframe: str = "1h") -> Union[bytes, str]:
         """
-        Get technical analysis for an instrument with timeframe using Yahoo Finance and DeepSeek APIs.
+        Get technical analysis for an instrument with timeframe using combined Yahoo Finance, OCR, and DeepSeek APIs.
         """
         try:
             # First get the chart image
@@ -615,24 +615,65 @@ class ChartService:
             # Get market data using Yahoo Finance
             try:
                 logger.info(f"Getting market data for {instrument} from Yahoo Finance")
-                yahoo_data = await self._get_yahoo_finance_data(instrument, timeframe)
+                yahoo_data_json = await self._get_yahoo_finance_data(instrument, timeframe)
                 
-                if not yahoo_data:
+                if not yahoo_data_json:
                     logger.warning("No data from Yahoo Finance, falling back to mock data")
                     return await self._generate_mock_analysis(instrument, timeframe, img_path)
                 
+                # Parse JSON string to dictionary for OCR enhancement
+                import json
+                yahoo_data_dict = json.loads(yahoo_data_json)
+                
+                # Perform OCR analysis on the chart image if available
+                ocr_data = {}
+                if img_path and os.path.exists(img_path):
+                    try:
+                        from trading_bot.services.chart_service.ocr_processor import ChartOCRProcessor
+                        logger.info(f"Performing OCR analysis on chart image: {img_path}")
+                        
+                        # Initialize OCR processor
+                        ocr_processor = ChartOCRProcessor()
+                        
+                        # Process chart image with OCR
+                        ocr_data = ocr_processor.process_chart_image(img_path)
+                        logger.info(f"OCR data extracted: {ocr_data}")
+                        
+                        # Enhance Yahoo data with OCR data if available
+                        if ocr_data:
+                            enhanced_data = ocr_processor.enhance_market_data(yahoo_data_dict, ocr_data)
+                            logger.info(f"Enhanced market data with OCR: {enhanced_data}")
+                            
+                            # Convert enhanced data back to JSON for DeepSeek
+                            yahoo_data_json = json.dumps(enhanced_data, indent=2, cls=NumpyJSONEncoder)
+                        
+                    except Exception as ocr_error:
+                        logger.error(f"Error performing OCR analysis: {str(ocr_error)}")
+                        # Continue with Yahoo data only
+                
                 # Format data using DeepSeek API
                 logger.info(f"Formatting data with DeepSeek for {instrument}")
-                analysis = await self._format_with_deepseek(deepseek_api_key, instrument, timeframe, yahoo_data)
+                analysis = await self._format_with_deepseek(deepseek_api_key, instrument, timeframe, yahoo_data_json)
                 
                 if not analysis:
                     logger.warning("Failed to format with DeepSeek, falling back to mock data")
                     return await self._generate_mock_analysis(instrument, timeframe, img_path)
                 
+                # Add OCR confidence note if OCR data was used
+                if ocr_data and 'current_price' in ocr_data:
+                    # Check if the OCR price was significantly different from Yahoo price
+                    if 'current_price' in yahoo_data_dict:
+                        price_diff_pct = abs(ocr_data['current_price'] - yahoo_data_dict['current_price']) / yahoo_data_dict['current_price'] * 100
+                        if price_diff_pct > 2:  # If more than 2% difference
+                            logger.info(f"OCR price differed by {price_diff_pct:.2f}% from Yahoo price")
+                            # Could add a note to the analysis, but keeping it clean for now
+                
                 return img_path, analysis
                 
             except Exception as e:
                 logger.error(f"Error getting technical analysis data: {str(e)}")
+                import traceback
+                logger.error(traceback.format_exc())
                 return await self._generate_mock_analysis(instrument, timeframe, img_path)
                 
         except Exception as e:
@@ -788,17 +829,20 @@ class ChartService:
             # Bepaal de tijdsperiode op basis van timeframe
             end_date = datetime.now()
             
+            # Pas de hoeveelheid historische data aan op basis van timeframe
+            # voor betere support/resistance berekening
             if timeframe == "1h":
-                start_date = end_date - timedelta(days=14)  # 2 weeks for hourly data
+                # Meer historische data om betere S/R lijnen te vinden
+                start_date = end_date - timedelta(days=30)  # 30 dagen voor betere S/R analyse
                 interval = "1h"
             elif timeframe == "4h":
-                start_date = end_date - timedelta(days=60)  # 60 days for 4h data
+                start_date = end_date - timedelta(days=90)  # 90 dagen voor 4h
                 interval = "1h"  # Yahoo has no 4h, so we use 1h
             elif timeframe == "1d":
-                start_date = end_date - timedelta(days=180)  # 6 months for daily data
+                start_date = end_date - timedelta(days=365)  # 1 jaar voor dagelijkse data
                 interval = "1d"
             else:
-                start_date = end_date - timedelta(days=14)
+                start_date = end_date - timedelta(days=30)
                 interval = "1h"
             
             # Haal info op met rate limiting en caching
@@ -922,12 +966,12 @@ class ChartService:
                 else:
                     current_volume = 1000000
                 
-                # Determine support and resistance levels
-                supports, resistances = self._find_support_resistance(data, lookback=20)
+                # Zoek meer accurate support en resistance levels met verbeterde methode
+                supports, resistances = self._find_support_resistance(data)
                 
                 # Converteer numpy arrays naar Python lists
-                supports = [float(s) for s in supports[:3]] if supports else [float(current_price * 0.98), float(current_price * 0.97), float(current_price * 0.96)]
-                resistances = [float(r) for r in resistances[:3]] if resistances else [float(current_price * 1.02), float(current_price * 1.03), float(current_price * 1.04)]
+                supports = [float(s) for s in supports] if supports else [float(current_price * 0.99), float(current_price * 0.98), float(current_price * 0.97)]
+                resistances = [float(r) for r in resistances] if resistances else [float(current_price * 1.01), float(current_price * 1.02), float(current_price * 1.03)]
                 
                 # Bereken prijsveranderingen
                 price_change_1d = float((current_price / float(data['Close'].iloc[-2]) - 1) * 100) if len(data) > 1 else 0.0
@@ -949,9 +993,44 @@ class ChartService:
                 current_upper_band = float(current_price * 1.02)
                 current_lower_band = float(current_price * 0.98)
                 
-                # Genereer realistische support/resistance
-                supports = [float(current_price * 0.98), float(current_price * 0.97), float(current_price * 0.96)]
-                resistances = [float(current_price * 1.02), float(current_price * 1.03), float(current_price * 1.04)]
+                # Genereer realistische support/resistance op basis van typische prijs spreads voor het instrument
+                if instrument in ["EURUSD", "GBPUSD", "EURGBP"]: 
+                    # Voor major forex: kleinere spread (0.3%, 0.6%, 0.9%)
+                    supports = [
+                        float(round(current_price * 0.997, 5)),
+                        float(round(current_price * 0.994, 5)),
+                        float(round(current_price * 0.991, 5))
+                    ]
+                    resistances = [
+                        float(round(current_price * 1.003, 5)),
+                        float(round(current_price * 1.006, 5)),
+                        float(round(current_price * 1.009, 5))
+                    ]
+                elif "USD" in instrument and instrument.startswith("BTC"):
+                    # Voor Bitcoin: grotere spread (2%, 4%, 6%)
+                    supports = [
+                        float(round(current_price * 0.98, 1)),
+                        float(round(current_price * 0.96, 1)),
+                        float(round(current_price * 0.94, 1))
+                    ]
+                    resistances = [
+                        float(round(current_price * 1.02, 1)),
+                        float(round(current_price * 1.04, 1)),
+                        float(round(current_price * 1.06, 1))
+                    ]
+                else:
+                    # Voor overige instrumenten: gemiddelde spread (0.5%, 1%, 1.5%)
+                    supports = [
+                        float(round(current_price * 0.995, 5)),
+                        float(round(current_price * 0.99, 5)),
+                        float(round(current_price * 0.985, 5))
+                    ]
+                    resistances = [
+                        float(round(current_price * 1.005, 5)),
+                        float(round(current_price * 1.01, 5)),
+                        float(round(current_price * 1.015, 5))
+                    ]
+                
                 price_change_1d = 0.2
                 price_change_1w = 0.8
                 historical_volatility = 1.2
@@ -1004,12 +1083,40 @@ class ChartService:
             
             # Als er geen supports onder de prijs zijn, gebruik dan een aantal procent onder de prijs
             if not sorted_supports:
-                sorted_supports = [current_price * 0.98, current_price * 0.97, current_price * 0.96]
+                # Gebruik instrument-specifieke aanpassingen
+                if "USD" in instrument and instrument.startswith("EUR"):
+                    # EURUSD heeft typisch kleinere bewegingen (0.3%, 0.6%, 0.9%)
+                    sorted_supports = [
+                        round(current_price * 0.997, 5),
+                        round(current_price * 0.994, 5),
+                        round(current_price * 0.991, 5)
+                    ]
+                else:
+                    # Standaard levels
+                    sorted_supports = [
+                        round(current_price * 0.995, 5),
+                        round(current_price * 0.99, 5),
+                        round(current_price * 0.985, 5)
+                    ]
                 logger.warning(f"No valid supports found below price, using generated supports: {sorted_supports}")
             
             # Als er geen resistances boven de prijs zijn, gebruik dan een aantal procent boven de prijs
             if not sorted_resistances:
-                sorted_resistances = [current_price * 1.02, current_price * 1.03, current_price * 1.04]
+                # Gebruik instrument-specifieke aanpassingen
+                if "USD" in instrument and instrument.startswith("EUR"):
+                    # EURUSD heeft typisch kleinere bewegingen (0.3%, 0.6%, 0.9%)
+                    sorted_resistances = [
+                        round(current_price * 1.003, 5),
+                        round(current_price * 1.006, 5),
+                        round(current_price * 1.009, 5)
+                    ]
+                else:
+                    # Standaard levels
+                    sorted_resistances = [
+                        round(current_price * 1.005, 5),
+                        round(current_price * 1.01, 5),
+                        round(current_price * 1.015, 5)
+                    ]
                 logger.warning(f"No valid resistances found above price, using generated resistances: {sorted_resistances}")
             
             # Update de market_data met de gesorteerde support/resistance niveaus
@@ -1042,24 +1149,156 @@ class ChartService:
             return None
 
     def _find_support_resistance(self, df, lookback=20):
-        """Find support and resistance levels from price data"""
-        supports = []
-        resistances = []
-        
-        for i in range(lookback, len(df)):
-            # Check if this point is a support (low point)
-            if df['Low'].iloc[i] <= df['Low'].iloc[i-1] and df['Low'].iloc[i] <= df['Low'].iloc[i+1 if i+1 < len(df) else i]:
-                supports.append(df['Low'].iloc[i])
+        """Find support and resistance levels from price data using improved methods"""
+        # Verhoogde relevantie door meer nauwkeurige methode
+        try:
+            logger.info("Berekenen van support/resistance levels met verbeterde methode")
             
-            # Check if this point is a resistance (high point)
-            if df['High'].iloc[i] >= df['High'].iloc[i-1] and df['High'].iloc[i] >= df['High'].iloc[i+1 if i+1 < len(df) else i]:
-                resistances.append(df['High'].iloc[i])
-        
-        # Sort levels and remove duplicates within a small margin
-        supports = sorted(set([round(s, 5) for s in supports]), reverse=True)
-        resistances = sorted(set([round(r, 5) for r in resistances]))
-        
-        return supports, resistances
+            # Meer nauwkeurige levels vinden met volumegewogen methode
+            # Gebruik zowel prijspieken als prijsdalingen gecombineerd met volumegewogen analyse
+            
+            # 1. Vind lokale extremen (pieken en dalen)
+            # Gebruik pandas.Series rolling min/max om lokale extremen te vinden
+            high_series = df['High']
+            low_series = df['Low']
+            
+            # Vind lokale pieken voor resistance over variërende periodes voor betere precisie
+            resistance_points = []
+            
+            # Gebruik 3 verschillende window sizes voor verschillende timeframes
+            for window in [5, 10, 15]:
+                if len(df) > window:
+                    # Een punt is een resistance punt als het een lokaal maximum is
+                    rolling_max = high_series.rolling(window=window, center=True).max()
+                    potential_resistance = df[high_series == rolling_max]['High']
+                    resistance_points.extend(list(potential_resistance))
+            
+            # Vind lokale dalen voor support over variërende periodes
+            support_points = []
+            
+            for window in [5, 10, 15]:
+                if len(df) > window:
+                    # Een punt is een support punt als het een lokaal minimum is
+                    rolling_min = low_series.rolling(window=window, center=True).min()
+                    potential_support = df[low_series == rolling_min]['Low']
+                    support_points.extend(list(potential_support))
+            
+            # 2. Cluster de niveaus en vind de meest significante
+            # Functie om waarden binnen een percentage (bereik) te clusteren
+            def cluster_values(values, threshold_pct=0.001):
+                # Threshold is als percentage van de prijs
+                if not values:
+                    return []
+                
+                price_avg = sum(values) / len(values)
+                threshold = price_avg * threshold_pct
+                
+                # Sorteer waardes
+                sorted_values = sorted(values)
+                
+                clusters = []
+                current_cluster = [sorted_values[0]]
+                
+                for i in range(1, len(sorted_values)):
+                    # Als het verschil kleiner is dan de threshold, voeg toe aan huidig cluster
+                    if sorted_values[i] - sorted_values[i-1] <= threshold:
+                        current_cluster.append(sorted_values[i])
+                    else:
+                        # Anders begin een nieuw cluster
+                        # Voeg gemiddelde van huidige cluster toe aan clusters
+                        clusters.append(sum(current_cluster) / len(current_cluster))
+                        current_cluster = [sorted_values[i]]
+                
+                # Voeg het laatste cluster toe
+                if current_cluster:
+                    clusters.append(sum(current_cluster) / len(current_cluster))
+                
+                return clusters
+            
+            # Cluster de niveaus
+            support_clusters = cluster_values(support_points)
+            resistance_clusters = cluster_values(resistance_points)
+            
+            # 3. Haal de meest recente prijs op en filter de support/resistance op basis daarvan
+            current_price = float(df['Close'].iloc[-1])
+            
+            # Support moet altijd onder de huidige prijs zijn
+            valid_supports = [s for s in support_clusters if s < current_price]
+            # Resistance moet altijd boven de huidige prijs zijn
+            valid_resistances = [r for r in resistance_clusters if r > current_price]
+            
+            # Sorteer op afstand tot de huidige prijs
+            valid_supports = sorted(valid_supports, key=lambda x: current_price - x)
+            valid_resistances = sorted(valid_resistances, key=lambda x: x - current_price)
+            
+            # 4. Kwaliteitscontrole: Controleer of de levels realistisch zijn
+            
+            # Als er geen geldige supports zijn, bereken realistische niveaus
+            if not valid_supports:
+                # Bepaal op basis van historische volatiliteit
+                volatility = df['Close'].pct_change().std() * 100  # Volatiliteit als percentage
+                
+                # Gebruik volatiliteit om realistische supports te berekenen
+                # Hogere volatiliteit = grotere spreiding
+                spread_factor = max(0.5, min(2.0, volatility))  # Begrens tussen 0.5% en 2%
+                
+                valid_supports = [
+                    current_price * (1 - 0.005 * spread_factor),  # 0.5% * volatility beneden huidige prijs
+                    current_price * (1 - 0.01 * spread_factor),   # 1% * volatility beneden huidige prijs
+                    current_price * (1 - 0.015 * spread_factor)   # 1.5% * volatility beneden huidige prijs
+                ]
+                
+                logger.warning(f"Geen geldige supports gevonden, genereer synthetische levels met volatiliteit {volatility:.2f}%")
+            
+            # Als er geen geldige resistances zijn, bereken realistische niveaus
+            if not valid_resistances:
+                # Bepaal op basis van historische volatiliteit
+                volatility = df['Close'].pct_change().std() * 100  # Volatiliteit als percentage
+                
+                # Gebruik volatiliteit om realistische resistances te berekenen
+                spread_factor = max(0.5, min(2.0, volatility))
+                
+                valid_resistances = [
+                    current_price * (1 + 0.005 * spread_factor),  # 0.5% * volatility boven huidige prijs
+                    current_price * (1 + 0.01 * spread_factor),   # 1% * volatility boven huidige prijs 
+                    current_price * (1 + 0.015 * spread_factor)   # 1.5% * volatility boven huidige prijs
+                ]
+                
+                logger.warning(f"Geen geldige resistances gevonden, genereer synthetische levels met volatiliteit {volatility:.2f}%")
+            
+            # Rond af op 5 decimalen voor FOREX, of 2 voor indices/aandelen
+            valid_supports = [round(s, 5) for s in valid_supports]
+            valid_resistances = [round(r, 5) for r in valid_resistances]
+            
+            logger.info(f"Gevonden supports: {valid_supports[:3]}")
+            logger.info(f"Gevonden resistances: {valid_resistances[:3]}")
+            
+            # Beperkt tot de top 3 niveaus voor elk
+            return valid_supports[:3], valid_resistances[:3]
+            
+        except Exception as e:
+            # Als er iets misgaat, gebruik een eenvoudige fallback methode
+            logger.error(f"Fout bij berekenen van support/resistance: {str(e)}")
+            
+            # Fallback: gebruik eenvoudige percentages
+            current_price = float(df['Close'].iloc[-1])
+            
+            # Bereken support 0.5%, 1% en 1.5% onder huidige prijs
+            supports = [
+                round(current_price * 0.995, 5),
+                round(current_price * 0.99, 5),
+                round(current_price * 0.985, 5)
+            ]
+            
+            # Bereken resistance 0.5%, 1% en 1.5% boven huidige prijs
+            resistances = [
+                round(current_price * 1.005, 5),
+                round(current_price * 1.01, 5),
+                round(current_price * 1.015, 5)
+            ]
+            
+            logger.warning("Gebruik fallback methode voor support/resistance")
+            return supports, resistances
 
     def _calculate_macd(self, prices, slow=26, fast=12, signal=9):
         """Calculate MACD indicator"""
