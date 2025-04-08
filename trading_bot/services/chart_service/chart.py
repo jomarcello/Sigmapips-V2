@@ -605,7 +605,24 @@ class ChartService:
         """
         try:
             # First get the chart image
-            img_path = await self.get_chart(instrument, timeframe)
+            chart_data = await self.get_chart(instrument, timeframe)
+            
+            # Check if chart_data is in bytes format and save it to a file first
+            img_path = None
+            if isinstance(chart_data, bytes):
+                timestamp = int(datetime.now().timestamp())
+                os.makedirs('data/charts', exist_ok=True)
+                img_path = f"data/charts/{instrument.lower()}_{timeframe}_{timestamp}.png"
+                
+                try:
+                    with open(img_path, 'wb') as f:
+                        f.write(chart_data)
+                    logger.info(f"Saved chart image to file: {img_path}, size: {len(chart_data)} bytes")
+                except Exception as save_error:
+                    logger.error(f"Failed to save chart image to file: {str(save_error)}")
+            else:
+                img_path = chart_data  # Already a path
+                logger.info(f"Using existing chart image path: {img_path}")
             
             # Get the DeepSeek API key
             deepseek_api_key = os.getenv("DEEPSEEK_API_KEY")
@@ -844,158 +861,6 @@ class ChartService:
             "support_levels": supports,
             "resistance_levels": resistances
         }
-
-    def _find_support_resistance(self, df, lookback=20):
-        """Find support and resistance levels from price data using improved methods"""
-        # Verhoogde relevantie door meer nauwkeurige methode
-        try:
-            logger.info("Berekenen van support/resistance levels met verbeterde methode")
-            
-            # Meer nauwkeurige levels vinden met volumegewogen methode
-            # Gebruik zowel prijspieken als prijsdalingen gecombineerd met volumegewogen analyse
-            
-            # 1. Vind lokale extremen (pieken en dalen)
-            # Gebruik pandas.Series rolling min/max om lokale extremen te vinden
-            high_series = df['High']
-            low_series = df['Low']
-            
-            # Vind lokale pieken voor resistance over variërende periodes voor betere precisie
-            resistance_points = []
-            
-            # Gebruik 3 verschillende window sizes voor verschillende timeframes
-            for window in [5, 10, 15]:
-                if len(df) > window:
-                    # Een punt is een resistance punt als het een lokaal maximum is
-                    rolling_max = high_series.rolling(window=window, center=True).max()
-                    potential_resistance = df[high_series == rolling_max]['High']
-                    resistance_points.extend(list(potential_resistance))
-            
-            # Vind lokale dalen voor support over variërende periodes
-            support_points = []
-            
-            for window in [5, 10, 15]:
-                if len(df) > window:
-                    # Een punt is een support punt als het een lokaal minimum is
-                    rolling_min = low_series.rolling(window=window, center=True).min()
-                    potential_support = df[low_series == rolling_min]['Low']
-                    support_points.extend(list(potential_support))
-            
-            # 2. Cluster de niveaus en vind de meest significante
-            # Functie om waarden binnen een percentage (bereik) te clusteren
-            def cluster_values(values, threshold_pct=0.001):
-                # Threshold is als percentage van de prijs
-                if not values:
-                    return []
-                
-                price_avg = sum(values) / len(values)
-                threshold = price_avg * threshold_pct
-                
-                # Sorteer waardes
-                sorted_values = sorted(values)
-                
-                clusters = []
-                current_cluster = [sorted_values[0]]
-                
-                for i in range(1, len(sorted_values)):
-                    # Als het verschil kleiner is dan de threshold, voeg toe aan huidig cluster
-                    if sorted_values[i] - sorted_values[i-1] <= threshold:
-                        current_cluster.append(sorted_values[i])
-                    else:
-                        # Anders begin een nieuw cluster
-                        # Voeg gemiddelde van huidige cluster toe aan clusters
-                        clusters.append(sum(current_cluster) / len(current_cluster))
-                        current_cluster = [sorted_values[i]]
-                
-                # Voeg het laatste cluster toe
-                if current_cluster:
-                    clusters.append(sum(current_cluster) / len(current_cluster))
-                
-                return clusters
-            
-            # Cluster de niveaus
-            support_clusters = cluster_values(support_points)
-            resistance_clusters = cluster_values(resistance_points)
-            
-            # 3. Haal de meest recente prijs op en filter de support/resistance op basis daarvan
-            current_price = float(df['Close'].iloc[-1])
-            
-            # Support moet altijd onder de huidige prijs zijn
-            valid_supports = [s for s in support_clusters if s < current_price]
-            # Resistance moet altijd boven de huidige prijs zijn
-            valid_resistances = [r for r in resistance_clusters if r > current_price]
-            
-            # Sorteer op afstand tot de huidige prijs
-            valid_supports = sorted(valid_supports, key=lambda x: current_price - x)
-            valid_resistances = sorted(valid_resistances, key=lambda x: x - current_price)
-            
-            # 4. Kwaliteitscontrole: Controleer of de levels realistisch zijn
-            
-            # Als er geen geldige supports zijn, bereken realistische niveaus
-            if not valid_supports:
-                # Bepaal op basis van historische volatiliteit
-                volatility = df['Close'].pct_change().std() * 100  # Volatiliteit als percentage
-                
-                # Gebruik volatiliteit om realistische supports te berekenen
-                # Hogere volatiliteit = grotere spreiding
-                spread_factor = max(0.5, min(2.0, volatility))  # Begrens tussen 0.5% en 2%
-                
-                valid_supports = [
-                    current_price * (1 - 0.005 * spread_factor),  # 0.5% * volatility beneden huidige prijs
-                    current_price * (1 - 0.01 * spread_factor),   # 1% * volatility beneden huidige prijs
-                    current_price * (1 - 0.015 * spread_factor)   # 1.5% * volatility beneden huidige prijs
-                ]
-                
-                logger.warning(f"Geen geldige supports gevonden, genereer synthetische levels met volatiliteit {volatility:.2f}%")
-            
-            # Als er geen geldige resistances zijn, bereken realistische niveaus
-            if not valid_resistances:
-                # Bepaal op basis van historische volatiliteit
-                volatility = df['Close'].pct_change().std() * 100  # Volatiliteit als percentage
-                
-                # Gebruik volatiliteit om realistische resistances te berekenen
-                spread_factor = max(0.5, min(2.0, volatility))
-                
-                valid_resistances = [
-                    current_price * (1 + 0.005 * spread_factor),  # 0.5% * volatility boven huidige prijs
-                    current_price * (1 + 0.01 * spread_factor),   # 1% * volatility boven huidige prijs 
-                    current_price * (1 + 0.015 * spread_factor)   # 1.5% * volatility boven huidige prijs
-                ]
-                
-                logger.warning(f"Geen geldige resistances gevonden, genereer synthetische levels met volatiliteit {volatility:.2f}%")
-            
-            # Rond af op 5 decimalen voor FOREX, of 2 voor indices/aandelen
-            valid_supports = [round(s, 5) for s in valid_supports]
-            valid_resistances = [round(r, 5) for r in valid_resistances]
-            
-            logger.info(f"Gevonden supports: {valid_supports[:3]}")
-            logger.info(f"Gevonden resistances: {valid_resistances[:3]}")
-            
-            # Beperkt tot de top 3 niveaus voor elk
-            return valid_supports[:3], valid_resistances[:3]
-            
-        except Exception as e:
-            # Als er iets misgaat, gebruik een eenvoudige fallback methode
-            logger.error(f"Fout bij berekenen van support/resistance: {str(e)}")
-            
-            # Fallback: gebruik eenvoudige percentages
-            current_price = float(df['Close'].iloc[-1])
-            
-            # Bereken support 0.5%, 1% en 1.5% onder huidige prijs
-            supports = [
-                round(current_price * 0.995, 5),
-                round(current_price * 0.99, 5),
-                round(current_price * 0.985, 5)
-            ]
-            
-            # Bereken resistance 0.5%, 1% en 1.5% boven huidige prijs
-            resistances = [
-                round(current_price * 1.005, 5),
-                round(current_price * 1.01, 5),
-                round(current_price * 1.015, 5)
-            ]
-            
-            logger.warning("Gebruik fallback methode voor support/resistance")
-            return supports, resistances
 
     def _calculate_macd(self, prices, slow=26, fast=12, signal=9):
         """Calculate MACD indicator"""
@@ -1245,21 +1110,24 @@ Disclaimer: For educational purposes only. Not financial advice."""
                 logger.error(f"Failed to get chart for {instrument}")
                 return None
                 
-            # Save the chart to a file
-            timestamp = int(datetime.now().timestamp())
-            os.makedirs('data/charts', exist_ok=True)
-            file_path = f"data/charts/{instrument.lower()}_{timeframe}_{timestamp}.png"
-            
-            # Ensure chart_data is in the correct format (bytes)
+            # Save the chart to a file if it's in bytes format
             if isinstance(chart_data, bytes):
-                with open(file_path, 'wb') as f:
-                    f.write(chart_data)
-            else:
-                logger.error(f"Chart data is not in bytes format: {type(chart_data)}")
-                return None
+                timestamp = int(datetime.now().timestamp())
+                os.makedirs('data/charts', exist_ok=True)
+                file_path = f"data/charts/{instrument.lower()}_{timeframe}_{timestamp}.png"
                 
-            logger.info(f"Saved technical chart to {file_path}")
-            return file_path
+                try:
+                    with open(file_path, 'wb') as f:
+                        f.write(chart_data)
+                    logger.info(f"Saved technical chart to {file_path}, size: {len(chart_data)} bytes")
+                    return file_path
+                except Exception as save_error:
+                    logger.error(f"Failed to save chart image to file: {str(save_error)}")
+                    return None
+            else:
+                # Already a file path
+                logger.info(f"Using existing chart image path: {chart_data}")
+                return chart_data
             
         except Exception as e:
             logger.error(f"Error getting technical chart: {str(e)}")
