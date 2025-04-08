@@ -42,6 +42,7 @@ RUN apt-get update && apt-get install -y \
     libappindicator3-1 \
     xdg-utils \
     python3-tk \
+    # Tesseract en afhankelijkheden voor OCR
     tesseract-ocr \
     libtesseract-dev \
     tesseract-ocr-eng \
@@ -108,8 +109,11 @@ ENV PLAYWRIGHT_BROWSERS_PATH=/app/ms-playwright
 # Stel debug mode in
 ENV TRADINGVIEW_DEBUG=true
 
-# Stel Tesseract pad in
+# Stel Tesseract pad in (voor OCR)
 ENV TESSERACT_CMD=/usr/bin/tesseract
+
+# Controleer of Tesseract correct is geïnstalleerd
+RUN tesseract --version && echo "Tesseract is correctly installed"
 
 # Voeg een script toe om de bot te starten
 RUN echo '#!/bin/bash\n\
