@@ -80,12 +80,35 @@ class ChartOCRProcessor:
             with open(image_path, 'rb') as image_file:
                 content = image_file.read()
             
+            logger.info(f"Image size: {len(content)} bytes")
+            
             # Create image object for Google Vision
             image = vision.Image(content=content)
             
             # Get both text detection and image properties
+            logger.info("Requesting text detection from Google Vision...")
             text_response = self.vision_client.text_detection(image=image)
+            
+            # Log the raw text detection response
+            if text_response.text_annotations:
+                full_text = text_response.text_annotations[0].description
+                logger.info(f"Raw detected text:\n{full_text}")
+            else:
+                logger.error("No text annotations found in the response")
+                if text_response.error:
+                    logger.error(f"Vision API error: {text_response.error.message}")
+            
+            logger.info("Requesting color analysis from Google Vision...")
             color_response = self.vision_client.image_properties(image=image)
+            
+            # Log color analysis results
+            if color_response.image_properties_annotation.dominant_colors:
+                colors = color_response.image_properties_annotation.dominant_colors.colors
+                logger.info("Dominant colors found:")
+                for color in colors[:3]:  # Log top 3 dominant colors
+                    logger.info(f"Color: R:{color.color.red} G:{color.color.green} B:{color.color.blue} Score:{color.score}")
+            else:
+                logger.error("No color properties found in the response")
             
             if not text_response.text_annotations:
                 logger.warning("No text detected in image")
@@ -93,7 +116,8 @@ class ChartOCRProcessor:
             
             # Get all detected text blocks with their positions
             texts = text_response.text_annotations[1:]  # Skip first one as it contains all text
-            colors = color_response.image_properties_annotation.dominant_colors.colors
+            
+            logger.info(f"Found {len(texts)} text blocks")
             
             # Extract price levels with their context
             price_levels = []
@@ -103,43 +127,59 @@ class ChartOCRProcessor:
             
             for text in texts:
                 description = text.description
-                price_match = re.search(r'(\d+\.\d+)', description)
+                logger.debug(f"Analyzing text block: {description}")
+                # Updated regex to handle more number formats
+                price_match = re.search(r'(\d*\.?\d+)', description)
                 if not price_match:
                     continue
                     
-                price_value = float(price_match.group(1))
-                if price_value > 10:  # Skip unrealistic forex prices
+                try:
+                    price_value = float(price_match.group(1))
+                    logger.debug(f"Found potential price value: {price_value}")
+                    if price_value > 10:  # Skip unrealistic forex prices
+                        logger.debug(f"Skipping unrealistic forex price: {price_value}")
+                        continue
+                
+                    # Get bounding box
+                    vertices = [(vertex.x, vertex.y) for vertex in text.bounding_poly.vertices]
+                    x1 = min(v[0] for v in vertices)
+                    y1 = min(v[1] for v in vertices)
+                    x2 = max(v[0] for v in vertices)
+                    y2 = max(v[1] for v in vertices)
+                    
+                    logger.info(f"Analyzing price {price_value} at position ({x1}, {y1}) to ({x2}, {y2})")
+                    
+                    # Get the dominant color in this region
+                    region_color = self._get_dominant_color(colors, x1, y1, x2, y2)
+                    if not region_color:
+                        logger.warning(f"No color found for price {price_value}")
+                        continue
+                    
+                    # Check if there's a timestamp below this price
+                    has_timestamp = self._has_timestamp_below(texts, x1, x2, y2)
+                    logger.info(f"Price {price_value} - Has timestamp: {has_timestamp}")
+                    
+                    price_info = {
+                        'value': price_value,
+                        'color': region_color,
+                        'has_timestamp': has_timestamp,
+                        'y_pos': y1
+                    }
+                    
+                    # Classify the price based on color and timestamp
+                    if has_timestamp and (self._is_red_color(region_color) or self._is_green_color(region_color)):
+                        logger.info(f"Found current price: {price_value}")
+                        current_price = price_info
+                    elif self._is_red_color(region_color) and not has_timestamp:
+                        logger.info(f"Found key level: {price_value}")
+                        key_levels.append(price_info)
+                    elif self._is_yellow_color(region_color):
+                        logger.info(f"Found support/resistance: {price_value}")
+                        support_resistance.append(price_info)
+                
+                except Exception as e:
+                    logger.error(f"Error processing price: {str(e)}")
                     continue
-                
-                # Get bounding box
-                vertices = [(vertex.x, vertex.y) for vertex in text.bounding_poly.vertices]
-                x1 = min(v[0] for v in vertices)
-                y1 = min(v[1] for v in vertices)
-                x2 = max(v[0] for v in vertices)
-                y2 = max(v[1] for v in vertices)
-                
-                # Get the dominant color in this region
-                region_color = self._get_dominant_color(colors, x1, y1, x2, y2)
-                if not region_color:
-                    continue
-                
-                # Check if there's a timestamp below this price
-                has_timestamp = self._has_timestamp_below(texts, x1, x2, y2)
-                
-                price_info = {
-                    'value': price_value,
-                    'color': region_color,
-                    'has_timestamp': has_timestamp,
-                    'y_pos': y1  # Store y-position for sorting
-                }
-                
-                # Classify the price based on color and timestamp
-                if has_timestamp and (self._is_red_color(region_color) or self._is_green_color(region_color)):
-                    current_price = price_info
-                elif self._is_red_color(region_color) and not has_timestamp:
-                    key_levels.append(price_info)
-                elif self._is_yellow_color(region_color):
-                    support_resistance.append(price_info)
             
             # Process the collected data
             data = {}
@@ -201,7 +241,9 @@ class ChartOCRProcessor:
             if not region_colors:
                 return None
             
-            return max(region_colors, key=lambda x: x['score'])['color']
+            dominant_color = max(region_colors, key=lambda x: x['score'])['color']
+            logger.info(f"Found color - R:{dominant_color.red} G:{dominant_color.green} B:{dominant_color.blue}")
+            return dominant_color
             
         except Exception as e:
             logger.error(f"Error getting dominant color: {str(e)}")
@@ -232,21 +274,30 @@ class ChartOCRProcessor:
     
     def _is_red_color(self, color):
         """Check if a color is red"""
-        return (color.red > 150 and 
+        is_red = (color.red > 150 and 
                 color.green < 100 and 
                 color.blue < 100)
+        if is_red:
+            logger.info(f"Detected RED color - R:{color.red} G:{color.green} B:{color.blue}")
+        return is_red
     
     def _is_green_color(self, color):
         """Check if a color is green"""
-        return (color.green > 150 and 
+        is_green = (color.green > 150 and 
                 color.red < 100 and 
                 color.blue < 100)
+        if is_green:
+            logger.info(f"Detected GREEN color - R:{color.red} G:{color.green} B:{color.blue}")
+        return is_green
     
     def _is_yellow_color(self, color):
         """Check if a color is yellow/orange"""
-        return (color.red > 150 and 
+        is_yellow = (color.red > 150 and 
                 color.green > 150 and 
                 color.blue < 100)
+        if is_yellow:
+            logger.info(f"Detected YELLOW color - R:{color.red} G:{color.green} B:{color.blue}")
+        return is_yellow
 
 
 # Voorbeeld gebruik:
