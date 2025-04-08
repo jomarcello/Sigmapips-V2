@@ -1,5 +1,5 @@
 # Start met Python als basis
-FROM python:3.11-slim
+FROM python:3.9-slim
 
 # Installeer Node.js
 RUN apt-get update && apt-get install -y \
@@ -42,6 +42,9 @@ RUN apt-get update && apt-get install -y \
     libappindicator3-1 \
     xdg-utils \
     python3-tk \
+    tesseract-ocr \
+    libtesseract-dev \
+    tesseract-ocr-eng \
     --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
@@ -104,6 +107,9 @@ ENV PLAYWRIGHT_BROWSERS_PATH=/app/ms-playwright
 
 # Stel debug mode in
 ENV TRADINGVIEW_DEBUG=true
+
+# Stel Tesseract pad in
+ENV TESSERACT_CMD=/usr/bin/tesseract
 
 # Voeg een script toe om de bot te starten
 RUN echo '#!/bin/bash\n\
