@@ -996,6 +996,26 @@ class ChartService:
             logger.info(f"Support levels: {supports[:3]}")
             logger.info(f"Resistance levels: {resistances[:3]}")
             
+            # Zorg ervoor dat support/resistance correct gesorteerd zijn t.o.v. de huidige prijs
+            # Support niveaus moeten altijd onder de huidige prijs liggen
+            # Resistance niveaus moeten altijd boven de huidige prijs liggen
+            sorted_supports = [s for s in supports if s < current_price]
+            sorted_resistances = [r for r in resistances if r > current_price]
+            
+            # Als er geen supports onder de prijs zijn, gebruik dan een aantal procent onder de prijs
+            if not sorted_supports:
+                sorted_supports = [current_price * 0.98, current_price * 0.97, current_price * 0.96]
+                logger.warning(f"No valid supports found below price, using generated supports: {sorted_supports}")
+            
+            # Als er geen resistances boven de prijs zijn, gebruik dan een aantal procent boven de prijs
+            if not sorted_resistances:
+                sorted_resistances = [current_price * 1.02, current_price * 1.03, current_price * 1.04]
+                logger.warning(f"No valid resistances found above price, using generated resistances: {sorted_resistances}")
+            
+            # Update de market_data met de gesorteerde support/resistance niveaus
+            market_data["support_levels"] = sorted_supports
+            market_data["resistance_levels"] = sorted_resistances
+            
             # Convert structured data to string format for DeepSeek using custom encoder
             try:
                 market_data_str = json.dumps(market_data, indent=2, cls=NumpyJSONEncoder)
@@ -1009,8 +1029,8 @@ class ChartService:
                     "timeframe": timeframe,
                     "current_price": float(current_price),
                     "rsi": float(current_rsi),
-                    "support_levels": [float(s) for s in supports[:3]],
-                    "resistance_levels": [float(r) for r in resistances[:3]],
+                    "support_levels": sorted_supports[:3],
+                    "resistance_levels": sorted_resistances[:3],
                     "trend": "Bullish" if current_price > current_sma50 else "Bearish"
                 }
                 return json.dumps(simplified_data, indent=2)
@@ -1120,6 +1140,7 @@ Zone Strength [1-5]/5: [kleur-indicators]
 
 Sigmapips AI Recommendation:
 • Trend: [Bullish/Bearish]
+• Current Price: [huidige prijs]
 • Support: [support level price]
 • Resistance: [resistance level price]
 • RSI: [RSI value]
@@ -1134,21 +1155,28 @@ BELANGRIJKE RICHTLIJNEN:
    - Als prijs onder SMA20/SMA50/SMA200 is, MACD onder signaal, RSI onder 50: Bearish
    - Weeg meerdere indicatoren samen voor een eindoordeel
 2. Bepaal buy/sell gebaseerd op de trend (buy voor bullish, sell voor bearish)
-3. Identificeer daadwerkelijke support/resistance levels uit de marktgegevens
-4. Zone Strength moet een waarde hebben van 1-5:
+3. Support niveaus MOETEN ALTIJD ONDER de huidige prijs liggen
+4. Resistance niveaus MOETEN ALTIJD BOVEN de huidige prijs liggen
+5. Gebruik voor een bearish trend:
+   - Een resistance niveau van resistance_levels (boven huidige prijs)
+   - Een support niveau van support_levels (onder huidige prijs)
+6. Gebruik voor een bullish trend:
+   - Een resistance niveau van resistance_levels (boven huidige prijs)
+   - Een support niveau van support_levels (onder huidige prijs)
+7. Zone Strength moet een waarde hebben van 1-5:
    - Gebruik 🟢 voor 4-5 (sterk)
    - Gebruik 🟡 voor 2-3 (gemiddeld)
    - Gebruik 🔴 voor 1 (zwak)
-5. Probability moet tussen 60-85% zijn, afhankelijk van de sterkte van de signalen
-6. Vul ALLEEN het sjabloon in, zonder extra tekst of uitleg
+8. Probability moet tussen 60-85% zijn, afhankelijk van de sterkte van de signalen
 
 VEREIST:
 - GEBRUIK EXACT DE HUIDIGE PRIJS ("current_price") die in de marktgegevens staat, rond deze niet af en verander deze niet
-- Current Price in de aanbeveling moet exact overeenkomen met de "current_price" waarde uit de JSON data
-- Support en resistance moeten exacte waarden zijn uit de "support_levels" en "resistance_levels" arrays
+- Current Price in de aanbeveling moet exact de "current_price" waarde uit de JSON data zijn
+- Support moet altijd LAGER zijn dan de current_price (neem het hoogste support niveau uit support_levels)
+- Resistance moet altijd HOGER zijn dan de current_price (neem het laagste resistance niveau uit resistance_levels)
 - RSI moet de exacte waarde uit de gegevens zijn, afgerond op 1 decimaal
 - Rond getallen niet af en verander ze niet (vooral niet voor forex paren zoals EURUSD)
-- Zorg dat de analyse alle verstrekte gegevens gebruikt
+- Het sjabloon moet exact worden gevolgd, niet afwijken in de tekst
 """
         return prompt
 
