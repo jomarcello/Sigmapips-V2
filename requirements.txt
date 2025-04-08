@@ -29,6 +29,7 @@ playwright==1.40.0
 # OCR processing
 # Using OCR.space API instead of local Tesseract
 # pytesseract>=0.3.13
+google-cloud-vision==3.4.4  # For Google Cloud Vision API
 
 # Data fetching
 lxml==4.9.3
