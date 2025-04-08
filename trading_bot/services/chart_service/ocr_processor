@@ -1,45 +1,29 @@
 import os
 import logging
-import cv2
-import numpy as np
-from PIL import Image
 import re
-from typing import Dict, Any, Optional, List, Tuple
+import base64
+import json
+import aiohttp
+from typing import Dict, Any, Optional
 import random
 
 logger = logging.getLogger(__name__)
-
-# Check if pytesseract is available
-try:
-    import pytesseract
-    TESSERACT_AVAILABLE = True
-except ImportError:
-    TESSERACT_AVAILABLE = False
-    logger.warning("pytesseract module not available, OCR functionality will be disabled")
 
 class ChartOCRProcessor:
     """Process chart images using OCR to extract price and indicator data"""
     
     def __init__(self):
         """Initialize the OCR processor"""
-        # Check if Tesseract is available and log warning if not
-        self.tesseract_available = False
+        self.api_key = os.environ.get("OCR_SPACE_API_KEY")
+        if not self.api_key:
+            logger.warning("No OCR.space API key found in environment variables")
+            self.api_key = "K85849887488957"  # Default free tier API key with limited quota
         
-        if not TESSERACT_AVAILABLE:
-            logger.warning("pytesseract module not available, OCR disabled")
-            return
-            
-        try:
-            pytesseract.get_tesseract_version()
-            self.tesseract_available = True
-            logger.info("Tesseract OCR is available")
-        except Exception as e:
-            logger.warning(f"Tesseract OCR is not available: {str(e)}")
-            logger.warning("OCR functionality will be limited")
-    
-    def process_chart_image(self, image_path: str) -> Dict[str, Any]:
+        logger.info(f"ChartOCRProcessor initialized with OCR.space API")
+        
+    async def process_chart_image(self, image_path: str) -> Dict[str, Any]:
         """
-        Process a chart image to extract price and indicator data
+        Process a chart image to extract price and indicator data using OCR.space API
         
         Args:
             image_path: Path to the chart image
@@ -49,81 +33,101 @@ class ChartOCRProcessor:
         """
         if not os.path.exists(image_path):
             logger.error(f"Image file not found: {image_path}")
-            return self._generate_synthetic_data()
+            return {}
             
         try:
             logger.info(f"Processing chart image: {image_path}")
             
-            # If Tesseract is not available, return synthetic data
-            if not self.tesseract_available:
-                logger.warning("Tesseract not available, using synthetic data")
-                return self._generate_synthetic_data()
+            # Get OCR text using OCR.space API
+            ocr_text = await self._get_ocr_text_from_image(image_path)
+            
+            if not ocr_text:
+                logger.warning("OCR returned no text, cannot extract data")
+                return {}
+            
+            logger.info(f"OCR text extracted: {ocr_text[:200]}...")
+            
+            # Extract data from OCR text
+            data = self._extract_data_from_ocr_text(ocr_text)
+            
+            if not data:
+                logger.warning("Failed to extract data from OCR text")
+                return {}
                 
-            # Load the image
-            image = cv2.imread(image_path)
-            if image is None:
-                logger.error(f"Failed to load image: {image_path}")
-                return self._generate_synthetic_data()
-                
-            # Convert to grayscale
-            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-            
-            # Apply thresholding to improve OCR
-            _, thresh = cv2.threshold(gray, 150, 255, cv2.THRESH_BINARY_INV)
-            
-            # Extract text using Tesseract
-            text = pytesseract.image_to_string(thresh)
-            
-            logger.info(f"OCR raw text extracted: {text[:200]}...")
-            
-            # Extract data using regular expressions
-            data = {}
-            
-            # Extract price data
-            price_match = re.search(r'(\d+\.\d+)', text)
-            if price_match:
-                price = float(price_match.group(1))
-                logger.info(f"Price extracted from OCR: {price}")
-                data['current_price'] = price
-            
-            # Extract RSI if present
-            rsi_match = re.search(r'RSI[:\s]+(\d+\.?\d*)', text, re.IGNORECASE)
-            if rsi_match:
-                rsi = float(rsi_match.group(1))
-                logger.info(f"RSI extracted from OCR: {rsi}")
-                data['rsi'] = rsi
-            
-            # Extract MACD if present
-            macd_match = re.search(r'MACD[:\s]+([-+]?\d+\.?\d*)', text, re.IGNORECASE)
-            if macd_match:
-                macd = float(macd_match.group(1))
-                logger.info(f"MACD extracted from OCR: {macd}")
-                data['macd'] = macd
-            
-            # Process image regions to extract price and indicator data
-            regions_data = self._process_image_regions(image)
-            data.update(regions_data)
-            
-            # If we couldn't extract any meaningful data, use synthetic data
-            if not data or 'current_price' not in data:
-                logger.warning("Failed to extract meaningful data from image, using synthetic data")
-                return self._generate_synthetic_data()
-            
-            logger.info(f"Final extracted data: {data}")
+            logger.info(f"Extracted data: {data}")
             return data
             
         except Exception as e:
             logger.error(f"Error processing chart image: {str(e)}")
             import traceback
             logger.error(traceback.format_exc())
-            return self._generate_synthetic_data()
+            return {}
     
-    def _process_image_regions(self, image: np.ndarray) -> Dict[str, Any]:
+    async def _get_ocr_text_from_image(self, image_path: str) -> str:
         """
-        Process specific regions of the image to extract data
+        Extract text from image using OCR.space API
         
         Args:
-            image: The image as a numpy array
+            image_path: Path to image file
+            
+        Returns:
+            Extracted text
+        """
+        try:
+            # Check if we should use the OCR.space API
+            if not self.api_key:
+                logger.warning("No OCR.space API key available")
+                return ""
+                
+            logger.info(f"Reading image file: {image_path}")
+            
+            # Read image as base64
+            with open(image_path, 'rb') as image_file:
+                base64_image = base64.b64encode(image_file.read()).decode('utf-8')
+            
+            # Send to OCR.space API
+            url = 'https://api.ocr.space/parse/image'
+            payload = {
+                'apikey': self.api_key,
+                'base64Image': f'data:image/png;base64,{base64_image}',
+                'language': 'eng',
+                'scale': 'true',
+                'isOverlayRequired': 'false',
+                'OCREngine': '2'  # Use more advanced engine
+            }
+            
+            logger.info("Sending image to OCR.space API")
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, data=payload) as response:
+                    if response.status != 200:
+                        logger.error(f"OCR.space API error: {response.status}")
+                        return ""
+                    
+                    result = await response.json()
+                    
+                    if result.get('IsErroredOnProcessing'):
+                        logger.error(f"OCR processing error: {result.get('ErrorMessage', 'Unknown error')}")
+                        return ""
+                    
+                    parsed_results = result.get('ParsedResults', [])
+                    if not parsed_results:
+                        logger.warning("No OCR results returned")
+                        return ""
+                    
+                    ocr_text = parsed_results[0].get('ParsedText', '')
+                    logger.info(f"OCR.space API returned {len(ocr_text)} chars of text")
+                    return ocr_text
+        
+        except Exception as e:
+            logger.error(f"Error in OCR processing: {str(e)}")
+            return ""
+    
+    def _extract_data_from_ocr_text(self, ocr_text: str) -> Dict[str, Any]:
+        """
+        Extract price and indicator data from OCR text
+        
+        Args:
+            ocr_text: Text extracted from chart image
             
         Returns:
             Dict with extracted data
@@ -131,79 +135,50 @@ class ChartOCRProcessor:
         data = {}
         
         try:
-            height, width = image.shape[:2]
+            # Extract price
+            price_patterns = [
+                r'(?:price|current)[:\s]+?(\d+\.\d+)',  # "price: 1.2345" or "current: 1.2345"
+                r'(\d+\.\d{4,5})(?:\s|$)',              # Any 4-5 decimal number like "1.2345"
+                r'[^\d](\d\.\d{4,5})(?:\s|$)'           # Single digit with 4-5 decimals
+            ]
             
-            # Define regions of interest (ROIs) as percentages of the image
-            # These are example regions that should be adjusted based on actual chart layout
-            roi_regions = {
-                'price': {'x': 0.8, 'y': 0.2, 'w': 0.2, 'h': 0.1},
-                'rsi': {'x': 0.8, 'y': 0.85, 'w': 0.2, 'h': 0.1}
-            }
+            for pattern in price_patterns:
+                price_match = re.search(pattern, ocr_text, re.IGNORECASE)
+                if price_match:
+                    price = float(price_match.group(1))
+                    logger.info(f"Price extracted from OCR: {price}")
+                    data['current_price'] = price
+                    break
             
-            # Process each region
-            for name, roi in roi_regions.items():
-                x = int(roi['x'] * width)
-                y = int(roi['y'] * height)
-                w = int(roi['w'] * width)
-                h = int(roi['h'] * height)
-                
-                # Extract the region
-                region = image[y:y+h, x:x+w]
-                
-                # Convert to grayscale
-                region_gray = cv2.cvtColor(region, cv2.COLOR_BGR2GRAY)
-                
-                # Apply thresholding
-                _, region_thresh = cv2.threshold(region_gray, 150, 255, cv2.THRESH_BINARY_INV)
-                
-                # Extract text
-                region_text = pytesseract.image_to_string(region_thresh, config='--psm 7')
-                
-                logger.debug(f"Region '{name}' text: {region_text}")
-                
-                # Process based on region type
-                if name == 'price':
-                    price_match = re.search(r'(\d+\.\d+)', region_text)
-                    if price_match:
-                        price = float(price_match.group(1))
-                        logger.info(f"Price extracted from region: {price}")
-                        data['current_price'] = price
-                
-                elif name == 'rsi':
-                    rsi_match = re.search(r'(\d+\.?\d*)', region_text)
-                    if rsi_match:
-                        rsi = float(rsi_match.group(1))
-                        logger.info(f"RSI extracted from region: {rsi}")
-                        data['rsi'] = rsi
+            # Extract RSI
+            rsi_match = re.search(r'RSI[:\s]+(\d+\.?\d*)', ocr_text, re.IGNORECASE)
+            if rsi_match:
+                rsi = float(rsi_match.group(1))
+                logger.info(f"RSI extracted from OCR: {rsi}")
+                data['rsi'] = rsi
+            
+            # Extract MACD
+            macd_pattern = r'MACD[:\s]+([-+]?\d+\.?\d*)'
+            macd_match = re.search(macd_pattern, ocr_text, re.IGNORECASE)
+            if macd_match:
+                macd = float(macd_match.group(1))
+                logger.info(f"MACD extracted from OCR: {macd}")
+                data['macd'] = macd
+            
+            # Extract MA/EMA values
+            ma_pattern = r'(?:MA|EMA)[:\s]*(\d+)[:\s]+(\d+\.?\d*)'
+            for ma_match in re.finditer(ma_pattern, ocr_text, re.IGNORECASE):
+                period = ma_match.group(1)
+                value = float(ma_match.group(2))
+                key = f"ma_{period}"
+                data[key] = value
+                logger.info(f"MA/EMA {period} extracted: {value}")
             
             return data
             
         except Exception as e:
-            logger.error(f"Error processing image regions: {str(e)}")
+            logger.error(f"Error extracting data from OCR text: {str(e)}")
             return {}
-            
-    def _generate_synthetic_data(self) -> Dict[str, Any]:
-        """
-        Generate synthetic data when OCR extraction fails
-        
-        Returns:
-            Dict with synthetic market data
-        """
-        logger.info("Generating synthetic data")
-        
-        # Generate a realistic looking price
-        current_price = round(1.0 + random.uniform(-0.1, 0.1), 5)
-        
-        data = {
-            'current_price': current_price,
-            'rsi': round(random.uniform(30, 70), 2),
-            'macd': round(random.uniform(-0.5, 0.5), 3),
-            'ema_50': round(current_price * (1 + random.uniform(-0.01, 0.01)), 5),
-            'ema_200': round(current_price * (1 + random.uniform(-0.03, 0.03)), 5)
-        }
-        
-        logger.info(f"Generated synthetic data: {data}")
-        return data
 
 
 # Voorbeeld gebruik:
