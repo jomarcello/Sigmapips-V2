@@ -808,7 +808,7 @@ class ChartService:
                         # Classificeer alle prijzen tov de huidige prijs
                         for price in all_prices:
                             # Skip de huidige prijs zelf en niveaus die te dicht bij de current_price liggen
-                            if price == current_price or abs(price - current_price) / current_price < 0.001:  # Skip within 0.1%
+                            if abs(price - current_price) / current_price < 0.001:  # Skip within 0.1%
                                 continue
                                 
                             # Prijzen onder current price zijn support, erboven resistance
@@ -840,7 +840,7 @@ class ChartService:
                             else:
                                 resistances = resistances[:3]
                         
-                        # Sla de gesorteerde en gefilterde lists op
+                        # Update the market data dictionary
                         market_data_dict['support_levels'] = supports
                         market_data_dict['resistance_levels'] = resistances
                         
@@ -859,60 +859,81 @@ class ChartService:
                     if has_key_levels or has_sr_levels:
                         logger.info("Using OCR detected market levels directly")
                         
-                        # Make sure we have both support and resistance lists
+                        # Maak zeker dat we lijst van supports en resistances hebben
                         if 'support_levels' not in market_data_dict:
                             market_data_dict['support_levels'] = []
                         if 'resistance_levels' not in market_data_dict:
                             market_data_dict['resistance_levels'] = []
                         
-                        # If we have daily/weekly/monthly high/low, add them to appropriate lists
-                        if 'daily_high' in ocr_data:
+                        # Strict classificatie: high waarden ALTIJD als resistance, low waarden ALTIJD als support
+                        # Voeg high-waarden toe aan resistance waarden
+                        if 'daily_high' in ocr_data and ocr_data['daily_high'] > 0:
                             market_data_dict['resistance_levels'].append(ocr_data['daily_high'])
                             logger.info(f"Added daily high {ocr_data['daily_high']} to resistance levels")
                         
-                        if 'daily_low' in ocr_data:
+                        if 'daily_low' in ocr_data and ocr_data['daily_low'] > 0:
                             market_data_dict['support_levels'].append(ocr_data['daily_low'])
                             logger.info(f"Added daily low {ocr_data['daily_low']} to support levels")
                         
-                        if 'weekly_high' in ocr_data:
+                        if 'weekly_high' in ocr_data and ocr_data['weekly_high'] > 0:
                             market_data_dict['resistance_levels'].append(ocr_data['weekly_high'])
                             logger.info(f"Added weekly high {ocr_data['weekly_high']} to resistance levels")
                         
-                        if 'weekly_low' in ocr_data:
+                        if 'weekly_low' in ocr_data and ocr_data['weekly_low'] > 0:
                             market_data_dict['support_levels'].append(ocr_data['weekly_low'])
                             logger.info(f"Added weekly low {ocr_data['weekly_low']} to support levels")
                         
-                        if 'monthly_high' in ocr_data:
+                        if 'monthly_high' in ocr_data and ocr_data['monthly_high'] > 0:
                             market_data_dict['resistance_levels'].append(ocr_data['monthly_high'])
                             logger.info(f"Added monthly high {ocr_data['monthly_high']} to resistance levels")
                         
-                        if 'monthly_low' in ocr_data:
+                        if 'monthly_low' in ocr_data and ocr_data['monthly_low'] > 0:
                             market_data_dict['support_levels'].append(ocr_data['monthly_low'])
                             logger.info(f"Added monthly low {ocr_data['monthly_low']} to support levels")
                         
-                        # Deduplicate and sort the levels
-                        if market_data_dict['support_levels']:
-                            market_data_dict['support_levels'] = sorted(set(market_data_dict['support_levels']), reverse=True)[:3]
+                        # Relatieve classificatie voor OCR-gedetecteerde prijsniveaus
+                        if current_price and current_price > 0 and 'price_levels' in ocr_data:
+                            for label, price in ocr_data['price_levels'].items():
+                                # Skip prijzen die al eerder zijn toegevoegd als high/low
+                                if ('high' in label or 'low' in label):
+                                    continue
+                                
+                                if price < current_price:
+                                    market_data_dict['support_levels'].append(price)
+                                    logger.info(f"Added price level '{label}' ({price}) to support levels")
+                                else:
+                                    market_data_dict['resistance_levels'].append(price)
+                                    logger.info(f"Added price level '{label}' ({price}) to resistance levels")
                         
-                        if market_data_dict['resistance_levels']:
-                            market_data_dict['resistance_levels'] = sorted(set(market_data_dict['resistance_levels']))[:3]
+                        # Verwijder dubbele levels en sorteer nogmaals op afstand tot huidige prijs
+                        if 'support_levels' in market_data_dict and market_data_dict['support_levels']:
+                            # Verwijderen van dubbele waarden en sorteren
+                            market_data_dict['support_levels'] = sorted(set(market_data_dict['support_levels']), reverse=True)
+                            
+                            # Neem alleen de 3 dichtbijzijnde levels                             
+                            market_data_dict['support_levels'] = market_data_dict['support_levels'][:3]
+                        
+                        if 'resistance_levels' in market_data_dict and market_data_dict['resistance_levels']:
+                            # Verwijderen van dubbele waarden en sorteren
+                            market_data_dict['resistance_levels'] = sorted(set(market_data_dict['resistance_levels']))
+                            
+                            # Neem alleen de 3 dichtbijzijnde levels
+                            market_data_dict['resistance_levels'] = market_data_dict['resistance_levels'][:3]
+                            
+                        # Correctie: Verzeker dat support levels altijd onder current_price en resistance levels erboven zijn
+                        if current_price and current_price > 0:
+                            if 'support_levels' in market_data_dict and market_data_dict['support_levels']:
+                                market_data_dict['support_levels'] = [p for p in market_data_dict['support_levels'] if p < current_price]
+                            
+                            if 'resistance_levels' in market_data_dict and market_data_dict['resistance_levels']:
+                                market_data_dict['resistance_levels'] = [p for p in market_data_dict['resistance_levels'] if p > current_price]
                     
                     # If we don't have any levels, calculate synthetic ones
-                    elif 'current_price' in ocr_data:
+                    elif 'current_price' in market_data_dict and market_data_dict['current_price'] > 0:
                         logger.info(f"No specific levels found in OCR data, calculating synthetic levels")
-                        logger.info(f"Using OCR detected price: {ocr_data['current_price']}")
+                        logger.info(f"Using current price: {market_data_dict['current_price']}")
                         support_resistance = self._calculate_synthetic_support_resistance(
-                            ocr_data['current_price'], instrument
-                        )
-                        market_data_dict.update(support_resistance)
-                    else:
-                        logger.warning("No price detected in OCR data, using base price")
-                        # Only fill the missing fields
-                        base_price = self._get_base_price_for_instrument(instrument)
-                        market_data_dict['current_price'] = base_price
-                        logger.info(f"Using base price: {base_price}")
-                        support_resistance = self._calculate_synthetic_support_resistance(
-                            base_price, instrument
+                            market_data_dict['current_price'], instrument
                         )
                         market_data_dict.update(support_resistance)
                     
