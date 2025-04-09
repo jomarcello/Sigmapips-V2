@@ -4,7 +4,7 @@ import os
 import logging
 import aiohttp
 import random
-from typing import Optional, Union, Dict, List, Tuple
+from typing import Optional, Union, Dict, List, Tuple, Any
 from urllib.parse import quote
 import asyncio
 import base64
