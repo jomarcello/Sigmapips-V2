@@ -1088,7 +1088,7 @@ class ChartService:
 Format your response using Telegram-compatible formatting with these sections separated by line breaks:
 
 📊 MARKET OVERVIEW
-[Current price, trend direction, and key price action observations]
+[Current price, trend direction, and key price action observations - DO NOT use ** for bold formatting]
 
 🔑 KEY LEVELS
 Support: [List main support levels separated by commas]
@@ -1099,19 +1099,19 @@ RSI: [Value and interpretation]
 MACD: [Status and signal]
 Moving Averages: [Key insights]
 
-💰 TRADE RECOMMENDATIONS
+🤖 SIGMAPIPS AI RECOMMENDATION
+[Combine trade recommendations and risk assessment here]
 Long: Entry at [price], Stop loss at [price], Target at [price]
 Short: Entry at [price], Stop loss at [price], Target at [price]
+[Add brief risk assessment]
 
-⚠️ RISK ASSESSMENT
-[Brief risk assessment and market conditions]
-
-IMPORTANT: Keep responses concise and well-formatted. Do NOT use HTML formatting. Use Telegram-friendly formatting:
-- Use line breaks between sections
-- Use emoji at the start of each section heading
-- Use bold (**text**) for important information
-- Use short, concise lines (avoid walls of text)
-- Format numbers consistently with max 5 digits total
+IMPORTANT FORMATTING INSTRUCTIONS:
+1. DO NOT use ** or * for formatting anywhere in your response
+2. Use PLAIN TEXT only - no markdown, no HTML, no bold
+3. Use emoji only at the start of section headings
+4. Keep all content concise and readable
+5. Format numbers consistently with max 5 digits total
+6. DO NOT add any disclaimer - this will be added automatically
 """
             
             # Make a request to DeepSeek API
@@ -1181,28 +1181,41 @@ IMPORTANT: Keep responses concise and well-formatted. Do NOT use HTML formatting
             if not text.startswith(f"{instrument}") and not text.startswith("📊"):
                 text = f"📊 {instrument}/{timeframe} ANALYSIS\n\n" + text
             
+            # Remove any ** bold formatting
+            text = text.replace("**", "")
+            text = text.replace("*", "")
+            
             # Make sure all sections are visibly separated
             text = text.replace("\n\n\n", "\n\n")
             text = text.replace("\n\n\n\n", "\n\n")
             
             # Ensure consistent formatting for sections
-            for section in ["MARKET OVERVIEW", "KEY LEVELS", "TECHNICAL INDICATORS", 
-                           "TRADE RECOMMENDATIONS", "RISK ASSESSMENT"]:
-                # Check if section exists but without emoji
-                if re.search(rf"(?<!\S){section}", text, re.IGNORECASE):
-                    emoji_map = {
-                        "MARKET OVERVIEW": "📊",
-                        "KEY LEVELS": "🔑",
-                        "TECHNICAL INDICATORS": "📈",
-                        "TRADE RECOMMENDATIONS": "💰",
-                        "RISK ASSESSMENT": "⚠️"
-                    }
-                    # Replace without emoji with emoji version
-                    text = re.sub(rf"(?<!\S){section}", f"\n\n{emoji_map[section]} {section}", text, flags=re.IGNORECASE)
+            section_map = {
+                "MARKET OVERVIEW": "📊 MARKET OVERVIEW",
+                "KEY LEVELS": "🔑 KEY LEVELS",
+                "TECHNICAL INDICATORS": "📈 TECHNICAL INDICATORS",
+                "TRADE RECOMMENDATIONS": "🤖 SIGMAPIPS AI RECOMMENDATION",
+                "RISK ASSESSMENT": "🤖 SIGMAPIPS AI RECOMMENDATION",
+                "SIGMAPIPS AI RECOMMENDATION": "🤖 SIGMAPIPS AI RECOMMENDATION"
+            }
             
-            # Limit length for Telegram compatibility
-            if len(text) > 3500:
-                text = text[:3500] + "..."
+            for old_section, new_section in section_map.items():
+                # Replace without emoji/formatting with proper version
+                text = re.sub(rf"(?<!\S){old_section}", f"\n\n{new_section}", text, flags=re.IGNORECASE)
+            
+            # Remove any duplicate SIGMAPIPS AI RECOMMENDATION sections
+            text = re.sub(r'🤖 SIGMAPIPS AI RECOMMENDATION\s+🤖 SIGMAPIPS AI RECOMMENDATION', '🤖 SIGMAPIPS AI RECOMMENDATION', text)
+            
+            # Add disclaimer at the end
+            disclaimer = "\n\n⚠️ Disclaimer: Please note that the information/analysis provided is strictly for study and educational purposes only. It should not be constructed as financial advice and always do your own analysis."
+            if not text.endswith(disclaimer):
+                text += disclaimer
+            
+            # Limit length for Telegram compatibility (leaving room for disclaimer)
+            max_length = 3500 - len(disclaimer)
+            if len(text) > max_length:
+                text = text[:max_length] + "...\n" + disclaimer
+                return text
             
             # Ensure final formatting is clean
             text = text.replace("\n\n\n", "\n\n")
