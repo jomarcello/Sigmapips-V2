@@ -1324,6 +1324,8 @@ Zone Strength N/5: 🟢/🟡/🔴
 • Daily High: X.XXXX (als beschikbaar uit daily_high)
 • Weekly Low: X.XXXX (als beschikbaar uit weekly_low)
 • Weekly High: X.XXXX (als beschikbaar uit weekly_high)
+• Monthly Low: X.XXXX (als beschikbaar uit monthly_low)
+• Monthly High: X.XXXX (als beschikbaar uit monthly_high)
 • RSI: XX.X (afgerond op 1 decimaal)
 • Probability: XX%
 
@@ -1334,22 +1336,31 @@ BELANGRIJKE RICHTLIJNEN:
 2. Bepaal Bullish/Bearish op basis van de prijsposities:
    - Als de huidige prijs dichter bij daily high zit: Bullish
    - Als de huidige prijs dichter bij daily low zit: Bearish
-3. GEBRUIK SPECIFIEK DE TERMEN "Daily Low", "Daily High", "Weekly Low", "Weekly High" 
-   NIET "Support" en "Resistance" in de output.
-4. Als een niveau niet beschikbaar is (bijv. geen daily_low in de data), laat die rij weg.
-5. Zone Strength: 🟢 (4-5), 🟡 (2-3), 🔴 (1) - bepaal op basis van de afstand tussen prijzen
-6. RSI moet worden afgerond op 1 decimaal (XX.X)
-7. Probability tussen 60-85%
-8. BLIJF BEKNOPT - de totale output moet minder dan 1000 tekens zijn
+3. Zorg dat price levels in de juiste volgorde staan:
+   - Daily high moet HOGER zijn dan daily low
+   - Weekly high moet HOGER zijn dan weekly low
+   - Monthly high moet HOGER zijn dan monthly low
+   - In Bullish trend: current price moet dichter bij high zijn dan bij low
+   - In Bearish trend: current price moet dichter bij low zijn dan bij high
+4. Let op de kleurcodering in de OCR data:
+   - Zwart wordt gebruikt voor monthly high/low
+   - Rood wordt gebruikt voor weekly high/low en "supply zone"
+   - Geel wordt gebruikt voor daily high/low
+5. Als een niveau niet beschikbaar is (bijv. geen daily_low in de data), laat die rij weg.
+6. Zone Strength: 🟢 (4-5), 🟡 (2-3), 🔴 (1) - bepaal op basis van de afstand tussen prijzen
+7. RSI moet worden afgerond op 1 decimaal (XX.X)
+8. Probability tussen 60-85%
+9. De "Key level" moet een belangrijk support/resistance niveau zijn, meestal de dichtstbijzijnde daily/weekly level
+10. BLIJF BEKNOPT - de totale output moet minder dan 1000 tekens zijn
+11. ZORG voor CONSISTENTIE - in Bullish markt moet Daily High NIET LAGER zijn dan current price
 
 VEREIST:
-- GEBRUIK EXACT DE HUIDIGE PRIJS ("current_price") zonder afronding. Controleer de waarde - als die
-  onrealistisch is (bijv. 1.0 voor EURUSD), gebruik dan een meer plausibele waarde uit daily_high of daily_low.
-- GEBRUIK DIRECT DE WAARDEN "daily_high", "daily_low", "weekly_high", "weekly_low" UIT DE DATA
-- Toon alleen de niveaus die daadwerkelijk in de data aanwezig zijn
-- RSI exact uit de gegevens maar afgerond op 1 decimaal
-- VERMIJD EXTRA TEKST of uitleg, houd het BEKNOPT
+- GEBRUIK EXACT DE HUIDIGE PRIJS ("current_price") zonder afronding.
+- ZORG dat alle prijsniveaus CONSISTENT en REALISTISCH zijn - daily high mag NOOIT LAGER zijn dan current price in een bullish trend.
+- Als er in de data niveaus staan als "supply zone weekly" of vergelijkbare labels met price levels, verwerk deze dan correct als weekly levels.
+- Voor de key level: gebruik een niveau dat dichtbij de prijs ligt en relevant is voor de trend (support voor bullish, resistance voor bearish).
 - VERWIJDER ALLE VIERKANTE HAAKJES [] in de output
+- CONTROLEER DAT DE HIGH/LOW WAARDEN CONSISTENT zijn met de trend en andere niveaus. Als je tegenstrijdigheden opmerkt, corrigeer deze om een coherente analyse te geven.
 """
         return prompt
 
