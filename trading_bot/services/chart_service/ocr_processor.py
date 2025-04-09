@@ -89,10 +89,6 @@ class ChartOCRProcessor:
             logger.info("Requesting text detection from Google Vision...")
             text_response = self.vision_client.text_detection(image=image)
             
-            # Get image properties for color analysis
-            logger.info("Requesting image properties from Google Vision...")
-            properties_response = self.vision_client.image_properties(image=image)
-            
             # Log the raw text detection response
             if text_response.text_annotations:
                 full_text = text_response.text_annotations[0].description
@@ -111,57 +107,31 @@ class ChartOCRProcessor:
             
             logger.info(f"Found {len(texts)} text blocks")
             
-            # Analyze dominant colors for potential indicator colors
-            dominant_colors = []
-            if properties_response.image_properties_annotation.dominant_colors:
-                colors = properties_response.image_properties_annotation.dominant_colors.colors
-                for color in colors:
-                    r, g, b = color.color.red, color.color.green, color.color.blue
-                    score = color.score
-                    pixel_fraction = color.pixel_fraction
-                    dominant_colors.append((r, g, b, score, pixel_fraction))
-                    logger.info(f"Dominant color: RGB({r},{g},{b}) - Score: {score:.2f}, Fraction: {pixel_fraction:.2f}")
-            
-            # Identify potential support and resistance color indicators
-            # Common colors: Red often for resistance, Green often for support
-            support_color_candidates = []
-            resistance_color_candidates = []
-            
-            for r, g, b, score, fraction in dominant_colors:
-                # Check for green-like colors (potential support)
-                if g > max(r, b) and g > 100 and score > 0.05:
-                    support_color_candidates.append((r, g, b))
-                    logger.info(f"Potential support color: RGB({r},{g},{b})")
-                
-                # Check for red-like colors (potential resistance)
-                if r > max(g, b) and r > 100 and score > 0.05:
-                    resistance_color_candidates.append((r, g, b))
-                    logger.info(f"Potential resistance color: RGB({r},{g},{b})")
-            
-            # Calculate chart height first
+            # Calculate chart dimensions
             chart_height = 0
+            chart_width = 0
             for text in texts:
                 for vertex in text.bounding_poly.vertices:
                     chart_height = max(chart_height, vertex.y)
+                    chart_width = max(chart_width, vertex.x)
             
-            logger.info(f"Chart height: {chart_height}")
+            logger.info(f"Chart dimensions: {chart_width}x{chart_height}")
             
-            # Extract all prices from the image
-            all_prices = []
-            current_price = None
+            # First, we'll identify all the price texts on the left side
+            price_texts = []
             
-            # First pass - identify all price texts including the current price
+            # Identify candidate price texts (usually on the left side of the chart)
             for text in texts:
-                description = text.description
+                description = text.description.strip()
                 price_match = re.search(r'(\d*\.?\d+)', description)
                 if not price_match:
                     continue
-                    
+                
                 try:
                     price_value = float(price_match.group(1))
                     if price_value > 10:  # Skip unrealistic forex prices
                         continue
-                        
+                    
                     # Get bounding box
                     vertices = text.bounding_poly.vertices
                     x_coords = [vertex.x for vertex in vertices]
@@ -171,98 +141,139 @@ class ChartOCRProcessor:
                     x2 = max(x_coords)
                     y2 = max(y_coords)
                     
-                    # Calculate center of the text box
-                    center_x = (x1 + x2) // 2
-                    center_y = (y1 + y2) // 2
-                    
-                    # Check if there's a timestamp below this price
-                    has_timestamp = self._has_timestamp_below(texts, x1, x2, y2)
-                    
-                    # Check text color context based on the colors in the bounding box area
-                    # This uses the dominant colors identified earlier to make an educated guess
-                    is_support_colored = False
-                    is_resistance_colored = False
-                    
-                    # For now, we'll approximate by looking at text position relative to chart height
-                    # In a full implementation, you'd sample the image pixels in the text area
-                    
-                    # We can use the position of the text and the dominant colors to infer if this 
-                    # might be a support or resistance level based on color
-                    # A more accurate approach would be to extract the specific pixels around each text
-                    
-                    # For now, let's base it on chart position and see if we can detect the current price
-                    
-                    price_info = {
-                        'value': price_value,
-                        'has_timestamp': has_timestamp,
+                    # Check if it's on the left side (first quarter of the image width)
+                    if x2 < chart_width / 4:
+                        price_texts.append({
+                            'value': price_value,
+                            'text': description,
+                            'x1': x1,
+                            'y1': y1,
+                            'x2': x2,
+                            'y2': y2,
+                            'center_y': (y1 + y2) // 2
+                        })
+                        logger.info(f"Found price text: {price_value} at y={y1}")
+                except Exception as e:
+                    logger.error(f"Error processing price text: {str(e)}")
+            
+            # Now, identify all label texts (likely on the right side of the chart)
+            label_texts = []
+            important_labels = ['daily high', 'daily low', 'weekly high', 'weekly low', 
+                              'monthly high', 'monthly low', 'support', 'resistance',
+                              'pivot', 's1', 's2', 's3', 'r1', 'r2', 'r3', 'pp']
+            
+            for text in texts:
+                description = text.description.lower().strip()
+                
+                # Skip if it's a price
+                if re.match(r'^\d*\.?\d+$', description):
+                    continue
+                
+                # Get bounding box
+                vertices = text.bounding_poly.vertices
+                x_coords = [vertex.x for vertex in vertices]
+                y_coords = [vertex.y for vertex in vertices]
+                x1 = min(x_coords)
+                y1 = min(y_coords)
+                x2 = max(x_coords)
+                y2 = max(y_coords)
+                
+                # Check if it's likely a label (on right side or contains keywords)
+                is_right_side = x1 > chart_width * 0.75
+                is_important_label = any(label in description for label in important_labels)
+                
+                if is_right_side or is_important_label:
+                    label_texts.append({
+                        'text': description,
                         'x1': x1,
                         'y1': y1,
                         'x2': x2,
                         'y2': y2,
-                        'center_x': center_x,
-                        'center_y': center_y,
-                        'is_support_colored': is_support_colored,
-                        'is_resistance_colored': is_resistance_colored
-                    }
-                    
-                    # If this has a timestamp, it's likely the current price
-                    if has_timestamp:
-                        logger.info(f"Found current price candidate: {price_value}")
-                        current_price = price_info
-                    
-                    # Add to our list of all prices
-                    all_prices.append(price_info)
-                    
-                except Exception as e:
-                    logger.error(f"Error in first pass processing price: {str(e)}")
-                    continue
+                        'center_y': (y1 + y2) // 2
+                    })
+                    logger.info(f"Found label: '{description}' at y={y1}")
             
-            # If we couldn't find a current price with timestamp, try to estimate it
-            if not current_price and all_prices:
-                # Sort prices by y-position and use the middle one as an estimate
-                all_prices.sort(key=lambda p: p['y1'])
-                middle_index = len(all_prices) // 2
-                current_price = all_prices[middle_index]
-                logger.info(f"Using estimated current price: {current_price['value']}")
-            
-            if not current_price:
-                logger.error("No current price found")
-                return {}
+            # Find the current price (often has a timestamp below or is in the middle of price scale)
+            current_price = None
+            for price in price_texts:
+                # Check if there's a timestamp below this price
+                has_timestamp = self._has_timestamp_below(texts, price['x1'], price['x2'], price['y2'])
                 
-            logger.info(f"Current price: {current_price['value']}")
+                if has_timestamp:
+                    current_price = price['value']
+                    logger.info(f"Found current price with timestamp: {current_price}")
+                    break
+            
+            # If we didn't find a current price with timestamp, estimate it
+            if not current_price:
+                # If we have price texts, take the middle one as estimate
+                if price_texts:
+                    # Sort by y position
+                    sorted_prices = sorted(price_texts, key=lambda p: p['y1'])
+                    middle_index = len(sorted_prices) // 2
+                    current_price = sorted_prices[middle_index]['value']
+                    logger.info(f"Estimated current price from middle of scale: {current_price}")
+                else:
+                    logger.error("No prices found to estimate current price")
+                    return {}
+            
+            # Match labels with corresponding prices based on y-coordinate
+            price_levels = {}
+            
+            for label in label_texts:
+                # Find the closest price text by y-coordinate
+                closest_price = None
+                min_distance = float('inf')
+                
+                for price in price_texts:
+                    distance = abs(label['center_y'] - price['center_y'])
+                    if distance < min_distance:
+                        min_distance = distance
+                        closest_price = price
+                
+                # Only match if the distance is reasonable (within 5% of chart height)
+                if min_distance < chart_height * 0.05 and closest_price:
+                    level_name = label['text']
+                    price_value = closest_price['value']
+                    
+                    logger.info(f"Matched label '{level_name}' with price {price_value} (distance: {min_distance}px)")
+                    
+                    # Categorize the price level
+                    if 'resistance' in level_name.lower() or 'r1' in level_name.lower() or 'r2' in level_name.lower() or 'r3' in level_name.lower() or 'high' in level_name.lower():
+                        price_levels[level_name] = {'value': price_value, 'type': 'resistance'}
+                    elif 'support' in level_name.lower() or 's1' in level_name.lower() or 's2' in level_name.lower() or 's3' in level_name.lower() or 'low' in level_name.lower():
+                        price_levels[level_name] = {'value': price_value, 'type': 'support'}
+                    else:
+                        price_levels[level_name] = {'value': price_value, 'type': 'other'}
+            
+            # Process the collected data
+            data = {}
+            
+            if current_price:
+                data['current_price'] = current_price
             
             # Extract support and resistance levels
             support_levels = []
             resistance_levels = []
             
-            # Process all detected prices to find support and resistance levels
-            for price in all_prices:
-                # Skip if it's the current price
-                if price['value'] == current_price['value']:
-                    continue
-                
-                # Log all price levels for debugging
-                logger.info(f"Evaluating price: {price['value']} at position ({price['x1']}, {price['y1']})")
-                
-                # Now we'll use both position and color context to determine support/resistance
-                # If a text has a color matching our support_color_candidates, it's likely support
-                # If a text has a color matching our resistance_color_candidates, it's likely resistance
-                
-                # For now we'll use position as a fallback since we don't have per-text color analysis
-                is_likely_support = price['is_support_colored'] or price['value'] < current_price['value']
-                is_likely_resistance = price['is_resistance_colored'] or price['value'] > current_price['value']
-                
-                if is_likely_resistance:
-                    resistance_levels.append(price['value'])
-                    logger.info(f"Added resistance level: {price['value']}")
-                
-                if is_likely_support:
-                    support_levels.append(price['value'])
-                    logger.info(f"Added support level: {price['value']}")
+            for label, info in price_levels.items():
+                if info['type'] == 'resistance':
+                    resistance_levels.append(info['value'])
+                    logger.info(f"Added resistance level: {label} = {info['value']}")
+                elif info['type'] == 'support':
+                    support_levels.append(info['value'])
+                    logger.info(f"Added support level: {label} = {info['value']}")
             
-            # Process the collected data
-            data = {}
-            data['current_price'] = current_price['value']
+            # If we don't have any labeled support/resistance levels, 
+            # use price comparison as fallback
+            if not support_levels and not resistance_levels and price_texts:
+                logger.info("No labeled levels found, using price comparison as fallback")
+                
+                for price in price_texts:
+                    if price['value'] > current_price:
+                        resistance_levels.append(price['value'])
+                    elif price['value'] < current_price:
+                        support_levels.append(price['value'])
             
             # Sort and filter support and resistance levels
             if support_levels:
@@ -276,6 +287,11 @@ class ChartOCRProcessor:
                 resistances = sorted(set(resistance_levels))[:3]
                 data['resistance_levels'] = resistances
                 logger.info(f"Resistance levels: {resistances}")
+            
+            # Also add all the named price levels for reference
+            if price_levels:
+                data['price_levels'] = {k: v['value'] for k, v in price_levels.items()}
+                logger.info(f"Named price levels: {data['price_levels']}")
             
             return data
             
