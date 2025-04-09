@@ -2972,14 +2972,91 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             
             # Handle different instrument types
             if instrument_type == "chart" or instrument_type is None:
-                # Instead of passing the instrument directly, update the callback data to match
-                # what the new show_technical_analysis function expects
-                new_data = f"instrument_{instrument}_chart"
-                update.callback_query.data = new_data
+                # Show loading message first
+                try:
+                    await query.edit_message_caption(
+                        caption=f"Analyzing {instrument} on 1h timeframe... Please wait.",
+                        reply_markup=None
+                    )
+                except Exception as e:
+                    logger.error(f"Error updating message: {str(e)}")
+                    
+                # Get the chart service
+                if not hasattr(self, 'chart_service') or self.chart_service is None:
+                    from trading_bot.services.chart_service.chart import ChartService
+                    logger.info("Initializing chart service")
+                    self.chart_service = ChartService()
+                    await self.chart_service.initialize()
                 
-                # Call show_technical_analysis without the instrument parameter
-                return await self.show_technical_analysis(update, context)
-            
+                try:
+                    # Get the chart and analysis directly
+                    timeframe = "1h"  # Default timeframe
+                    chart_image_path, analysis_text = await self.chart_service.get_technical_analysis(instrument, timeframe)
+                    
+                    if chart_image_path and os.path.exists(chart_image_path):
+                        # Create a keyboard with buttons for different timeframes
+                        keyboard = [
+                            [
+                                InlineKeyboardButton("1 Hour", callback_data=f"timeframe_{instrument}_1h"),
+                                InlineKeyboardButton("4 Hours", callback_data=f"timeframe_{instrument}_4h"),
+                                InlineKeyboardButton("Daily", callback_data=f"timeframe_{instrument}_1d")
+                            ],
+                            [
+                                InlineKeyboardButton("◀️ Back", callback_data="instruments")
+                            ]
+                        ]
+                        
+                        reply_markup = InlineKeyboardMarkup(keyboard)
+                        
+                        # Send the chart image and analysis
+                        with open(chart_image_path, 'rb') as photo:
+                            await query.message.reply_photo(
+                                photo=photo, 
+                                caption=analysis_text, 
+                                reply_markup=reply_markup,
+                                parse_mode=ParseMode.HTML
+                            )
+                        return CHOOSE_ANALYSIS
+                    else:
+                        # If no chart image is available, just send the analysis text
+                        keyboard = [
+                            [
+                                InlineKeyboardButton("◀️ Back", callback_data="instruments")
+                            ]
+                        ]
+                        reply_markup = InlineKeyboardMarkup(keyboard)
+                        
+                        await query.message.reply_text(
+                            text=analysis_text or f"Sorry, analysis for {instrument} is not available at this time.",
+                            reply_markup=reply_markup,
+                            parse_mode=ParseMode.HTML
+                        )
+                        return CHOOSE_ANALYSIS
+                except Exception as e:
+                    logger.error(f"Error showing technical analysis: {str(e)}")
+                    logger.error(traceback.format_exc())
+                    
+                    # In case of error, update the message
+                    keyboard = [
+                        [
+                            InlineKeyboardButton("◀️ Back", callback_data="instruments")
+                        ]
+                    ]
+                    reply_markup = InlineKeyboardMarkup(keyboard)
+                    
+                    try:
+                        await query.edit_message_text(
+                            text=f"Sorry, there was an error generating analysis for {instrument}. Please try again later.",
+                            reply_markup=reply_markup
+                        )
+                    except Exception as update_error:
+                        logger.error(f"Error updating error message: {str(update_error)}")
+                        await query.message.reply_text(
+                            text=f"Sorry, there was an error generating analysis for {instrument}. Please try again later.",
+                            reply_markup=reply_markup
+                        )
+                    return CHOOSE_ANALYSIS
+                    
             elif instrument_type == "sentiment":
                 return await self.show_sentiment_analysis(update, context, instrument=instrument)
                 
@@ -3023,7 +3100,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 return CHOOSE_SIGNAL_PARAM
                 
             # Fallback to technical analysis by default
-            return await self.show_technical_analysis(update, context)
+            return CHOOSE_INSTRUMENT
         
         except Exception as e:
             logger.error(f"Error in instrument_callback: {str(e)}")
