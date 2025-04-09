@@ -1078,36 +1078,32 @@ class ChartService:
         
         try:
             # Prepare the system prompt
-            system_prompt = """You are an expert financial analyst specializing in technical analysis for forex, commodities, cryptocurrencies, and indices. Your task is to analyze market data and provide a comprehensive technical analysis. Focus on key levels of support and resistance, trend direction, momentum, and potential price movements. Make your analysis actionable with clear market bias and advice."""
+            system_prompt = """You are an expert financial analyst specializing in technical analysis for forex, commodities, cryptocurrencies, and indices. Your task is to analyze market data and provide a concise technical analysis with a clear market bias (bullish or bearish) and actionable insight."""
 
             # Prepare the user prompt with market data
-            user_prompt = f"""Provide a concise technical analysis for {instrument} on the {timeframe} timeframe based on this market data:
+            user_prompt = f"""Analyze the following market data for {instrument} on the {timeframe} timeframe and provide a technical analysis in the exact format specified:
 
 {market_data_json}
 
-Format your response in these exact sections using HTML formatting tags:
+Based on this data, determine if the overall trend is BULLISH or BEARISH, and identify the key support/resistance levels. Then create a response in exactly this format:
 
-📊 <b>Market Overview</b>
-[Current price, trend direction, and key price action observations in 1-2 sentences]
+{instrument} - {timeframe}
 
-🔑 <b>Key Levels</b>
-Support: [List main support levels separated by commas]
-Resistance: [List main resistance levels separated by commas]  
+<b>Trend</b> - [BULLISH or BEARISH]
 
-📈 <b>Technical Indicators</b>
-RSI: [Value and interpretation]
-MACD: [Status and signal]
-Moving Averages: [Key insights]
+Sigmapips AI identifies strong [buy/sell] probability. A key [support/resistance] level was spotted near [price] and a [support/resistance] area around [price]
 
-🤖 <b>Sigmapips AI Recommendation</b>
-[Provide general market bias and advice based on the analysis data. Focus on overall direction, key levels to watch, and potential scenarios. DO NOT provide specific trade entries, exits, or stop loss values. Keep it to 2-3 sentences maximum.]
+<b>Zone Strength 1-5:</b> [★★★☆☆] (provide 1-5 stars based on the strength of the identified zone)
 
-IMPORTANT FORMATTING RULES:
-1. Use normal capitalization with <b>bold</b> section headings (use HTML tags, not markdown)
-2. Use EXACTLY ONE emoji at the start of each heading
-3. Keep responses concise but insightful
-4. Format numbers consistently with max 5 digits total
-5. For the recommendation, provide general advice only based on TradingView data
+<b>Sigmapips AI Recommendation</b>
+[2-3 sentences with general market advice based on the analysis. Focus on potential scenarios, key levels to watch, and overall market bias. DO NOT provide specific entry/exit points or stop loss values.]
+
+IMPORTANT REQUIREMENTS:
+1. Follow the exact format above with no variations
+2. Use correct HTML <b>bold</b> tags as shown
+3. For Zone Strength, use ★ for filled stars and ☆ for empty stars (total of 5 stars)
+4. Keep the analysis concise and precise
+5. Make sure the buy/sell recommendation matches the trend direction
 6. DO NOT add any disclaimer - this will be added automatically
 """
             
@@ -1174,57 +1170,43 @@ IMPORTANT FORMATTING RULES:
     def _clean_for_telegram(self, text: str, instrument: str, timeframe: str) -> str:
         """Clean and format text for Telegram display"""
         try:
-            # Add title if missing
-            if not text.startswith(f"{instrument}") and not text.startswith("📊"):
-                text = f"{instrument}/{timeframe} Analysis\n\n" + text
-            
             # Make sure all sections are visibly separated
             text = text.replace("\n\n\n", "\n\n")
             text = text.replace("\n\n\n\n", "\n\n")
             
-            # Remove any duplicate emojis
-            for emoji in ["📊", "🔑", "📈", "🤖"]:
-                pattern = f"{emoji}\\s+{emoji}"
-                text = re.sub(pattern, emoji, text)
+            # Ensure proper formatting even if AI missed some HTML tags
+            # Add bold tags if missing
+            if "<b>Trend</b>" not in text:
+                text = re.sub(r'(?i)(^|\n)Trend\s*-', r'\1<b>Trend</b> -', text)
             
-            # Fix section headings - use HTML bold tags for Telegram
-            sections_to_fix = {
-                # Fix with markdown **
-                r'(?i)📊\s*\*{0,2}Market\s+Overview\*{0,2}': '📊 <b>Market Overview</b>',
-                r'(?i)🔑\s*\*{0,2}Key\s+Levels\*{0,2}': '🔑 <b>Key Levels</b>',
-                r'(?i)📈\s*\*{0,2}Technical\s+Indicators\*{0,2}': '📈 <b>Technical Indicators</b>',
-                r'(?i)🤖\s*\*{0,2}Sigmapips\s+AI\s+Recommendation\*{0,2}': '🤖 <b>Sigmapips AI Recommendation</b>',
-                
-                # Fix ALL CAPS versions
-                r'(?i)📊\s*\*{0,2}MARKET\s+OVERVIEW\*{0,2}': '📊 <b>Market Overview</b>',
-                r'(?i)🔑\s*\*{0,2}KEY\s+LEVELS\*{0,2}': '🔑 <b>Key Levels</b>',
-                r'(?i)📈\s*\*{0,2}TECHNICAL\s+INDICATORS\*{0,2}': '📈 <b>Technical Indicators</b>',
-                r'(?i)🤖\s*\*{0,2}SIGMAPIPS\s+AI\s+RECOMMENDATION\*{0,2}': '🤖 <b>Sigmapips AI Recommendation</b>',
-                
-                # Also fix if missing emojis
-                r'(?i)^\*{0,2}Market\s+Overview\*{0,2}': '📊 <b>Market Overview</b>',
-                r'(?i)^\*{0,2}Key\s+Levels\*{0,2}': '🔑 <b>Key Levels</b>',
-                r'(?i)^\*{0,2}Technical\s+Indicators\*{0,2}': '📈 <b>Technical Indicators</b>',
-                r'(?i)^\*{0,2}Sigmapips\s+AI\s+Recommendation\*{0,2}': '🤖 <b>Sigmapips AI Recommendation</b>',
-                
-                # Fix with line breaks
-                r'(?i)\n\s*\*{0,2}Market\s+Overview\*{0,2}': '\n\n📊 <b>Market Overview</b>',
-                r'(?i)\n\s*\*{0,2}Key\s+Levels\*{0,2}': '\n\n🔑 <b>Key Levels</b>',
-                r'(?i)\n\s*\*{0,2}Technical\s+Indicators\*{0,2}': '\n\n📈 <b>Technical Indicators</b>',
-                r'(?i)\n\s*\*{0,2}Sigmapips\s+AI\s+Recommendation\*{0,2}': '\n\n🤖 <b>Sigmapips AI Recommendation</b>',
-                
-                # Also convert any **text** to <b>text</b> elsewhere in the text
-                r'\*\*([^*]+)\*\*': r'<b>\1</b>',
-            }
+            if "<b>Zone Strength 1-5:</b>" not in text:
+                text = re.sub(r'(?i)(^|\n)Zone\s+Strength\s+1-5:', r'\1<b>Zone Strength 1-5:</b>', text)
             
-            # Apply all the fixes
-            for pattern, replacement in sections_to_fix.items():
-                text = re.sub(pattern, replacement, text)
+            if "<b>Sigmapips AI Recommendation</b>" not in text:
+                text = re.sub(r'(?i)(^|\n)Sigmapips\s+AI\s+Recommendation', r'\1<b>Sigmapips AI Recommendation</b>', text)
             
-            # Final check for any duplicate emojis (again after replacements)
-            for emoji in ["📊", "🔑", "📈", "🤖"]:
-                pattern = f"{emoji}\\s+{emoji}"
-                text = re.sub(pattern, emoji, text)
+            # Make sure stars are formatted correctly for Zone Strength
+            if "Zone Strength" in text and "★" not in text and "☆" not in text:
+                # Find the strength value (should be 1-5)
+                strength_match = re.search(r'Zone\s+Strength\s+1-5:.*?(\d)', text)
+                if strength_match:
+                    strength = int(strength_match.group(1))
+                    if 1 <= strength <= 5:
+                        stars = "★" * strength + "☆" * (5 - strength)
+                        text = re.sub(r'Zone\s+Strength\s+1-5:.*?(\d)', f'Zone Strength 1-5: {stars}', text)
+            
+            # Ensure the final analysis has the exact format desired
+            if not text.startswith(f"{instrument} - {timeframe}"):
+                # Remove any other title and add the correct one
+                if text.startswith(instrument) or text.startswith(f"{instrument}/"):
+                    lines = text.split('\n')
+                    # Remove the first line (incorrect title)
+                    lines.pop(0)
+                    # Add the correct title
+                    text = f"{instrument} - {timeframe}\n" + '\n'.join(lines)
+                else:
+                    # Just add the title at the beginning
+                    text = f"{instrument} - {timeframe}\n\n" + text
             
             # Add disclaimer at the end
             disclaimer = "\n\n⚠️ <b>Disclaimer:</b> Please note that the information/analysis provided is strictly for study and educational purposes only. It should not be constructed as financial advice and always do your own analysis."
