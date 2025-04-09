@@ -160,8 +160,11 @@ class ChartOCRProcessor:
             label_texts = []
             important_labels = ['daily high', 'daily low', 'weekly high', 'weekly low', 
                               'monthly high', 'monthly low', 'support', 'resistance',
-                              'pivot', 's1', 's2', 's3', 'r1', 'r2', 'r3', 'pp']
+                              'pivot', 's1', 's2', 's3', 'r1', 'r2', 'r3', 'pp',
+                              'supply', 'demand', 'zone', 'buy', 'sell', 'poi']
             
+            # First, collect all non-price text elements
+            raw_labels = []
             for text in texts:
                 description = text.description.lower().strip()
                 
@@ -178,12 +181,12 @@ class ChartOCRProcessor:
                 x2 = max(x_coords)
                 y2 = max(y_coords)
                 
-                # Check if it's likely a label (on right side or contains keywords)
-                is_right_side = x1 > chart_width * 0.75
+                # Check if it's likely a label
+                is_right_side = x1 > chart_width * 0.6
                 is_important_label = any(label in description for label in important_labels)
                 
                 if is_right_side or is_important_label:
-                    label_texts.append({
+                    raw_labels.append({
                         'text': description,
                         'x1': x1,
                         'y1': y1,
@@ -191,7 +194,53 @@ class ChartOCRProcessor:
                         'y2': y2,
                         'center_y': (y1 + y2) // 2
                     })
-                    logger.info(f"Found label: '{description}' at y={y1}")
+                    logger.info(f"Found raw label: '{description}' at position ({x1},{y1})")
+            
+            # Sort raw labels by y position and then x position (to handle labels on the same line)
+            raw_labels.sort(key=lambda l: (l['center_y'], l['x1']))
+            
+            # Combine adjacent labels that are likely part of the same label (e.g., "daily" + "high")
+            i = 0
+            while i < len(raw_labels) - 1:
+                current = raw_labels[i]
+                next_label = raw_labels[i + 1]
+                
+                # Check if labels are on same horizontal line (within 20 pixels)
+                y_diff = abs(current['center_y'] - next_label['center_y'])
+                
+                # Check if labels are horizontally adjacent (within 50 pixels)
+                x_diff = next_label['x1'] - current['x2']
+                
+                if y_diff < 20 and x_diff < 50 and x_diff > 0:  # Close horizontally and on same line
+                    # Combine the two labels
+                    combined_text = f"{current['text']} {next_label['text']}"
+                    logger.info(f"Combining labels: '{current['text']}' + '{next_label['text']}' = '{combined_text}'")
+                    
+                    # Create new combined label
+                    combined_label = {
+                        'text': combined_text,
+                        'x1': current['x1'],
+                        'y1': min(current['y1'], next_label['y1']),
+                        'x2': next_label['x2'],
+                        'y2': max(current['y2'], next_label['y2']),
+                        'center_y': (current['center_y'] + next_label['center_y']) // 2
+                    }
+                    
+                    # Replace current with combined, remove next
+                    raw_labels[i] = combined_label
+                    raw_labels.pop(i + 1)
+                else:
+                    i += 1
+            
+            # Process the combined labels
+            for label in raw_labels:
+                label_text = label['text']
+                is_important = any(important in label_text for important in important_labels)
+                is_right_side = label['x1'] > chart_width * 0.6
+                
+                if is_important or is_right_side:
+                    label_texts.append(label)
+                    logger.info(f"Found processed label: '{label_text}' at y={label['y1']}")
             
             # Find the current price (often has a timestamp below or is in the middle of price scale)
             current_price = None
@@ -221,6 +270,8 @@ class ChartOCRProcessor:
             price_levels = {}
             
             for label in label_texts:
+                label_text = label['text']
+                
                 # Find the closest price text by y-coordinate
                 closest_price = None
                 min_distance = float('inf')
@@ -231,20 +282,19 @@ class ChartOCRProcessor:
                         min_distance = distance
                         closest_price = price
                 
-                # Only match if the distance is reasonable (within 5% of chart height)
-                if min_distance < chart_height * 0.05 and closest_price:
-                    level_name = label['text']
+                # Only match if the distance is reasonable (within 10% of chart height)
+                if min_distance < chart_height * 0.1 and closest_price:
                     price_value = closest_price['value']
                     
-                    logger.info(f"Matched label '{level_name}' with price {price_value} (distance: {min_distance}px)")
+                    logger.info(f"Matched label '{label_text}' with price {price_value} (distance: {min_distance}px)")
                     
-                    # Categorize the price level
-                    if 'resistance' in level_name.lower() or 'r1' in level_name.lower() or 'r2' in level_name.lower() or 'r3' in level_name.lower() or 'high' in level_name.lower():
-                        price_levels[level_name] = {'value': price_value, 'type': 'resistance'}
-                    elif 'support' in level_name.lower() or 's1' in level_name.lower() or 's2' in level_name.lower() or 's3' in level_name.lower() or 'low' in level_name.lower():
-                        price_levels[level_name] = {'value': price_value, 'type': 'support'}
+                    # Categorize the price level based on the combined label
+                    if any(term in label_text for term in ['resistance', 'r1', 'r2', 'r3', 'high', 'supply']):
+                        price_levels[label_text] = {'value': price_value, 'type': 'resistance'}
+                    elif any(term in label_text for term in ['support', 's1', 's2', 's3', 'low', 'demand']):
+                        price_levels[label_text] = {'value': price_value, 'type': 'support'}
                     else:
-                        price_levels[level_name] = {'value': price_value, 'type': 'other'}
+                        price_levels[label_text] = {'value': price_value, 'type': 'other'}
             
             # Process the collected data
             data = {}
