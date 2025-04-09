@@ -1081,7 +1081,7 @@ class ChartService:
             system_prompt = """You are an expert financial analyst specializing in technical analysis for forex, commodities, cryptocurrencies, and indices. Your task is to analyze market data and provide a comprehensive technical analysis. Focus on key levels of support and resistance, trend direction, momentum, and potential entry/exit points. Provide specific price targets and stop loss suggestions for both long and short positions. Make your analysis actionable with clear recommendations."""
 
             # Prepare the user prompt with market data
-            user_prompt = f"""Provide a detailed technical analysis for {instrument} on the {timeframe} timeframe based on this market data:
+            user_prompt = f"""Provide a concise technical analysis for {instrument} on the {timeframe} timeframe based on this market data:
 
 {market_data_json}
 
@@ -1109,9 +1109,10 @@ IMPORTANT FORMATTING INSTRUCTIONS:
 1. DO NOT use ** or * for formatting anywhere in your response
 2. Use PLAIN TEXT only - no markdown, no HTML, no bold
 3. Use emoji only at the start of section headings
-4. Keep all content concise and readable
+4. Keep all content concise and readable - BE BRIEF IN ALL SECTIONS
 5. Format numbers consistently with max 5 digits total
-6. DO NOT add any disclaimer - this will be added automatically
+6. Keep total response under 800 characters if possible
+7. DO NOT add any disclaimer - this will be added automatically
 """
             
             # Make a request to DeepSeek API
@@ -1130,7 +1131,7 @@ IMPORTANT FORMATTING INSTRUCTIONS:
                         {"role": "user", "content": user_prompt}
                     ],
                     "temperature": 0.7,
-                    "max_tokens": 1000
+                    "max_tokens": 800
                 }
                 
                 logger.info(f"Sending request to DeepSeek API for {instrument} analysis")
