@@ -1078,41 +1078,37 @@ class ChartService:
         
         try:
             # Prepare the system prompt
-            system_prompt = """You are an expert financial analyst specializing in technical analysis for forex, commodities, cryptocurrencies, and indices. Your task is to analyze market data and provide a comprehensive technical analysis. Focus on key levels of support and resistance, trend direction, momentum, and potential entry/exit points. Provide specific price targets and stop loss suggestions for both long and short positions. Make your analysis actionable with clear recommendations."""
+            system_prompt = """You are an expert financial analyst specializing in technical analysis for forex, commodities, cryptocurrencies, and indices. Your task is to analyze market data and provide a comprehensive technical analysis. Focus on key levels of support and resistance, trend direction, momentum, and potential price movements. Make your analysis actionable with clear market bias and advice."""
 
             # Prepare the user prompt with market data
             user_prompt = f"""Provide a concise technical analysis for {instrument} on the {timeframe} timeframe based on this market data:
 
 {market_data_json}
 
-Format your response using Telegram-compatible formatting with these sections separated by line breaks:
+Format your response in these exact sections with proper formatting:
 
-📊 MARKET OVERVIEW
-[Current price, trend direction, and key price action observations - DO NOT use ** for bold formatting]
+📊 **Market Overview**
+[Current price, trend direction, and key price action observations in 1-2 sentences]
 
-🔑 KEY LEVELS
+🔑 **Key Levels**
 Support: [List main support levels separated by commas]
 Resistance: [List main resistance levels separated by commas]  
 
-📈 TECHNICAL INDICATORS
+📈 **Technical Indicators**
 RSI: [Value and interpretation]
 MACD: [Status and signal]
 Moving Averages: [Key insights]
 
-🤖 SIGMAPIPS AI RECOMMENDATION
-[Combine trade recommendations and risk assessment here]
-Long: Entry at [price], Stop loss at [price], Target at [price]
-Short: Entry at [price], Stop loss at [price], Target at [price]
-[Add brief risk assessment]
+🤖 **Sigmapips AI Recommendation**
+[Provide general market bias and advice based on the analysis data. Focus on overall direction, key levels to watch, and potential scenarios. DO NOT provide specific trade entries, exits, or stop loss values. Keep it to 2-3 sentences maximum.]
 
-IMPORTANT FORMATTING INSTRUCTIONS:
-1. DO NOT use ** or * for formatting anywhere in your response
-2. Use PLAIN TEXT only - no markdown, no HTML, no bold
-3. Use emoji only at the start of section headings
-4. Keep all content concise and readable - BE BRIEF IN ALL SECTIONS
-5. Format numbers consistently with max 5 digits total
-6. Keep total response under 800 characters if possible
-7. DO NOT add any disclaimer - this will be added automatically
+IMPORTANT FORMATTING RULES:
+1. Use normal capitalization with **bold** section headings
+2. Use EXACTLY ONE emoji at the start of each heading
+3. Keep responses concise but insightful
+4. Format numbers consistently with max 5 digits total
+5. For the recommendation, provide general advice only based on TradingView data
+6. DO NOT add any disclaimer - this will be added automatically
 """
             
             # Make a request to DeepSeek API
@@ -1180,32 +1176,51 @@ IMPORTANT FORMATTING INSTRUCTIONS:
         try:
             # Add title if missing
             if not text.startswith(f"{instrument}") and not text.startswith("📊"):
-                text = f"📊 {instrument}/{timeframe} ANALYSIS\n\n" + text
-            
-            # Remove any ** bold formatting
-            text = text.replace("**", "")
-            text = text.replace("*", "")
+                text = f"{instrument}/{timeframe} Analysis\n\n" + text
             
             # Make sure all sections are visibly separated
             text = text.replace("\n\n\n", "\n\n")
             text = text.replace("\n\n\n\n", "\n\n")
             
-            # Ensure consistent formatting for sections
-            section_map = {
-                "MARKET OVERVIEW": "📊 MARKET OVERVIEW",
-                "KEY LEVELS": "🔑 KEY LEVELS",
-                "TECHNICAL INDICATORS": "📈 TECHNICAL INDICATORS",
-                "TRADE RECOMMENDATIONS": "🤖 SIGMAPIPS AI RECOMMENDATION",
-                "RISK ASSESSMENT": "🤖 SIGMAPIPS AI RECOMMENDATION",
-                "SIGMAPIPS AI RECOMMENDATION": "🤖 SIGMAPIPS AI RECOMMENDATION"
+            # Remove any duplicate emojis
+            for emoji in ["📊", "🔑", "📈", "🤖"]:
+                pattern = f"{emoji}\\s+{emoji}"
+                text = re.sub(pattern, emoji, text)
+            
+            # Fix section headings
+            sections_to_fix = {
+                r'(?i)📊\s*\*{0,2}Market\s+Overview\*{0,2}': '📊 **Market Overview**',
+                r'(?i)🔑\s*\*{0,2}Key\s+Levels\*{0,2}': '🔑 **Key Levels**',
+                r'(?i)📈\s*\*{0,2}Technical\s+Indicators\*{0,2}': '📈 **Technical Indicators**',
+                r'(?i)🤖\s*\*{0,2}Sigmapips\s+AI\s+Recommendation\*{0,2}': '🤖 **Sigmapips AI Recommendation**',
+                
+                # Fix ALL CAPS versions
+                r'(?i)📊\s*\*{0,2}MARKET\s+OVERVIEW\*{0,2}': '📊 **Market Overview**',
+                r'(?i)🔑\s*\*{0,2}KEY\s+LEVELS\*{0,2}': '🔑 **Key Levels**',
+                r'(?i)📈\s*\*{0,2}TECHNICAL\s+INDICATORS\*{0,2}': '📈 **Technical Indicators**',
+                r'(?i)🤖\s*\*{0,2}SIGMAPIPS\s+AI\s+RECOMMENDATION\*{0,2}': '🤖 **Sigmapips AI Recommendation**',
+                
+                # Also fix if missing emojis
+                r'(?i)^\*{0,2}Market\s+Overview\*{0,2}': '📊 **Market Overview**',
+                r'(?i)^\*{0,2}Key\s+Levels\*{0,2}': '🔑 **Key Levels**',
+                r'(?i)^\*{0,2}Technical\s+Indicators\*{0,2}': '📈 **Technical Indicators**',
+                r'(?i)^\*{0,2}Sigmapips\s+AI\s+Recommendation\*{0,2}': '🤖 **Sigmapips AI Recommendation**',
+                
+                # Fix with line breaks
+                r'(?i)\n\s*\*{0,2}Market\s+Overview\*{0,2}': '\n\n📊 **Market Overview**',
+                r'(?i)\n\s*\*{0,2}Key\s+Levels\*{0,2}': '\n\n🔑 **Key Levels**',
+                r'(?i)\n\s*\*{0,2}Technical\s+Indicators\*{0,2}': '\n\n📈 **Technical Indicators**',
+                r'(?i)\n\s*\*{0,2}Sigmapips\s+AI\s+Recommendation\*{0,2}': '\n\n🤖 **Sigmapips AI Recommendation**',
             }
             
-            for old_section, new_section in section_map.items():
-                # Replace without emoji/formatting with proper version
-                text = re.sub(rf"(?<!\S){old_section}", f"\n\n{new_section}", text, flags=re.IGNORECASE)
+            # Apply all the fixes
+            for pattern, replacement in sections_to_fix.items():
+                text = re.sub(pattern, replacement, text)
             
-            # Remove any duplicate SIGMAPIPS AI RECOMMENDATION sections
-            text = re.sub(r'🤖 SIGMAPIPS AI RECOMMENDATION\s+🤖 SIGMAPIPS AI RECOMMENDATION', '🤖 SIGMAPIPS AI RECOMMENDATION', text)
+            # Final check for any duplicate emojis (again after replacements)
+            for emoji in ["📊", "🔑", "📈", "🤖"]:
+                pattern = f"{emoji}\\s+{emoji}"
+                text = re.sub(pattern, emoji, text)
             
             # Add disclaimer at the end
             disclaimer = "\n\n⚠️ Disclaimer: Please note that the information/analysis provided is strictly for study and educational purposes only. It should not be constructed as financial advice and always do your own analysis."
