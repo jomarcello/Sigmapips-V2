@@ -1078,21 +1078,21 @@ class ChartService:
         
         try:
             # Prepare the system prompt
-            system_prompt = """You are an expert financial analyst specializing in technical analysis for forex, commodities, cryptocurrencies, and indices. Your task is to analyze market data and provide a comprehensive technical analysis. Focus on key levels of support and resistance, trend direction, momentum, and potential entry/exit points. Provide specific price targets and stop loss suggestions for both long and short positions. Make your analysis actionable with clear recommendations. Format your analysis in a clean, professional HTML format with appropriate headings."""
+            system_prompt = """You are an expert financial analyst specializing in technical analysis for forex, commodities, cryptocurrencies, and indices. Your task is to analyze market data and provide a comprehensive technical analysis. Focus on key levels of support and resistance, trend direction, momentum, and potential entry/exit points. Provide specific price targets and stop loss suggestions for both long and short positions. Make your analysis actionable with clear recommendations."""
 
             # Prepare the user prompt with market data
             user_prompt = f"""Provide a detailed technical analysis for {instrument} on the {timeframe} timeframe based on this market data:
 
 {market_data_json}
 
-Format your response as HTML with these sections:
+Format your response as plain text with these sections:
 - Market Overview (price action, current trend)
 - Key Support & Resistance Levels (with price targets)
 - Technical Indicators Analysis
 - Trade Recommendations (entry, stop loss, take profit for both long and short positions)
 - Risk Assessment
 
-Use HTML formatting for better readability including <h3> for headings, <b> for important points, and <ul> for lists where appropriate.
+IMPORTANT: Do NOT use HTML formatting. Return only plain text formatting. Use ** for bold and * for italics if needed, and use proper line breaks and hyphens for lists.
 """
             
             # Make a request to DeepSeek API
@@ -1123,6 +1123,21 @@ Use HTML formatting for better readability including <h3> for headings, <b> for 
                         
                         if analysis:
                             logger.info(f"DeepSeek analysis successful for {instrument}")
+                            
+                            # Check if response contains HTML and convert to plain text
+                            if "<!doctype" in analysis.lower() or "<html" in analysis.lower():
+                                logger.warning("DeepSeek returned HTML content, converting to plain text")
+                                
+                                # Strip HTML tags - basic conversion
+                                analysis = re.sub(r'<[^>]*>', '', analysis)
+                                analysis = re.sub(r'&[^;]+;', '', analysis)
+                                analysis = analysis.replace("\n\n", "\n")
+                                
+                                # Additional cleanup
+                                analysis = analysis.strip()
+                                
+                                logger.info("Converted HTML to plain text")
+                            
                             return analysis
                         else:
                             logger.error("DeepSeek returned empty analysis")
