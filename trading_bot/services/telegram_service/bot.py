@@ -788,47 +788,148 @@ class TelegramService:
         
         return message
         
-    # Utility functions that might be missing
-    async def update_message(self, query, text, keyboard=None, parse_mode=ParseMode.HTML):
-        """Utility to update a message with error handling"""
+    async def update_message(self, query, text, keyboard=None, parse_mode=None, remove_media=False):
+        """Update a message and optionally remove media"""
         try:
-            logger.info("Updating message")
-            # Try to edit message text first
-            await query.edit_message_text(
-                text=text,
-                reply_markup=keyboard,
-                parse_mode=parse_mode
-            )
-            return True
-        except Exception as e:
-            logger.warning(f"Could not update message text: {str(e)}")
+            # Check if message has media
+            has_photo = bool(query.message.photo) or query.message.animation is not None
             
-            # If text update fails, try to edit caption
-            try:
-                await query.edit_message_caption(
-                    caption=text,
-                    reply_markup=keyboard,
+            if remove_media and has_photo:
+                try:
+                    # Stap 1: Probeer eerst het hele bericht te verwijderen en een nieuw bericht te sturen
+                    await query.message.delete()
+                    if keyboard:
+                        await query.message.reply_text(
+                            text=text,
+                            reply_markup=InlineKeyboardMarkup(keyboard) if keyboard else None,
+                            parse_mode=parse_mode
+                        )
+                    else:
+                        await query.message.reply_text(
+                            text=text,
+                            parse_mode=parse_mode
+                        )
+                    return
+                except Exception as delete_error:
+                    logger.warning(f"Kon bericht niet verwijderen, probeer transparante GIF: {str(delete_error)}")
+                    
+                    try:
+                        # Stap 2: Als verwijderen niet lukt, vervang door transparante GIF
+                        transparent_gif_url = "https://upload.wikimedia.org/wikipedia/commons/thumb/0/00/Transparent.gif/1px-Transparent.gif"
+                        await query.message.edit_media(
+                            media=InputMediaDocument(
+                                media=transparent_gif_url,
+                                caption=text,
+                                parse_mode=parse_mode
+                            ),
+                            reply_markup=InlineKeyboardMarkup(keyboard) if keyboard else None
+                        )
+                        return
+                    except Exception as gif_error:
+                        logger.warning(f"Kon gif niet gebruiken: {str(gif_error)}")
+                        
+                        # Stap 3: Als laatste optie, bewerk alleen het bijschrift
+                        try:
+                            await query.message.edit_caption(
+                                caption=text,
+                                reply_markup=InlineKeyboardMarkup(keyboard) if keyboard else None,
+                                parse_mode=parse_mode
+                            )
+                            return
+                        except Exception as caption_error:
+                            logger.error(f"Kon bijschrift niet bijwerken: {str(caption_error)}")
+            
+            # Standaard gedrag als er geen media is of verwijderen van media niet nodig is
+            if keyboard:
+                await query.edit_message_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(keyboard),
                     parse_mode=parse_mode
                 )
-                return True
-            except Exception as e2:
-                logger.error(f"Could not update caption either: {str(e2)}")
-                
-                # As a last resort, send a new message
+            else:
+                await query.edit_message_text(
+                    text=text,
+                    parse_mode=parse_mode
+                )
+        except Exception as e:
+            logger.error(f"Error updating message: {str(e)}")
+        
+    async def show_loading(self, query, message="Loading..."):
+        """Show a loading animation"""
+        try:
+            # Gebruik de officiële loading GIF URL
+            loading_gif_url = "https://media.giphy.com/media/dpjUltnOPye7azvAhH/giphy.gif"
+            
+            try:
+                # Probeer eerst het bericht te verwijderen en een nieuw bericht met de GIF te sturen
+                await query.message.delete()
+                await query.message.reply_animation(
+                    animation=loading_gif_url,
+                    caption=message
+                )
+            except Exception:
+                # Als dat niet lukt, probeer het bestaande bericht bij te werken
                 try:
-                    chat_id = query.message.chat_id
-                    await query.bot.send_message(
-                        chat_id=chat_id,
-                        text=text,
-                        reply_markup=keyboard,
-                        parse_mode=parse_mode
+                    await query.message.edit_media(
+                        media=InputMediaAnimation(
+                            media=loading_gif_url,
+                            caption=message
+                        )
                     )
-                    return True
-                except Exception as e3:
-                    logger.error(f"Failed to send new message: {str(e3)}")
-                    return False
-    
-    # Missing handler implementations
+                except Exception as e:
+                    # Als laatste redmiddel, werk alleen de tekst bij
+                    logger.warning(f"Kon loading animatie niet tonen: {str(e)}")
+                    await query.edit_message_text(
+                        text=f"{message}\n\n⏳ Loading..."
+                    )
+        except Exception as e:
+            logger.error(f"Error showing loading animation: {str(e)}")
+
+    async def markets_callback(self, update: Update, context=None) -> int:
+        """Handle markets callback to show available markets"""
+        if not update.callback_query:
+            return ConversationHandler.END
+            
+        query = update.callback_query
+        await query.answer()
+        
+        # Get user data
+        if context and hasattr(context, 'user_data'):
+            # Store that we're in the market selection
+            context.user_data['current_menu'] = 'markets'
+        
+        # First show loading message
+        await self.show_loading(query, "Loading markets...")
+        
+        # Prepare keyboard with markets
+        keyboard = [
+            [
+                InlineKeyboardButton("Forex", callback_data="market_forex"),
+                InlineKeyboardButton("Crypto", callback_data="market_crypto")
+            ],
+            [
+                InlineKeyboardButton("Indices", callback_data="market_indices"),
+                InlineKeyboardButton("Commodities", callback_data="market_commodities")
+            ],
+            [
+                InlineKeyboardButton("⬅️ Back", callback_data="services")
+            ]
+        ]
+        
+        message = "📈 <b>Select a Market</b>\n\nChoose the market type you want to analyze:"
+        
+        try:
+            # Update message with markets keyboard, remove the loading GIF
+            await self.update_message(query, message, keyboard, parse_mode=ParseMode.HTML, remove_media=True)
+            return CHOOSE_MARKET
+        except Exception as e:
+            logger.error(f"Error in markets callback: {str(e)}")
+            await query.edit_message_text(
+                text="An error occurred. Please try again later.",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="start")]])
+            )
+            return ConversationHandler.END
+
     async def back_signals_callback(self, update: Update, context=None) -> int:
         """Handle back_signals button press"""
         query = update.callback_query
@@ -4897,3 +4998,243 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     keyboard=None
                 )
                 return ConversationHandler.END
+
+    async def remove_media_message(self, query=None, message=None, send_text=None):
+        """
+        Multi-step approach to remove media messages:
+        1. Try to delete the entire message and send a new one (cleanest)
+        2. If deletion fails, replace with transparent GIF via InputMediaDocument
+        3. As last resort, just edit the caption, leaving the image
+        """
+        try:
+            if query is None and message is None:
+                logger.error("Both query and message can't be None for remove_media_message")
+                return False
+                
+            target_message = message if message else query.message
+            chat_id = target_message.chat_id
+            message_id = target_message.message_id
+            has_media = bool(target_message.photo) or target_message.animation is not None
+            
+            logger.info(f"Removing media message {message_id} in chat {chat_id}, has_media: {has_media}")
+            
+            # Step 1: Try to delete the message and send new text if needed
+            if has_media:
+                try:
+                    await target_message.delete()
+                    logger.info(f"Successfully deleted message {message_id}")
+                    
+                    # If text was provided, send it as a new message
+                    if send_text:
+                        new_message = await target_message.reply_text(
+                            text=send_text,
+                            parse_mode=ParseMode.HTML
+                        )
+                        return True
+                    return True
+                except Exception as delete_error:
+                    logger.warning(f"Could not delete message: {str(delete_error)}, trying replacement method")
+            
+            # Step 2: Try to replace with transparent GIF
+            if has_media:
+                try:
+                    transparent_gif_url = "https://upload.wikimedia.org/wikipedia/commons/thumb/0/00/Transparent.gif/1px-Transparent.gif"
+                    
+                    # Use InputMediaDocument to replace the media while preserving the message
+                    await self.bot.edit_message_media(
+                        chat_id=chat_id,
+                        message_id=message_id,
+                        media=InputMediaDocument(
+                            media=transparent_gif_url,
+                            caption=send_text if send_text else "",
+                            parse_mode=ParseMode.HTML
+                        )
+                    )
+                    logger.info(f"Successfully replaced media in message {message_id} with transparent GIF")
+                    return True
+                except Exception as replace_error:
+                    logger.warning(f"Could not replace media: {str(replace_error)}, falling back to caption edit")
+            
+            # Step 3: Last resort - just edit the caption
+            try:
+                await self.bot.edit_message_caption(
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    caption=send_text if send_text else "",
+                    parse_mode=ParseMode.HTML
+                )
+                logger.info(f"Edited caption of message {message_id} as fallback method")
+                return True
+            except Exception as edit_error:
+                logger.error(f"All media removal methods failed: {str(edit_error)}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Error in remove_media_message: {str(e)}")
+            return False
+
+    async def send_loading_message(self, chat_id, text="Processing..."):
+        """Send a loading message with the specified text and a loading GIF"""
+        try:
+            loading_gif_url = "https://media.giphy.com/media/dpjUltnOPye7azvAhH/giphy.gif"
+            
+            logger.info(f"Sending loading message to chat {chat_id}")
+            
+            # Send loading GIF with caption
+            message = await self.bot.send_animation(
+                chat_id=chat_id,
+                animation=loading_gif_url,
+                caption=text,
+                parse_mode=ParseMode.HTML
+            )
+            return message
+        except Exception as e:
+            logger.error(f"Error sending loading message: {str(e)}")
+            # Fallback to text-only message if GIF fails
+            try:
+                return await self.bot.send_message(
+                    chat_id=chat_id,
+                    text=f"{text} ⏳",
+                    parse_mode=ParseMode.HTML
+                )
+            except Exception as text_error:
+                logger.error(f"Error sending fallback text message: {str(text_error)}")
+                return None
+
+    async def back_to_services_callback(self, update: Update, context: CallbackContext) -> int:
+        """Handle going back from market selection to service selection."""
+        if not update.callback_query:
+            return ConversationHandler.END
+            
+        query = update.callback_query
+        await query.answer()
+        
+        logger.info("User went back from market selection to service selection")
+        
+        # Create keyboard for services
+        keyboard = [
+            [
+                InlineKeyboardButton("✨ Technical Analysis", callback_data="analysis"),
+                InlineKeyboardButton("🔔 Signals", callback_data="signals")
+            ],
+            [
+                InlineKeyboardButton("⬅️ Back", callback_data="start")
+            ]
+        ]
+        
+        # Try to edit the message or handle failure appropriately
+        try:
+            # Check if this is a media message
+            if hasattr(query.message, 'photo') and query.message.photo:
+                # Use our multi-step approach for media messages
+                await self.remove_media_message(
+                    query=query, 
+                    send_text="Please select a service:",
+                )
+                
+                # Send a new message with keyboard
+                await query.message.reply_text(
+                    text="Please select a service:",
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            else:
+                # Regular text message edit
+                await query.edit_message_text(
+                    text="Please select a service:",
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+        except Exception as e:
+            logger.error(f"Error going back to services: {str(e)}")
+            # Send a new message if editing fails
+            await query.message.reply_text(
+                text="Please select a service:",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+        
+        return CHOOSE_SERVICE
+
+    async def market_callback(self, update: Update, context: CallbackContext) -> int:
+        """Handle market callback"""
+        if not update.callback_query:
+            return ConversationHandler.END
+            
+        query = update.callback_query
+        await query.answer()
+        
+        data = query.data
+        
+        # Check if we're going back to services selection
+        if data == "back_to_services":
+            return await self.back_to_services_callback(update, context)
+        
+        try:
+            # Show loading message first
+            try:
+                await query.edit_message_caption(
+                    caption=f"Loading instruments for {data}... Please wait.",
+                    reply_markup=None
+                )
+            except Exception as e:
+                # If editing caption fails, it's probably not a media message
+                logger.info(f"Not a media message, sending loading text: {str(e)}")
+                try:
+                    await query.edit_message_text(
+                        text=f"Loading instruments for {data}... Please wait.",
+                        reply_markup=None
+                    )
+                except Exception as text_e:
+                    logger.error(f"Error updating message: {str(text_e)}")
+            
+            # Store selected market in context
+            if context and hasattr(context, 'user_data'):
+                context.user_data['market'] = data
+            
+            logger.info(f"User selected market: {data}")
+            
+            # Get instruments for the selected market
+            instruments = self.get_instruments_for_market(data)
+            
+            # Create keyboard for instruments
+            keyboard = []
+            for i in range(0, len(instruments), 2):
+                row = []
+                for j in range(2):
+                    if i + j < len(instruments):
+                        instrument = instruments[i + j]
+                        row.append(InlineKeyboardButton(instrument, callback_data=f"instrument_{instrument}_chart"))
+                keyboard.append(row)
+            
+            # Add back button
+            keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="back_to_services")])
+            
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            try:
+                # Try to edit the message
+                await query.edit_message_text(
+                    text=f"Select an instrument from {data}:",
+                    reply_markup=reply_markup
+                )
+            except Exception as edit_error:
+                logger.error(f"Error editing message: {str(edit_error)}")
+                # If editing fails, send a new message
+                await query.message.reply_text(
+                    text=f"Select an instrument from {data}:",
+                    reply_markup=reply_markup
+                )
+            
+            return CHOOSE_INSTRUMENT
+        except Exception as e:
+            logger.error(f"Error in market_callback: {str(e)}")
+            logger.error(traceback.format_exc())
+            
+            # In case of error, update the message
+            try:
+                await query.edit_message_text(
+                    text="An error occurred. Please try again.",
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="analysis")]])
+                )
+            except Exception as update_error:
+                logger.error(f"Error updating error message: {str(update_error)}")
+            
+            return CHOOSE_MARKET
