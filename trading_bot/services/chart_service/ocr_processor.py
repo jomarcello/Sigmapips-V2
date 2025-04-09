@@ -161,7 +161,10 @@ class ChartOCRProcessor:
             important_labels = ['daily high', 'daily low', 'weekly high', 'weekly low', 
                               'monthly high', 'monthly low', 'support', 'resistance',
                               'pivot', 's1', 's2', 's3', 'r1', 'r2', 'r3', 'pp',
-                              'supply', 'demand', 'zone', 'buy', 'sell', 'poi']
+                              'supply', 'demand', 'zone', 'buy', 'sell', 'poi',
+                              # Variante afkortingen
+                              'daily h', 'daily l', 'weekly h', 'weekly l', 
+                              'monthly h', 'monthly l', 'dly h', 'dly l', 'wkly h', 'wkly l']
             
             # First, collect all non-price text elements
             raw_labels = []
@@ -182,10 +185,14 @@ class ChartOCRProcessor:
                 y2 = max(y_coords)
                 
                 # Check if it's likely a label
-                is_right_side = x1 > chart_width * 0.6
+                is_right_side = x1 > chart_width * 0.5  # Verruim zoekgebied
                 is_important_label = any(label in description for label in important_labels)
                 
-                if is_right_side or is_important_label:
+                # Controleer ook op potentiële afkortingen
+                contains_day_week_month = any(term in description for term in ['daily', 'day', 'weekly', 'week', 'wk', 'month', 'mth', 'dly', 'wkly'])
+                contains_high_low = any(term in description for term in ['high', 'low', 'hi', 'lo', 'h', 'l'])
+                
+                if is_right_side or is_important_label or (contains_day_week_month and contains_high_low):
                     raw_labels.append({
                         'text': description,
                         'x1': x1,
@@ -196,7 +203,7 @@ class ChartOCRProcessor:
                     })
                     logger.info(f"Found raw label: '{description}' at position ({x1},{y1})")
             
-            # Sort raw labels by y position and then x position (to handle labels on the same line)
+            # Sorteer raw labels by y position and then x position (to handle labels on the same line)
             raw_labels.sort(key=lambda l: (l['center_y'], l['x1']))
             
             # Combine adjacent labels that are likely part of the same label (e.g., "daily" + "high")
@@ -208,10 +215,10 @@ class ChartOCRProcessor:
                 # Check if labels are on same horizontal line (within 20 pixels)
                 y_diff = abs(current['center_y'] - next_label['center_y'])
                 
-                # Check if labels are horizontally adjacent (within 50 pixels)
+                # Check if labels are horizontally adjacent (within 60 pixels) - verruim bereik
                 x_diff = next_label['x1'] - current['x2']
                 
-                if y_diff < 20 and x_diff < 50 and x_diff > 0:  # Close horizontally and on same line
+                if y_diff < 25 and x_diff < 60 and x_diff > -5:  # Verbeterde horizontale matching
                     # Combine the two labels
                     combined_text = f"{current['text']} {next_label['text']}"
                     logger.info(f"Combining labels: '{current['text']}' + '{next_label['text']}' = '{combined_text}'")
@@ -242,6 +249,34 @@ class ChartOCRProcessor:
                     label_texts.append(label)
                     logger.info(f"Found processed label: '{label_text}' at y={label['y1']}")
             
+            # Also detect the approximate color of label texts by requesting image properties
+            logger.info("Getting image properties to determine label colors...")
+            image_properties = self.vision_client.image_properties(image=image).image_properties_annotation
+            
+            # For color determination of labels, we'll need to analyze the color at the label position
+            # This is a simple approach - in production you would use more sophisticated color detection
+            # Create a mapping for label color identification
+            color_names = {
+                'black': {'r': 0, 'g': 0, 'b': 0, 'threshold': 50},
+                'red': {'r': 255, 'g': 0, 'b': 0, 'threshold': 100},
+                'yellow': {'r': 255, 'g': 255, 'b': 0, 'threshold': 100}
+            }
+            
+            # Process labels with their colors
+            for label in label_texts:
+                # In a real implementation, you would extract the color from the image at the label position
+                # For now, we'll use a heuristic based on label text
+                if 'monthly' in label['text'] or 'month' in label['text']:
+                    label['color'] = 'black'  # Monthly levels are black
+                elif 'weekly' in label['text'] or 'week' in label['text'] or 'supply zone' in label['text']:
+                    label['color'] = 'red'    # Weekly levels are red
+                elif 'daily' in label['text'] or 'day' in label['text']:
+                    label['color'] = 'yellow' # Daily levels are yellow
+                else:
+                    label['color'] = 'unknown'
+                    
+                logger.info(f"Assigned color '{label['color']}' to label '{label['text']}'")
+            
             # Find the current price (often has a timestamp below or is in the middle of price scale)
             current_price = None
             for price in price_texts:
@@ -249,8 +284,8 @@ class ChartOCRProcessor:
                 has_timestamp = self._has_timestamp_below(texts, price['x1'], price['x2'], price['y2'])
                 
                 if has_timestamp:
-                    current_price = price['value']
-                    logger.info(f"Found current price with timestamp: {current_price}")
+                    current_price = price
+                    logger.info(f"Found current price with timestamp: {current_price['value']}")
                     break
             
             # If we didn't find a current price with timestamp, estimate it
@@ -260,8 +295,8 @@ class ChartOCRProcessor:
                     # Sort by y position
                     sorted_prices = sorted(price_texts, key=lambda p: p['y1'])
                     middle_index = len(sorted_prices) // 2
-                    current_price = sorted_prices[middle_index]['value']
-                    logger.info(f"Estimated current price from middle of scale: {current_price}")
+                    current_price = sorted_prices[middle_index]
+                    logger.info(f"Estimated current price from middle of scale: {current_price['value']}")
                 else:
                     logger.error("No prices found to estimate current price")
                     return {}
@@ -269,17 +304,44 @@ class ChartOCRProcessor:
             # Match labels with corresponding prices based on y-coordinate
             price_levels = {}
             key_market_levels = {
-                'daily high': {'found': False, 'type': 'resistance'},
-                'daily low': {'found': False, 'type': 'support'},
-                'weekly high': {'found': False, 'type': 'resistance'},
-                'weekly low': {'found': False, 'type': 'support'},
-                'monthly high': {'found': False, 'type': 'resistance'},
-                'monthly low': {'found': False, 'type': 'support'}
+                'daily high': {'found': False, 'value': None},
+                'daily low': {'found': False, 'value': None},
+                'weekly high': {'found': False, 'value': None},
+                'weekly low': {'found': False, 'value': None},
+                'monthly high': {'found': False, 'value': None},
+                'monthly low': {'found': False, 'value': None}
+            }
+            
+            # Create a dictionary to track if we've found key market levels
+            abbreviation_mapping = {
+                'daily h': 'daily high',
+                'daily l': 'daily low',
+                'weekly h': 'weekly high',
+                'weekly l': 'weekly low',
+                'monthly h': 'monthly high',
+                'monthly l': 'monthly low',
+                'dly h': 'daily high',
+                'dly l': 'daily low',
+                'wkly h': 'weekly high',
+                'wkly l': 'weekly low',
+                'mth h': 'monthly high',
+                'mth l': 'monthly low',
+                'h': 'high',
+                'l': 'low',
+                'hi': 'high',
+                'lo': 'low'
+            }
+            
+            # Try to find daily/weekly/monthly high/low values
+            result_dict = {
+                'price_levels': {}
             }
             
             # First try to match important market levels (daily/weekly/monthly high/low)
             for label in label_texts:
                 label_text = label['text']
+                label_color = label.get('color', 'unknown')
+                logger.info(f"Processing label: '{label_text}' with color: {label_color}")
                 
                 # Try to normalize labels like "weekly hi" to "weekly high"
                 normalized_text = label_text
@@ -288,128 +350,171 @@ class ChartOCRProcessor:
                 if 'lo' in label_text and not 'low' in label_text:
                     normalized_text = label_text.replace('lo', 'low')
                 
-                # Look for specific important market levels
-                for key_level in key_market_levels.keys():
-                    if key_level in normalized_text or key_level in label_text:
-                        # Find the closest price text by horizontal alignment
-                        closest_price = None
-                        min_distance = float('inf')
+                # Check for common abbreviations
+                if normalized_text in abbreviation_mapping:
+                    normalized_text = abbreviation_mapping[normalized_text]
+                
+                # Use color information for better classification
+                if 'monthly' not in normalized_text and 'month' not in normalized_text and label_color == 'black':
+                    # If it's black color and contains high/low indicators, it's likely a monthly level
+                    if any(term in normalized_text for term in ['high', 'h', 'hi']):
+                        normalized_text = 'monthly high'
+                    elif any(term in normalized_text for term in ['low', 'l', 'lo']):
+                        normalized_text = 'monthly low'
+                
+                if 'weekly' not in normalized_text and 'week' not in normalized_text and label_color == 'red':
+                    # If it's red color and contains high/low indicators, it's likely a weekly level
+                    if any(term in normalized_text for term in ['high', 'h', 'hi']):
+                        normalized_text = 'weekly high'
+                    elif any(term in normalized_text for term in ['low', 'l', 'lo']):
+                        normalized_text = 'weekly low'
+                    # Special case for "supply zone" which is often a weekly level in red
+                    elif 'supply' in normalized_text or 'zone' in normalized_text:
+                        normalized_text = 'weekly high'
+                
+                if 'daily' not in normalized_text and 'day' not in normalized_text and label_color == 'yellow':
+                    # If it's yellow color and contains high/low indicators, it's likely a daily level
+                    if any(term in normalized_text for term in ['high', 'h', 'hi']):
+                        normalized_text = 'daily high'
+                    elif any(term in normalized_text for term in ['low', 'l', 'lo']):
+                        normalized_text = 'daily low'
+                
+                # Afzonderlijke termen matchen als ze niet samen voorkomen
+                if ('daily' in normalized_text or 'day' in normalized_text or 'dly' in normalized_text) and \
+                   ('h ' in f"{normalized_text} " or 'high' in normalized_text):  # ensure 'h' is a separate word
+                    normalized_text = 'daily high'
+                elif ('daily' in normalized_text or 'day' in normalized_text or 'dly' in normalized_text) and \
+                     ('l ' in f"{normalized_text} " or 'low' in normalized_text):
+                    normalized_text = 'daily low'
+                elif ('weekly' in normalized_text or 'week' in normalized_text or 'wkly' in normalized_text) and \
+                     ('h ' in f"{normalized_text} " or 'high' in normalized_text):
+                    normalized_text = 'weekly high'
+                elif ('weekly' in normalized_text or 'week' in normalized_text or 'wkly' in normalized_text) and \
+                     ('l ' in f"{normalized_text} " or 'low' in normalized_text):
+                    normalized_text = 'weekly low'
+                elif ('monthly' in normalized_text or 'month' in normalized_text or 'mth' in normalized_text) and \
+                     ('h ' in f"{normalized_text} " or 'high' in normalized_text):
+                    normalized_text = 'monthly high'
+                elif ('monthly' in normalized_text or 'month' in normalized_text or 'mth' in normalized_text) and \
+                     ('l ' in f"{normalized_text} " or 'low' in normalized_text):
+                    normalized_text = 'monthly low'
+                
+                # Now find the closest price to this label
+                if normalized_text in key_market_levels and not key_market_levels[normalized_text]['found']:
+                    # Find closest price text vertically on the left side
+                    closest_price = None
+                    min_distance = float('inf')
+                    
+                    for price in price_texts:
+                        # Calculate distance from price to label (ideally they should be on same horizontal line)
+                        y_distance = abs(label['center_y'] - price['center_y'])
                         
-                        # We expect prices to be on the left side of the chart
-                        for price in price_texts:
-                            # Check if price is on roughly the same horizontal line as the label
-                            y_distance = abs(label['center_y'] - price['center_y'])
-                            
-                            # We need to find a price that is to the left of the label
-                            if y_distance < min_distance and price['x1'] < label['x1']:
-                                min_distance = y_distance
-                                closest_price = price
+                        # The price should be to the left of the label
+                        if price['x2'] < label['x1'] and y_distance < min_distance:
+                            min_distance = y_distance
+                            closest_price = price
+                    
+                    # If we found a price within a reasonable distance
+                    if closest_price and min_distance < chart_height * 0.1:  # Within 10% of chart height
+                        key_market_levels[normalized_text]['found'] = True
+                        key_market_levels[normalized_text]['value'] = closest_price['value']
                         
-                        # Only match if the vertical distance is reasonable
-                        if min_distance < chart_height * 0.05 and closest_price:
-                            price_value = closest_price['value']
-                            logger.info(f"IMPORTANT: Matched key level '{key_level}' ({label_text}) with price {price_value} (y-distance: {min_distance}px)")
-                            
-                            price_levels[key_level] = {
-                                'value': price_value, 
-                                'type': key_market_levels[key_level]['type']
-                            }
-                            key_market_levels[key_level]['found'] = True
+                        # Add to result dict
+                        if normalized_text == 'daily high':
+                            result_dict['daily_high'] = closest_price['value']
+                        elif normalized_text == 'daily low':
+                            result_dict['daily_low'] = closest_price['value']
+                        elif normalized_text == 'weekly high':
+                            result_dict['weekly_high'] = closest_price['value']
+                        elif normalized_text == 'weekly low':
+                            result_dict['weekly_low'] = closest_price['value']
+                        elif normalized_text == 'monthly high':
+                            result_dict['monthly_high'] = closest_price['value']
+                        elif normalized_text == 'monthly low':
+                            result_dict['monthly_low'] = closest_price['value']
+                        
+                        # Also add to price_levels
+                        result_dict['price_levels'][normalized_text] = closest_price['value']
+                        
+                        logger.info(f"Found {normalized_text}: {closest_price['value']} (color: {label_color})")
             
             # Check which important levels were found
             for level, info in key_market_levels.items():
                 if info['found']:
-                    logger.info(f"Found important market level: {level}")
+                    logger.info(f"Successfully identified {level}: {info['value']}")
                 else:
-                    logger.info(f"Missing important market level: {level}")
+                    logger.info(f"Could not identify {level}")
             
-            # Get specific prices for daily high/low directly from the matched levels
-            daily_high = None
-            daily_low = None
-            weekly_high = None
-            weekly_low = None
-            monthly_high = None
-            monthly_low = None
-            
-            if 'daily high' in price_levels:
-                daily_high = price_levels['daily high']['value']
-                logger.info(f"Using daily high: {daily_high}")
-            
-            if 'daily low' in price_levels:
-                daily_low = price_levels['daily low']['value']
-                logger.info(f"Using daily low: {daily_low}")
-                
-            if 'weekly high' in price_levels:
-                weekly_high = price_levels['weekly high']['value']
-                logger.info(f"Using weekly high: {weekly_high}")
-            
-            if 'weekly low' in price_levels:
-                weekly_low = price_levels['weekly low']['value']
-                logger.info(f"Using weekly low: {weekly_low}")
-                
-            if 'monthly high' in price_levels:
-                monthly_high = price_levels['monthly high']['value']
-                logger.info(f"Using monthly high: {monthly_high}")
-            
-            if 'monthly low' in price_levels:
-                monthly_low = price_levels['monthly low']['value']
-                logger.info(f"Using monthly low: {monthly_low}")
-            
-            # Process all other labels to find additional support/resistance levels
-            resistance_levels = []
-            support_levels = []
-            
-            # Add key levels to appropriate lists
-            for label, info in price_levels.items():
-                if info['type'] == 'resistance':
-                    resistance_levels.append(info['value'])
-                elif info['type'] == 'support':
-                    support_levels.append(info['value'])
-            
-            # Process the collected data
-            data = {}
-            
+            # Also look for price indicators and RSI
+            # Process the current price
             if current_price:
-                data['current_price'] = current_price
-                
-            # Add specific key levels if found
-            if daily_high:
-                data['daily_high'] = daily_high
+                result_dict['current_price'] = current_price['value']
+                logger.info(f"Current price identified as {current_price['value']}")
             
-            if daily_low:
-                data['daily_low'] = daily_low
-                
-            if weekly_high:
-                data['weekly_high'] = weekly_high
-                
-            if weekly_low:
-                data['weekly_low'] = weekly_low
-                
-            if monthly_high:
-                data['monthly_high'] = monthly_high
-                
-            if monthly_low:
-                data['monthly_low'] = monthly_low
+            # Extract RSI if available
+            rsi_value = None
+            rsi_patterns = [
+                r'RSI\D*(\d+\.?\d*)',  # RSI: 50.5 or RSI 50.5
+                r'RSI.*?(\d+)',  # RSI followed by number
+                r'rsi.*?(\d+)'   # lowercase rsi
+            ]
             
-            # Sort and filter support and resistance levels
+            for text in texts:
+                if rsi_value:
+                    break
+                    
+                for pattern in rsi_patterns:
+                    match = re.search(pattern, text.description, re.IGNORECASE)
+                    if match:
+                        try:
+                            rsi_value = float(match.group(1))
+                            logger.info(f"Found RSI value: {rsi_value}")
+                            result_dict['rsi'] = rsi_value
+                            break
+                        except (ValueError, IndexError):
+                            continue
+            
+            # Convert support/resistance into lists
+            support_levels = []
+            resistance_levels = []
+            
+            # If we have current price, we can classify levels properly
+            if 'current_price' in result_dict:
+                current_price_value = result_dict['current_price']
+                
+                # Add all found market levels appropriately
+                if 'daily_low' in result_dict and result_dict['daily_low'] < current_price_value:
+                    support_levels.append(result_dict['daily_low'])
+                
+                if 'weekly_low' in result_dict and result_dict['weekly_low'] < current_price_value:
+                    support_levels.append(result_dict['weekly_low'])
+                
+                if 'monthly_low' in result_dict and result_dict['monthly_low'] < current_price_value:
+                    support_levels.append(result_dict['monthly_low'])
+                
+                if 'daily_high' in result_dict and result_dict['daily_high'] > current_price_value:
+                    resistance_levels.append(result_dict['daily_high'])
+                
+                if 'weekly_high' in result_dict and result_dict['weekly_high'] > current_price_value:
+                    resistance_levels.append(result_dict['weekly_high'])
+                
+                if 'monthly_high' in result_dict and result_dict['monthly_high'] > current_price_value:
+                    resistance_levels.append(result_dict['monthly_high'])
+            
+            # Add support/resistance to the result dictionary
             if support_levels:
-                # Sort support levels in descending order (highest first) and take up to 3
-                supports = sorted(set(support_levels), reverse=True)[:3]
-                data['support_levels'] = supports
-                logger.info(f"Support levels: {supports}")
-            
+                result_dict['support_levels'] = sorted(support_levels)
+                
             if resistance_levels:
-                # Sort resistance levels in ascending order (lowest first) and take up to 3
-                resistances = sorted(set(resistance_levels))[:3]
-                data['resistance_levels'] = resistances
-                logger.info(f"Resistance levels: {resistances}")
+                result_dict['resistance_levels'] = sorted(resistance_levels)
             
-            # Also add all the named price levels for reference
-            if price_levels:
-                data['price_levels'] = {k: v['value'] for k, v in price_levels.items()}
-                logger.info(f"Named price levels: {data['price_levels']}")
-            
-            return data
+            # Log final results
+            if result_dict:
+                logger.info(f"Extracted data: {result_dict}")
+            else:
+                logger.warning("No data could be extracted from the chart")
+                
+            return result_dict
             
         except Exception as e:
             logger.error(f"Error processing chart image: {str(e)}")
