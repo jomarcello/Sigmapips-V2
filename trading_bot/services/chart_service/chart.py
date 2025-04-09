@@ -1085,14 +1085,33 @@ class ChartService:
 
 {market_data_json}
 
-Format your response as plain text with these sections:
-- Market Overview (price action, current trend)
-- Key Support & Resistance Levels (with price targets)
-- Technical Indicators Analysis
-- Trade Recommendations (entry, stop loss, take profit for both long and short positions)
-- Risk Assessment
+Format your response using Telegram-compatible formatting with these sections separated by line breaks:
 
-IMPORTANT: Do NOT use HTML formatting. Return only plain text formatting. Use ** for bold and * for italics if needed, and use proper line breaks and hyphens for lists.
+📊 MARKET OVERVIEW
+[Current price, trend direction, and key price action observations]
+
+🔑 KEY LEVELS
+Support: [List main support levels separated by commas]
+Resistance: [List main resistance levels separated by commas]  
+
+📈 TECHNICAL INDICATORS
+RSI: [Value and interpretation]
+MACD: [Status and signal]
+Moving Averages: [Key insights]
+
+💰 TRADE RECOMMENDATIONS
+Long: Entry at [price], Stop loss at [price], Target at [price]
+Short: Entry at [price], Stop loss at [price], Target at [price]
+
+⚠️ RISK ASSESSMENT
+[Brief risk assessment and market conditions]
+
+IMPORTANT: Keep responses concise and well-formatted. Do NOT use HTML formatting. Use Telegram-friendly formatting:
+- Use line breaks between sections
+- Use emoji at the start of each section heading
+- Use bold (**text**) for important information
+- Use short, concise lines (avoid walls of text)
+- Format numbers consistently with max 5 digits total
 """
             
             # Make a request to DeepSeek API
@@ -1111,7 +1130,7 @@ IMPORTANT: Do NOT use HTML formatting. Return only plain text formatting. Use **
                         {"role": "user", "content": user_prompt}
                     ],
                     "temperature": 0.7,
-                    "max_tokens": 1200
+                    "max_tokens": 1000
                 }
                 
                 logger.info(f"Sending request to DeepSeek API for {instrument} analysis")
@@ -1138,6 +1157,9 @@ IMPORTANT: Do NOT use HTML formatting. Return only plain text formatting. Use **
                                 
                                 logger.info("Converted HTML to plain text")
                             
+                            # Post-process the analysis to ensure consistent Telegram formatting
+                            analysis = self._clean_for_telegram(analysis, instrument, timeframe)
+                            
                             return analysis
                         else:
                             logger.error("DeepSeek returned empty analysis")
@@ -1151,3 +1173,42 @@ IMPORTANT: Do NOT use HTML formatting. Return only plain text formatting. Use **
             logger.error(f"Error formatting with DeepSeek: {str(e)}")
             logger.error(traceback.format_exc())
             return None
+        
+    def _clean_for_telegram(self, text: str, instrument: str, timeframe: str) -> str:
+        """Clean and format text for Telegram display"""
+        try:
+            # Add title if missing
+            if not text.startswith(f"{instrument}") and not text.startswith("📊"):
+                text = f"📊 {instrument}/{timeframe} ANALYSIS\n\n" + text
+            
+            # Make sure all sections are visibly separated
+            text = text.replace("\n\n\n", "\n\n")
+            text = text.replace("\n\n\n\n", "\n\n")
+            
+            # Ensure consistent formatting for sections
+            for section in ["MARKET OVERVIEW", "KEY LEVELS", "TECHNICAL INDICATORS", 
+                           "TRADE RECOMMENDATIONS", "RISK ASSESSMENT"]:
+                # Check if section exists but without emoji
+                if re.search(rf"(?<!\S){section}", text, re.IGNORECASE):
+                    emoji_map = {
+                        "MARKET OVERVIEW": "📊",
+                        "KEY LEVELS": "🔑",
+                        "TECHNICAL INDICATORS": "📈",
+                        "TRADE RECOMMENDATIONS": "💰",
+                        "RISK ASSESSMENT": "⚠️"
+                    }
+                    # Replace without emoji with emoji version
+                    text = re.sub(rf"(?<!\S){section}", f"\n\n{emoji_map[section]} {section}", text, flags=re.IGNORECASE)
+            
+            # Limit length for Telegram compatibility
+            if len(text) > 3500:
+                text = text[:3500] + "..."
+            
+            # Ensure final formatting is clean
+            text = text.replace("\n\n\n", "\n\n")
+            
+            return text.strip()
+        
+        except Exception as e:
+            logger.error(f"Error cleaning text for Telegram: {str(e)}")
+            return text  # Return original text if error occurs
