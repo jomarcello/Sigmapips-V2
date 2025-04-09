@@ -1085,25 +1085,25 @@ class ChartService:
 
 {market_data_json}
 
-Format your response in these exact sections with proper formatting:
+Format your response in these exact sections using HTML formatting tags:
 
-📊 **Market Overview**
+📊 <b>Market Overview</b>
 [Current price, trend direction, and key price action observations in 1-2 sentences]
 
-🔑 **Key Levels**
+🔑 <b>Key Levels</b>
 Support: [List main support levels separated by commas]
 Resistance: [List main resistance levels separated by commas]  
 
-📈 **Technical Indicators**
+📈 <b>Technical Indicators</b>
 RSI: [Value and interpretation]
 MACD: [Status and signal]
 Moving Averages: [Key insights]
 
-🤖 **Sigmapips AI Recommendation**
+🤖 <b>Sigmapips AI Recommendation</b>
 [Provide general market bias and advice based on the analysis data. Focus on overall direction, key levels to watch, and potential scenarios. DO NOT provide specific trade entries, exits, or stop loss values. Keep it to 2-3 sentences maximum.]
 
 IMPORTANT FORMATTING RULES:
-1. Use normal capitalization with **bold** section headings
+1. Use normal capitalization with <b>bold</b> section headings (use HTML tags, not markdown)
 2. Use EXACTLY ONE emoji at the start of each heading
 3. Keep responses concise but insightful
 4. Format numbers consistently with max 5 digits total
@@ -1187,30 +1187,34 @@ IMPORTANT FORMATTING RULES:
                 pattern = f"{emoji}\\s+{emoji}"
                 text = re.sub(pattern, emoji, text)
             
-            # Fix section headings
+            # Fix section headings - use HTML bold tags for Telegram
             sections_to_fix = {
-                r'(?i)📊\s*\*{0,2}Market\s+Overview\*{0,2}': '📊 **Market Overview**',
-                r'(?i)🔑\s*\*{0,2}Key\s+Levels\*{0,2}': '🔑 **Key Levels**',
-                r'(?i)📈\s*\*{0,2}Technical\s+Indicators\*{0,2}': '📈 **Technical Indicators**',
-                r'(?i)🤖\s*\*{0,2}Sigmapips\s+AI\s+Recommendation\*{0,2}': '🤖 **Sigmapips AI Recommendation**',
+                # Fix with markdown **
+                r'(?i)📊\s*\*{0,2}Market\s+Overview\*{0,2}': '📊 <b>Market Overview</b>',
+                r'(?i)🔑\s*\*{0,2}Key\s+Levels\*{0,2}': '🔑 <b>Key Levels</b>',
+                r'(?i)📈\s*\*{0,2}Technical\s+Indicators\*{0,2}': '📈 <b>Technical Indicators</b>',
+                r'(?i)🤖\s*\*{0,2}Sigmapips\s+AI\s+Recommendation\*{0,2}': '🤖 <b>Sigmapips AI Recommendation</b>',
                 
                 # Fix ALL CAPS versions
-                r'(?i)📊\s*\*{0,2}MARKET\s+OVERVIEW\*{0,2}': '📊 **Market Overview**',
-                r'(?i)🔑\s*\*{0,2}KEY\s+LEVELS\*{0,2}': '🔑 **Key Levels**',
-                r'(?i)📈\s*\*{0,2}TECHNICAL\s+INDICATORS\*{0,2}': '📈 **Technical Indicators**',
-                r'(?i)🤖\s*\*{0,2}SIGMAPIPS\s+AI\s+RECOMMENDATION\*{0,2}': '🤖 **Sigmapips AI Recommendation**',
+                r'(?i)📊\s*\*{0,2}MARKET\s+OVERVIEW\*{0,2}': '📊 <b>Market Overview</b>',
+                r'(?i)🔑\s*\*{0,2}KEY\s+LEVELS\*{0,2}': '🔑 <b>Key Levels</b>',
+                r'(?i)📈\s*\*{0,2}TECHNICAL\s+INDICATORS\*{0,2}': '📈 <b>Technical Indicators</b>',
+                r'(?i)🤖\s*\*{0,2}SIGMAPIPS\s+AI\s+RECOMMENDATION\*{0,2}': '🤖 <b>Sigmapips AI Recommendation</b>',
                 
                 # Also fix if missing emojis
-                r'(?i)^\*{0,2}Market\s+Overview\*{0,2}': '📊 **Market Overview**',
-                r'(?i)^\*{0,2}Key\s+Levels\*{0,2}': '🔑 **Key Levels**',
-                r'(?i)^\*{0,2}Technical\s+Indicators\*{0,2}': '📈 **Technical Indicators**',
-                r'(?i)^\*{0,2}Sigmapips\s+AI\s+Recommendation\*{0,2}': '🤖 **Sigmapips AI Recommendation**',
+                r'(?i)^\*{0,2}Market\s+Overview\*{0,2}': '📊 <b>Market Overview</b>',
+                r'(?i)^\*{0,2}Key\s+Levels\*{0,2}': '🔑 <b>Key Levels</b>',
+                r'(?i)^\*{0,2}Technical\s+Indicators\*{0,2}': '📈 <b>Technical Indicators</b>',
+                r'(?i)^\*{0,2}Sigmapips\s+AI\s+Recommendation\*{0,2}': '🤖 <b>Sigmapips AI Recommendation</b>',
                 
                 # Fix with line breaks
-                r'(?i)\n\s*\*{0,2}Market\s+Overview\*{0,2}': '\n\n📊 **Market Overview**',
-                r'(?i)\n\s*\*{0,2}Key\s+Levels\*{0,2}': '\n\n🔑 **Key Levels**',
-                r'(?i)\n\s*\*{0,2}Technical\s+Indicators\*{0,2}': '\n\n📈 **Technical Indicators**',
-                r'(?i)\n\s*\*{0,2}Sigmapips\s+AI\s+Recommendation\*{0,2}': '\n\n🤖 **Sigmapips AI Recommendation**',
+                r'(?i)\n\s*\*{0,2}Market\s+Overview\*{0,2}': '\n\n📊 <b>Market Overview</b>',
+                r'(?i)\n\s*\*{0,2}Key\s+Levels\*{0,2}': '\n\n🔑 <b>Key Levels</b>',
+                r'(?i)\n\s*\*{0,2}Technical\s+Indicators\*{0,2}': '\n\n📈 <b>Technical Indicators</b>',
+                r'(?i)\n\s*\*{0,2}Sigmapips\s+AI\s+Recommendation\*{0,2}': '\n\n🤖 <b>Sigmapips AI Recommendation</b>',
+                
+                # Also convert any **text** to <b>text</b> elsewhere in the text
+                r'\*\*([^*]+)\*\*': r'<b>\1</b>',
             }
             
             # Apply all the fixes
@@ -1223,7 +1227,7 @@ IMPORTANT FORMATTING RULES:
                 text = re.sub(pattern, emoji, text)
             
             # Add disclaimer at the end
-            disclaimer = "\n\n⚠️ Disclaimer: Please note that the information/analysis provided is strictly for study and educational purposes only. It should not be constructed as financial advice and always do your own analysis."
+            disclaimer = "\n\n⚠️ <b>Disclaimer:</b> Please note that the information/analysis provided is strictly for study and educational purposes only. It should not be constructed as financial advice and always do your own analysis."
             if not text.endswith(disclaimer):
                 text += disclaimer
             
