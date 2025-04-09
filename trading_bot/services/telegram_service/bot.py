@@ -2952,7 +2952,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 await self.update_message(
                     query, 
                     "Invalid selection. Please try again.", 
-                    keyboard=[[InlineKeyboardButton("← Back", callback_data="back_market")]]
+                    keyboard=[[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]]
                 )
                 return CHOOSE_INSTRUMENT
             
@@ -2997,7 +2997,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                         # Create a keyboard with only Back button
                         keyboard = [
                             [
-                                InlineKeyboardButton("← Back", callback_data="instruments")
+                                InlineKeyboardButton("⬅️ Back", callback_data="instruments")
                             ]
                         ]
                         
@@ -3036,7 +3036,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                         # If no chart image is available, just send the analysis text
                         keyboard = [
                             [
-                                InlineKeyboardButton("← Back", callback_data="instruments")
+                                InlineKeyboardButton("⬅️ Back", callback_data="instruments")
                             ]
                         ]
                         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -3054,7 +3054,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     # In case of error, update the message
                     keyboard = [
                         [
-                            InlineKeyboardButton("← Back", callback_data="instruments")
+                            InlineKeyboardButton("⬅️ Back", callback_data="instruments")
                         ]
                     ]
                     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -3123,7 +3123,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             await self.update_message(
                 query, 
                 "An error occurred. Please try again.", 
-                keyboard=[[InlineKeyboardButton("← Back", callback_data="back_market")]]
+                keyboard=[[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]]
             )
             return CHOOSE_INSTRUMENT
 
@@ -3167,7 +3167,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                             InlineKeyboardButton("Daily", callback_data=f"timeframe_{instrument}_1d")
                         ],
                         [
-                            InlineKeyboardButton("← Back", callback_data="instruments")
+                            InlineKeyboardButton("⬅️ Back", callback_data="instruments")
                         ]
                     ]
                     
@@ -3185,7 +3185,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     # If no chart image is available, just send the analysis text
                     keyboard = [
                         [
-                            InlineKeyboardButton("← Back", callback_data="instruments")
+                            InlineKeyboardButton("⬅️ Back", callback_data="instruments")
                         ]
                     ]
                     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -3202,7 +3202,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 # In case of error, update the message
                 keyboard = [
                     [
-                        InlineKeyboardButton("← Back", callback_data="instruments")
+                        InlineKeyboardButton("⬅️ Back", callback_data="instruments")
                     ]
                 ]
                 reply_markup = InlineKeyboardMarkup(keyboard)
@@ -3221,7 +3221,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         else:
             await query.edit_message_text(
                 text="Invalid selection. Please try again.",
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("← Back", callback_data="instruments")]])
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="instruments")]])
             )
 
     async def show_sentiment_analysis(self, update: Update, context=None, instrument=None) -> int:
