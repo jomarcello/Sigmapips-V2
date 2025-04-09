@@ -659,8 +659,59 @@ class ChartService:
                     logger.info(f"Using OCR data: {ocr_data}")
                     market_data_dict.update(ocr_data)
                     
-                    # If current_price is available, calculate support/resistance
-                    if 'current_price' in ocr_data:
+                    # If we have specific market levels from OCR, use them directly
+                    has_key_levels = any(key in ocr_data for key in [
+                        'daily_high', 'daily_low', 'weekly_high', 'weekly_low',
+                        'monthly_high', 'monthly_low'
+                    ])
+                    
+                    # If we have support/resistance levels from OCR, use them
+                    has_sr_levels = 'support_levels' in ocr_data and 'resistance_levels' in ocr_data
+                    
+                    if has_key_levels or has_sr_levels:
+                        logger.info("Using OCR detected market levels directly")
+                        
+                        # Make sure we have both support and resistance lists
+                        if 'support_levels' not in market_data_dict:
+                            market_data_dict['support_levels'] = []
+                        if 'resistance_levels' not in market_data_dict:
+                            market_data_dict['resistance_levels'] = []
+                        
+                        # If we have daily/weekly/monthly high/low, add them to appropriate lists
+                        if 'daily_high' in ocr_data:
+                            market_data_dict['resistance_levels'].append(ocr_data['daily_high'])
+                            logger.info(f"Added daily high {ocr_data['daily_high']} to resistance levels")
+                        
+                        if 'daily_low' in ocr_data:
+                            market_data_dict['support_levels'].append(ocr_data['daily_low'])
+                            logger.info(f"Added daily low {ocr_data['daily_low']} to support levels")
+                        
+                        if 'weekly_high' in ocr_data:
+                            market_data_dict['resistance_levels'].append(ocr_data['weekly_high'])
+                            logger.info(f"Added weekly high {ocr_data['weekly_high']} to resistance levels")
+                        
+                        if 'weekly_low' in ocr_data:
+                            market_data_dict['support_levels'].append(ocr_data['weekly_low'])
+                            logger.info(f"Added weekly low {ocr_data['weekly_low']} to support levels")
+                        
+                        if 'monthly_high' in ocr_data:
+                            market_data_dict['resistance_levels'].append(ocr_data['monthly_high'])
+                            logger.info(f"Added monthly high {ocr_data['monthly_high']} to resistance levels")
+                        
+                        if 'monthly_low' in ocr_data:
+                            market_data_dict['support_levels'].append(ocr_data['monthly_low'])
+                            logger.info(f"Added monthly low {ocr_data['monthly_low']} to support levels")
+                        
+                        # Deduplicate and sort the levels
+                        if market_data_dict['support_levels']:
+                            market_data_dict['support_levels'] = sorted(set(market_data_dict['support_levels']), reverse=True)[:3]
+                        
+                        if market_data_dict['resistance_levels']:
+                            market_data_dict['resistance_levels'] = sorted(set(market_data_dict['resistance_levels']))[:3]
+                    
+                    # If we don't have any levels, calculate synthetic ones
+                    elif 'current_price' in ocr_data:
+                        logger.info(f"No specific levels found in OCR data, calculating synthetic levels")
                         logger.info(f"Using OCR detected price: {ocr_data['current_price']}")
                         support_resistance = self._calculate_synthetic_support_resistance(
                             ocr_data['current_price'], instrument
@@ -709,7 +760,7 @@ class ChartService:
                         "ema_50": round(base_price * (1 + volatility * random.uniform(-0.01, 0.01)), 5),
                         "ema_200": round(base_price * (1 + volatility * random.uniform(-0.02, 0.02)), 5)
                     })
-                
+            
             except Exception as ocr_error:
                 logger.error(f"Error performing OCR analysis: {str(ocr_error)}")
                 logger.error(traceback.format_exc())
