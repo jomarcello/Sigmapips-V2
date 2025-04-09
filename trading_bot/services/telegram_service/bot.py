@@ -3008,14 +3008,34 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                         
                         reply_markup = InlineKeyboardMarkup(keyboard)
                         
-                        # Send the chart image and analysis
-                        with open(chart_image_path, 'rb') as photo:
-                            await query.message.reply_photo(
-                                photo=photo, 
-                                caption=analysis_text, 
-                                reply_markup=reply_markup,
+                        # Check if analysis text is too long for a caption (Telegram limit: 1024 chars)
+                        if analysis_text and len(analysis_text) > 1000:
+                            logger.info(f"Analysis text too long ({len(analysis_text)} chars), sending as separate messages")
+                            
+                            # First send the chart with a brief caption
+                            brief_caption = f"{instrument} Technical Analysis - {timeframe} timeframe"
+                            with open(chart_image_path, 'rb') as photo:
+                                chart_message = await query.message.reply_photo(
+                                    photo=photo, 
+                                    caption=brief_caption,
+                                    reply_markup=reply_markup,
+                                    parse_mode=ParseMode.HTML
+                                )
+                            
+                            # Then send the full analysis as a text message
+                            await query.message.reply_text(
+                                text=analysis_text,
                                 parse_mode=ParseMode.HTML
                             )
+                        else:
+                            # Send the chart image and analysis together if it's short enough
+                            with open(chart_image_path, 'rb') as photo:
+                                await query.message.reply_photo(
+                                    photo=photo, 
+                                    caption=analysis_text, 
+                                    reply_markup=reply_markup,
+                                    parse_mode=ParseMode.HTML
+                                )
                         return CHOOSE_ANALYSIS
                     else:
                         # If no chart image is available, just send the analysis text
