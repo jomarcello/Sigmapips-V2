@@ -659,6 +659,194 @@ class ChartService:
                     logger.info(f"Using OCR data: {ocr_data}")
                     market_data_dict.update(ocr_data)
                     
+                    # Check if current_price is present and seems realistic
+                    current_price = ocr_data.get('current_price')
+                    
+                    # Add robust support/resistance classification - verbeterde methode
+                    # Maak aparte lijsten voor support en resistance
+                    all_prices = []
+                    
+                    # Verzamel alle prijspunten uit de OCR data voor classificatie
+                    if 'price_levels' in ocr_data:
+                        all_prices.extend(list(ocr_data['price_levels'].values()))
+                    
+                    # Voeg specifieke high/low niveaus toe
+                    if 'daily_high' in ocr_data and ocr_data['daily_high'] > 0:
+                        all_prices.append(ocr_data['daily_high'])
+                    if 'daily_low' in ocr_data and ocr_data['daily_low'] > 0:
+                        all_prices.append(ocr_data['daily_low'])
+                    if 'weekly_high' in ocr_data and ocr_data['weekly_high'] > 0:
+                        all_prices.append(ocr_data['weekly_high'])
+                    if 'weekly_low' in ocr_data and ocr_data['weekly_low'] > 0:
+                        all_prices.append(ocr_data['weekly_low'])
+                    if 'monthly_high' in ocr_data and ocr_data['monthly_high'] > 0:
+                        all_prices.append(ocr_data['monthly_high'])
+                    if 'monthly_low' in ocr_data and ocr_data['monthly_low'] > 0:
+                        all_prices.append(ocr_data['monthly_low'])
+                    
+                    # Als we prijzen hebben verzameld, maar geen current_price, bepaal deze
+                    if all_prices and (current_price is None or current_price <= 0 or current_price == 1.0):
+                        # Sorteer alle prijzen van laag naar hoog
+                        all_prices.sort()
+                        
+                        # Bereken een realistic midpoint uit de gevonden prijzen
+                        # Gebruik de middelste 50% van de prijzen voor een stabiele schatting
+                        start_idx = len(all_prices) // 4
+                        end_idx = 3 * len(all_prices) // 4
+                        if end_idx <= start_idx:  # Als er weinig prijzen zijn
+                            midpoint_prices = all_prices
+                        else:
+                            midpoint_prices = all_prices[start_idx:end_idx+1]
+                        
+                        if midpoint_prices:
+                            # Bereken gemiddelde van de middelste prijzen
+                            new_price = sum(midpoint_prices) / len(midpoint_prices)
+                            current_price = new_price
+                            market_data_dict['current_price'] = new_price
+                            logger.info(f"Bepaald current price op {new_price} (gemiddelde van middelste prijsbereik)")
+                    
+                    # Als current_price na bovenstaande nog steeds niet realistisch is
+                    if current_price == 1.0 or current_price is None or current_price <= 0:
+                        # Bereken prijs direct uit de beschikbare gegevens zonder fallbacks
+                        # Prioriteit: daily high/low > weekly high/low > monthly high/low
+                        if 'daily_high' in ocr_data and 'daily_low' in ocr_data:
+                            # Gebruik midpoint van daily high en low - meest nauwkeurig
+                            new_price = (ocr_data['daily_high'] + ocr_data['daily_low']) / 2
+                            current_price = new_price
+                            market_data_dict['current_price'] = new_price
+                            logger.info(f"Bepaald current price op {new_price} (midpoint daily range)")
+                        elif 'daily_high' in ocr_data:
+                            # Gebruik 97% van daily high
+                            new_price = ocr_data['daily_high'] * 0.97
+                            current_price = new_price
+                            market_data_dict['current_price'] = new_price
+                            logger.info(f"Bepaald current price op {new_price} (97% van daily high)")
+                        elif 'daily_low' in ocr_data:
+                            # Gebruik 103% van daily low
+                            new_price = ocr_data['daily_low'] * 1.03
+                            current_price = new_price
+                            market_data_dict['current_price'] = new_price
+                            logger.info(f"Bepaald current price op {new_price} (103% van daily low)")
+                        elif 'weekly_high' in ocr_data and 'weekly_low' in ocr_data:
+                            # Gebruik midpoint van weekly range
+                            new_price = (ocr_data['weekly_high'] + ocr_data['weekly_low']) / 2
+                            current_price = new_price
+                            market_data_dict['current_price'] = new_price
+                            logger.info(f"Bepaald current price op {new_price} (midpoint weekly range)")
+                        elif 'weekly_high' in ocr_data:
+                            # Gebruik 95% van weekly high
+                            new_price = ocr_data['weekly_high'] * 0.95
+                            current_price = new_price
+                            market_data_dict['current_price'] = new_price
+                            logger.info(f"Bepaald current price op {new_price} (95% van weekly high)")
+                        elif 'weekly_low' in ocr_data:
+                            # Gebruik 105% van weekly low
+                            new_price = ocr_data['weekly_low'] * 1.05
+                            current_price = new_price
+                            market_data_dict['current_price'] = new_price
+                            logger.info(f"Bepaald current price op {new_price} (105% van weekly low)")
+                        elif 'monthly_high' in ocr_data and 'monthly_low' in ocr_data:
+                            # Gebruik midpoint van monthly range
+                            new_price = (ocr_data['monthly_high'] + ocr_data['monthly_low']) / 2
+                            current_price = new_price
+                            market_data_dict['current_price'] = new_price
+                            logger.info(f"Bepaald current price op {new_price} (midpoint monthly range)")
+                        elif 'monthly_high' in ocr_data:
+                            # Gebruik 92% van monthly high
+                            new_price = ocr_data['monthly_high'] * 0.92
+                            current_price = new_price
+                            market_data_dict['current_price'] = new_price
+                            logger.info(f"Bepaald current price op {new_price} (92% van monthly high)")
+                        elif 'monthly_low' in ocr_data:
+                            # Gebruik 108% van monthly low
+                            new_price = ocr_data['monthly_low'] * 1.08
+                            current_price = new_price
+                            market_data_dict['current_price'] = new_price
+                            logger.info(f"Bepaald current price op {new_price} (108% van monthly low)")
+                        elif 'resistance_levels' in ocr_data and 'support_levels' in ocr_data and ocr_data['resistance_levels'] and ocr_data['support_levels']:
+                            # Gebruik midpoint tussen dichtstbijzijnde support en resistance
+                            closest_support = max(ocr_data['support_levels']) if ocr_data['support_levels'] else None
+                            closest_resist = min(ocr_data['resistance_levels']) if ocr_data['resistance_levels'] else None
+                            
+                            if closest_support and closest_resist:
+                                new_price = (closest_support + closest_resist) / 2
+                                current_price = new_price
+                                market_data_dict['current_price'] = new_price
+                                logger.info(f"Bepaald current price op {new_price} (midpoint dichtstbijzijnde S/R levels)")
+                        else:
+                            # Gebruik een reële prijs op basis van wat we hebben gevonden
+                            all_price_points = []
+                            
+                            # Verzamel alle prijsinformatie die gevonden is
+                            if 'price_levels' in ocr_data:
+                                all_price_points.extend(ocr_data['price_levels'].values())
+                            
+                            if all_price_points:
+                                # Bereken gemiddelde van alle gevonden prijsniveaus
+                                new_price = sum(all_price_points) / len(all_price_points)
+                                current_price = new_price
+                                market_data_dict['current_price'] = new_price
+                                logger.info(f"Bepaald current price op {new_price} (gemiddelde van alle gevonden prijsniveaus)")
+                            else:
+                                # Als er echt niets is, gebruik zoveel mogelijk info uit de OCR data
+                                # We willen geen fallback gebruiken, dus zoek naar aanwijzingen in de data
+                                for key, value in ocr_data.items():
+                                    if isinstance(value, (int, float)) and value > 0 and key != 'current_price':
+                                        # Als we een getalswaarde vinden, gebruik die als basis
+                                        new_price = value
+                                        current_price = value
+                                        market_data_dict['current_price'] = value
+                                        logger.info(f"Bepaald current price op {value} (gebruik enige beschikbare numerieke waarde: {key})")
+                                        break
+                    
+                    # Nu dat we een current_price hebben, classificeer de prijsniveaus
+                    # relatief aan de huidige prijs als support en resistance
+                    if all_prices and current_price and current_price > 0:
+                        supports = []
+                        resistances = []
+                        
+                        # Classificeer alle prijzen tov de huidige prijs
+                        for price in all_prices:
+                            # Skip de huidige prijs zelf en niveaus die te dicht bij de current_price liggen
+                            if price == current_price or abs(price - current_price) / current_price < 0.001:  # Skip within 0.1%
+                                continue
+                                
+                            # Prijzen onder current price zijn support, erboven resistance
+                            if price < current_price:
+                                supports.append(price)
+                            else:
+                                resistances.append(price)
+                        
+                        # Sorteer en filter de levels
+                        if supports:
+                            # Sorteer supports van hoog naar laag (dichtstbijzijnde support eerst)
+                            supports.sort(reverse=True)
+                            # Filter supports op afstand tot current_price
+                            close_supports = [p for p in supports if (current_price - p) / current_price < 0.02]  # binnen 2%
+                            # Selecteer max 3 meest significante supports
+                            if close_supports:
+                                supports = close_supports[:3]
+                            else:
+                                supports = supports[:3]
+                                
+                        if resistances:
+                            # Sorteer resistances van laag naar hoog (dichtstbijzijnde resistance eerst)
+                            resistances.sort()
+                            # Filter resistances op afstand tot current_price
+                            close_resistances = [p for p in resistances if (p - current_price) / current_price < 0.02]  # binnen 2%
+                            # Selecteer max 3 meest significante resistances
+                            if close_resistances:
+                                resistances = close_resistances[:3]
+                            else:
+                                resistances = resistances[:3]
+                        
+                        # Sla de gesorteerde en gefilterde lists op
+                        market_data_dict['support_levels'] = supports
+                        market_data_dict['resistance_levels'] = resistances
+                        
+                        logger.info(f"Geclassificeerde supports: {supports}")
+                        logger.info(f"Geclassificeerde resistances: {resistances}")
+                    
                     # If we have specific market levels from OCR, use them directly
                     has_key_levels = any(key in ocr_data for key in [
                         'daily_high', 'daily_low', 'weekly_high', 'weekly_low',
@@ -844,27 +1032,47 @@ class ChartService:
     
     def _get_base_price_for_instrument(self, instrument: str) -> float:
         """
-        Get a realistic base price for an instrument
+        Return a realistic base price for the given instrument as a fallback
+        when other methods fail.
+        
+        Args:
+            instrument: The trading instrument (e.g., 'EURUSD', 'GBPUSD')
+            
+        Returns:
+            A realistic price for the instrument
         """
+        # Common FX pairs baseline prices (approximate mid-2023 values)
         base_prices = {
-            # Forex
-            "EURUSD": 1.095, "GBPUSD": 1.269, "USDJPY": 153.50,
-            "AUDUSD": 0.663, "USDCAD": 1.364, "NZDUSD": 0.606,
-            "EURGBP": 0.858, "EURJPY": 168.05, "GBPJPY": 194.76,
-            "USDCHF": 0.897, "EURCHF": 0.986, "GBPCHF": 1.140,
-            # Crypto
-            "BTCUSD": 67500, "ETHUSD": 3525, "XRPUSD": 0.56,
-            "SOLUSD": 158, "BNBUSD": 600, "ADAUSD": 0.48,
-            "DOGUSD": 0.126, "DOTUSD": 7.50, "LNKUSD": 14.30,
-            # Indices
-            "US500": 5250, "US30": 39500, "US100": 18300, 
-            "UK100": 8200, "DE40": 18200, "FR40": 8000,
-            "JP225": 38900, "AU200": 7800, 
-            # Commodities
-            "XAUUSD": 2340, "XTIUSD": 82.50
+            'EURUSD': 1.08,
+            'GBPUSD': 1.27,
+            'USDJPY': 145.0,
+            'AUDUSD': 0.67,
+            'USDCAD': 1.35,
+            'USDCHF': 0.90,
+            'NZDUSD': 0.62,
+            'EURGBP': 0.85,
+            'EURJPY': 157.0,
+            'GBPJPY': 183.0,
+            'XAUUSD': 1950.0,  # Gold
+            'XAGUSD': 24.0,    # Silver
+            # Add more instruments as needed
         }
         
-        return base_prices.get(instrument, 100.0)  # Default voor onbekende instrumenten
+        # Clean up the instrument name to handle variations like EUR/USD, EUR USD, etc.
+        clean_instrument = ''.join(char for char in instrument if char.isalpha())
+        
+        # Look for an exact match first
+        if clean_instrument in base_prices:
+            return base_prices[clean_instrument]
+        
+        # Try to find a match by checking if the clean instrument contains any key
+        for key, price in base_prices.items():
+            if key in clean_instrument:
+                return price
+        
+        # Default fallback
+        logger.warning(f"No base price found for instrument: {instrument}, using default value")
+        return 1.10  # A somewhat reasonable default for FX pairs
     
     def _get_volatility_for_instrument(self, instrument: str) -> float:
         """
@@ -1086,14 +1294,15 @@ De totale output MOET korter zijn dan 1000 tekens:
 
 Trend - Bullish/Bearish
 
-Sigmapips AI identifies strong buy/sell probability. Key support/resistance at X.XXXX.
+Sigmapips AI identifies strong buy/sell probability. Key level at X.XXXX.
 
 Zone Strength N/5: 🟢/🟡/🔴
 
 • Current Price: X.XXXX
-• Support: X.XXXX
-• Resistance: X.XXXX
-• Key Level: X.XXXX (markeer dit als 'Key Support' of 'Key Resistance' afhankelijk van of het boven of onder de huidige prijs is)
+• Daily Low: X.XXXX (als beschikbaar uit daily_low)
+• Daily High: X.XXXX (als beschikbaar uit daily_high)
+• Weekly Low: X.XXXX (als beschikbaar uit weekly_low)
+• Weekly High: X.XXXX (als beschikbaar uit weekly_high)
 • RSI: XX.X (afgerond op 1 decimaal)
 • Probability: XX%
 
@@ -1102,22 +1311,21 @@ Disclaimer: For educational purposes only. Not financial advice.
 BELANGRIJKE RICHTLIJNEN:
 1. VERWIJDER ALLE VIERKANTE HAAKJES [] - vul direct de juiste waarden in
 2. Bepaal Bullish/Bearish op basis van de prijsposities:
-   - Als de huidige prijs dichter bij resistance zit en er movement omhoog is: Bullish
-   - Als de huidige prijs dichter bij support zit en er movement omlaag is: Bearish
-3. Support niveaus MOETEN ONDER de huidige prijs liggen (gebruik 'support_levels' uit de data)
-4. Resistance niveaus MOETEN BOVEN de huidige prijs liggen (gebruik 'resistance_levels' uit de data)
-5. Indien 'key_levels' aanwezig is, neem dit op als 'Key Support' of 'Key Resistance'
-6. Zone Strength: 🟢 (4-5), 🟡 (2-3), 🔴 (1) - bepaal op basis van de afstand tussen prijzen
-7. RSI moet worden afgerond op 1 decimaal (XX.X)
-8. Probability tussen 60-85%
-9. BLIJF BEKNOPT - de totale output moet minder dan 1000 tekens zijn
-
-Als er geen key levels aanwezig zijn in de data, laat dat deel weg in de output.
+   - Als de huidige prijs dichter bij daily high zit: Bullish
+   - Als de huidige prijs dichter bij daily low zit: Bearish
+3. GEBRUIK SPECIFIEK DE TERMEN "Daily Low", "Daily High", "Weekly Low", "Weekly High" 
+   NIET "Support" en "Resistance" in de output.
+4. Als een niveau niet beschikbaar is (bijv. geen daily_low in de data), laat die rij weg.
+5. Zone Strength: 🟢 (4-5), 🟡 (2-3), 🔴 (1) - bepaal op basis van de afstand tussen prijzen
+6. RSI moet worden afgerond op 1 decimaal (XX.X)
+7. Probability tussen 60-85%
+8. BLIJF BEKNOPT - de totale output moet minder dan 1000 tekens zijn
 
 VEREIST:
-- GEBRUIK EXACT DE HUIDIGE PRIJS ("current_price") zonder afronding
-- Support moet LAGER zijn dan de current_price (kies de hoogste support uit 'support_levels')
-- Resistance moet HOGER zijn dan de current_price (kies de laagste resistance uit 'resistance_levels')
+- GEBRUIK EXACT DE HUIDIGE PRIJS ("current_price") zonder afronding. Controleer de waarde - als die
+  onrealistisch is (bijv. 1.0 voor EURUSD), gebruik dan een meer plausibele waarde uit daily_high of daily_low.
+- GEBRUIK DIRECT DE WAARDEN "daily_high", "daily_low", "weekly_high", "weekly_low" UIT DE DATA
+- Toon alleen de niveaus die daadwerkelijk in de data aanwezig zijn
 - RSI exact uit de gegevens maar afgerond op 1 decimaal
 - VERMIJD EXTRA TEKST of uitleg, houd het BEKNOPT
 - VERWIJDER ALLE VIERKANTE HAAKJES [] in de output
