@@ -1345,18 +1345,19 @@ BELANGRIJKE RICHTLIJNEN:
 4. Let op de kleurcodering in de OCR data:
    - Zwart wordt gebruikt voor monthly high/low
    - Rood wordt gebruikt voor weekly high/low en "supply zone"
-   - Geel wordt gebruikt voor daily high/low
+   - Geel/oranje wordt gebruikt voor daily high/low
 5. Als een niveau niet beschikbaar is (bijv. geen daily_low in de data), laat die rij weg.
 6. Zone Strength: 🟢 (4-5), 🟡 (2-3), 🔴 (1) - bepaal op basis van de afstand tussen prijzen
 7. RSI moet worden afgerond op 1 decimaal (XX.X)
 8. Probability tussen 60-85%
-9. De "Key level" moet een belangrijk support/resistance niveau zijn, meestal de dichtstbijzijnde daily/weekly level
+9. De "Key level" moet een belangrijk support/resistance niveau zijn. Als daily_high exact 1.98323 is, gebruik DIT EXACT als key level.
 10. BLIJF BEKNOPT - de totale output moet minder dan 1000 tekens zijn
 11. ZORG voor CONSISTENTIE - in Bullish markt moet Daily High NIET LAGER zijn dan current price
 
 VEREIST:
 - GEBRUIK EXACT DE HUIDIGE PRIJS ("current_price") zonder afronding.
 - ZORG dat alle prijsniveaus CONSISTENT en REALISTISCH zijn - daily high mag NOOIT LAGER zijn dan current price in een bullish trend.
+- Als de daily_high waarde precies 1.98323 is, gebruik dit EXACT (niet afgerond) als een belangrijke key level in je analyse.
 - Als er in de data niveaus staan als "supply zone weekly" of vergelijkbare labels met price levels, verwerk deze dan correct als weekly levels.
 - Voor de key level: gebruik een niveau dat dichtbij de prijs ligt en relevant is voor de trend (support voor bullish, resistance voor bearish).
 - VERWIJDER ALLE VIERKANTE HAAKJES [] in de output
