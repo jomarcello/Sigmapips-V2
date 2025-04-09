@@ -791,43 +791,70 @@ class TelegramService:
         
     # Utility functions that might be missing
     async def update_message(self, query, text, keyboard=None, parse_mode=ParseMode.HTML):
-        """Utility to update a message with error handling"""
+        """Update a message, properly handling media removal if necessary"""
         try:
-            logger.info("Updating message")
-            # Try to edit message text first
+            # Check if the message contains media (photo or animation)
+            has_media = bool(query.message.photo) or query.message.animation is not None
+            
+            if has_media:
+                try:
+                    # Step 1: Try to delete the message and send a new one
+                    await query.message.delete()
+                    await self.bot.send_message(
+                        chat_id=query.message.chat_id,
+                        text=text,
+                        reply_markup=keyboard,
+                        parse_mode=parse_mode
+                    )
+                    return
+                except Exception as e:
+                    logger.warning(f"Could not delete message: {str(e)}, trying alternative approach")
+                    
+                    try:
+                        # Step 2: Replace with transparent GIF as document to avoid Telegram's animation
+                        transparent_gif_url = "https://upload.wikimedia.org/wikipedia/commons/thumb/0/00/Transparent.gif/1px-Transparent.gif"
+                        await query.edit_message_media(
+                            media=InputMediaDocument(
+                                media=transparent_gif_url,
+                                caption=text,
+                                parse_mode=parse_mode
+                            ),
+                            reply_markup=keyboard
+                        )
+                        return
+                    except Exception as e:
+                        logger.warning(f"Could not replace with transparent GIF: {str(e)}, falling back to caption edit")
+                        
+                        # Step 3: Just update the caption as last resort
+                        try:
+                            await query.edit_message_caption(
+                                caption=text,
+                                reply_markup=keyboard,
+                                parse_mode=parse_mode
+                            )
+                            return
+                        except Exception as e:
+                            logger.error(f"Could not update caption: {str(e)}")
+            
+            # Normal text message update
             await query.edit_message_text(
                 text=text,
                 reply_markup=keyboard,
                 parse_mode=parse_mode
             )
-            return True
-        except Exception as e:
-            logger.warning(f"Could not update message text: {str(e)}")
             
-            # If text update fails, try to edit caption
+        except Exception as e:
+            logger.error(f"Error updating message: {str(e)}")
+            # Try to send a completely new message if all else fails
             try:
-                await query.edit_message_caption(
-                    caption=text,
+                await self.bot.send_message(
+                    chat_id=query.message.chat_id,
+                    text=f"Error updating previous message. {text}",
                     reply_markup=keyboard,
                     parse_mode=parse_mode
                 )
-                return True
             except Exception as e2:
-                logger.error(f"Could not update caption either: {str(e2)}")
-                
-                # As a last resort, send a new message
-                try:
-                    chat_id = query.message.chat_id
-                    await query.bot.send_message(
-                        chat_id=chat_id,
-                        text=text,
-                        reply_markup=keyboard,
-                        parse_mode=parse_mode
-                    )
-                    return True
-                except Exception as e3:
-                    logger.error(f"Failed to send new message: {str(e3)}")
-                    return False
+                logger.error(f"Could not send new message: {str(e2)}")
     
     # Missing handler implementations
     async def back_signals_callback(self, update: Update, context=None) -> int:
@@ -1117,10 +1144,11 @@ class TelegramService:
             
             # Add emoji based on direction
             direction_emoji = "📈" if direction.upper() == "BUY" else "📉"
+            trend_text = "BULLISH" if direction.upper() == "BUY" else "BEARISH"
             
             # Format the message
             message = f"{instrument} - {timeframe}  \n\n"
-            message += f"Trend - {direction.upper()}  \n\n"
+            message += f"Trend - {trend_text}  \n\n"
             
             # Create mock RSI and values for technical indicators
             rsi_value = random.randint(60, 75) if direction.upper() == "BUY" else random.randint(25, 40)
@@ -1153,7 +1181,7 @@ class TelegramService:
             # Zone strength rating
             message += f"Zone Strength 1-5: ★★★★☆  \n\n"
             
-            # Market Overview section
+            # Market Overview section with emoji
             message += f"📊 Market Overview  \n"
             message += f"{instrument} is trading at {entry}, showing {direction.lower()} momentum near the daily high ({daily_high_formatted}). "
             if direction.upper() == "BUY":
@@ -1161,12 +1189,12 @@ class TelegramService:
             else:
                 message += f"The price remains below key EMAs (50 & 200), confirming a downtrend.  \n\n"
             
-            # Key Levels section
+            # Key Levels section with emoji
             message += f"🔑 Key Levels  \n"
             message += f"Support: {daily_low_formatted} (daily low), {support_formatted}  \n"
             message += f"Resistance: {daily_high_formatted} (daily high), {resistance_formatted}  \n\n"
             
-            # Technical Indicators section
+            # Technical Indicators section with emoji
             message += f"📈 Technical Indicators  \n"
             macd_value = random.uniform(0.001, 0.005) if direction.upper() == "BUY" else random.uniform(-0.005, -0.001)
             signal_value = random.uniform(0.0005, 0.002) if direction.upper() == "BUY" else random.uniform(-0.002, -0.0005)
@@ -1177,7 +1205,7 @@ class TelegramService:
             message += f"MACD: {direction.capitalize()} ({macd_value:.5f} > signal {signal_value:.5f})  \n"
             message += f"Moving Averages: Price {'above' if direction.upper() == 'BUY' else 'below'} EMA 50 ({ema50:.{decimals}f}) and EMA 200 ({ema200:.{decimals}f}), reinforcing {direction.lower()} bias.  \n\n"
             
-            # AI Recommendation
+            # AI Recommendation with robot emoji
             message += f"🤖 Sigmapips AI Recommendation  \n"
             
             if direction.upper() == "BUY":
@@ -1185,7 +1213,7 @@ class TelegramService:
             else:
                 message += f"The bias remains bearish but watch for {f'oversold RSI' if is_oversold else 'support'} near {support_formatted}. A break below could target lower levels, while failure may test {resistance_formatted} resistance.\n\n"
             
-            # Add disclaimer
+            # Add disclaimer with warning emoji
             message += "⚠️ Disclaimer: Please note that the information/analysis provided is strictly for study and educational purposes only. It should not be constructed as financial advice and always do your own analysis."
             
             return message
@@ -1244,6 +1272,7 @@ class TelegramService:
             application.add_handler(CallbackQueryHandler(self.back_instrument_callback, pattern="^back_instrument$"))
             application.add_handler(CallbackQueryHandler(self.back_signals_callback, pattern="^back_signals$"))
             application.add_handler(CallbackQueryHandler(self.back_menu_callback, pattern="^back_menu$"))
+            application.add_handler(CallbackQueryHandler(self.back_analysis_callback, pattern="^back_analysis$"))
             
             # Analysis handlers for regular flow
             application.add_handler(CallbackQueryHandler(self.analysis_technical_callback, pattern="^analysis_technical$"))
@@ -4416,7 +4445,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Zone strength rating
             message += f"Zone Strength 1-5: ★★★★☆  \n\n"
             
-            # Market Overview section
+            # Market Overview section with emoji
             message += f"📊 Market Overview  \n"
             message += f"{instrument} is trading at {entry}, showing {direction.lower()} momentum near the daily high ({daily_high_formatted}). "
             if direction.upper() == "BUY":
@@ -4424,12 +4453,12 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             else:
                 message += f"The price remains below key EMAs (50 & 200), confirming a downtrend.  \n\n"
             
-            # Key Levels section
+            # Key Levels section with emoji
             message += f"🔑 Key Levels  \n"
             message += f"Support: {daily_low_formatted} (daily low), {support_formatted}  \n"
             message += f"Resistance: {daily_high_formatted} (daily high), {resistance_formatted}  \n\n"
             
-            # Technical Indicators section
+            # Technical Indicators section with emoji
             message += f"📈 Technical Indicators  \n"
             macd_value = random.uniform(0.001, 0.005) if direction.upper() == "BUY" else random.uniform(-0.005, -0.001)
             signal_value = random.uniform(0.0005, 0.002) if direction.upper() == "BUY" else random.uniform(-0.002, -0.0005)
@@ -4440,7 +4469,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             message += f"MACD: {direction.capitalize()} ({macd_value:.5f} > signal {signal_value:.5f})  \n"
             message += f"Moving Averages: Price {'above' if direction.upper() == 'BUY' else 'below'} EMA 50 ({ema50:.{decimals}f}) and EMA 200 ({ema200:.{decimals}f}), reinforcing {direction.lower()} bias.  \n\n"
             
-            # AI Recommendation
+            # AI Recommendation with robot emoji
             message += f"🤖 Sigmapips AI Recommendation  \n"
             
             if direction.upper() == "BUY":
@@ -4448,7 +4477,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             else:
                 message += f"The bias remains bearish but watch for {f'oversold RSI' if is_oversold else 'support'} near {support_formatted}. A break below could target lower levels, while failure may test {resistance_formatted} resistance.\n\n"
             
-            # Add disclaimer
+            # Add disclaimer with warning emoji
             message += "⚠️ Disclaimer: Please note that the information/analysis provided is strictly for study and educational purposes only. It should not be constructed as financial advice and always do your own analysis."
             
             return message
@@ -4974,3 +5003,36 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     keyboard=None
                 )
                 return ConversationHandler.END
+
+    async def back_analysis_callback(self, update: Update, context=None) -> int:
+        """Handle back button press from market selection to return to analysis type selection."""
+        query = update.callback_query
+        await query.answer()
+        
+        try:
+            # Clear market from context if it exists
+            if context and hasattr(context, 'user_data') and 'market' in context.user_data:
+                del context.user_data['market']
+                
+            # Show analysis options menu
+            text = "Choose an analysis type:"
+            keyboard = InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
+            
+            # Use our improved update_message method to handle media properly
+            await self.update_message(
+                query=query,
+                text=text,
+                keyboard=keyboard,
+                parse_mode=ParseMode.HTML
+            )
+            
+            return CHOOSE_ANALYSIS
+            
+        except Exception as e:
+            logger.error(f"Error in back_analysis_callback: {str(e)}")
+            # Try to recover by going to main menu
+            try:
+                await self.show_main_menu(update, context)
+            except Exception as e2:
+                logger.error(f"Could not show main menu as fallback: {str(e2)}")
+            return MENU
