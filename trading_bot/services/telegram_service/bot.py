@@ -2922,99 +2922,118 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             return CHOOSE_TIMEFRAME
 
     async def instrument_callback(self, update: Update, context=None) -> int:
-        """Handle instrument selections with specific types (chart, sentiment, calendar)"""
+        """Handle instrument callback"""
+        if not update.callback_query:
+            return ConversationHandler.END
+            
         query = update.callback_query
-        callback_data = query.data
+        await query.answer()
         
-        # Parse the callback data to extract the instrument and type
-        parts = callback_data.split("_")
-        # For format like "instrument_EURUSD_sentiment" or "market_forex_sentiment"
-        
-        if callback_data.startswith("instrument_"):
-            # Extract the instrument, handling potential underscores in instrument name
-            instrument_parts = []
-            analysis_type = ""
+        data = query.data
+        try:
+            # Check if we're in a signals context
+            is_signals_context = False
             
-            # Find where the type specifier starts
-            for i, part in enumerate(parts[1:], 1):  # Skip "instrument_" prefix
-                if part in ["chart", "sentiment", "calendar", "signals"]:
-                    analysis_type = part
-                    break
-                instrument_parts.append(part)
+            if hasattr(context, 'user_data'):
+                # Check if we were in a signals context
+                is_signals_context = context.user_data.get('signals_context', False)
+                
+            logger.info(f"Received instrument callback: {data}")
             
-            # Join the instrument parts if we have any
-            instrument = "_".join(instrument_parts) if instrument_parts else ""
+            # Handle special actions
+            if data == "back_instrument":
+                return await self.back_instrument_callback(update, context)
             
-            logger.info(f"Instrument callback: instrument={instrument}, type={analysis_type}")
+            # Split on underscores to get parts
+            parts = data.split('_')
             
-            # Store in context
+            if len(parts) < 2:
+                logger.warning(f"Invalid instrument callback format: {data}")
+                await self.update_message(
+                    query, 
+                    "Invalid selection. Please try again.", 
+                    keyboard=[[InlineKeyboardButton("◀️ Back", callback_data="back_market")]]
+                )
+                return CHOOSE_INSTRUMENT
+            
+            # Determine if this has a type suffix (e.g., instrument_EURUSD_chart)
+            instrument_type = None
+            instrument = parts[1]
+            
+            if len(parts) > 2:
+                instrument_type = parts[2]
+                logger.info(f"Specifiek instrument type gedetecteerd in: {data}")
+            
+            # Store the selected instrument in context
             if context and hasattr(context, 'user_data'):
                 context.user_data['instrument'] = instrument
-                context.user_data['analysis_type'] = analysis_type
-            
-            # Handle the different analysis types
-            if analysis_type == "chart":
-                return await self.show_technical_analysis(update, context, instrument=instrument)
-            elif analysis_type == "sentiment":
-                return await self.show_sentiment_analysis(update, context, instrument=instrument)
-            elif analysis_type == "calendar":
-                return await self.show_calendar_analysis(update, context, instrument=instrument)
-            elif analysis_type == "signals":
-                # This should be handled by instrument_signals_callback
-                return await self.instrument_signals_callback(update, context)
-        
-        elif callback_data.startswith("market_"):
-            # Handle market_*_sentiment callbacks
-            market = parts[1]
-            analysis_type = parts[2] if len(parts) > 2 else ""
-            
-            logger.info(f"Market callback with analysis type: market={market}, type={analysis_type}")
-            
-            # Store in context
-            if context and hasattr(context, 'user_data'):
-                context.user_data['market'] = market
-                context.user_data['analysis_type'] = analysis_type
-            
-            # Determine which keyboard to show based on market and analysis type
-            if analysis_type == "sentiment":
-                if market == "forex":
-                    keyboard = FOREX_SENTIMENT_KEYBOARD
-                elif market == "crypto":
-                    keyboard = CRYPTO_SENTIMENT_KEYBOARD
-                elif market == "indices":
-                    keyboard = INDICES_SENTIMENT_KEYBOARD
-                elif market == "commodities":
-                    keyboard = COMMODITIES_SENTIMENT_KEYBOARD
-                else:
-                    keyboard = MARKET_SENTIMENT_KEYBOARD
                 
-                try:
-                    await query.edit_message_text(
-                        text=f"Select instrument for sentiment analysis:",
-                        reply_markup=InlineKeyboardMarkup(keyboard),
-                        parse_mode=ParseMode.HTML
-                    )
-                except Exception as e:
-                    logger.error(f"Error updating message in instrument_callback: {str(e)}")
-                    try:
-                        await query.edit_message_caption(
-                            caption=f"Select instrument for sentiment analysis:",
-                            reply_markup=InlineKeyboardMarkup(keyboard),
-                            parse_mode=ParseMode.HTML
-                        )
-                    except Exception as e:
-                        logger.error(f"Error updating caption in instrument_callback: {str(e)}")
-                        # Last resort - send a new message
-                        await query.message.reply_text(
-                            text=f"Select instrument for sentiment analysis:",
-                            reply_markup=InlineKeyboardMarkup(keyboard),
-                            parse_mode=ParseMode.HTML
-                        )
-            else:
-                # For other market types, call the market_callback method
-                return await self.market_callback(update, context)
+            logger.info(f"Instrument callback: instrument={instrument}, type={instrument_type}")
+            
+            # Handle different instrument types
+            if instrument_type == "chart" or instrument_type is None:
+                # Instead of passing the instrument directly, update the callback data to match
+                # what the new show_technical_analysis function expects
+                new_data = f"instrument_{instrument}_chart"
+                update.callback_query.data = new_data
+                
+                # Call show_technical_analysis without the instrument parameter
+                return await self.show_technical_analysis(update, context)
+            
+            elif instrument_type == "sentiment":
+                return await self.show_sentiment_analysis(update, context, instrument=instrument)
+                
+            elif instrument_type == "calendar":
+                return await self.show_calendar_analysis(update, context, instrument=instrument)
+                
+            elif instrument_type == "signals":
+                # We're adding a signal for this instrument
+                if context and hasattr(context, 'user_data'):
+                    context.user_data['signals_instrument'] = instrument
+                    
+                # Initialize the signal in user data
+                if not context.user_data.get('new_signal'):
+                    context.user_data['new_signal'] = {}
+                    
+                context.user_data['new_signal']['instrument'] = instrument
+                
+                # Show signal configuration options
+                keyboard = [
+                    [
+                        InlineKeyboardButton("Price Target", callback_data="signal_price_target"),
+                        InlineKeyboardButton("Take Profit", callback_data="signal_take_profit")
+                    ],
+                    [
+                        InlineKeyboardButton("Stop Loss", callback_data="signal_stop_loss"),
+                        InlineKeyboardButton("Direction", callback_data="signal_direction")
+                    ],
+                    [
+                        InlineKeyboardButton("✅ Save Signal", callback_data="signal_save"),
+                        InlineKeyboardButton("❌ Cancel", callback_data="back_signals")
+                    ]
+                ]
+                
+                await self.update_message(
+                    query, 
+                    f"Configuring signal for {instrument}\n\n"
+                    f"Please set the parameters for your signal:", 
+                    keyboard=keyboard
+                )
+                
+                return CHOOSE_SIGNAL_PARAM
+                
+            # Fallback to technical analysis by default
+            return await self.show_technical_analysis(update, context)
         
-        return CHOOSE_INSTRUMENT
+        except Exception as e:
+            logger.error(f"Error in instrument_callback: {str(e)}")
+            logger.error(traceback.format_exc())
+            await self.update_message(
+                query, 
+                "An error occurred. Please try again.", 
+                keyboard=[[InlineKeyboardButton("◀️ Back", callback_data="back_market")]]
+            )
+            return CHOOSE_INSTRUMENT
 
     async def show_technical_analysis(self, update: Update, context: CallbackContext) -> None:
         """Show technical analysis information for a specific instrument"""
