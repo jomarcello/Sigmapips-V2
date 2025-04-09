@@ -268,62 +268,128 @@ class ChartOCRProcessor:
             
             # Match labels with corresponding prices based on y-coordinate
             price_levels = {}
+            key_market_levels = {
+                'daily high': {'found': False, 'type': 'resistance'},
+                'daily low': {'found': False, 'type': 'support'},
+                'weekly high': {'found': False, 'type': 'resistance'},
+                'weekly low': {'found': False, 'type': 'support'},
+                'monthly high': {'found': False, 'type': 'resistance'},
+                'monthly low': {'found': False, 'type': 'support'}
+            }
             
+            # First try to match important market levels (daily/weekly/monthly high/low)
             for label in label_texts:
                 label_text = label['text']
                 
-                # Find the closest price text by y-coordinate
-                closest_price = None
-                min_distance = float('inf')
+                # Try to normalize labels like "weekly hi" to "weekly high"
+                normalized_text = label_text
+                if 'hi' in label_text and not 'high' in label_text:
+                    normalized_text = label_text.replace('hi', 'high')
+                if 'lo' in label_text and not 'low' in label_text:
+                    normalized_text = label_text.replace('lo', 'low')
                 
-                for price in price_texts:
-                    distance = abs(label['center_y'] - price['center_y'])
-                    if distance < min_distance:
-                        min_distance = distance
-                        closest_price = price
+                # Look for specific important market levels
+                for key_level in key_market_levels.keys():
+                    if key_level in normalized_text or key_level in label_text:
+                        # Find the closest price text by horizontal alignment
+                        closest_price = None
+                        min_distance = float('inf')
+                        
+                        # We expect prices to be on the left side of the chart
+                        for price in price_texts:
+                            # Check if price is on roughly the same horizontal line as the label
+                            y_distance = abs(label['center_y'] - price['center_y'])
+                            
+                            # We need to find a price that is to the left of the label
+                            if y_distance < min_distance and price['x1'] < label['x1']:
+                                min_distance = y_distance
+                                closest_price = price
+                        
+                        # Only match if the vertical distance is reasonable
+                        if min_distance < chart_height * 0.05 and closest_price:
+                            price_value = closest_price['value']
+                            logger.info(f"IMPORTANT: Matched key level '{key_level}' ({label_text}) with price {price_value} (y-distance: {min_distance}px)")
+                            
+                            price_levels[key_level] = {
+                                'value': price_value, 
+                                'type': key_market_levels[key_level]['type']
+                            }
+                            key_market_levels[key_level]['found'] = True
+            
+            # Check which important levels were found
+            for level, info in key_market_levels.items():
+                if info['found']:
+                    logger.info(f"Found important market level: {level}")
+                else:
+                    logger.info(f"Missing important market level: {level}")
+            
+            # Get specific prices for daily high/low directly from the matched levels
+            daily_high = None
+            daily_low = None
+            weekly_high = None
+            weekly_low = None
+            monthly_high = None
+            monthly_low = None
+            
+            if 'daily high' in price_levels:
+                daily_high = price_levels['daily high']['value']
+                logger.info(f"Using daily high: {daily_high}")
+            
+            if 'daily low' in price_levels:
+                daily_low = price_levels['daily low']['value']
+                logger.info(f"Using daily low: {daily_low}")
                 
-                # Only match if the distance is reasonable (within 10% of chart height)
-                if min_distance < chart_height * 0.1 and closest_price:
-                    price_value = closest_price['value']
-                    
-                    logger.info(f"Matched label '{label_text}' with price {price_value} (distance: {min_distance}px)")
-                    
-                    # Categorize the price level based on the combined label
-                    if any(term in label_text for term in ['resistance', 'r1', 'r2', 'r3', 'high', 'supply']):
-                        price_levels[label_text] = {'value': price_value, 'type': 'resistance'}
-                    elif any(term in label_text for term in ['support', 's1', 's2', 's3', 'low', 'demand']):
-                        price_levels[label_text] = {'value': price_value, 'type': 'support'}
-                    else:
-                        price_levels[label_text] = {'value': price_value, 'type': 'other'}
+            if 'weekly high' in price_levels:
+                weekly_high = price_levels['weekly high']['value']
+                logger.info(f"Using weekly high: {weekly_high}")
+            
+            if 'weekly low' in price_levels:
+                weekly_low = price_levels['weekly low']['value']
+                logger.info(f"Using weekly low: {weekly_low}")
+                
+            if 'monthly high' in price_levels:
+                monthly_high = price_levels['monthly high']['value']
+                logger.info(f"Using monthly high: {monthly_high}")
+            
+            if 'monthly low' in price_levels:
+                monthly_low = price_levels['monthly low']['value']
+                logger.info(f"Using monthly low: {monthly_low}")
+            
+            # Process all other labels to find additional support/resistance levels
+            resistance_levels = []
+            support_levels = []
+            
+            # Add key levels to appropriate lists
+            for label, info in price_levels.items():
+                if info['type'] == 'resistance':
+                    resistance_levels.append(info['value'])
+                elif info['type'] == 'support':
+                    support_levels.append(info['value'])
             
             # Process the collected data
             data = {}
             
             if current_price:
                 data['current_price'] = current_price
-            
-            # Extract support and resistance levels
-            support_levels = []
-            resistance_levels = []
-            
-            for label, info in price_levels.items():
-                if info['type'] == 'resistance':
-                    resistance_levels.append(info['value'])
-                    logger.info(f"Added resistance level: {label} = {info['value']}")
-                elif info['type'] == 'support':
-                    support_levels.append(info['value'])
-                    logger.info(f"Added support level: {label} = {info['value']}")
-            
-            # If we don't have any labeled support/resistance levels, 
-            # use price comparison as fallback
-            if not support_levels and not resistance_levels and price_texts:
-                logger.info("No labeled levels found, using price comparison as fallback")
                 
-                for price in price_texts:
-                    if price['value'] > current_price:
-                        resistance_levels.append(price['value'])
-                    elif price['value'] < current_price:
-                        support_levels.append(price['value'])
+            # Add specific key levels if found
+            if daily_high:
+                data['daily_high'] = daily_high
+            
+            if daily_low:
+                data['daily_low'] = daily_low
+                
+            if weekly_high:
+                data['weekly_high'] = weekly_high
+                
+            if weekly_low:
+                data['weekly_low'] = weekly_low
+                
+            if monthly_high:
+                data['monthly_high'] = monthly_high
+                
+            if monthly_low:
+                data['monthly_low'] = monthly_low
             
             # Sort and filter support and resistance levels
             if support_levels:
