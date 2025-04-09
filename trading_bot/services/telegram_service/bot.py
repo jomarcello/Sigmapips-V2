@@ -1794,20 +1794,15 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         await self.show_main_menu(update, context)
         
     async def analysis_technical_callback(self, update: Update, context=None) -> int:
-        """Handle technical analysis callback"""
-        if not update.callback_query:
-            return ConversationHandler.END
-            
+        """Handle analysis_technical button press"""
         query = update.callback_query
         await query.answer()
         
-        logger.info("User selected technical analysis")
-        
-        # Zorg voor backwards compatibility met oudere code
+        # Check if signal-specific data is present in callback data
         if context and hasattr(context, 'user_data'):
             context.user_data['analysis_type'] = 'technical'
         
-        # Check if signal-specific data is present in callback data
+        # Set the callback data
         callback_data = query.data
         
         # Set the instrument if it was passed in the callback data
@@ -1822,47 +1817,36 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Show analysis directly for this instrument
             return await self.show_technical_analysis(update, context, instrument=instrument)
         
-        # Toon eerst een loading message
-        loading_message = await self.send_loading_message(
-            chat_id=query.message.chat_id,
-            text="Loading markets... Please wait."
-        )
-        
-        # Wait a moment to simulate loading
-        await asyncio.sleep(1)
-        
+        # Show the market selection menu
         try:
-            # Update loading message met markets keyboard
-            try:
-                await self.remove_media_message(
-                    message=loading_message,
-                    send_text="Select a market for technical analysis:"
-                )
-                
-                # Send markets keyboard
-                await query.message.reply_text(
-                    text="Select a market for technical analysis:",
-                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
-                )
-            except Exception as e:
-                logger.error(f"Error updating loading message: {str(e)}")
-                # Fallback: just send new message
-                await query.message.reply_text(
-                    text="Select a market for technical analysis:",
-                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
-                )
-        except Exception as e:
-            logger.error(f"Error in analysis_technical_callback: {str(e)}")
-            logger.error(traceback.format_exc())
-            
-            # Send error message
-            await query.message.reply_text(
-                text="Sorry, there was an error loading the markets. Please try again.",
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="analysis")]])
+            # First try to edit message text
+            await query.edit_message_text(
+                text="Select market for technical analysis:",
+                reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
             )
+        except Exception as text_error:
+            # If that fails due to caption, try editing caption
+            if "There is no text in the message to edit" in str(text_error):
+                try:
+                    await query.edit_message_caption(
+                        caption="Select market for technical analysis:",
+                        reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD),
+                        parse_mode=ParseMode.HTML
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to update caption in analysis_technical_callback: {str(e)}")
+                    # Try to send a new message as last resort
+                    await query.message.reply_text(
+                        text="Select market for technical analysis:",
+                        reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD),
+                        parse_mode=ParseMode.HTML
+                    )
+            else:
+                # Re-raise for other errors
+                raise
         
         return CHOOSE_MARKET
-
+        
     async def analysis_sentiment_callback(self, update: Update, context=None) -> int:
         """Handle analysis_sentiment button press"""
         query = update.callback_query
@@ -3259,7 +3243,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             )
             return CHOOSE_INSTRUMENT
 
-    async def show_technical_analysis(self, update: Update, context: CallbackContext = None, instrument: str = None) -> int:
+    async def show_technical_analysis(self, update: Update, context: CallbackContext, instrument=None) -> None:
         """Show technical analysis information for a specific instrument"""
         query = update.callback_query
         if not query:
@@ -3268,61 +3252,55 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         await query.answer()
         data = query.data
 
-        # Get instrument from parameter, callback data or context
-        if not instrument:
+        # First check if instrument was provided as a parameter
+        if instrument:
+            timeframe = "1h"  # Default timeframe
+            logger.info(f"Showing technical analysis for provided instrument: {instrument}")
+        else:
             # Extract instrument from callback data
-            if data.startswith("instrument_"):
-                parts = data.split("_")
-                if len(parts) >= 2:
-                    instrument = parts[1]
-            # Try to get from context if not in callback data
-            elif context and hasattr(context, 'user_data'):
-                instrument = context.user_data.get('instrument')
-
-        # Check if we have a valid instrument
-        if not instrument:
-            logger.error("No instrument provided for technical analysis")
-            try:
-                await query.edit_message_text(
-                    text="Please select an instrument first:",
-                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
-                )
-            except Exception as e:
-                logger.error(f"Error updating message: {str(e)}")
-            return CHOOSE_MARKET
-
-        # Get timeframe from callback data or use default
-        timeframe = "1h"  # Default timeframe
-        if data.startswith("timeframe_"):
             parts = data.split("_")
             if len(parts) >= 3:
-                timeframe = parts[2]
+                instrument = parts[1]
+                timeframe = "1h"  # Default timeframe
+            else:
+                await query.edit_message_text(
+                    text="Invalid selection. Please try again.",
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="instruments")]])
+                )
+                return
         
         logger.info(f"Showing technical analysis for instrument: {instrument} with timeframe: {timeframe}")
         
-        # Send a loading message
-        loading_message = await self.send_loading_message(
-            chat_id=query.message.chat_id,
-            text=f"Analyzing {instrument} on {timeframe} timeframe... Please wait."
-        )
-        
+        # Edit the message to show we're processing the request
         try:
-            # Initialize chart service if needed
+            await query.edit_message_caption(
+                caption=f"Analyzing {instrument} on {timeframe} timeframe... Please wait.",
+                reply_markup=None
+            )
+        except Exception as e:
+            logger.error(f"Error updating message: {str(e)}")
+            try:
+                await query.edit_message_text(
+                    text=f"Analyzing {instrument} on {timeframe} timeframe... Please wait.",
+                    reply_markup=None
+                )
+            except Exception as text_error:
+                logger.error(f"Error updating text message: {str(text_error)}")
+
+        try:
+            # Make sure chart service is initialized
             if not hasattr(self, 'chart_service') or self.chart_service is None:
                 from trading_bot.services.chart_service.chart import ChartService
                 logger.info("Initializing chart service")
                 self.chart_service = ChartService()
                 await self.chart_service.initialize()
-            
+                
             logger.info(f"Calling get_technical_analysis for {instrument} with timeframe {timeframe}")
             # Get the chart and analysis from the chart service
             chart_image_path, analysis_text = await self.chart_service.get_technical_analysis(instrument, timeframe)
             
-            # Remove the loading message
-            await self.remove_media_message(message=loading_message)
-            
             if chart_image_path and os.path.exists(chart_image_path):
-                # Create a keyboard with buttons for different timeframes and back button
+                # Create a keyboard with buttons for different timeframes
                 keyboard = [
                     [
                         InlineKeyboardButton("1 Hour", callback_data=f"timeframe_{instrument}_1h"),
@@ -3330,7 +3308,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                         InlineKeyboardButton("Daily", callback_data=f"timeframe_{instrument}_1d")
                     ],
                     [
-                        InlineKeyboardButton("⬅️ Back", callback_data="back_to_services")
+                        InlineKeyboardButton("⬅️ Back", callback_data="instruments")
                     ]
                 ]
                 
@@ -3348,7 +3326,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 # If no chart image is available, just send the analysis text
                 keyboard = [
                     [
-                        InlineKeyboardButton("⬅️ Back", callback_data="back_to_services")
+                        InlineKeyboardButton("⬅️ Back", callback_data="instruments")
                     ]
                 ]
                 reply_markup = InlineKeyboardMarkup(keyboard)
@@ -3358,30 +3336,29 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     reply_markup=reply_markup,
                     parse_mode=ParseMode.HTML
                 )
-            
-            return CHOOSE_ANALYSIS
         except Exception as e:
             logger.error(f"Error showing technical analysis: {str(e)}")
             logger.error(traceback.format_exc())
             
-            # Remove the loading message if it exists
-            if loading_message:
-                await self.remove_media_message(message=loading_message)
-            
-            # In case of error, send error message
+            # In case of error, update the message
             keyboard = [
                 [
-                    InlineKeyboardButton("⬅️ Back", callback_data="back_to_services")
+                    InlineKeyboardButton("⬅️ Back", callback_data="instruments")
                 ]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
-            await query.message.reply_text(
-                text=f"Sorry, there was an error generating analysis for {instrument}. Please try again later.",
-                reply_markup=reply_markup
-            )
-            
-            return CHOOSE_ANALYSIS
+            try:
+                await query.edit_message_text(
+                    text=f"Sorry, there was an error generating analysis for {instrument}. Please try again later.",
+                    reply_markup=reply_markup
+                )
+            except Exception as update_error:
+                logger.error(f"Error updating error message: {str(update_error)}")
+                await query.message.reply_text(
+                    text=f"Sorry, there was an error generating analysis for {instrument}. Please try again later.",
+                    reply_markup=reply_markup
+                )
 
     async def show_calendar_analysis(self, update: Update, context=None, instrument=None, timeframe=None) -> int:
         """Show economic calendar for a specific currency/instrument"""
@@ -4917,38 +4894,14 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         
         return CHOOSE_SERVICE
 
-    async def market_callback(self, update: Update, context: CallbackContext) -> int:
+    async def market_callback(self, update: Update, context=None) -> int:
         """Handle market callback"""
-        if not update.callback_query:
-            return ConversationHandler.END
-            
         query = update.callback_query
         await query.answer()
         
         data = query.data
         
-        # Check if we're going back to services selection
-        if data == "back_to_services":
-            return await self.back_to_services_callback(update, context)
-        
         try:
-            # Show loading message first
-            try:
-                await query.edit_message_caption(
-                    caption=f"Loading instruments for {data}... Please wait.",
-                    reply_markup=None
-                )
-            except Exception as e:
-                # If editing caption fails, it's probably not a media message
-                logger.info(f"Not a media message, sending loading text: {str(e)}")
-                try:
-                    await query.edit_message_text(
-                        text=f"Loading instruments for {data}... Please wait.",
-                        reply_markup=None
-                    )
-                except Exception as text_e:
-                    logger.error(f"Error updating message: {str(text_e)}")
-            
             # Store selected market in context
             if context and hasattr(context, 'user_data'):
                 context.user_data['market'] = data
@@ -4969,23 +4922,29 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 keyboard.append(row)
             
             # Add back button
-            keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="back_to_services")])
+            keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="analysis")])
             
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            
+            # Update message with instruments keyboard
             try:
-                # Try to edit the message
                 await query.edit_message_text(
                     text=f"Select an instrument from {data}:",
-                    reply_markup=reply_markup
+                    reply_markup=InlineKeyboardMarkup(keyboard)
                 )
-            except Exception as edit_error:
-                logger.error(f"Error editing message: {str(edit_error)}")
-                # If editing fails, send a new message
-                await query.message.reply_text(
-                    text=f"Select an instrument from {data}:",
-                    reply_markup=reply_markup
-                )
+            except Exception as text_error:
+                logger.info(f"Could not edit message text: {str(text_error)}")
+                # Try caption instead
+                try:
+                    await query.edit_message_caption(
+                        caption=f"Select an instrument from {data}:",
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+                except Exception as caption_error:
+                    logger.error(f"Could not edit caption either: {str(caption_error)}")
+                    # Send new message as fallback
+                    await query.message.reply_text(
+                        text=f"Select an instrument from {data}:",
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
             
             return CHOOSE_INSTRUMENT
         except Exception as e:
