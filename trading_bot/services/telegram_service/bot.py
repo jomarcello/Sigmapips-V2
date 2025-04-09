@@ -10,7 +10,6 @@ import re
 import time
 import random
 import uuid
-import openai
 
 from fastapi import FastAPI, Request, HTTPException, status
 from telegram import Bot, Update, BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery, InputMediaPhoto, InputMediaAnimation, InputMediaDocument, ReplyKeyboardMarkup, ReplyKeyboardRemove, InputFile
