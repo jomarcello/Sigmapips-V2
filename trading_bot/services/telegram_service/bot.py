@@ -470,21 +470,6 @@ TIMEFRAME_DISPLAY_MAP = {
     "H4": "4 Hours"
 }
 
-# Define constants for keyboards
-MARKET_KEYBOARD = [
-    [
-        InlineKeyboardButton("💰 Forex", callback_data="forex"),
-        InlineKeyboardButton("📈 Crypto", callback_data="crypto")
-    ],
-    [
-        InlineKeyboardButton("🏢 Indices", callback_data="indices"),
-        InlineKeyboardButton("🛢️ Commodities", callback_data="commodities")
-    ],
-    [
-        InlineKeyboardButton("⬅️ Back", callback_data="analysis")
-    ]
-]
-
 # Voeg deze functie toe aan het begin van bot.py, na de imports
 def _detect_market(instrument: str) -> str:
     """Detecteer market type gebaseerd op instrument"""
@@ -803,148 +788,47 @@ class TelegramService:
         
         return message
         
-    async def update_message(self, query, text, keyboard=None, parse_mode=None, remove_media=False):
-        """Update a message and optionally remove media"""
+    # Utility functions that might be missing
+    async def update_message(self, query, text, keyboard=None, parse_mode=ParseMode.HTML):
+        """Utility to update a message with error handling"""
         try:
-            # Check if message has media
-            has_photo = bool(query.message.photo) or query.message.animation is not None
-            
-            if remove_media and has_photo:
-                try:
-                    # Stap 1: Probeer eerst het hele bericht te verwijderen en een nieuw bericht te sturen
-                    await query.message.delete()
-                    if keyboard:
-                        await query.message.reply_text(
-                            text=text,
-                            reply_markup=InlineKeyboardMarkup(keyboard) if keyboard else None,
-                            parse_mode=parse_mode
-                        )
-                    else:
-                        await query.message.reply_text(
-                            text=text,
-                            parse_mode=parse_mode
-                        )
-                    return
-                except Exception as delete_error:
-                    logger.warning(f"Kon bericht niet verwijderen, probeer transparante GIF: {str(delete_error)}")
-                    
-                    try:
-                        # Stap 2: Als verwijderen niet lukt, vervang door transparante GIF
-                        transparent_gif_url = "https://upload.wikimedia.org/wikipedia/commons/thumb/0/00/Transparent.gif/1px-Transparent.gif"
-                        await query.message.edit_media(
-                            media=InputMediaDocument(
-                                media=transparent_gif_url,
-                                caption=text,
-                                parse_mode=parse_mode
-                            ),
-                            reply_markup=InlineKeyboardMarkup(keyboard) if keyboard else None
-                        )
-                        return
-                    except Exception as gif_error:
-                        logger.warning(f"Kon gif niet gebruiken: {str(gif_error)}")
-                        
-                        # Stap 3: Als laatste optie, bewerk alleen het bijschrift
-                        try:
-                            await query.message.edit_caption(
-                                caption=text,
-                                reply_markup=InlineKeyboardMarkup(keyboard) if keyboard else None,
-                                parse_mode=parse_mode
-                            )
-                            return
-                        except Exception as caption_error:
-                            logger.error(f"Kon bijschrift niet bijwerken: {str(caption_error)}")
-            
-            # Standaard gedrag als er geen media is of verwijderen van media niet nodig is
-            if keyboard:
-                await query.edit_message_text(
-                    text=text,
-                    reply_markup=InlineKeyboardMarkup(keyboard),
-                    parse_mode=parse_mode
-                )
-            else:
-                await query.edit_message_text(
-                    text=text,
-                    parse_mode=parse_mode
-                )
-        except Exception as e:
-            logger.error(f"Error updating message: {str(e)}")
-        
-    async def show_loading(self, query, message="Loading..."):
-        """Show a loading animation"""
-        try:
-            # Gebruik de officiële loading GIF URL
-            loading_gif_url = "https://media.giphy.com/media/dpjUltnOPye7azvAhH/giphy.gif"
-            
-            try:
-                # Probeer eerst het bericht te verwijderen en een nieuw bericht met de GIF te sturen
-                await query.message.delete()
-                await query.message.reply_animation(
-                    animation=loading_gif_url,
-                    caption=message
-                )
-            except Exception:
-                # Als dat niet lukt, probeer het bestaande bericht bij te werken
-                try:
-                    await query.message.edit_media(
-                        media=InputMediaAnimation(
-                            media=loading_gif_url,
-                            caption=message
-                        )
-                    )
-                except Exception as e:
-                    # Als laatste redmiddel, werk alleen de tekst bij
-                    logger.warning(f"Kon loading animatie niet tonen: {str(e)}")
-                    await query.edit_message_text(
-                        text=f"{message}\n\n⏳ Loading..."
-                    )
-        except Exception as e:
-            logger.error(f"Error showing loading animation: {str(e)}")
-
-    async def markets_callback(self, update: Update, context=None) -> int:
-        """Handle markets callback to show available markets"""
-        if not update.callback_query:
-            return ConversationHandler.END
-            
-        query = update.callback_query
-        await query.answer()
-        
-        # Get user data
-        if context and hasattr(context, 'user_data'):
-            # Store that we're in the market selection
-            context.user_data['current_menu'] = 'markets'
-        
-        # First show loading message
-        await self.show_loading(query, "Loading markets...")
-        
-        # Prepare keyboard with markets
-        keyboard = [
-            [
-                InlineKeyboardButton("Forex", callback_data="market_forex"),
-                InlineKeyboardButton("Crypto", callback_data="market_crypto")
-            ],
-            [
-                InlineKeyboardButton("Indices", callback_data="market_indices"),
-                InlineKeyboardButton("Commodities", callback_data="market_commodities")
-            ],
-            [
-                InlineKeyboardButton("⬅️ Back", callback_data="services")
-            ]
-        ]
-        
-        message = "📈 <b>Select a Market</b>\n\nChoose the market type you want to analyze:"
-        
-        try:
-            # Update message with markets keyboard, remove the loading GIF
-            await self.update_message(query, message, keyboard, parse_mode=ParseMode.HTML, remove_media=True)
-            return CHOOSE_MARKET
-        except Exception as e:
-            logger.error(f"Error in markets callback: {str(e)}")
+            logger.info("Updating message")
+            # Try to edit message text first
             await query.edit_message_text(
-                text="An error occurred. Please try again later.",
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="start")]])
+                text=text,
+                reply_markup=keyboard,
+                parse_mode=parse_mode
             )
-            return ConversationHandler.END
-
+            return True
+        except Exception as e:
+            logger.warning(f"Could not update message text: {str(e)}")
+            
+            # If text update fails, try to edit caption
+            try:
+                await query.edit_message_caption(
+                    caption=text,
+                    reply_markup=keyboard,
+                    parse_mode=parse_mode
+                )
+                return True
+            except Exception as e2:
+                logger.error(f"Could not update caption either: {str(e2)}")
+                
+                # As a last resort, send a new message
+                try:
+                    chat_id = query.message.chat_id
+                    await query.bot.send_message(
+                        chat_id=chat_id,
+                        text=text,
+                        reply_markup=keyboard,
+                        parse_mode=parse_mode
+                    )
+                    return True
+                except Exception as e3:
+                    logger.error(f"Failed to send new message: {str(e3)}")
+                    return False
+    
+    # Missing handler implementations
     async def back_signals_callback(self, update: Update, context=None) -> int:
         """Handle back_signals button press"""
         query = update.callback_query
@@ -1794,83 +1678,58 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         await self.show_main_menu(update, context)
         
     async def analysis_technical_callback(self, update: Update, context=None) -> int:
-        """Handle technical analysis selection"""
+        """Handle analysis_technical button press"""
         query = update.callback_query
         await query.answer()
         
-        try:
-            # Debug logging
-            logger.info("analysis_technical_callback aangeroepen")
-            
-            # Extract instrument if this came from a signal
-            is_from_signal = False
-            instrument = None
-            
-            if query.data.startswith("analysis_technical_signal_"):
-                is_from_signal = True
-                instrument = query.data.replace("analysis_technical_signal_", "")
-                logger.info(f"Technical analysis for instrument {instrument} from signal")
-            
-            # Store analysis type in user_data
+        # Check if signal-specific data is present in callback data
+        if context and hasattr(context, 'user_data'):
+            context.user_data['analysis_type'] = 'technical'
+        
+        # Set the callback data
+        callback_data = query.data
+        
+        # Set the instrument if it was passed in the callback data
+        if callback_data.startswith("analysis_technical_signal_"):
+            # Extract instrument from the callback data
+            instrument = callback_data.replace("analysis_technical_signal_", "")
             if context and hasattr(context, 'user_data'):
-                context.user_data['analysis_type'] = 'technical'
-                
-                # Set from_signal if this came via signal flow
-                if is_from_signal:
-                    context.user_data['from_signal'] = True
-                    context.user_data['previous_state'] = 'SIGNAL'
-                    if instrument:
-                        context.user_data['instrument'] = instrument
-                
-                # Check if we have an instrument from signal
-                if (context.user_data.get('from_signal') or context.user_data.get('previous_state') == 'SIGNAL') and (instrument or context.user_data.get('instrument')):
-                    instrument = instrument or context.user_data.get('instrument')
-                    logger.info(f"Using instrument from signal: {instrument} for technical analysis")
-                    
-                    # Go directly to technical analysis for this instrument
-                    return await self.show_technical_analysis(update, context, instrument=instrument)
+                context.user_data['instrument'] = instrument
             
-            # Show the market selection menu
-            try:
-                # First try to edit message text
-                await query.edit_message_text(
-                    text="Select market for technical analysis:",
-                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
-                )
-            except Exception as text_error:
-                # If that fails due to caption, try editing caption
-                logger.error(f"Error in edit_message_text: {str(text_error)}")
-                if "There is no text in the message to edit" in str(text_error):
-                    try:
-                        await query.edit_message_caption(
-                            caption="Select market for technical analysis:",
-                            reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
-                        )
-                    except Exception as caption_error:
-                        logger.error(f"Error in edit_message_caption: {str(caption_error)}")
-                        # Try to send a new message as last resort
-                        await query.message.reply_text(
-                            text="Select market for technical analysis:",
-                            reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
-                        )
-                else:
-                    # Re-raise for other errors
-                    raise
+            logger.info(f"Technical analysis for specific instrument: {instrument}")
             
-            return CHOOSE_MARKET
-            
-        except Exception as e:
-            logger.error(f"Error in analysis_technical_callback: {str(e)}")
-            # Try to recover by showing market selection
-            try:
-                await query.message.reply_text(
-                    text="Select market for technical analysis:",
-                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
-                )
-            except Exception as recovery_error:
-                logger.error(f"Failed to recover in analysis_technical_callback: {str(recovery_error)}")
-            
-            return CHOOSE_MARKET
+            # Show analysis directly for this instrument
+            return await self.show_technical_analysis(update, context, instrument=instrument)
+        
+        # Show the market selection menu
+        try:
+            # First try to edit message text
+            await query.edit_message_text(
+                text="Select market for technical analysis:",
+                reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
+            )
+        except Exception as text_error:
+            # If that fails due to caption, try editing caption
+            if "There is no text in the message to edit" in str(text_error):
+                try:
+                    await query.edit_message_caption(
+                        caption="Select market for technical analysis:",
+                        reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD),
+                        parse_mode=ParseMode.HTML
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to update caption in analysis_technical_callback: {str(e)}")
+                    # Try to send a new message as last resort
+                    await query.message.reply_text(
+                        text="Select market for technical analysis:",
+                        reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD),
+                        parse_mode=ParseMode.HTML
+                    )
+            else:
+                # Re-raise for other errors
+                raise
+        
+        return CHOOSE_MARKET
         
     async def analysis_sentiment_callback(self, update: Update, context=None) -> int:
         """Handle analysis_sentiment button press"""
@@ -3268,17 +3127,122 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             )
             return CHOOSE_INSTRUMENT
 
-    async def show_technical_analysis(self, update: Update, context=None, instrument=None, timeframe=None) -> int:
-        """Show technical analysis for a selected instrument"""
+    async def show_technical_analysis(self, update: Update, context: CallbackContext) -> None:
+        """Show technical analysis information for a specific instrument"""
+        query = update.callback_query
+        if not query:
+            return
+
+        await query.answer()
+        data = query.data
+
+        # Extract instrument from callback data
+        parts = data.split("_")
+        if len(parts) >= 3:
+            instrument = parts[1]
+            timeframe = "1h"  # Default timeframe
+            
+            logger.info(f"Showing technical analysis for instrument: {instrument} with timeframe: {timeframe}")
+            
+            # Edit the message to show we're processing the request
+            try:
+                await query.edit_message_caption(
+                    caption=f"Analyzing {instrument} on {timeframe} timeframe... Please wait.",
+                    reply_markup=None
+                )
+            except Exception as e:
+                logger.error(f"Error updating message: {str(e)}")
+
+            try:
+                logger.info(f"Calling get_technical_analysis for {instrument} with timeframe {timeframe}")
+                # Get the chart and analysis from the chart service
+                chart_image_path, analysis_text = await self.chart_service.get_technical_analysis(instrument, timeframe)
+                
+                if chart_image_path and os.path.exists(chart_image_path):
+                    # Create a keyboard with buttons for different timeframes
+                    keyboard = [
+                        [
+                            InlineKeyboardButton("1 Hour", callback_data=f"timeframe_{instrument}_1h"),
+                            InlineKeyboardButton("4 Hours", callback_data=f"timeframe_{instrument}_4h"),
+                            InlineKeyboardButton("Daily", callback_data=f"timeframe_{instrument}_1d")
+                        ],
+                        [
+                            InlineKeyboardButton("⬅️ Back", callback_data="instruments")
+                        ]
+                    ]
+                    
+                    reply_markup = InlineKeyboardMarkup(keyboard)
+                    
+                    # Send the chart image and analysis
+                    with open(chart_image_path, 'rb') as photo:
+                        await query.message.reply_photo(
+                            photo=photo, 
+                            caption=analysis_text, 
+                            reply_markup=reply_markup,
+                            parse_mode=ParseMode.HTML
+                        )
+                else:
+                    # If no chart image is available, just send the analysis text
+                    keyboard = [
+                        [
+                            InlineKeyboardButton("⬅️ Back", callback_data="instruments")
+                        ]
+                    ]
+                    reply_markup = InlineKeyboardMarkup(keyboard)
+                    
+                    await query.message.reply_text(
+                        text=analysis_text or f"Sorry, analysis for {instrument} is not available at this time.",
+                        reply_markup=reply_markup,
+                        parse_mode=ParseMode.HTML
+                    )
+            except Exception as e:
+                logger.error(f"Error showing technical analysis: {str(e)}")
+                logger.error(traceback.format_exc())
+                
+                # In case of error, update the message
+                keyboard = [
+                    [
+                        InlineKeyboardButton("⬅️ Back", callback_data="instruments")
+                    ]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                
+                try:
+                    await query.edit_message_text(
+                        text=f"Sorry, there was an error generating analysis for {instrument}. Please try again later.",
+                        reply_markup=reply_markup
+                    )
+                except Exception as update_error:
+                    logger.error(f"Error updating error message: {str(update_error)}")
+                    await query.message.reply_text(
+                        text=f"Sorry, there was an error generating analysis for {instrument}. Please try again later.",
+                        reply_markup=reply_markup
+                    )
+        else:
+            await query.edit_message_text(
+                text="Invalid selection. Please try again.",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="instruments")]])
+            )
+
+    async def show_sentiment_analysis(self, update: Update, context=None, instrument=None) -> int:
+        """Show sentiment analysis for a selected instrument"""
         query = update.callback_query
         await query.answer()
+        
+        # Check if we're in the signal flow
+        is_from_signal = False
+        if context and hasattr(context, 'user_data'):
+            is_from_signal = context.user_data.get('from_signal', False)
+            # Add debug logging
+            logger.info(f"show_sentiment_analysis: from_signal = {is_from_signal}")
+            logger.info(f"Context user_data: {context.user_data}")
         
         # Get instrument from parameter or context
         if not instrument and context and hasattr(context, 'user_data'):
             instrument = context.user_data.get('instrument')
         
         if not instrument:
-            logger.error("No instrument provided for technical analysis")
+            logger.error("No instrument provided for sentiment analysis")
             try:
                 await query.edit_message_text(
                     text="Please select an instrument first.",
@@ -3288,187 +3252,270 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 logger.error(f"Error updating message: {str(e)}")
             return CHOOSE_MARKET
         
-        # Default timeframe if not provided
-        if not timeframe:
-            timeframe = "1h"  # Default to 1h timeframe
+        logger.info(f"Showing sentiment analysis for instrument: {instrument}")
         
-        logger.info(f"Showing technical analysis for instrument: {instrument} with timeframe: {timeframe}")
+        # Clean instrument name (without _SELL_4h etc)
+        clean_instrument = instrument.split('_')[0] if '_' in instrument else instrument
+        
+        # Check if we already have a loading message from context
+        loading_message = None
+        if context and hasattr(context, 'user_data'):
+            loading_message = context.user_data.get('loading_message')
+        
+        # If we don't have a loading message from context, create one
+        if not loading_message:
+            # Toon loading message met GIF
+            loading_text = "Generating sentiment analysis..."
+            loading_gif = "https://media.giphy.com/media/dpjUltnOPye7azvAhH/giphy.gif"
+            
+            try:
+                # Probeer de loading GIF te tonen
+                await query.edit_message_media(
+                    media=InputMediaAnimation(
+                        media=loading_gif,
+                        caption=loading_text
+                    )
+                )
+            except Exception as e:
+                logger.warning(f"Could not show loading GIF: {str(e)}")
+                # Fallback naar tekstupdate
+                try:
+                    await query.edit_message_text(text=loading_text)
+                except Exception as inner_e:
+                    try:
+                        await query.edit_message_caption(caption=loading_text)
+                    except Exception as inner_e2:
+                        logger.error(f"Could not update loading message: {str(inner_e2)}")
         
         try:
-            # Show loading message
-            loading_text = f"Generating technical analysis for {instrument}..."
-            try:
-                await query.edit_message_text(text=loading_text)
-            except Exception as e:
-                logger.warning(f"Could not edit message text: {str(e)}")
-                try:
-                    await query.edit_message_caption(caption=loading_text)
-                except Exception as e:
-                    logger.error(f"Could not edit message caption: {str(e)}")
+            # Initialize sentiment service if needed
+            if not hasattr(self, 'sentiment_service') or self.sentiment_service is None:
+                self.sentiment_service = MarketSentimentService()
             
-            # Initialize chart service if needed
-            if not hasattr(self, 'chart_service') or self.chart_service is None:
-                from trading_bot.services.chart_service.chart import ChartService
-                logger.info("Initializing chart service")
-                self.chart_service = ChartService()
-                await self.chart_service.initialize()
+            # Get sentiment data using clean instrument name
+            sentiment_data = await self.sentiment_service.get_sentiment(clean_instrument)
             
-            logger.info(f"Calling get_technical_analysis for {instrument} with timeframe {timeframe}")
+            if not sentiment_data:
+                # Determine which back button to use based on flow
+                back_callback = "back_to_signal_analysis" if is_from_signal else "back_to_analysis"
+                await query.message.reply_text(
+                    text=f"Failed to get sentiment data. Please try again.",
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("⬅️ Back", callback_data=back_callback)
+                    ]])
+                )
+                return CHOOSE_ANALYSIS
             
-            # Get chart and analysis from chart service
-            chart_data, analysis = await self.chart_service.get_technical_analysis(instrument, timeframe)
+            # Extract data
+            bullish = sentiment_data.get('bullish', 50)
+            bearish = sentiment_data.get('bearish', 30)
+            neutral = sentiment_data.get('neutral', 20)
             
-            logger.info(f"Technical analysis received for {instrument}. Chart data: {type(chart_data)}, Analysis length: {len(analysis) if analysis else 0}")
+            # Determine sentiment
+            if bullish > bearish + neutral:
+                overall = "Bullish"
+                emoji = "📈"
+            elif bearish > bullish + neutral:
+                overall = "Bearish"
+                emoji = "📉"
+            else:
+                overall = "Neutral"
+                emoji = "⚖️"
             
-            if not chart_data:
-                raise Exception("Failed to generate chart")
+            # Get analysis text
+            analysis_text = ""
+            if isinstance(sentiment_data.get('analysis'), str):
+                analysis_text = sentiment_data['analysis']
             
-            # Create keyboard for navigation
-            keyboard = [
-                [InlineKeyboardButton("⬅️ Back to Analysis", callback_data="back_to_analysis")],
-                [InlineKeyboardButton("🏠 Main Menu", callback_data="back_menu")]
+            # Prepare the message format without relying on regex
+            # This will help avoid HTML parsing errors
+            title = f"<b>🎯 {clean_instrument} Market Analysis</b>"
+            overall_sentiment = f"<b>Overall Sentiment:</b> {overall} {emoji}"
+            
+            # Check if the provided analysis already has a title
+            if analysis_text and "<b>🎯" in analysis_text and "Market Analysis</b>" in analysis_text:
+                # Extract the title from the analysis
+                title_start = analysis_text.find("<b>🎯")
+                title_end = analysis_text.find("</b>", title_start) + 4
+                title = analysis_text[title_start:title_end]
+                
+                # Remove the title from the analysis
+                analysis_text = analysis_text[:title_start] + analysis_text[title_end:]
+                analysis_text = analysis_text.strip()
+            
+            # Clean up the analysis text
+            analysis_text = analysis_text.replace("</b><b>", "</b> <b>")  # Fix malformed tags
+            
+            # Zorgen dat ALLE kopjes in de analyse direct in bold staan
+            headers = [
+                "Market Sentiment Breakdown:",
+                "Market Direction:",
+                "Latest News & Events:",
+                "Risk Factors:",
+                "Conclusion:",
+                "Technical Outlook:",
+                "Fundamental Analysis:",
+                "Support & Resistance:",
+                "Sentiment Breakdown:"
             ]
             
-            # Check if the analysis is too long for a Telegram caption (max 1024 chars)
-            if analysis and len(analysis) > 1000:
-                logger.warning(f"Analysis too long for Telegram caption ({len(analysis)} chars), truncating")
-                # Truncate to ensure it fits within Telegram's limits
-                analysis = analysis[:990] + "..."
+            # Eerst verwijderen we bestaande bold tags bij headers om dubbele tags te voorkomen
+            for header in headers:
+                if f"<b>{header}</b>" in analysis_text:
+                    # Als header al bold is, niet opnieuw toepassen
+                    continue
+                
+                # Vervang normale tekst door bold tekst, met regex om exacte match te garanderen
+                pattern = re.compile(r'(\n|^)(' + re.escape(header) + r')')
+                analysis_text = pattern.sub(r'\1<b>\2</b>', analysis_text)
             
-            # Handle local file paths by opening and sending the file directly
-            if isinstance(chart_data, str) and os.path.exists(chart_data):
-                logger.info(f"Chart data is a local file path: {chart_data}")
-                try:
-                    # Open the file and send it as a photo
-                    with open(chart_data, 'rb') as file:
-                        photo_file = file.read()
-                        
-                        # Update message with photo file
-                        await query.edit_message_media(
-                            media=InputMediaPhoto(
-                                media=photo_file,
-                                caption=analysis,
-                                parse_mode=ParseMode.HTML
-                            ),
-                            reply_markup=InlineKeyboardMarkup(keyboard)
-                        )
-                        logger.info(f"Successfully sent chart file and analysis for {instrument}")
-                except Exception as file_error:
-                    logger.error(f"Error sending local file: {str(file_error)}")
-                    # Try to send as a new message
-                    try:
-                        with open(chart_data, 'rb') as file:
-                            await query.message.reply_photo(
-                                photo=file,
-                                caption=analysis[:1000] if analysis and len(analysis) > 1000 else analysis,
-                                parse_mode=ParseMode.HTML,
-                                reply_markup=InlineKeyboardMarkup(keyboard)
-                            )
-                    except Exception as fallback_error:
-                        logger.error(f"Failed to send local file as fallback: {str(fallback_error)}")
-                        await query.message.reply_text(
-                            text=f"Error sending chart. Analysis: {analysis[:1000] if analysis else 'Not available'}",
-                            reply_markup=InlineKeyboardMarkup(keyboard),
-                            parse_mode=ParseMode.HTML
-                        )
+            # Verwijder extra witruimte tussen secties
+            analysis_text = re.sub(r'\n{3,}', '\n\n', analysis_text)  # Replace 3+ newlines with 2
+            analysis_text = re.sub(r'^\n+', '', analysis_text)  # Remove leading newlines
+            
+            # Verbeter de layout van het bericht
+            # Specifiek verwijder witruimte tussen Overall Sentiment en Market Sentiment Breakdown
+            full_message = f"{title}\n\n{overall_sentiment}"
+            
+            # If there's analysis text, add it with compact formatting
+            if analysis_text:
+                found_header = False
+                
+                # Controleer specifiek op Market Sentiment Breakdown header
+                if "<b>Market Sentiment Breakdown:</b>" in analysis_text:
+                    parts = analysis_text.split("<b>Market Sentiment Breakdown:</b>", 1)
+                    full_message += f"\n\n<b>Market Sentiment Breakdown:</b>{parts[1]}"
+                    found_header = True
+                elif "Market Sentiment Breakdown:" in analysis_text:
+                    # Als de header er wel is maar niet bold, fix het
+                    parts = analysis_text.split("Market Sentiment Breakdown:", 1)
+                    full_message += f"\n\n<b>Market Sentiment Breakdown:</b>{parts[1]}"
+                    found_header = True
+                
+                # Als de Market Sentiment header niet gevonden is, zoek andere headers
+                if not found_header:
+                    for header in headers:
+                        header_bold = f"<b>{header}</b>"
+                        if header_bold in analysis_text:
+                            parts = analysis_text.split(header_bold, 1)
+                            full_message += f"\n\n{header_bold}{parts[1]}"
+                            found_header = True
+                            break
+                        elif header in analysis_text:
+                            # Als de header er wel is maar niet bold, fix het
+                            parts = analysis_text.split(header, 1)
+                            full_message += f"\n\n<b>{header}</b>{parts[1]}"
+                            found_header = True
+                            break
+                
+                # Als geen headers gevonden, voeg de volledige analyse toe
+                if not found_header:
+                    full_message += f"\n\n{analysis_text}"
             else:
-                # Update message with chart and analysis (for URL or bytes)
+                # No analysis text, add a manual breakdown without extra spacing
+                full_message += f"""
+<b>Market Sentiment Breakdown:</b>
+🟢 Bullish: {bullish}%
+🔴 Bearish: {bearish}%
+⚪️ Neutral: {neutral}%"""
+
+            # Verwijder alle dubbele newlines om nog meer witruimte te voorkomen
+            full_message = re.sub(r'\n{3,}', '\n\n', full_message)
+            
+            # Create reply markup with back button - use correct back button based on flow
+            back_callback = "back_to_signal_analysis" if is_from_signal else "back_to_analysis"
+            logger.info(f"Using back button callback: {back_callback} (from_signal: {is_from_signal})")
+            reply_markup = InlineKeyboardMarkup([[
+                InlineKeyboardButton("⬅️ Back", callback_data=back_callback)
+            ]])
+            
+            # Validate HTML formatting
+            try:
+                # Test if HTML parsing works by creating a re-sanitized version
+                from html.parser import HTMLParser
+                
+                class HTMLValidator(HTMLParser):
+                    def __init__(self):
+                        super().__init__()
+                        self.errors = []
+                        self.open_tags = []
+                    
+                    def handle_starttag(self, tag, attrs):
+                        self.open_tags.append(tag)
+                    
+                    def handle_endtag(self, tag):
+                        if self.open_tags and self.open_tags[-1] == tag:
+                            self.open_tags.pop()
+                        else:
+                            self.errors.append(f"Unexpected end tag: {tag}")
+                
+                validator = HTMLValidator()
+                validator.feed(full_message)
+                
+                if validator.errors:
+                    logger.warning(f"HTML validation errors: {validator.errors}")
+                    # Fallback to plaintext if HTML is invalid
+                    full_message = re.sub(r'<[^>]+>', '', full_message)
+            except Exception as html_error:
+                logger.warning(f"HTML validation failed: {str(html_error)}")
+            
+            # Send a completely new message to avoid issues with previous message
+            try:
+                # First try to edit the existing message when possible
                 try:
-                    logger.info(f"Sending chart and analysis for {instrument}")
-                    await query.edit_message_media(
-                        media=InputMediaPhoto(
-                            media=chart_data,
-                            caption=analysis,
-                            parse_mode=ParseMode.HTML
-                        ),
-                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    await query.edit_message_text(
+                        text=full_message,
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=reply_markup
                     )
-                    logger.info(f"Successfully sent chart and analysis for {instrument}")
-                except telegram.error.BadRequest as e:
-                    # Specific handling for "Message caption is too long" error
-                    if "caption is too long" in str(e).lower():
-                        logger.warning("Caption too long error, sending as separate messages")
-                        # First send just the chart with a simple caption
-                        try:
-                            # Send the image first
-                            await query.edit_message_media(
-                                media=InputMediaPhoto(
-                                    media=chart_data,
-                                    caption=f"{instrument} - {timeframe} Analysis"
-                                ),
-                                reply_markup=InlineKeyboardMarkup(keyboard)
-                            )
-                            
-                            # Then send the analysis as a separate text message
-                            await query.message.reply_text(
-                                text=analysis,
-                                reply_markup=None,
-                                parse_mode=ParseMode.HTML
-                            )
-                            
-                            logger.info("Successfully sent chart and analysis as separate messages")
-                        except Exception as inner_e:
-                            logger.error(f"Error sending separate messages: {str(inner_e)}")
-                            await query.message.reply_text(
-                                text="Error sending analysis. Please try again.",
-                                reply_markup=InlineKeyboardMarkup(keyboard)
-                            )
-                    else:
-                        # For other types of BadRequest errors, fallback to a new message
-                        logger.error(f"Error updating message with chart: {str(e)}")
-                        try:
-                            await query.message.reply_photo(
-                                photo=chart_data,
-                                caption=analysis[:1000] if analysis and len(analysis) > 1000 else analysis,
-                                parse_mode=ParseMode.HTML,
-                                reply_markup=InlineKeyboardMarkup(keyboard)
-                            )
-                        except Exception as photo_e:
-                            logger.error(f"Error sending photo: {str(photo_e)}")
-                            await query.message.reply_text(
-                                text="Error sending analysis. Please try again.",
-                                reply_markup=InlineKeyboardMarkup(keyboard)
-                            )
-                except Exception as e:
-                    logger.error(f"Error updating message with chart: {str(e)}")
-                    # Try to send a new message as fallback
-                    logger.info("Trying fallback: sending as new message")
+                    logger.info("Successfully edited existing message with sentiment analysis")
+                except Exception as edit_error:
+                    logger.warning(f"Could not edit message, will create new one: {str(edit_error)}")
+                    
+                    # If editing fails, delete and create new message
+                    await query.message.delete()
+                    await context.bot.send_message(
+                        chat_id=update.effective_chat.id,
+                        text=full_message,
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=reply_markup
+                    )
+                    logger.info("Created new message with sentiment analysis after deleting old one")
+            except Exception as msg_error:
+                logger.error(f"Error sending message: {str(msg_error)}")
+                # Try without HTML parsing if that's the issue
+                if "Can't parse entities" in str(msg_error):
                     try:
-                        # Ensure we don't exceed caption length
-                        safe_caption = analysis[:1000] if analysis and len(analysis) > 1000 else analysis
-                        await query.message.reply_photo(
-                            photo=chart_data,
-                            caption=safe_caption,
-                            parse_mode=ParseMode.HTML,
-                            reply_markup=InlineKeyboardMarkup(keyboard)
+                        # Try to edit first
+                        await query.edit_message_text(
+                            text=re.sub(r'<[^>]+>', '', full_message),  # Strip HTML tags
+                            reply_markup=reply_markup
                         )
-                    except Exception as fallback_e:
-                        logger.error(f"Fallback also failed: {str(fallback_e)}")
-                        await query.message.reply_text(
-                            text="Error showing analysis. Please try again later.",
-                            reply_markup=InlineKeyboardMarkup(keyboard)
+                    except Exception:
+                        # If editing fails, send new message
+                        await context.bot.send_message(
+                            chat_id=update.effective_chat.id,
+                            text=re.sub(r'<[^>]+>', '', full_message),  # Strip HTML tags
+                            reply_markup=reply_markup
                         )
             
             return CHOOSE_ANALYSIS
             
         except Exception as e:
-            logger.error(f"Error showing technical analysis: {str(e)}")
-            logger.error(traceback.format_exc())  # Add full stack trace
-            error_message = "An error occurred while generating the technical analysis. Please try again."
+            logger.error(f"Error in sentiment analysis: {str(e)}")
+            # Determine which back button to use based on flow
+            back_callback = "back_to_signal_analysis" if is_from_signal else "back_to_analysis"
+            error_text = "Error generating sentiment analysis. Please try again."
             try:
                 await query.edit_message_text(
-                    text=error_message,
-                    reply_markup=InlineKeyboardMarkup(keyboard)
+                    text=error_text,
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("⬅️ Back", callback_data=back_callback)
+                    ]])
                 )
-            except Exception as e:
-                logger.error(f"Error updating error message: {str(e)}")
-                try:
-                    await query.message.reply_text(
-                        text=error_message,
-                        reply_markup=InlineKeyboardMarkup(keyboard)
-                    )
-                except Exception as text_e:
-                    logger.error(f"Error sending error message: {str(text_e)}")
+            except Exception as text_error:
+                logger.error(f"Could not update error message: {str(text_error)}")
+            
             return CHOOSE_ANALYSIS
 
     async def show_calendar_analysis(self, update: Update, context=None, instrument=None, timeframe=None) -> int:
@@ -4850,263 +4897,3 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     keyboard=None
                 )
                 return ConversationHandler.END
-
-    async def remove_media_message(self, query=None, message=None, send_text=None):
-        """
-        Multi-step approach to remove media messages:
-        1. Try to delete the entire message and send a new one (cleanest)
-        2. If deletion fails, replace with transparent GIF via InputMediaDocument
-        3. As last resort, just edit the caption, leaving the image
-        """
-        try:
-            if query is None and message is None:
-                logger.error("Both query and message can't be None for remove_media_message")
-                return False
-                
-            target_message = message if message else query.message
-            chat_id = target_message.chat_id
-            message_id = target_message.message_id
-            has_media = bool(target_message.photo) or target_message.animation is not None
-            
-            logger.info(f"Removing media message {message_id} in chat {chat_id}, has_media: {has_media}")
-            
-            # Step 1: Try to delete the message and send new text if needed
-            if has_media:
-                try:
-                    await target_message.delete()
-                    logger.info(f"Successfully deleted message {message_id}")
-                    
-                    # If text was provided, send it as a new message
-                    if send_text:
-                        new_message = await target_message.reply_text(
-                            text=send_text,
-                            parse_mode=ParseMode.HTML
-                        )
-                        return True
-                    return True
-                except Exception as delete_error:
-                    logger.warning(f"Could not delete message: {str(delete_error)}, trying replacement method")
-            
-            # Step 2: Try to replace with transparent GIF
-            if has_media:
-                try:
-                    transparent_gif_url = "https://upload.wikimedia.org/wikipedia/commons/thumb/0/00/Transparent.gif/1px-Transparent.gif"
-                    
-                    # Use InputMediaDocument to replace the media while preserving the message
-                    await self.bot.edit_message_media(
-                        chat_id=chat_id,
-                        message_id=message_id,
-                        media=InputMediaDocument(
-                            media=transparent_gif_url,
-                            caption=send_text if send_text else "",
-                            parse_mode=ParseMode.HTML
-                        )
-                    )
-                    logger.info(f"Successfully replaced media in message {message_id} with transparent GIF")
-                    return True
-                except Exception as replace_error:
-                    logger.warning(f"Could not replace media: {str(replace_error)}, falling back to caption edit")
-            
-            # Step 3: Last resort - just edit the caption
-            try:
-                await self.bot.edit_message_caption(
-                    chat_id=chat_id,
-                    message_id=message_id,
-                    caption=send_text if send_text else "",
-                    parse_mode=ParseMode.HTML
-                )
-                logger.info(f"Edited caption of message {message_id} as fallback method")
-                return True
-            except Exception as edit_error:
-                logger.error(f"All media removal methods failed: {str(edit_error)}")
-                return False
-                
-        except Exception as e:
-            logger.error(f"Error in remove_media_message: {str(e)}")
-            return False
-
-    async def send_loading_message(self, chat_id, text="Processing..."):
-        """Send a loading message with the specified text and a loading GIF"""
-        try:
-            loading_gif_url = "https://media.giphy.com/media/dpjUltnOPye7azvAhH/giphy.gif"
-            
-            logger.info(f"Sending loading message to chat {chat_id}")
-            
-            # Send loading GIF with caption
-            message = await self.bot.send_animation(
-                chat_id=chat_id,
-                animation=loading_gif_url,
-                caption=text,
-                parse_mode=ParseMode.HTML
-            )
-            return message
-        except Exception as e:
-            logger.error(f"Error sending loading message: {str(e)}")
-            # Fallback to text-only message if GIF fails
-            try:
-                return await self.bot.send_message(
-                    chat_id=chat_id,
-                    text=f"{text} ⏳",
-                    parse_mode=ParseMode.HTML
-                )
-            except Exception as text_error:
-                logger.error(f"Error sending fallback text message: {str(text_error)}")
-                return None
-
-    async def back_to_services_callback(self, update: Update, context: CallbackContext) -> int:
-        """Handle going back from market selection to service selection."""
-        if not update.callback_query:
-            return ConversationHandler.END
-            
-        query = update.callback_query
-        await query.answer()
-        
-        logger.info("User went back from market selection to service selection")
-        
-        # Create keyboard for services
-        keyboard = [
-            [
-                InlineKeyboardButton("✨ Technical Analysis", callback_data="analysis"),
-                InlineKeyboardButton("🔔 Signals", callback_data="signals")
-            ],
-            [
-                InlineKeyboardButton("⬅️ Back", callback_data="start")
-            ]
-        ]
-        
-        # Try to edit the message or handle failure appropriately
-        try:
-            # Check if this is a media message
-            if hasattr(query.message, 'photo') and query.message.photo:
-                # Use our multi-step approach for media messages
-                await self.remove_media_message(
-                    query=query, 
-                    send_text="Please select a service:",
-                )
-                
-                # Send a new message with keyboard
-                await query.message.reply_text(
-                    text="Please select a service:",
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
-            else:
-                # Regular text message edit
-                await query.edit_message_text(
-                    text="Please select a service:",
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
-        except Exception as e:
-            logger.error(f"Error going back to services: {str(e)}")
-            # Send a new message if editing fails
-            await query.message.reply_text(
-                text="Please select a service:",
-                reply_markup=InlineKeyboardMarkup(keyboard)
-            )
-        
-        return CHOOSE_SERVICE
-
-    async def market_callback(self, update: Update, context=None) -> int:
-        """Handle market callback"""
-        query = update.callback_query
-        await query.answer()
-        
-        data = query.data
-        
-        try:
-            # Store selected market in context
-            if context and hasattr(context, 'user_data'):
-                context.user_data['market'] = data
-            
-            logger.info(f"User selected market: {data}")
-            
-            # Get instruments for the selected market
-            instruments = self.get_instruments_for_market(data)
-            
-            # Create keyboard for instruments
-            keyboard = []
-            for i in range(0, len(instruments), 2):
-                row = []
-                for j in range(2):
-                    if i + j < len(instruments):
-                        instrument = instruments[i + j]
-                        row.append(InlineKeyboardButton(instrument, callback_data=f"instrument_{instrument}_chart"))
-                keyboard.append(row)
-            
-            # Add back button
-            keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="analysis")])
-            
-            # Update message with instruments keyboard
-            try:
-                await query.edit_message_text(
-                    text=f"Select an instrument from {data}:",
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
-            except Exception as text_error:
-                logger.info(f"Could not edit message text: {str(text_error)}")
-                # Try caption instead
-                try:
-                    await query.edit_message_caption(
-                        caption=f"Select an instrument from {data}:",
-                        reply_markup=InlineKeyboardMarkup(keyboard)
-                    )
-                except Exception as caption_error:
-                    logger.error(f"Could not edit caption either: {str(caption_error)}")
-                    # Send new message as fallback
-                    await query.message.reply_text(
-                        text=f"Select an instrument from {data}:",
-                        reply_markup=InlineKeyboardMarkup(keyboard)
-                    )
-            
-            return CHOOSE_INSTRUMENT
-        except Exception as e:
-            logger.error(f"Error in market_callback: {str(e)}")
-            logger.error(traceback.format_exc())
-            
-            # In case of error, update the message
-            try:
-                await query.edit_message_text(
-                    text="An error occurred. Please try again.",
-                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="analysis")]])
-                )
-            except Exception as update_error:
-                logger.error(f"Error updating error message: {str(update_error)}")
-            
-            return CHOOSE_MARKET
-
-    def get_instruments_for_market(self, market: str) -> List[str]:
-        """Get instruments for the selected market"""
-        market = market.lower()
-        
-        # Forex pairs
-        if market == "forex":
-            return [
-                "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "NZDUSD",
-                "EURGBP", "EURJPY", "GBPJPY", "AUDJPY", "USDCHF", "CHFJPY", 
-                "EURAUD", "EURCHF", "EURNZD", "GBPAUD", "GBPCAD", "CADCHF"
-            ]
-        
-        # Cryptocurrencies
-        elif market == "crypto":
-            return [
-                "BTCUSD", "ETHUSD", "XRPUSD", "LTCUSD", "BCHUSD", "ADAUSD",
-                "DOTUSD", "DOGUSD", "SOLUSD", "AVAXUSD", "MATICUSD", "LINKUSD"
-            ]
-        
-        # Indices
-        elif market == "indices":
-            return [
-                "US30", "US500", "USTEC", "EU50", "DE40", "UK100",
-                "FR40", "ES35", "JP225", "AUS200", "HK50", "CN50"
-            ]
-        
-        # Commodities
-        elif market == "commodities":
-            return [
-                "XAUUSD", "XAGUSD", "XPTUSD", "XPDUSD", 
-                "WTICOUSD", "UKOUSD", "NATGAS", "COPPER"
-            ]
-        
-        # Default empty list
-        else:
-            logger.warning(f"Unknown market: {market}")
-            return []
