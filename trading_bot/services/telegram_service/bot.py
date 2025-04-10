@@ -1143,77 +1143,38 @@ class TelegramService:
             
             # Add emoji based on direction
             direction_emoji = "📈" if direction.upper() == "BUY" else "📉"
-            trend_text = "BULLISH" if direction.upper() == "BUY" else "BEARISH"
             
-            # Format the message
-            message = f"{instrument} - {timeframe}  \n\n"
-            message += f"Trend - {trend_text}  \n\n"
+            # Format the message with multiple take profits if available
+            message = f"<b>🎯 New Trading Signal 🎯</b>\n\n"
+            message += f"<b>Instrument:</b> {instrument}\n"
+            message += f"<b>Action:</b> {direction.upper()} {direction_emoji}\n\n"
+            message += f"<b>Entry Price:</b> {entry}\n"
             
-            # Create mock RSI and values for technical indicators
-            rsi_value = random.randint(60, 75) if direction.upper() == "BUY" else random.randint(25, 40)
-            is_overbought = rsi_value > 70
-            is_oversold = rsi_value < 30
+            if stop_loss:
+                message += f"<b>Stop Loss:</b> {stop_loss} 🔴\n"
             
-            # Calculate price, support and resistance levels (close to entry)
-            entry_float = float(entry)
-            if direction.upper() == "BUY":
-                resistance = entry_float * 1.005
-                support = entry_float * 0.997 if stop_loss is None else float(stop_loss)
-                daily_high = resistance * 1.001
-                daily_low = support * 0.999
-            else:
-                resistance = entry_float * 1.003 if stop_loss is None else float(stop_loss)
-                support = entry_float * 0.995
-                daily_high = resistance * 1.002
-                daily_low = support * 0.998
-                
-            # Format resistance and support to same decimal places as entry
-            decimals = len(str(entry).split('.')[-1]) if '.' in str(entry) else 5
-            resistance_formatted = f"{resistance:.{decimals}f}"
-            support_formatted = f"{support:.{decimals}f}"
-            daily_high_formatted = f"{daily_high:.{decimals}f}"
-            daily_low_formatted = f"{daily_low:.{decimals}f}"
+            # Add take profit levels
+            if tp1:
+                message += f"<b>Take Profit 1:</b> {tp1} 🎯\n"
+            if tp2:
+                message += f"<b>Take Profit 2:</b> {tp2} 🎯\n"
+            if tp3:
+                message += f"<b>Take Profit 3:</b> {tp3} 🎯\n"
             
-            # Sigmapips AI analysis
-            message += f"Sigmapips AI identifies strong {direction.lower()} probability. A key resistance level was spotted near {resistance_formatted} and a support area around {support_formatted}.  \n\n"
+            message += f"\n<b>Timeframe:</b> {timeframe}\n"
+            message += f"<b>Strategy:</b> TradingView Signal\n\n"
             
-            # Zone strength rating
-            message += f"Zone Strength 1-5: ★★★★☆  \n\n"
+            message += "————————————————————\n\n"
+            message += "<b>Risk Management:</b>\n"
+            message += "• Position size: 1-2% max\n"
+            message += "• Use proper stop loss\n"
+            message += "• Follow your trading plan\n\n"
             
-            # Market Overview section with emoji
-            message += f"📊 Market Overview  \n"
-            message += f"{instrument} is trading at {entry}, showing {direction.lower()} momentum near the daily high ({daily_high_formatted}). "
-            if direction.upper() == "BUY":
-                message += f"The price remains above key EMAs (50 & 200), confirming an uptrend.  \n\n"
-            else:
-                message += f"The price remains below key EMAs (50 & 200), confirming a downtrend.  \n\n"
+            message += "————————————————————\n\n"
             
-            # Key Levels section with emoji
-            message += f"🔑 Key Levels  \n"
-            message += f"Support: {daily_low_formatted} (daily low), {support_formatted}  \n"
-            message += f"Resistance: {daily_high_formatted} (daily high), {resistance_formatted}  \n\n"
-            
-            # Technical Indicators section with emoji
-            message += f"📈 Technical Indicators  \n"
-            macd_value = random.uniform(0.001, 0.005) if direction.upper() == "BUY" else random.uniform(-0.005, -0.001)
-            signal_value = random.uniform(0.0005, 0.002) if direction.upper() == "BUY" else random.uniform(-0.002, -0.0005)
-            ema50 = entry_float * (0.98 if direction.upper() == "SELL" else 1.02)
-            ema200 = entry_float * (0.96 if direction.upper() == "SELL" else 1.04)
-            
-            message += f"RSI: {rsi_value:.2f} ({f'overbought, caution for pullback' if is_overbought else f'oversold, watch for reversal' if is_oversold else 'neutral'})  \n"
-            message += f"MACD: {direction.capitalize()} ({macd_value:.5f} > signal {signal_value:.5f})  \n"
-            message += f"Moving Averages: Price {'above' if direction.upper() == 'BUY' else 'below'} EMA 50 ({ema50:.{decimals}f}) and EMA 200 ({ema200:.{decimals}f}), reinforcing {direction.lower()} bias.  \n\n"
-            
-            # AI Recommendation with robot emoji
-            message += f"🤖 Sigmapips AI Recommendation  \n"
-            
-            if direction.upper() == "BUY":
-                message += f"The bias remains bullish but watch for {f'overbought RSI' if is_overbought else 'resistance'} near {resistance_formatted}. A break above could target higher levels, while failure may test {support_formatted} support.\n\n"
-            else:
-                message += f"The bias remains bearish but watch for {f'oversold RSI' if is_oversold else 'support'} near {support_formatted}. A break below could target lower levels, while failure may test {resistance_formatted} resistance.\n\n"
-            
-            # Add disclaimer with warning emoji
-            message += "⚠️ Disclaimer: Please note that the information/analysis provided is strictly for study and educational purposes only. It should not be constructed as financial advice and always do your own analysis."
+            # Generate AI verdict
+            ai_verdict = f"The {instrument} {direction.lower()} signal shows a promising setup with defined entry at {entry} and stop loss at {stop_loss}. Multiple take profit levels provide opportunities for partial profit taking."
+            message += f"<b>🤖 SigmaPips AI Verdict:</b>\n{ai_verdict}"
             
             return message
             
@@ -4409,75 +4370,37 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Add emoji based on direction
             direction_emoji = "📈" if direction.upper() == "BUY" else "📉"
             
-            # Format the message
-            message = f"{instrument} - {timeframe}  \n\n"
-            message += f"Trend - {direction.upper()}  \n\n"
+            # Format the message with multiple take profits if available
+            message = f"<b>🎯 New Trading Signal 🎯</b>\n\n"
+            message += f"<b>Instrument:</b> {instrument}\n"
+            message += f"<b>Action:</b> {direction.upper()} {direction_emoji}\n\n"
+            message += f"<b>Entry Price:</b> {entry}\n"
             
-            # Create mock RSI and values for technical indicators
-            rsi_value = random.randint(60, 75) if direction.upper() == "BUY" else random.randint(25, 40)
-            is_overbought = rsi_value > 70
-            is_oversold = rsi_value < 30
+            if stop_loss:
+                message += f"<b>Stop Loss:</b> {stop_loss} 🔴\n"
             
-            # Calculate price, support and resistance levels (close to entry)
-            entry_float = float(entry)
-            if direction.upper() == "BUY":
-                resistance = entry_float * 1.005
-                support = entry_float * 0.997 if stop_loss is None else float(stop_loss)
-                daily_high = resistance * 1.001
-                daily_low = support * 0.999
-            else:
-                resistance = entry_float * 1.003 if stop_loss is None else float(stop_loss)
-                support = entry_float * 0.995
-                daily_high = resistance * 1.002
-                daily_low = support * 0.998
-                
-            # Format resistance and support to same decimal places as entry
-            decimals = len(str(entry).split('.')[-1]) if '.' in str(entry) else 5
-            resistance_formatted = f"{resistance:.{decimals}f}"
-            support_formatted = f"{support:.{decimals}f}"
-            daily_high_formatted = f"{daily_high:.{decimals}f}"
-            daily_low_formatted = f"{daily_low:.{decimals}f}"
+            # Add take profit levels
+            if tp1:
+                message += f"<b>Take Profit 1:</b> {tp1} 🎯\n"
+            if tp2:
+                message += f"<b>Take Profit 2:</b> {tp2} 🎯\n"
+            if tp3:
+                message += f"<b>Take Profit 3:</b> {tp3} 🎯\n"
             
-            # Sigmapips AI analysis
-            message += f"Sigmapips AI identifies strong {direction.lower()} probability. A key resistance level was spotted near {resistance_formatted} and a support area around {support_formatted}.  \n\n"
+            message += f"\n<b>Timeframe:</b> {timeframe}\n"
+            message += f"<b>Strategy:</b> TradingView Signal\n\n"
             
-            # Zone strength rating
-            message += f"Zone Strength 1-5: ★★★★☆  \n\n"
+            message += "————————————————————\n\n"
+            message += "<b>Risk Management:</b>\n"
+            message += "• Position size: 1-2% max\n"
+            message += "• Use proper stop loss\n"
+            message += "• Follow your trading plan\n\n"
             
-            # Market Overview section with emoji
-            message += f"📊 Market Overview  \n"
-            message += f"{instrument} is trading at {entry}, showing {direction.lower()} momentum near the daily high ({daily_high_formatted}). "
-            if direction.upper() == "BUY":
-                message += f"The price remains above key EMAs (50 & 200), confirming an uptrend.  \n\n"
-            else:
-                message += f"The price remains below key EMAs (50 & 200), confirming a downtrend.  \n\n"
+            message += "————————————————————\n\n"
             
-            # Key Levels section with emoji
-            message += f"🔑 Key Levels  \n"
-            message += f"Support: {daily_low_formatted} (daily low), {support_formatted}  \n"
-            message += f"Resistance: {daily_high_formatted} (daily high), {resistance_formatted}  \n\n"
-            
-            # Technical Indicators section with emoji
-            message += f"📈 Technical Indicators  \n"
-            macd_value = random.uniform(0.001, 0.005) if direction.upper() == "BUY" else random.uniform(-0.005, -0.001)
-            signal_value = random.uniform(0.0005, 0.002) if direction.upper() == "BUY" else random.uniform(-0.002, -0.0005)
-            ema50 = entry_float * (0.98 if direction.upper() == "SELL" else 1.02)
-            ema200 = entry_float * (0.96 if direction.upper() == "SELL" else 1.04)
-            
-            message += f"RSI: {rsi_value:.2f} ({f'overbought, caution for pullback' if is_overbought else f'oversold, watch for reversal' if is_oversold else 'neutral'})  \n"
-            message += f"MACD: {direction.capitalize()} ({macd_value:.5f} > signal {signal_value:.5f})  \n"
-            message += f"Moving Averages: Price {'above' if direction.upper() == 'BUY' else 'below'} EMA 50 ({ema50:.{decimals}f}) and EMA 200 ({ema200:.{decimals}f}), reinforcing {direction.lower()} bias.  \n\n"
-            
-            # AI Recommendation with robot emoji
-            message += f"🤖 Sigmapips AI Recommendation  \n"
-            
-            if direction.upper() == "BUY":
-                message += f"The bias remains bullish but watch for {f'overbought RSI' if is_overbought else 'resistance'} near {resistance_formatted}. A break above could target higher levels, while failure may test {support_formatted} support.\n\n"
-            else:
-                message += f"The bias remains bearish but watch for {f'oversold RSI' if is_oversold else 'support'} near {support_formatted}. A break below could target lower levels, while failure may test {resistance_formatted} resistance.\n\n"
-            
-            # Add disclaimer with warning emoji
-            message += "⚠️ Disclaimer: Please note that the information/analysis provided is strictly for study and educational purposes only. It should not be constructed as financial advice and always do your own analysis."
+            # Generate AI verdict
+            ai_verdict = f"The {instrument} {direction.lower()} signal shows a promising setup with defined entry at {entry} and stop loss at {stop_loss}. Multiple take profit levels provide opportunities for partial profit taking."
+            message += f"<b>🤖 SigmaPips AI Verdict:</b>\n{ai_verdict}"
             
             return message
             
