@@ -3015,7 +3015,8 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 # Show loading message first with loading GIF
                 try:
                     # Get loading GIF URL
-                    loading_gif_url = "https://media.giphy.com/media/dpjUltnOPye7azvAhH/giphy.gif"
+                    loading_gif_url = await gif_utils.get_loading_gif()
+                    logger.info(f"Using loading GIF URL: {loading_gif_url}")
                     
                     # Replace the welcome GIF with the loading GIF
                     await gif_utils.update_message_with_gif(
@@ -3048,14 +3049,15 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     chart_image_path, analysis_text = await self.chart_service.get_technical_analysis(instrument, timeframe)
                     
                     if chart_image_path and os.path.exists(chart_image_path):
-                        # Create a keyboard with only Back button
+                        # Create a keyboard with Back button that goes to market selection
                         keyboard = [
                             [
-                                InlineKeyboardButton("⬅️ Back", callback_data="instruments")
+                                InlineKeyboardButton("⬅️ Back", callback_data="back_market")
                             ]
                         ]
                         
                         reply_markup = InlineKeyboardMarkup(keyboard)
+                        logger.info(f"Setting up back button with callback_data='back_market'")
                         
                         # Remove the loading GIF using multi-step approach
                         try:
@@ -3125,7 +3127,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                         # If no chart image is available, just send the analysis text
                         keyboard = [
                             [
-                                InlineKeyboardButton("⬅️ Back", callback_data="instruments")
+                                InlineKeyboardButton("⬅️ Back", callback_data="back_market")
                             ]
                         ]
                         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -3143,7 +3145,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     # In case of error, update the message
                     keyboard = [
                         [
-                            InlineKeyboardButton("⬅️ Back", callback_data="instruments")
+                            InlineKeyboardButton("⬅️ Back", callback_data="back_market")
                         ]
                     ]
                     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -3165,7 +3167,8 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 # Show loading GIF for sentiment analysis
                 try:
                     # Get loading GIF URL
-                    loading_gif_url = "https://media.giphy.com/media/dpjUltnOPye7azvAhH/giphy.gif"
+                    loading_gif_url = await gif_utils.get_loading_gif()
+                    logger.info(f"Using loading GIF URL for sentiment: {loading_gif_url}")
                     
                     # Update message with loading GIF
                     await gif_utils.update_message_with_gif(
@@ -3191,7 +3194,8 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 # Show loading GIF for calendar analysis
                 try:
                     # Get loading GIF URL
-                    loading_gif_url = "https://media.giphy.com/media/dpjUltnOPye7azvAhH/giphy.gif"
+                    loading_gif_url = await gif_utils.get_loading_gif()
+                    logger.info(f"Using loading GIF URL for calendar: {loading_gif_url}")
                     
                     # Update message with loading GIF
                     await gif_utils.update_message_with_gif(
