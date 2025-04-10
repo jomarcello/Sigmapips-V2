@@ -489,8 +489,12 @@ class EconomicCalendarService:
             
             # Create prompt for DeepSeek
             # Add current date to the prompt
-            today_date = datetime.now().strftime("%Y-%m-%d")
-            today_formatted = datetime.now().strftime("%B %d, %Y")
+            today = datetime.now()
+            today_date = today.strftime("%Y-%m-%d")
+            today_formatted = today.strftime("%B %d, %Y")
+            current_month = today.strftime("%b")  # Apr, Mar, etc.
+            current_day = today.strftime("%d").lstrip("0")  # 5, 10, etc. (zonder voorloopnul)
+            
             prompt = f"""Extract economic calendar events from the following text. 
 Format the response as JSON with the following structure:
 
@@ -516,9 +520,16 @@ Format the response as JSON with the following structure:
 }}
 ```
 
-VERY IMPORTANT: ONLY include events scheduled for TODAY ({today_formatted}). You MUST filter out any events from other days.
-DO NOT include ANY events from future dates or past dates. ONLY include TODAY'S events: {today_formatted}.
-Events must be happening TODAY, not tomorrow, not yesterday.
+CRITICAL FILTERING INSTRUCTIONS:
+1. ONLY include events scheduled for TODAY ({today_formatted}). Filter out ALL events from other days.
+2. EXCLUDE events with date references that are not today, such as:
+   - Events with date formats like (Mar/29), (Feb/10) - unless it's ({current_month}/{current_day})
+   - Events that mention months other than the current month
+   - Events with quarterly references (Q1, Q2, etc.)
+   - Events with specific years mentioned (2022, 2023)
+3. Pay close attention to text in parentheses, often containing dates like "Initial Jobless Claims (Apr/05)"
+4. DO NOT include ANY events from future dates or past dates.
+5. EVENTS MUST BE HAPPENING TODAY, not tomorrow, not yesterday.
 
 Only include events for these currencies: {', '.join(currencies)}
 For times, include timezone (EST if not specified).
@@ -527,7 +538,8 @@ For impact, use "High", "Medium", or "Low".
 Text to extract from:
 {text}
 
-Only return the JSON, nothing else. DO NOT include events from any date other than TODAY ({today_formatted})."""
+Only return the JSON, nothing else. DO NOT include events from any date other than TODAY ({today_formatted}).
+"""
 
             # Make the DeepSeek API call
             self.logger.info("Calling DeepSeek API to extract calendar data")
@@ -785,6 +797,16 @@ Only return the JSON, nothing else. DO NOT include events from any date other th
         today_date = today.strftime("%Y-%m-%d")
         today_readable = today.strftime("%B %d, %Y")
         
+        # Huidig jaar en maand voor filtering
+        current_year = today.strftime("%Y")
+        current_month = today.strftime("%b").lower()
+        current_month_full = today.strftime("%B").lower()
+        current_day = today.strftime("%d").lstrip("0")
+        
+        # Maanden voor detectie van verwijzingen naar andere maanden
+        months_abbr = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"]
+        months_full = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"]
+        
         # Add date header to the response
         response += f"Date: {today_readable}\n\n"
         response += "Impact: 🔴 High   🟠 Medium   🟢 Low\n\n"
@@ -792,6 +814,7 @@ Only return the JSON, nothing else. DO NOT include events from any date other th
         # Collect all events across currencies to sort by time
         all_events = []
         events_count = 0
+        filtered_out_count = 0
         
         for currency, events in calendar_data.items():
             if currency not in MAJOR_CURRENCIES:
@@ -800,14 +823,54 @@ Only return the JSON, nothing else. DO NOT include events from any date other th
             for event in events:
                 # Check if this event has a date
                 event_date = event.get("date", "")
+                event_name = event.get("event", "").lower()
+                
+                # Controleer op datumvermeldingen in de evenementnaam tussen haakjes (Apr/05), (Mar/29), etc.
+                has_other_date_in_name = False
+                
+                # Controleer op (Jan), (Feb/10), etc. en andere datumformaten tussen haakjes
+                if "(" in event_name and ")" in event_name:
+                    # Extracteer tekst tussen haakjes
+                    bracket_content = re.findall(r'\((.*?)\)', event_name)
+                    for content in bracket_content:
+                        content_lower = content.lower()
+                        # Controleer op maandafkortingen behalve de huidige maand
+                        for month in months_abbr:
+                            if month != current_month and month in content_lower:
+                                has_other_date_in_name = True
+                                break
+                        
+                        # Controleer op volledige maandnamen behalve de huidige maand
+                        for month in months_full:
+                            if month != current_month_full and month in content_lower:
+                                has_other_date_in_name = True
+                                break
+                                
+                        # Controleer op andere jaren dan het huidige jaar
+                        if re.search(r'\b\d{4}\b', content) and current_year not in content:
+                            has_other_date_in_name = True
+                            
+                        # Controleer op datumvormats zoals Mar/29 of Q1, Q2, etc.
+                        if re.search(r'([a-zA-Z]{3})/(\d{1,2})', content) or re.search(r'Q[1-4]', content):
+                            # Is het de huidige maand met de huidige dag?
+                            month_day_match = re.search(r'([a-zA-Z]{3})/(\d{1,2})', content)
+                            if month_day_match:
+                                matched_month = month_day_match.group(1).lower()
+                                matched_day = month_day_match.group(2).lstrip("0")
+                                
+                                # Als het niet de huidige maand en dag is, filter uit
+                                if matched_month != current_month or matched_day != current_day:
+                                    has_other_date_in_name = True
                 
                 # Strikte filter toepassen - alleen events van vandaag
                 is_today_event = (
                     # Event heeft een datum veld dat overeenkomt met vandaag
                     (event_date and event_date == today_date) or
                     # Geen datumveld, maar we nemen aan dat het voor vandaag is (backward compatibility)
-                    (not event_date and "tomorrow" not in event.get("event", "").lower() and
-                     "yesterday" not in event.get("event", "").lower())
+                    (not event_date and 
+                     "tomorrow" not in event_name and
+                     "yesterday" not in event_name and
+                     not has_other_date_in_name)
                 )
                 
                 if is_today_event:
@@ -816,9 +879,11 @@ Only return the JSON, nothing else. DO NOT include events from any date other th
                     event_with_currency['currency'] = currency
                     all_events.append(event_with_currency)
                     events_count += 1
+                else:
+                    filtered_out_count += 1
         
         # Log het aantal events na filtering
-        self.logger.info(f"Found {events_count} events for today after date filtering")
+        self.logger.info(f"Found {events_count} events for today after date filtering (filtered out {filtered_out_count} events)")
         
         # Als er geen events zijn na filtering, toon een bericht
         if not all_events:
