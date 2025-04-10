@@ -737,69 +737,118 @@ class TelegramService:
         return self.calendar_service
 
     async def _format_calendar_events(self, calendar_data):
-        """Format the calendar data into a readable HTML message"""
-        self.logger.info(f"Formatting calendar data with {len(calendar_data)} events")
-        if not calendar_data:
-            return "<b>📅 Economic Calendar</b>\n\nNo economic events found for today."
-        
-        # Sort events by time
+        """Format the calendar data in chronological order"""
         try:
-            # Try to parse time for sorting
-            def parse_time_for_sorting(event):
-                time_str = event.get('time', '')
-                try:
-                    # Extract hour and minute if in format like "08:30 EST"
-                    if ':' in time_str:
-                        parts = time_str.split(' ')[0].split(':')
-                        hour = int(parts[0])
-                        minute = int(parts[1])
-                        return hour * 60 + minute
-                    return 0
-                except:
-                    return 0
+            # Haal de kalender service op
+            calendar_service = self._get_calendar_service()
             
-            # Sort the events by time
-            sorted_events = sorted(calendar_data, key=parse_time_for_sorting)
-        except Exception as e:
-            self.logger.error(f"Error sorting calendar events: {str(e)}")
-            sorted_events = calendar_data
-        
-        # Format the message
-        message = "<b>📅 Economic Calendar</b>\n\n"
-        
-        # Get current date
-        current_date = datetime.now().strftime("%B %d, %Y")
-        message += f"<b>Date:</b> {current_date}\n\n"
-        
-        # Add impact legend
-        message += "<b>Impact:</b> 🔴 High   🟠 Medium   🟢 Low\n\n"
-        
-        # Group events by country
-        events_by_country = {}
-        for event in sorted_events:
-            country = event.get('country', 'Unknown')
-            if country not in events_by_country:
-                events_by_country[country] = []
-            events_by_country[country].append(event)
-        
-        # Format events by country
-        for country, events in events_by_country.items():
-            country_flag = CURRENCY_FLAG.get(country, '')
-            message += f"<b>{country_flag} {country}</b>\n"
-            
-            for event in events:
-                time = event.get('time', 'TBA')
-                title = event.get('title', 'Unknown Event')
-                impact = event.get('impact', 'Low')
-                impact_emoji = {'High': '🔴', 'Medium': '🟠', 'Low': '🟢'}.get(impact, '🟢')
+            # Gebruik direct de format methode van de calendar service
+            # Dit zorgt ervoor dat we dezelfde logica gebruiken voor filtering
+            if hasattr(calendar_service, '_format_calendar_response'):
+                return calendar_service._format_calendar_response(calendar_data, "ALL")
                 
-                message += f"{time} - {impact_emoji} {title}\n"
+            # Als fallback gebruiken we onze oude implementatie
+            response = "<b>📅 Economic Calendar</b>\n\n"
             
-            message += "\n"  # Add extra newline between countries
-        
-        return message
-        
-    # Utility functions that might be missing
+            if not calendar_data or len(calendar_data) == 0:
+                return response + "No economic events scheduled for today."
+                
+            # Group events by country
+            events_by_country = {}
+            
+            # Parse function for sorting
+            def parse_time_for_sorting(event):
+                time_str = event.get('time', '00:00')
+                try:
+                    if ':' in time_str:
+                        parts = time_str.split(':')
+                        hour = int(parts[0])
+                        minute = int(parts[1].split()[0])
+                        return hour * 60 + minute
+                    else:
+                        return 0
+                except (ValueError, IndexError):
+                    return 0
+            
+            # Collect and sort events by country and time
+            for event in calendar_data:
+                country = event.get('country', 'unknown')
+                if country not in events_by_country:
+                    events_by_country[country] = []
+                
+                events_by_country[country].append(event)
+            
+            # Add today's date
+            today = datetime.now().strftime("%B %d, %Y")
+            response += f"Date: {today}\n\n"
+            response += "Impact: 🔴 High   🟠 Medium   🟢 Low\n\n"
+            
+            # Sorted country codes
+            sorted_countries = sorted(events_by_country.keys())
+            
+            for country in sorted_countries:
+                country_events = events_by_country[country]
+                
+                # Sort events by time
+                country_events = sorted(country_events, key=parse_time_for_sorting)
+                
+                flag = event.get('country_flag', '')
+                response += f"{flag} {country}\n"
+                
+                for event in country_events:
+                    time = event.get('time', 'TBD')
+                    title = event.get('title', 'Unknown Event')
+                    impact = event.get('impact', 'low').lower()
+                    
+                    # Convert impact to emoji
+                    impact_emoji = "🟢"  # Low default
+                    if impact == "high":
+                        impact_emoji = "🔴"
+                    elif impact == "medium":
+                        impact_emoji = "🟠"
+                    
+                    response += f"{time} - {impact_emoji} {title}\n"
+                
+                # Add empty line between countries
+                response += "\n"
+                
+            # Remove trailing newlines
+            response = response.rstrip()
+            
+            return response
+            
+        except Exception as e:
+            self.logger.error(f"Error formatting calendar events: {str(e)}")
+            self.logger.exception(e)
+            
+            # Fallback to simple format
+            response = "<b>📅 Economic Calendar</b>\n\n"
+            
+            if not calendar_data or len(calendar_data) == 0:
+                return response + "No economic events scheduled for today."
+                
+            # Add today's date
+            today = datetime.now().strftime("%B %d, %Y")
+            response += f"Date: {today}\n\n"
+            
+            # Extremely simple format
+            for event in calendar_data[:20]:  # Limit to first 20 events
+                country = event.get('country', 'Unknown')
+                title = event.get('title', 'Unknown Event')
+                time = event.get('time', 'TBD')
+                impact = event.get('impact', 'low').lower()
+                
+                # Simple impact indicator
+                impact_str = "*"
+                if impact == "high":
+                    impact_str = "***"
+                elif impact == "medium":
+                    impact_str = "**"
+                
+                response += f"{country} {time} - {impact_str} {title}\n\n"
+                
+            return response
+
     async def update_message(self, query, text, keyboard=None, parse_mode=ParseMode.HTML):
         """Update a message, properly handling media removal if necessary"""
         try:
@@ -1848,7 +1897,8 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             try:
                 # Probeer eerst een loading GIF te tonen
                 loading_gif = "https://media.giphy.com/media/dpjUltnOPye7azvAhH/giphy.gif"
-                loading_text = "⏳ Loading economic calendar..."
+                today_date = datetime.now().strftime("%B %d, %Y")
+                loading_text = f"⏳ Loading economic calendar for {today_date}..."
                 
                 try:
                     loading_message = await query.edit_message_media(
@@ -1879,7 +1929,8 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         try:
             # Probeer eerst een loading GIF te tonen
             loading_gif = "https://media.giphy.com/media/dpjUltnOPye7azvAhH/giphy.gif"
-            loading_text = "⏳ Loading economic calendar..."
+            today_date = datetime.now().strftime("%B %d, %Y")
+            loading_text = f"⏳ Loading economic calendar for {today_date}..."
             
             try:
                 loading_message = await query.edit_message_media(
@@ -1899,6 +1950,8 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Sla loading message op in context
             if context and hasattr(context, 'user_data'):
                 context.user_data['loading_message'] = loading_message
+                # Voeg een notitie toe dat we alleen events van vandaag laten zien
+                context.user_data['show_today_only_note'] = True
         except Exception as e:
             logger.error(f"Error showing loading message: {str(e)}")
             # Ga gewoon door als dit mislukt
@@ -4054,11 +4107,15 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             
             # Check if we have a loading message from context
             loading_message = None
+            show_today_only_note = False
             if context and hasattr(context, 'user_data'):
                 loading_message = context.user_data.get('loading_message')
-                # Remove reference to avoid memory leaks
+                show_today_only_note = context.user_data.get('show_today_only_note', False)
+                # Verwijder referenties om memory leaks te voorkomen
                 if 'loading_message' in context.user_data:
                     del context.user_data['loading_message']
+                if 'show_today_only_note' in context.user_data:
+                    del context.user_data['show_today_only_note']
             
             try:
                 # Get calendar data
@@ -4066,6 +4123,10 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 
                 # Format the calendar data
                 message = await self._format_calendar_events(calendar_data)
+                
+                # Voeg notitie toe indien nodig
+                if show_today_only_note:
+                    message += "\n<i>Note: Only showing events scheduled for today.</i>"
                 
                 # Create keyboard with back button
                 keyboard = None
