@@ -3008,32 +3008,24 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         try:
             # Handle different analysis types
             if analysis_type == "technical" or instrument_type == "chart":
-                # Show loading message first with loading GIF
+                # Verwijder eerst het instrument bericht
+                await self.remove_message_with_animation(query)
+                
+                # Dan laten we de loading screen zien
                 loading_message = None
                 try:
                     # Get loading GIF URL
                     loading_gif_url = await gif_utils.get_loading_gif()
                     logger.info(f"Using loading GIF URL: {loading_gif_url}")
                     
-                    # Try to show the loading GIF
-                    try:
-                        # First try to send a new animation message
-                        loading_message = await query.message.reply_animation(
-                            animation=loading_gif_url,
-                            caption=f"⏳ Analyzing {instrument} on 1h timeframe... Please wait.",
-                            parse_mode=ParseMode.HTML
-                        )
-                        logger.info(f"Sent new message with loading GIF")
-                    except Exception as animation_error:
-                        logger.error(f"Error sending animation: {str(animation_error)}")
-                        # Fall back to updating the existing message
-                        success = await gif_utils.update_message_with_gif(
-                            query=query,
-                            gif_url=loading_gif_url,
-                            text=f"⏳ Analyzing {instrument} on 1h timeframe... Please wait.",
-                            reply_markup=None
-                        )
-                        logger.info(f"Updated message with loading GIF: {success}")
+                    # Stuur een nieuw bericht met de loading GIF
+                    loading_message = await context.bot.send_animation(
+                        chat_id=query.message.chat_id,
+                        animation=loading_gif_url,
+                        caption=f"⏳ Analyzing {instrument} on 1h timeframe... Please wait.",
+                        parse_mode=ParseMode.HTML
+                    )
+                    logger.info(f"Sent new loading message")
                 except Exception as e:
                     logger.error(f"Error showing loading GIF: {str(e)}")
                 
@@ -3060,9 +3052,6 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                             logger.warning(f"Could not delete loading message: {str(e)}")
                             # Probeer het bericht te vervangen met een transparante GIF
                             await self.remove_message_with_animation(loading_message)
-                    
-                    # Verwijder het instrument bericht
-                    await self.remove_message_with_animation(query)
                     
                     if chart_image_path and os.path.exists(chart_image_path):
                         # Create a keyboard with Back button that goes to market selection
