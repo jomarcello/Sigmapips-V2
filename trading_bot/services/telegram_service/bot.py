@@ -3052,6 +3052,15 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     timeframe = "1h"  # Default timeframe
                     chart_image_path, analysis_text = await self.chart_service.get_technical_analysis(instrument, timeframe)
                     
+                    # Verwijder het loading bericht als het bestaat
+                    if loading_message:
+                        try:
+                            await loading_message.delete()
+                        except Exception as e:
+                            logger.warning(f"Could not delete loading message: {str(e)}")
+                            # Probeer het bericht te vervangen met een transparante GIF
+                            await self.remove_message_with_animation(loading_message)
+                    
                     # Verwijder het instrument bericht
                     await self.remove_message_with_animation(query)
                     
@@ -3800,12 +3809,35 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 else:
                     keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]]
                 
-                # Update the message
-                await query.edit_message_text(
-                    text=message,
-                    reply_markup=InlineKeyboardMarkup(keyboard),
-                    parse_mode=ParseMode.HTML
-                )
+                # Update the message with multi-step approach
+                try:
+                    # First try to edit message text
+                    await query.edit_message_text(
+                        text=message,
+                        reply_markup=InlineKeyboardMarkup(keyboard),
+                        parse_mode=ParseMode.HTML
+                    )
+                except telegram.error.BadRequest as e:
+                    if "There is no text in the message to edit" in str(e):
+                        # Try to edit caption instead
+                        try:
+                            await query.edit_message_caption(
+                                caption=message,
+                                reply_markup=InlineKeyboardMarkup(keyboard),
+                                parse_mode=ParseMode.HTML
+                            )
+                        except Exception as caption_error:
+                            logger.error(f"Error updating caption: {str(caption_error)}")
+                            # Last resort: delete old message and send new one
+                            await query.message.delete()
+                            await context.bot.send_message(
+                                chat_id=chat_id,
+                                text=message,
+                                reply_markup=InlineKeyboardMarkup(keyboard),
+                                parse_mode=ParseMode.HTML
+                            )
+                    else:
+                        raise
                 
                 return CHOOSE_ANALYSIS
                 
@@ -3813,10 +3845,29 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 logger.error(f"Error getting sentiment analysis: {str(e)}")
                 # Show error message
                 keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]]
-                await query.edit_message_text(
-                    text=f"Error analyzing sentiment for {instrument}. Please try again later.",
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
+                
+                # Try to update the message with error
+                try:
+                    await query.edit_message_text(
+                        text=f"Error analyzing sentiment for {instrument}. Please try again later.",
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+                except telegram.error.BadRequest as e:
+                    if "There is no text in the message to edit" in str(e):
+                        # Try to edit caption
+                        try:
+                            await query.edit_message_caption(
+                                caption=f"Error analyzing sentiment for {instrument}. Please try again later.",
+                                reply_markup=InlineKeyboardMarkup(keyboard)
+                            )
+                        except Exception:
+                            # Last resort: send new message
+                            await context.bot.send_message(
+                                chat_id=chat_id,
+                                text=f"Error analyzing sentiment for {instrument}. Please try again later.",
+                                reply_markup=InlineKeyboardMarkup(keyboard)
+                            )
+                
                 return CHOOSE_ANALYSIS
                 
         except Exception as e:
@@ -3873,3 +3924,94 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Try to recover by showing main menu
             await self.show_main_menu(update, context)
             return MENU
+
+    async def show_calendar_analysis(self, update: Update, context: CallbackContext, instrument: str = None) -> int:
+        """Show economic calendar analysis"""
+        try:
+            query = update.callback_query
+            chat_id = update.effective_chat.id
+            
+            logger.info(f"Showing calendar analysis for {instrument if instrument else 'all currencies'}")
+            
+            # Get the calendar service
+            calendar_service = self._get_calendar_service()
+            
+            try:
+                # Get calendar data
+                calendar_data = await calendar_service.get_calendar()
+                
+                # Format the calendar data
+                message = await self._format_calendar_events(calendar_data)
+                
+                # Create keyboard with back button
+                keyboard = None
+                if context and hasattr(context, 'user_data') and context.user_data.get('from_signal', False):
+                    keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal_analysis")]]
+                else:
+                    keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]]
+                
+                # Update the message with multi-step approach
+                try:
+                    # First try to edit message text
+                    await query.edit_message_text(
+                        text=message,
+                        reply_markup=InlineKeyboardMarkup(keyboard),
+                        parse_mode=ParseMode.HTML
+                    )
+                except telegram.error.BadRequest as e:
+                    if "There is no text in the message to edit" in str(e):
+                        # Try to edit caption instead
+                        try:
+                            await query.edit_message_caption(
+                                caption=message,
+                                reply_markup=InlineKeyboardMarkup(keyboard),
+                                parse_mode=ParseMode.HTML
+                            )
+                        except Exception as caption_error:
+                            logger.error(f"Error updating caption: {str(caption_error)}")
+                            # Last resort: delete old message and send new one
+                            await query.message.delete()
+                            await context.bot.send_message(
+                                chat_id=chat_id,
+                                text=message,
+                                reply_markup=InlineKeyboardMarkup(keyboard),
+                                parse_mode=ParseMode.HTML
+                            )
+                    else:
+                        raise
+                
+                return CHOOSE_ANALYSIS
+                
+            except Exception as e:
+                logger.error(f"Error getting calendar data: {str(e)}")
+                # Show error message
+                keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]]
+                
+                # Try to update the message with error
+                try:
+                    await query.edit_message_text(
+                        text="Error loading economic calendar. Please try again later.",
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+                except telegram.error.BadRequest as e:
+                    if "There is no text in the message to edit" in str(e):
+                        # Try to edit caption
+                        try:
+                            await query.edit_message_caption(
+                                caption="Error loading economic calendar. Please try again later.",
+                                reply_markup=InlineKeyboardMarkup(keyboard)
+                            )
+                        except Exception:
+                            # Last resort: send new message
+                            await context.bot.send_message(
+                                chat_id=chat_id,
+                                text="Error loading economic calendar. Please try again later.",
+                                reply_markup=InlineKeyboardMarkup(keyboard)
+                            )
+                
+                return CHOOSE_ANALYSIS
+                
+        except Exception as e:
+            logger.error(f"Error in show_calendar_analysis: {str(e)}")
+            logger.error(traceback.format_exc())
+            return CHOOSE_ANALYSIS
