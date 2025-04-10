@@ -2974,99 +2974,249 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             return CHOOSE_TIMEFRAME
 
     async def instrument_callback(self, update: Update, context=None) -> int:
-        """Handle instrument selections with specific types (chart, sentiment, calendar)"""
+        """Handle instrument callback"""
         query = update.callback_query
+        await query.answer()
+        
+        # Get the instrument and type from the callback data
         callback_data = query.data
-        
-        # Parse the callback data to extract the instrument and type
         parts = callback_data.split("_")
-        # For format like "instrument_EURUSD_sentiment" or "market_forex_sentiment"
         
-        if callback_data.startswith("instrument_"):
-            # Extract the instrument, handling potential underscores in instrument name
-            instrument_parts = []
-            analysis_type = ""
-            
-            # Find where the type specifier starts
-            for i, part in enumerate(parts[1:], 1):  # Skip "instrument_" prefix
-                if part in ["chart", "sentiment", "calendar", "signals"]:
-                    analysis_type = part
-                    break
-                instrument_parts.append(part)
-            
-            # Join the instrument parts if we have any
-            instrument = "_".join(instrument_parts) if instrument_parts else ""
-            
-            logger.info(f"Instrument callback: instrument={instrument}, type={analysis_type}")
-            
-            # Store in context
-            if context and hasattr(context, 'user_data'):
-                context.user_data['instrument'] = instrument
-                context.user_data['analysis_type'] = analysis_type
-            
-            # Handle the different analysis types
-            if analysis_type == "chart":
-                return await self.show_technical_analysis(update, context, instrument=instrument)
-            elif analysis_type == "sentiment":
-                return await self.show_sentiment_analysis(update, context, instrument=instrument)
-            elif analysis_type == "calendar":
-                return await self.show_calendar_analysis(update, context, instrument=instrument)
-            elif analysis_type == "signals":
-                # This should be handled by instrument_signals_callback
-                return await self.instrument_signals_callback(update, context)
+        # Extract instrument and type
+        instrument = parts[1]
+        instrument_type = parts[2] if len(parts) > 2 else None  # chart, sentiment, calendar
         
-        elif callback_data.startswith("market_"):
-            # Handle market_*_sentiment callbacks
-            market = parts[1]
-            analysis_type = parts[2] if len(parts) > 2 else ""
-            
-            logger.info(f"Market callback with analysis type: market={market}, type={analysis_type}")
-            
-            # Store in context
-            if context and hasattr(context, 'user_data'):
-                context.user_data['market'] = market
+        # Map instrument_type to analysis_type
+        if instrument_type == "chart":
+            analysis_type = "technical"
+        elif instrument_type == "sentiment":
+            analysis_type = "sentiment"
+        elif instrument_type == "calendar":
+            analysis_type = "calendar"
+        else:
+            # Get from context
+            analysis_type = context.user_data.get('analysis_type') if context and hasattr(context, 'user_data') else None
+        
+        logger.info(f"Selected instrument: {instrument}, type: {analysis_type}")
+        
+        # Save instrument and analysis type in context
+        if context and hasattr(context, 'user_data'):
+            context.user_data['instrument'] = instrument
+            if analysis_type:
                 context.user_data['analysis_type'] = analysis_type
-            
-            # Determine which keyboard to show based on market and analysis type
-            if analysis_type == "sentiment":
-                if market == "forex":
-                    keyboard = FOREX_SENTIMENT_KEYBOARD
-                elif market == "crypto":
-                    keyboard = CRYPTO_SENTIMENT_KEYBOARD
-                elif market == "indices":
-                    keyboard = INDICES_SENTIMENT_KEYBOARD
-                elif market == "commodities":
-                    keyboard = COMMODITIES_SENTIMENT_KEYBOARD
-                else:
-                    keyboard = MARKET_SENTIMENT_KEYBOARD
+        
+        try:
+            # Handle different analysis types
+            if analysis_type == "technical" or instrument_type == "chart":
+                # Show loading message first with loading GIF
+                loading_message = None
+                try:
+                    # Get loading GIF URL
+                    loading_gif_url = await gif_utils.get_loading_gif()
+                    logger.info(f"Using loading GIF URL: {loading_gif_url}")
+                    
+                    # Try to show the loading GIF
+                    try:
+                        # First try to send a new animation message
+                        loading_message = await query.message.reply_animation(
+                            animation=loading_gif_url,
+                            caption=f"⏳ Analyzing {instrument} on 1h timeframe... Please wait.",
+                            parse_mode=ParseMode.HTML
+                        )
+                        logger.info(f"Sent new message with loading GIF")
+                    except Exception as animation_error:
+                        logger.error(f"Error sending animation: {str(animation_error)}")
+                        # Fall back to updating the existing message
+                        success = await gif_utils.update_message_with_gif(
+                            query=query,
+                            gif_url=loading_gif_url,
+                            text=f"⏳ Analyzing {instrument} on 1h timeframe... Please wait.",
+                            reply_markup=None
+                        )
+                        logger.info(f"Updated message with loading GIF: {success}")
+                except Exception as e:
+                    logger.error(f"Error showing loading GIF: {str(e)}")
+                
+                # Small delay to ensure the loading GIF is visible
+                await asyncio.sleep(1)
+                
+                # Get the chart service
+                if not hasattr(self, 'chart_service') or self.chart_service is None:
+                    from trading_bot.services.chart_service.chart import ChartService
+                    logger.info("Initializing chart service")
+                    self.chart_service = ChartService()
+                    await self.chart_service.initialize()
                 
                 try:
-                    await query.edit_message_text(
-                        text=f"Select instrument for sentiment analysis:",
+                    # Get the chart and analysis directly
+                    timeframe = "1h"  # Default timeframe
+                    chart_image_path, analysis_text = await self.chart_service.get_technical_analysis(instrument, timeframe)
+                    
+                    # Verwijder het loading bericht als het bestaat
+                    if loading_message:
+                        try:
+                            await loading_message.delete()
+                        except Exception as e:
+                            logger.warning(f"Could not delete loading message: {str(e)}")
+                            # Probeer het bericht te vervangen met een transparante GIF
+                            await self.remove_message_with_animation(loading_message)
+                    
+                    # Verwijder het instrument bericht
+                    await self.remove_message_with_animation(query)
+                    
+                    if chart_image_path and os.path.exists(chart_image_path):
+                        # Create a keyboard with Back button that goes to market selection
+                        keyboard = [
+                            [
+                                InlineKeyboardButton("⬅️ Back", callback_data="back_market")
+                            ]
+                        ]
+                        
+                        reply_markup = InlineKeyboardMarkup(keyboard)
+                        logger.info(f"Setting up back button with callback_data='back_market'")
+                        
+                        # Send the chart with analysis
+                        with open(chart_image_path, 'rb') as photo:
+                            await context.bot.send_photo(
+                                chat_id=query.message.chat_id,
+                                photo=photo,
+                                caption=analysis_text,
+                                reply_markup=reply_markup,
+                                parse_mode=ParseMode.HTML
+                            )
+                        
+                        # Clean up the chart file
+                        try:
+                            os.remove(chart_image_path)
+                        except Exception as cleanup_error:
+                            logger.error(f"Error cleaning up chart file: {str(cleanup_error)}")
+                        
+                        return CHOOSE_ANALYSIS
+                        
+                    else:
+                        # If no chart image is available, just send the analysis text
+                        keyboard = [
+                            [
+                                InlineKeyboardButton("⬅️ Back", callback_data="back_market")
+                            ]
+                        ]
+                        reply_markup = InlineKeyboardMarkup(keyboard)
+                        
+                        await query.message.reply_text(
+                            text=analysis_text or f"Sorry, analysis for {instrument} is not available at this time.",
+                            reply_markup=reply_markup,
+                            parse_mode=ParseMode.HTML
+                        )
+                        return CHOOSE_ANALYSIS
+                        
+                except Exception as e:
+                    logger.error(f"Error in instrument_callback: {str(e)}")
+                    # Verwijder het instrument bericht ook bij een fout
+                    await self.remove_message_with_animation(query)
+                    
+                    # Send error message
+                    keyboard = [
+                        [
+                            InlineKeyboardButton("⬅️ Back", callback_data="back_market")
+                        ]
+                    ]
+                    reply_markup = InlineKeyboardMarkup(keyboard)
+                    
+                    await context.bot.send_message(
+                        chat_id=query.message.chat_id,
+                        text=f"Error analyzing {instrument}. Please try again later.",
+                        reply_markup=reply_markup,
+                        parse_mode=ParseMode.HTML
+                    )
+                    return CHOOSE_ANALYSIS
+                    
+            elif analysis_type == "sentiment" or instrument_type == "sentiment":
+                # Show loading GIF for sentiment analysis
+                try:
+                    # Get loading GIF URL
+                    loading_gif_url = await gif_utils.get_loading_gif()
+                    logger.info(f"Using loading GIF URL for sentiment: {loading_gif_url}")
+                    
+                    # Update message with loading GIF
+                    await gif_utils.update_message_with_gif(
+                        query=query, 
+                        gif_url=loading_gif_url,
+                        text=f"Loading sentiment analysis for {instrument}... Please wait.",
+                        reply_markup=None
+                    )
+                except Exception as e:
+                    logger.error(f"Error showing loading GIF for sentiment analysis: {str(e)}")
+                    # Fallback to standard caption update
+                    try:
+                        await query.edit_message_caption(
+                            caption=f"Loading sentiment analysis for {instrument}... Please wait.",
+                            reply_markup=None
+                        )
+                    except Exception as caption_error:
+                        logger.error(f"Error updating caption: {str(caption_error)}")
+                
+                return await self.show_sentiment_analysis(update, context, instrument=instrument)
+                    
+            elif analysis_type == "calendar" or instrument_type == "calendar":
+                # Show loading GIF for calendar analysis
+                try:
+                    # Get loading GIF URL
+                    loading_gif_url = await gif_utils.get_loading_gif()
+                    logger.info(f"Using loading GIF URL for calendar: {loading_gif_url}")
+                    
+                    # Update message with loading GIF
+                    await gif_utils.update_message_with_gif(
+                        query=query, 
+                        gif_url=loading_gif_url,
+                        text=f"Loading economic calendar... Please wait.",
+                        reply_markup=None
+                    )
+                except Exception as e:
+                    logger.error(f"Error showing loading GIF for calendar analysis: {str(e)}")
+                    # Fallback to standard caption update
+                    try:
+                        await query.edit_message_caption(
+                            caption=f"Loading economic calendar... Please wait.",
+                            reply_markup=None
+                        )
+                    except Exception as caption_error:
+                        logger.error(f"Error updating caption: {str(caption_error)}")
+                
+                return await self.show_calendar_analysis(update, context)
+                
+        except Exception as e:
+            logger.error(f"Error in instrument_callback: {str(e)}")
+            logger.error(traceback.format_exc())
+            
+            # In case of error, show a generic error message and go back to instrument selection
+            try:
+                keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]]
+                await query.edit_message_text(
+                    text=f"An error occurred. Please try again or select a different instrument.",
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.HTML
+                )
+            except Exception:
+                # Fallback to caption update
+                try:
+                    await query.edit_message_caption(
+                        caption=f"An error occurred. Please try again or select a different instrument.",
                         reply_markup=InlineKeyboardMarkup(keyboard),
                         parse_mode=ParseMode.HTML
                     )
-                except Exception as e:
-                    logger.error(f"Error updating message in instrument_callback: {str(e)}")
-                    try:
-                        await query.edit_message_caption(
-                            caption=f"Select instrument for sentiment analysis:",
-                            reply_markup=InlineKeyboardMarkup(keyboard),
-                            parse_mode=ParseMode.HTML
-                        )
-                    except Exception as e:
-                        logger.error(f"Error updating caption in instrument_callback: {str(e)}")
-                        # Last resort - send a new message
-                        await query.message.reply_text(
-                            text=f"Select instrument for sentiment analysis:",
-                            reply_markup=InlineKeyboardMarkup(keyboard),
-                            parse_mode=ParseMode.HTML
-                        )
-            else:
-                # For other market types, call the market_callback method
-                return await self.market_callback(update, context)
+                except Exception as caption_error:
+                    logger.error(f"Error updating caption in fallback: {str(caption_error)}")
+                    # Last resort - send a new message
+                    await query.message.reply_text(
+                        text=f"An error occurred. Please try again or select a different instrument.",
+                        reply_markup=InlineKeyboardMarkup(keyboard),
+                        parse_mode=ParseMode.HTML
+                    )
+            
+            return CHOOSE_MARKET
         
-        return CHOOSE_INSTRUMENT
+        # For other market types, call the market_callback method
+        return await self.market_callback(update, context)
 
     async def back_menu_callback(self, update: Update, context=None) -> int:
         """Handle back_menu button press to return to main menu.
@@ -4131,6 +4281,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             if not hasattr(self, 'chart_service') or not self.chart_service:
                 from trading_bot.services.chart_service.chart import ChartService
                 self.chart_service = ChartService()
+                await self.chart_service.initialize()
             
             # Get the chart image
             chart_image = await self.chart_service.get_chart(instrument, timeframe)
