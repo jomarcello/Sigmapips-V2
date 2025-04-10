@@ -1844,8 +1844,64 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             
             logger.info(f"Calendar analysis for specific instrument: {instrument}")
             
+            # Toon een loading message
+            try:
+                # Probeer eerst een loading GIF te tonen
+                loading_gif = "https://media.giphy.com/media/dpjUltnOPye7azvAhH/giphy.gif"
+                loading_text = "⏳ Loading economic calendar..."
+                
+                try:
+                    loading_message = await query.edit_message_media(
+                        media=InputMediaAnimation(
+                            media=loading_gif,
+                            caption=loading_text
+                        )
+                    )
+                    logger.info("Successfully showed loading GIF for calendar analysis")
+                except Exception as gif_error:
+                    logger.warning(f"Could not show loading GIF: {str(gif_error)}")
+                    # Fallback naar tekstbericht
+                    loading_message = await query.edit_message_text(
+                        text=loading_text
+                    )
+                
+                # Sla loading message op in context
+                if context and hasattr(context, 'user_data'):
+                    context.user_data['loading_message'] = loading_message
+            except Exception as e:
+                logger.error(f"Error showing loading message: {str(e)}")
+                # Ga gewoon door als dit mislukt
+            
             # Show analysis directly for this instrument
             return await self.show_calendar_analysis(update, context, instrument=instrument)
+        
+        # Toon een loading message voordat we de economische kalender tonen
+        try:
+            # Probeer eerst een loading GIF te tonen
+            loading_gif = "https://media.giphy.com/media/dpjUltnOPye7azvAhH/giphy.gif"
+            loading_text = "⏳ Loading economic calendar..."
+            
+            try:
+                loading_message = await query.edit_message_media(
+                    media=InputMediaAnimation(
+                        media=loading_gif,
+                        caption=loading_text
+                    )
+                )
+                logger.info("Successfully showed loading GIF for general calendar analysis")
+            except Exception as gif_error:
+                logger.warning(f"Could not show loading GIF: {str(gif_error)}")
+                # Fallback naar tekstbericht
+                loading_message = await query.edit_message_text(
+                    text=loading_text
+                )
+            
+            # Sla loading message op in context
+            if context and hasattr(context, 'user_data'):
+                context.user_data['loading_message'] = loading_message
+        except Exception as e:
+            logger.error(f"Error showing loading message: {str(e)}")
+            # Ga gewoon door als dit mislukt
         
         # Skip market selection and go directly to calendar analysis
         logger.info("Showing economic calendar without market selection")
