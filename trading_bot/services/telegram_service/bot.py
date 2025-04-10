@@ -3201,14 +3201,33 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     
                     reply_markup = InlineKeyboardMarkup(keyboard)
                     
-                    # Send the chart image and analysis
-                    with open(chart_image_path, 'rb') as photo:
-                        await query.message.reply_photo(
-                            photo=photo, 
-                            caption=analysis_text, 
-                            reply_markup=reply_markup,
-                            parse_mode=ParseMode.HTML
+                    # Update the current message with the chart and analysis rather than sending a new reply
+                    try:
+                        # Try to edit the existing message media with caption
+                        await query.edit_message_media(
+                            media=InputMediaPhoto(
+                                media=open(chart_image_path, 'rb'),
+                                caption=analysis_text,
+                                parse_mode=ParseMode.HTML
+                            ),
+                            reply_markup=reply_markup
                         )
+                        logger.info(f"Successfully updated message with chart and analysis for {instrument}")
+                    except Exception as edit_error:
+                        logger.error(f"Error updating message: {str(edit_error)}")
+                        # If editing fails, try to delete the current message and send a new one
+                        try:
+                            await query.message.delete()
+                            await self.bot.send_photo(
+                                chat_id=update.effective_chat.id,
+                                photo=open(chart_image_path, 'rb'),
+                                caption=analysis_text,
+                                reply_markup=reply_markup,
+                                parse_mode=ParseMode.HTML
+                            )
+                            logger.info(f"Sent new message with chart and analysis for {instrument}")
+                        except Exception as send_error:
+                            logger.error(f"Error sending new message: {str(send_error)}")
                 else:
                     # If no chart image is available, just send the analysis text
                     keyboard = [
@@ -3218,7 +3237,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     ]
                     reply_markup = InlineKeyboardMarkup(keyboard)
                     
-                    await query.message.reply_text(
+                    await query.edit_message_text(
                         text=analysis_text or f"Sorry, analysis for {instrument} is not available at this time.",
                         reply_markup=reply_markup,
                         parse_mode=ParseMode.HTML
