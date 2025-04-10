@@ -487,58 +487,53 @@ class EconomicCalendarService:
                 self.logger.warning("DeepSeek service not available, falling back to regex extraction")
                 return self._extract_calendar_data_from_text(text, currencies)
             
-            # Create prompt for DeepSeek
-            # Add current date to the prompt
+            # Create prompt for DeepSeek with explicit today's date
             today = datetime.now()
             today_date = today.strftime("%Y-%m-%d")
             today_formatted = today.strftime("%B %d, %Y")
-            current_month = today.strftime("%b").lower()
+            current_month = today.strftime("%B")  # Full month name
+            current_month_abbr = today.strftime("%b")  # Abbreviated month name
             current_day = today.strftime("%d").lstrip("0")  # 5, 10, etc. (zonder voorloopnul)
             
-            prompt = f"""Extract economic calendar events from the following text. 
-Format the response as JSON with the following structure:
+            prompt = f"""TASK: Extract economic calendar events ONLY for TODAY ({today_formatted}) from the text.
 
+TODAY'S DATE: {today_formatted}
+TODAY'S DAY: {current_day}
+TODAY'S MONTH: {current_month} ({current_month_abbr})
+
+Format the response as JSON with this structure:
 ```json
 {{
   "USD": [
     {{
       "time": "08:30 EST",
       "event": "Initial Jobless Claims",
-      "impact": "Medium",
-      "date": "{today_date}"
+      "impact": "Medium"
     }}
   ],
-  "EUR": [
-    {{
-      "time": "07:45 EST",
-      "event": "ECB Interest Rate Decision",
-      "impact": "High",
-      "date": "{today_date}"
-    }}
-  ],
-  // ... other currencies ...
+  "EUR": [ /* events for EUR */ ]
 }}
 ```
 
-CRITICAL FILTERING INSTRUCTIONS:
-1. ONLY include events scheduled for TODAY ({today_formatted}). Filter out ALL events from other days.
-2. EXCLUDE events with date references that are not today, such as:
-   - Events with date formats like (Mar/29), (Feb/10) - unless it's ({current_month}/{current_day})
-   - Events that mention months other than the current month
-   - Events with quarterly references (Q1, Q2, etc.)
-   - Events with specific years mentioned (2022, 2023)
-3. Pay close attention to text in parentheses, often containing dates like "Initial Jobless Claims (Apr/05)"
-4. DO NOT include ANY events from future dates or past dates.
-5. EVENTS MUST BE HAPPENING TODAY, not tomorrow, not yesterday.
+STRICT DATE FILTERING RULES:
+1. ONLY extract events specifically happening TODAY ({today_formatted})
+2. EXCLUDE ALL events that:
+   - Mention future dates like "tomorrow", "next week"
+   - Mention past dates like "yesterday", "last week"
+   - Contain date formats that don't match today (e.g., Apr/11 when today is {current_month_abbr}/{current_day})
+   - Reference months other than {current_month}
+3. If event has date in format ({current_month_abbr}/{current_day}), it's VALID for today
+4. If a date reference isn't clearly today, EXCLUDE the event
 
-Only include events for these currencies: {', '.join(currencies)}
-For times, include timezone (EST if not specified).
-For impact, use "High", "Medium", or "Low".
+FORMATTING RULES:
+- Include events ONLY for these currencies: {', '.join(currencies)}
+- For times, make sure to include EST timezone if not specified
+- For impact levels, ONLY use: "High", "Medium", or "Low"
 
 Text to extract from:
 {text}
 
-Only return the JSON, nothing else. DO NOT include events from any date other than TODAY ({today_formatted}).
+IMPORTANT: ONLY return the JSON with TODAY's events. No explanation text.
 """
 
             # Make the DeepSeek API call
