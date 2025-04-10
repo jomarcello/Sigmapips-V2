@@ -2779,17 +2779,29 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     message_text = f"Unknown market: {market}"
                 message_text = f"Select instrument for technical analysis:"
         
-        # Gebruik de keyboard zonder wijzigingen, verwijder de oude back_button logica
-        # De keyboards hebben al back knoppen, we voegen er geen extra meer toe
-        
-        # Show the keyboard
+        # Get the welcome GIF URL to maintain it during navigation
         try:
-            await self.update_message(
+            # Get welcome GIF URL
+            welcome_gif_url = "https://media.giphy.com/media/dpjUltnOPye7azvAhH/giphy.gif"
+            
+            # Use update_message_with_gif to keep the welcome GIF visible
+            success = await gif_utils.update_message_with_gif(
                 query=query,
+                gif_url=welcome_gif_url,
                 text=message_text,
-                keyboard=InlineKeyboardMarkup(keyboard),
+                reply_markup=InlineKeyboardMarkup(keyboard),
                 parse_mode=ParseMode.HTML
             )
+            
+            if not success:
+                logger.warning("Failed to update message with GIF, falling back to standard update")
+                # Fallback to standard message update if GIF update fails
+                await self.update_message(
+                    query=query,
+                    text=message_text,
+                    keyboard=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.HTML
+                )
         except Exception as e:
             logger.error(f"Error updating message in market_callback: {str(e)}")
             # Try to create a new message as fallback
@@ -3000,14 +3012,28 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             
             # Handle different instrument types
             if instrument_type == "chart" or instrument_type is None:
-                # Show loading message first
+                # Show loading message first with loading GIF
                 try:
-                    await query.edit_message_caption(
-                        caption=f"Analyzing {instrument} on 1h timeframe... Please wait.",
+                    # Get loading GIF URL
+                    loading_gif_url = "https://media.giphy.com/media/dpjUltnOPye7azvAhH/giphy.gif"
+                    
+                    # Replace the welcome GIF with the loading GIF
+                    await gif_utils.update_message_with_gif(
+                        query=query,
+                        gif_url=loading_gif_url,
+                        text=f"Analyzing {instrument} on 1h timeframe... Please wait.",
                         reply_markup=None
                     )
                 except Exception as e:
-                    logger.error(f"Error updating message: {str(e)}")
+                    logger.error(f"Error updating message with loading GIF: {str(e)}")
+                    # Fallback to standard caption update
+                    try:
+                        await query.edit_message_caption(
+                            caption=f"Analyzing {instrument} on 1h timeframe... Please wait.",
+                            reply_markup=None
+                        )
+                    except Exception as caption_error:
+                        logger.error(f"Error updating caption: {str(caption_error)}")
                     
                 # Get the chart service
                 if not hasattr(self, 'chart_service') or self.chart_service is None:
@@ -3030,6 +3056,41 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                         ]
                         
                         reply_markup = InlineKeyboardMarkup(keyboard)
+                        
+                        # Remove the loading GIF using multi-step approach
+                        try:
+                            # Step 1: First try to delete the message with the loading GIF
+                            try:
+                                await query.message.delete()
+                                logger.info("Successfully deleted the loading GIF message")
+                            except Exception as delete_error:
+                                logger.error(f"Error deleting message with loading GIF: {str(delete_error)}")
+                                
+                                # Step 2: If deletion fails, try to replace with transparent GIF
+                                try:
+                                    from telegram import InputMediaDocument
+                                    transparent_gif_url = "https://upload.wikimedia.org/wikipedia/commons/thumb/0/00/Transparent.gif/1px-Transparent.gif"
+                                    
+                                    await query.edit_message_media(
+                                        media=InputMediaDocument(
+                                            media=transparent_gif_url,
+                                            caption=f"Preparing {instrument} analysis..."
+                                        )
+                                    )
+                                    logger.info("Replaced loading GIF with transparent GIF")
+                                except Exception as replace_error:
+                                    logger.error(f"Error replacing loading GIF: {str(replace_error)}")
+                                    
+                                    # Step 3: As last resort, just edit the caption
+                                    try:
+                                        await query.edit_message_caption(
+                                            caption=f"Preparing {instrument} analysis..."
+                                        )
+                                        logger.info("Updated caption as fallback")
+                                    except Exception as caption_error:
+                                        logger.error(f"Error updating caption: {str(caption_error)}")
+                        except Exception as e:
+                            logger.error(f"Error in multi-step GIF removal: {str(e)}")
                         
                         # Check if analysis text is too long for a caption (Telegram limit: 1024 chars)
                         if analysis_text and len(analysis_text) > 1000:
@@ -3101,9 +3162,55 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     return CHOOSE_ANALYSIS
                     
             elif instrument_type == "sentiment":
+                # Show loading GIF for sentiment analysis
+                try:
+                    # Get loading GIF URL
+                    loading_gif_url = "https://media.giphy.com/media/dpjUltnOPye7azvAhH/giphy.gif"
+                    
+                    # Update message with loading GIF
+                    await gif_utils.update_message_with_gif(
+                        query=query, 
+                        gif_url=loading_gif_url,
+                        text=f"Loading sentiment analysis for {instrument}... Please wait.",
+                        reply_markup=None
+                    )
+                except Exception as e:
+                    logger.error(f"Error showing loading GIF for sentiment analysis: {str(e)}")
+                    # Fallback to standard caption update
+                    try:
+                        await query.edit_message_caption(
+                            caption=f"Loading sentiment analysis for {instrument}... Please wait.",
+                            reply_markup=None
+                        )
+                    except Exception as caption_error:
+                        logger.error(f"Error updating caption: {str(caption_error)}")
+                
                 return await self.show_sentiment_analysis(update, context, instrument=instrument)
                 
             elif instrument_type == "calendar":
+                # Show loading GIF for calendar analysis
+                try:
+                    # Get loading GIF URL
+                    loading_gif_url = "https://media.giphy.com/media/dpjUltnOPye7azvAhH/giphy.gif"
+                    
+                    # Update message with loading GIF
+                    await gif_utils.update_message_with_gif(
+                        query=query, 
+                        gif_url=loading_gif_url,
+                        text=f"Loading economic calendar for {instrument}... Please wait.",
+                        reply_markup=None
+                    )
+                except Exception as e:
+                    logger.error(f"Error showing loading GIF for calendar analysis: {str(e)}")
+                    # Fallback to standard caption update
+                    try:
+                        await query.edit_message_caption(
+                            caption=f"Loading economic calendar for {instrument}... Please wait.",
+                            reply_markup=None
+                        )
+                    except Exception as caption_error:
+                        logger.error(f"Error updating caption: {str(caption_error)}")
+                
                 return await self.show_calendar_analysis(update, context, instrument=instrument)
                 
             elif instrument_type == "signals":
@@ -3341,6 +3448,44 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             
             # Get sentiment data using clean instrument name
             sentiment_data = await self.sentiment_service.get_sentiment(clean_instrument)
+            
+            # Remove the loading GIF using multi-step approach
+            try:
+                # Step 1: First try to delete the message with the loading GIF
+                try:
+                    await query.message.delete()
+                    logger.info("Successfully deleted the loading GIF message")
+                    loading_message_deleted = True
+                except Exception as delete_error:
+                    logger.error(f"Error deleting message with loading GIF: {str(delete_error)}")
+                    loading_message_deleted = False
+                    
+                    # Step 2: If deletion fails, try to replace with transparent GIF
+                    if not loading_message_deleted:
+                        try:
+                            from telegram import InputMediaDocument
+                            transparent_gif_url = "https://upload.wikimedia.org/wikipedia/commons/thumb/0/00/Transparent.gif/1px-Transparent.gif"
+                            
+                            await query.edit_message_media(
+                                media=InputMediaDocument(
+                                    media=transparent_gif_url,
+                                    caption=f"Preparing {clean_instrument} sentiment analysis..."
+                                )
+                            )
+                            logger.info("Replaced loading GIF with transparent GIF")
+                        except Exception as replace_error:
+                            logger.error(f"Error replacing loading GIF: {str(replace_error)}")
+                            
+                            # Step 3: As last resort, just edit the caption
+                            try:
+                                await query.edit_message_caption(
+                                    caption=f"Preparing {clean_instrument} sentiment analysis..."
+                                )
+                                logger.info("Updated caption as fallback")
+                            except Exception as caption_error:
+                                logger.error(f"Error updating caption: {str(caption_error)}")
+            except Exception as e:
+                logger.error(f"Error in multi-step GIF removal: {str(e)}")
             
             if not sentiment_data:
                 # Determine which back button to use based on flow
@@ -3609,28 +3754,40 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             loading_message = None
             
             try:
-                # Show loading animation if we're not already displaying an image
-                if not has_photo:
-                    # Try to show animated GIF for loading
-                    await query.edit_message_text(
-                        text=loading_text
-                    )
-                else:
-                    # Try to show animated GIF for loading
-                    await query.edit_message_media(
-                        media=InputMediaAnimation(
-                            media=loading_gif,
-                            caption=loading_text
-                        )
-                    )
+                # Use the gif_utils helper to show loading animation
+                await gif_utils.update_message_with_gif(
+                    query=query,
+                    gif_url=loading_gif,
+                    text=loading_text,
+                    reply_markup=None
+                )
                 logger.info(f"Successfully showed loading indicator for economic calendar")
             except Exception as gif_error:
-                logger.warning(f"Could not show loading indicator: {str(gif_error)}")
-                # Fallback to updating caption
+                logger.warning(f"Could not show loading indicator using gif_utils: {str(gif_error)}")
+                # Fallback to more direct methods if the helper fails
                 try:
-                    await query.edit_message_caption(caption=loading_text)
-                except Exception as caption_error:
-                    logger.error(f"Failed to update caption: {str(caption_error)}")
+                    # Show loading animation if we're not already displaying an image
+                    if not has_photo:
+                        # Try to show animated GIF for loading
+                        await query.edit_message_text(
+                            text=loading_text
+                        )
+                    else:
+                        # Try to show animated GIF for loading
+                        await query.edit_message_media(
+                            media=InputMediaAnimation(
+                                media=loading_gif,
+                                caption=loading_text
+                            )
+                        )
+                    logger.info(f"Successfully showed loading indicator for economic calendar using fallback")
+                except Exception as e:
+                    logger.warning(f"Could not show loading indicator: {str(e)}")
+                    # Fallback to updating caption
+                    try:
+                        await query.edit_message_caption(caption=loading_text)
+                    except Exception as caption_error:
+                        logger.error(f"Failed to update caption: {str(caption_error)}")
             
             # Create the keyboard with appropriate back button based on flow
             keyboard = []
