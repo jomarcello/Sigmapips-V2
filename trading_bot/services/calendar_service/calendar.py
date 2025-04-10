@@ -224,26 +224,6 @@ class EconomicCalendarService:
         self.tavily_service = tavily_service or TavilyService()
         self.deepseek_service = deepseek_service or DeepseekService()
         
-        # Initialize the ForexFactory screenshot service if available
-        try:
-            if HAS_SCREENSHOT_SERVICE:
-                self.screenshot_service = ForexFactoryScreenshotService(deepseek_service=self.deepseek_service)
-                self.logger.info("ForexFactory screenshot service initialized")
-                self.use_screenshot_method = True
-            else:
-                self.logger.warning("ForexFactory screenshot service not available")
-                self.use_screenshot_method = False
-        except Exception as e:
-            self.logger.warning(f"Could not initialize ForexFactory screenshot service: {e}")
-            self.use_screenshot_method = False
-            
-        self.cache = {}
-        self.cache_time = {}
-        self.cache_expiry = 3600  # 1 hour in seconds
-        
-        # Define loading GIF URLs
-        self.loading_gif = "https://media.giphy.com/media/dpjUltnOPye7azvAhH/giphy.gif"  # Update loading GIF
-        
         # Try to load API keys from environment on initialization
         api_key = os.environ.get("TAVILY_API_KEY", "")
         if api_key:
@@ -251,6 +231,19 @@ class EconomicCalendarService:
             self.logger.info(f"Found Tavily API key in environment: {masked_key}")
             # Refresh the Tavily service with the key
             self.tavily_service = TavilyService(api_key=api_key)
+        
+        # Always disable ForexFactory screenshot service
+        use_calendar_fallback = True  # Force to True to disable ForexFactory screenshot method
+        self.logger.warning("❌ Calendar fallback mode is ENABLED - ForexFactory screenshot service disabled permanently")
+        print("❌ Calendar fallback mode is ENABLED - ForexFactory screenshot service disabled permanently")
+        self.use_screenshot_method = False
+        
+        self.cache = {}
+        self.cache_time = {}
+        self.cache_expiry = 3600  # 1 hour in seconds
+        
+        # Define loading GIF URLs
+        self.loading_gif = "https://media.giphy.com/media/dpjUltnOPye7azvAhH/giphy.gif"  # Update loading GIF
         
     def get_loading_gif(self) -> str:
         """Get the URL for the loading GIF"""
