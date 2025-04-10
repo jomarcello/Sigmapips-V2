@@ -488,6 +488,8 @@ class EconomicCalendarService:
                 return self._extract_calendar_data_from_text(text, currencies)
             
             # Create prompt for DeepSeek
+            # Add current date to the prompt
+            today_date = datetime.now().strftime("%Y-%m-%d")
             prompt = f"""Extract economic calendar events from the following text. 
 Format the response as JSON with the following structure:
 
@@ -497,20 +499,23 @@ Format the response as JSON with the following structure:
     {{
       "time": "08:30 EST",
       "event": "Initial Jobless Claims",
-      "impact": "Medium"
+      "impact": "Medium",
+      "date": "{today_date}"
     }}
   ],
   "EUR": [
     {{
       "time": "07:45 EST",
       "event": "ECB Interest Rate Decision",
-      "impact": "High"
+      "impact": "High",
+      "date": "{today_date}"
     }}
   ],
   // ... other currencies ...
 }}
 ```
 
+IMPORTANT: Only include events for today's date ({today_date}). Filter out any events from other days.
 Only include events for these currencies: {', '.join(currencies)}
 For times, include timezone (EST if not specified).
 For impact, use "High", "Medium", or "Low".
@@ -518,7 +523,7 @@ For impact, use "High", "Medium", or "Low".
 Text to extract from:
 {text}
 
-Only return the JSON, nothing else."""
+Only return the JSON, nothing else. Remember to only include TODAY'S events ({today_date})."""
 
             # Make the DeepSeek API call
             self.logger.info("Calling DeepSeek API to extract calendar data")
@@ -770,6 +775,11 @@ Only return the JSON, nothing else."""
         # If the calendar data is empty, return a simple message
         if not calendar_data:
             return response + "No major economic events scheduled for today.\n\n<i>Check back later for updates.</i>"
+        
+        # Get today's date for filtering
+        today_date = datetime.now().strftime("%Y-%m-%d")
+        response += f"Date: {datetime.now().strftime('%B %d, %Y')}\n\n"
+        response += "Impact: 🔴 High   🟠 Medium   🟢 Low\n\n"
             
         # Collect all events across currencies to sort by time
         all_events = []
@@ -778,30 +788,48 @@ Only return the JSON, nothing else."""
                 continue
                 
             for event in events:
-                # Add currency to event for display
-                event_with_currency = event.copy()
-                event_with_currency['currency'] = currency
-                all_events.append(event_with_currency)
+                # Check if this event has a date and it matches today
+                event_date = event.get("date", today_date)  # Default to today if no date specified
+                
+                # Only include events from today
+                if event_date == today_date:
+                    # Add currency to event for display
+                    event_with_currency = event.copy()
+                    event_with_currency['currency'] = currency
+                    all_events.append(event_with_currency)
         
-        # Sort all events purely by time
-        all_events = sorted(all_events, key=lambda x: self._parse_time_for_sorting(x.get("time", "00:00")))
-        
-        # Display events in chronological order
+        # Group events by currency
+        events_by_currency = {}
         for event in all_events:
-            time = event.get("time", "")
             currency = event.get("currency", "")
-            event_name = event.get("event", "")
-            impact = event.get("impact", "Low")
-            impact_emoji = IMPACT_EMOJI.get(impact, "🟢")
+            if currency not in events_by_currency:
+                events_by_currency[currency] = []
+            events_by_currency[currency].append(event)
             
-            # Format with currency flag
-            response += f"{time} - {CURRENCY_FLAG.get(currency, '')} {currency} - {event_name} {impact_emoji}\n"
+        # Sort currencies for consistent display
+        sorted_currencies = sorted(events_by_currency.keys())
         
-        # Add empty line before legend
-        response += "\n-------------------\n"
-        response += "🔴 High Impact\n"
-        response += "🟠 Medium Impact\n"
-        response += "🟢 Low Impact"
+        # Display events grouped by currency
+        for currency in sorted_currencies:
+            currency_events = events_by_currency[currency]
+            # Sort events by time
+            currency_events = sorted(currency_events, key=lambda x: self._parse_time_for_sorting(x.get("time", "00:00")))
+            
+            # Display currency header
+            response += f"{CURRENCY_FLAG.get(currency, '')} {currency}\n"
+            
+            # Display events for this currency
+            for event in currency_events:
+                time = event.get("time", "")
+                event_name = event.get("event", "")
+                impact = event.get("impact", "Low")
+                impact_emoji = IMPACT_EMOJI.get(impact, "🟢")
+                
+                # Format with impact emoji
+                response += f"{time} - {impact_emoji} {event_name}\n"
+            
+            # Add empty line between currencies
+            response += "\n"
         
         return response
         
