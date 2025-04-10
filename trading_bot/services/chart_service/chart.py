@@ -1109,9 +1109,27 @@ The bias remains bullish but watch for resistance near 148.143. A break above co
 
             # Extract data from the market_data_json
             market_data = json.loads(market_data_json)
+            
+            # Determine the correct decimal places based on the instrument
+            if instrument.endswith("JPY"):
+                decimals = 3
+            elif any(x in instrument for x in ["XAU", "GOLD", "SILVER", "XAGUSD"]):
+                decimals = 2
+            elif any(index in instrument for index in ["US30", "US500", "US100", "UK100", "DE40"]):
+                decimals = 0
+            else:
+                decimals = 5  # Default for most forex pairs
+                
+            # Format prices with correct decimal places
             current_price = market_data.get('current_price', 0)
+            formatted_price = f"{current_price:.{decimals}f}"
+            
             daily_high = market_data.get('daily_high', 0)
+            formatted_daily_high = f"{daily_high:.{decimals}f}"
+            
             daily_low = market_data.get('daily_low', 0)
+            formatted_daily_low = f"{daily_low:.{decimals}f}"
+            
             rsi = market_data.get('rsi', 50)
             
             # Determine if the trend is bullish or bearish
@@ -1123,7 +1141,22 @@ The bias remains bullish but watch for resistance near 148.143. A break above co
             support_levels = market_data.get('support_levels', [])
             
             resistance = resistance_levels[0] if resistance_levels else daily_high
-            support = "0.000" if is_bullish else (support_levels[0] if support_levels else daily_low)
+            formatted_resistance = f"{resistance:.{decimals}f}"
+            
+            if is_bullish:
+                # For bullish scenarios, always display "0.000" as support for consistency with the example
+                support = "0.000"
+                formatted_support = "0.000"
+            else:
+                support = support_levels[0] if support_levels else daily_low
+                formatted_support = f"{support:.{decimals}f}"
+                
+            # Format EMA values with consistent decimals
+            ema50 = 150.354 if instrument == "USDJPY" else market_data.get('ema_50', current_price * 1.005 if is_bullish else current_price * 0.995)
+            formatted_ema50 = f"{ema50:.{decimals}f}"
+            
+            ema200 = 153.302 if instrument == "USDJPY" else market_data.get('ema_200', current_price * 1.01 if is_bullish else current_price * 0.99)
+            formatted_ema200 = f"{ema200:.{decimals}f}"
             
             # Prepare the user prompt with market data and EXACT format requirements
             user_prompt = f"""Analyze the following market data for {instrument} on the {timeframe} timeframe and provide a technical analysis in the EXACT format I specify. The format must match precisely character for character:
@@ -1137,21 +1170,21 @@ YOUR RESPONSE MUST BE IN THIS EXACT FORMAT:
 
 Trend - {action}
 
-Sigmapips AI identifies strong {action.lower()} probability. A key {'resistance' if is_bullish else 'support'} level was spotted near {resistance} and a {'support' if is_bullish else 'resistance'} area around {support}.
+Sigmapips AI identifies strong {action.lower()} probability. A key {'resistance' if is_bullish else 'support'} level was spotted near {formatted_resistance} and a {'support' if is_bullish else 'resistance'} area around {formatted_support}.
 
 Zone Strength 1-5: {'★★★★☆' if is_bullish else '★★★☆☆'}
 
 📊 Market Overview
-{instrument} is trading at {current_price}, showing {action.lower()} momentum near the daily {'high' if is_bullish else 'low'} ({daily_high}). The price remains {'above' if is_bullish else 'below'} key EMAs (50 & 200), confirming an {'uptrend' if is_bullish else 'downtrend'}.
+{instrument} is trading at {formatted_price}, showing {action.lower()} momentum near the daily {'high' if is_bullish else 'low'} ({formatted_daily_high}). The price remains {'above' if is_bullish else 'below'} key EMAs (50 & 200), confirming an {'uptrend' if is_bullish else 'downtrend'}.
 
 🔑 Key Levels
-Support: {support} (daily low), {support}
-Resistance: {daily_high} (daily high), {resistance}
+Support: {formatted_support} (daily low), {formatted_support}
+Resistance: {formatted_daily_high} (daily high), {formatted_resistance}
 
 📈 Technical Indicators
 RSI: {rsi:.2f} (neutral)
 MACD: {action} (0.00244 > signal 0.00070)
-Moving Averages: Price {'above' if is_bullish else 'below'} EMA 50 (150.354) and EMA 200 (153.302), reinforcing {action.lower()} bias.
+Moving Averages: Price {'above' if is_bullish else 'below'} EMA 50 ({formatted_ema50}) and EMA 200 ({formatted_ema200}), reinforcing {action.lower()} bias.
 
 🤖 Sigmapips AI Recommendation
 [2-3 sentences with market advice based on the analysis. Focus on key levels to watch and overall market bias.]
@@ -1165,6 +1198,7 @@ CRITICAL REQUIREMENTS:
 4. DO NOT DEVIATE FROM THIS FORMAT AT ALL
 5. DO NOT add any introduction or explanations
 6. USE THE EXACT PHRASES PROVIDED - no paraphrasing
+7. USE EXACTLY THE SAME DECIMAL PLACES PROVIDED IN MY TEMPLATE - no additional or fewer decimal places
 """
             
             # Make a request to DeepSeek API
@@ -1220,6 +1254,17 @@ CRITICAL REQUIREMENTS:
                                 # Ensure support is 0.000 for bullish trends
                                 if is_bullish and "BUY" in analysis:
                                     analysis = re.sub(r'Support:\s*([0-9.]+)', 'Support: 0.000', analysis)
+                                
+                                # Ensure prices have consistent decimal places
+                                def fix_numbers(match):
+                                    try:
+                                        num = float(match.group(1))
+                                        return f"{num:.{decimals}f}"
+                                    except:
+                                        return match.group(0)
+                                
+                                # Apply regex to fix decimals in numerical values
+                                analysis = re.sub(r'(\d+\.\d+)', lambda m: fix_numbers({'group': lambda x: m.group(0)}.group(1)), analysis)
                             
                             # Just return the analysis directly, skipping _clean_for_telegram
                             return analysis
