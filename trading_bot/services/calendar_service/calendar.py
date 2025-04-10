@@ -490,6 +490,7 @@ class EconomicCalendarService:
             # Create prompt for DeepSeek
             # Add current date to the prompt
             today_date = datetime.now().strftime("%Y-%m-%d")
+            today_formatted = datetime.now().strftime("%B %d, %Y")
             prompt = f"""Extract economic calendar events from the following text. 
 Format the response as JSON with the following structure:
 
@@ -515,7 +516,10 @@ Format the response as JSON with the following structure:
 }}
 ```
 
-IMPORTANT: Only include events for today's date ({today_date}). Filter out any events from other days.
+VERY IMPORTANT: ONLY include events scheduled for TODAY ({today_formatted}). You MUST filter out any events from other days.
+DO NOT include ANY events from future dates or past dates. ONLY include TODAY'S events: {today_formatted}.
+Events must be happening TODAY, not tomorrow, not yesterday.
+
 Only include events for these currencies: {', '.join(currencies)}
 For times, include timezone (EST if not specified).
 For impact, use "High", "Medium", or "Low".
@@ -523,7 +527,7 @@ For impact, use "High", "Medium", or "Low".
 Text to extract from:
 {text}
 
-Only return the JSON, nothing else. Remember to only include TODAY'S events ({today_date})."""
+Only return the JSON, nothing else. DO NOT include events from any date other than TODAY ({today_formatted})."""
 
             # Make the DeepSeek API call
             self.logger.info("Calling DeepSeek API to extract calendar data")
@@ -776,27 +780,49 @@ Only return the JSON, nothing else. Remember to only include TODAY'S events ({to
         if not calendar_data:
             return response + "No major economic events scheduled for today.\n\n<i>Check back later for updates.</i>"
         
-        # Get today's date for filtering
-        today_date = datetime.now().strftime("%Y-%m-%d")
-        response += f"Date: {datetime.now().strftime('%B %d, %Y')}\n\n"
+        # Get today's date for filtering in multiple formats
+        today = datetime.now()
+        today_date = today.strftime("%Y-%m-%d")
+        today_readable = today.strftime("%B %d, %Y")
+        
+        # Add date header to the response
+        response += f"Date: {today_readable}\n\n"
         response += "Impact: 🔴 High   🟠 Medium   🟢 Low\n\n"
             
         # Collect all events across currencies to sort by time
         all_events = []
+        events_count = 0
+        
         for currency, events in calendar_data.items():
             if currency not in MAJOR_CURRENCIES:
                 continue
                 
             for event in events:
-                # Check if this event has a date and it matches today
-                event_date = event.get("date", today_date)  # Default to today if no date specified
+                # Check if this event has a date
+                event_date = event.get("date", "")
                 
-                # Only include events from today
-                if event_date == today_date:
+                # Strikte filter toepassen - alleen events van vandaag
+                is_today_event = (
+                    # Event heeft een datum veld dat overeenkomt met vandaag
+                    (event_date and event_date == today_date) or
+                    # Geen datumveld, maar we nemen aan dat het voor vandaag is (backward compatibility)
+                    (not event_date and "tomorrow" not in event.get("event", "").lower() and
+                     "yesterday" not in event.get("event", "").lower())
+                )
+                
+                if is_today_event:
                     # Add currency to event for display
                     event_with_currency = event.copy()
                     event_with_currency['currency'] = currency
                     all_events.append(event_with_currency)
+                    events_count += 1
+        
+        # Log het aantal events na filtering
+        self.logger.info(f"Found {events_count} events for today after date filtering")
+        
+        # Als er geen events zijn na filtering, toon een bericht
+        if not all_events:
+            return response + "No major economic events scheduled for today.\n\n<i>Check back later for updates.</i>"
         
         # Group events by currency
         events_by_currency = {}
