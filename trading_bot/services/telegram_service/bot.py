@@ -3724,3 +3724,102 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         except Exception as e:
             logger.error(f"Error in remove_message_with_animation: {str(e)}")
             return False
+
+    async def show_sentiment_analysis(self, update: Update, context: CallbackContext, instrument: str = None) -> int:
+        """Show sentiment analysis for a specific instrument"""
+        try:
+            query = update.callback_query
+            chat_id = update.effective_chat.id
+
+            if not instrument:
+                logger.error("No instrument provided for sentiment analysis")
+                await query.edit_message_text(
+                    text="Error: No instrument selected for analysis",
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]])
+                )
+                return CHOOSE_INSTRUMENT
+
+            logger.info(f"Showing sentiment analysis for {instrument}")
+
+            # Initialize sentiment service if needed
+            if not hasattr(self, 'sentiment_service'):
+                from trading_bot.services.sentiment_service.sentiment import MarketSentimentService
+                self.sentiment_service = MarketSentimentService()
+
+            try:
+                # Get sentiment analysis
+                sentiment_data = await self.sentiment_service.get_sentiment(instrument)
+                
+                # Format the sentiment message
+                message = f"<b>🧠 Market Sentiment Analysis for {instrument}</b>\n\n"
+                
+                # Overall sentiment score
+                sentiment_score = sentiment_data.get('sentiment_score', 0)
+                sentiment_emoji = "📈" if sentiment_score > 0 else "📉" if sentiment_score < 0 else "➡️"
+                message += f"Overall Sentiment: {sentiment_emoji} "
+                
+                if sentiment_score > 0.5:
+                    message += "Strongly Bullish"
+                elif sentiment_score > 0:
+                    message += "Slightly Bullish"
+                elif sentiment_score < -0.5:
+                    message += "Strongly Bearish"
+                elif sentiment_score < 0:
+                    message += "Slightly Bearish"
+                else:
+                    message += "Neutral"
+                    
+                message += f" ({sentiment_score:.2f})\n\n"
+                
+                # Add sentiment breakdown
+                message += "<b>Sentiment Breakdown:</b>\n"
+                message += f"• Technical Indicators: {sentiment_data.get('technical_score', 'N/A')}\n"
+                message += f"• News Sentiment: {sentiment_data.get('news_score', 'N/A')}\n"
+                message += f"• Social Media: {sentiment_data.get('social_score', 'N/A')}\n\n"
+                
+                # Add recent news headlines if available
+                if 'news_headlines' in sentiment_data and sentiment_data['news_headlines']:
+                    message += "<b>Recent Market News:</b>\n"
+                    for headline in sentiment_data['news_headlines'][:3]:
+                        message += f"• {headline}\n"
+                    message += "\n"
+                
+                # Add market mood
+                message += "<b>Market Mood Indicators:</b>\n"
+                message += f"• Volatility: {sentiment_data.get('volatility', 'Normal')}\n"
+                message += f"• Volume: {sentiment_data.get('volume', 'Normal')}\n"
+                message += f"• Trend Strength: {sentiment_data.get('trend_strength', 'Moderate')}\n\n"
+                
+                # Add time of analysis
+                message += f"Analysis Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC\n"
+                
+                # Create keyboard with back button
+                keyboard = None
+                if context and hasattr(context, 'user_data') and context.user_data.get('from_signal', False):
+                    keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal_analysis")]]
+                else:
+                    keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]]
+                
+                # Update the message
+                await query.edit_message_text(
+                    text=message,
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.HTML
+                )
+                
+                return CHOOSE_ANALYSIS
+                
+            except Exception as e:
+                logger.error(f"Error getting sentiment analysis: {str(e)}")
+                # Show error message
+                keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]]
+                await query.edit_message_text(
+                    text=f"Error analyzing sentiment for {instrument}. Please try again later.",
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+                return CHOOSE_ANALYSIS
+                
+        except Exception as e:
+            logger.error(f"Error in show_sentiment_analysis: {str(e)}")
+            logger.error(traceback.format_exc())
+            return CHOOSE_ANALYSIS
