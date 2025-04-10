@@ -3008,6 +3008,9 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         try:
             # Handle different analysis types
             if analysis_type == "technical" or instrument_type == "chart":
+                # Verwijder het instrument bericht direct
+                await self.remove_message_with_animation(query)
+                
                 # Show loading message first with loading GIF
                 loading_message = None
                 try:
@@ -3018,7 +3021,8 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     # Try to show the loading GIF
                     try:
                         # First try to send a new animation message
-                        loading_message = await query.message.reply_animation(
+                        loading_message = await context.bot.send_animation(
+                            chat_id=update.effective_chat.id,
                             animation=loading_gif_url,
                             caption=f"⏳ Analyzing {instrument} on 1h timeframe... Please wait.",
                             parse_mode=ParseMode.HTML
@@ -3026,19 +3030,20 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                         logger.info(f"Sent new message with loading GIF")
                     except Exception as animation_error:
                         logger.error(f"Error sending animation: {str(animation_error)}")
-                        # Fall back to updating the existing message
-                        success = await gif_utils.update_message_with_gif(
-                            query=query,
-                            gif_url=loading_gif_url,
-                            text=f"⏳ Analyzing {instrument} on 1h timeframe... Please wait.",
-                            reply_markup=None
+                        # Fall back to sending a simple text message
+                        loading_message = await context.bot.send_message(
+                            chat_id=update.effective_chat.id,
+                            text=f"⏳ Analyzing {instrument} on 1h timeframe... Please wait."
                         )
-                        logger.info(f"Updated message with loading GIF: {success}")
                 except Exception as e:
                     logger.error(f"Error showing loading GIF: {str(e)}")
                 
                 # Small delay to ensure the loading GIF is visible
                 await asyncio.sleep(1)
+                
+                # Store loading message in context for later reference
+                if context and hasattr(context, 'user_data') and loading_message:
+                    context.user_data['loading_message'] = loading_message
                 
                 # Get the chart service
                 if not hasattr(self, 'chart_service') or self.chart_service is None:
@@ -3061,8 +3066,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                             # Probeer het bericht te vervangen met een transparante GIF
                             await self.remove_message_with_animation(loading_message)
                     
-                    # Verwijder het instrument bericht
-                    await self.remove_message_with_animation(query)
+                    # We hoeven het instrument bericht niet meer te verwijderen omdat we dit al eerder deden
                     
                     if chart_image_path and os.path.exists(chart_image_path):
                         # Create a keyboard with Back button that goes to market selection
@@ -3131,56 +3135,70 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     return CHOOSE_ANALYSIS
                     
             elif analysis_type == "sentiment" or instrument_type == "sentiment":
+                # Verwijder het instrument bericht direct
+                await self.remove_message_with_animation(query)
+                
                 # Show loading GIF for sentiment analysis
                 try:
                     # Get loading GIF URL
                     loading_gif_url = await gif_utils.get_loading_gif()
                     logger.info(f"Using loading GIF URL for sentiment: {loading_gif_url}")
                     
-                    # Update message with loading GIF
-                    await gif_utils.update_message_with_gif(
-                        query=query, 
-                        gif_url=loading_gif_url,
-                        text=f"Loading sentiment analysis for {instrument}... Please wait.",
-                        reply_markup=None
+                    # Send new message with loading GIF
+                    loading_message = await context.bot.send_animation(
+                        chat_id=update.effective_chat.id,
+                        animation=loading_gif_url,
+                        caption=f"Loading sentiment analysis for {instrument}... Please wait.",
+                        parse_mode=ParseMode.HTML
                     )
                 except Exception as e:
                     logger.error(f"Error showing loading GIF for sentiment analysis: {str(e)}")
-                    # Fallback to standard caption update
+                    # Fallback to standard text message
                     try:
-                        await query.edit_message_caption(
-                            caption=f"Loading sentiment analysis for {instrument}... Please wait.",
-                            reply_markup=None
+                        loading_message = await context.bot.send_message(
+                            chat_id=update.effective_chat.id,
+                            text=f"Loading sentiment analysis for {instrument}... Please wait."
                         )
-                    except Exception as caption_error:
-                        logger.error(f"Error updating caption: {str(caption_error)}")
+                    except Exception as msg_error:
+                        logger.error(f"Error sending loading message: {str(msg_error)}")
+                
+                # Store loading message in context for later reference
+                if context and hasattr(context, 'user_data') and loading_message:
+                    context.user_data['loading_message'] = loading_message
                 
                 return await self.show_sentiment_analysis(update, context, instrument=instrument)
                     
             elif analysis_type == "calendar" or instrument_type == "calendar":
+                # Verwijder het instrument bericht direct
+                await self.remove_message_with_animation(query)
+                
                 # Show loading GIF for calendar analysis
                 try:
                     # Get loading GIF URL
                     loading_gif_url = await gif_utils.get_loading_gif()
                     logger.info(f"Using loading GIF URL for calendar: {loading_gif_url}")
                     
-                    # Update message with loading GIF
-                    await gif_utils.update_message_with_gif(
-                        query=query, 
-                        gif_url=loading_gif_url,
-                        text=f"Loading economic calendar... Please wait.",
-                        reply_markup=None
+                    # Send new message with loading GIF
+                    loading_message = await context.bot.send_animation(
+                        chat_id=update.effective_chat.id,
+                        animation=loading_gif_url,
+                        caption=f"Loading economic calendar... Please wait.",
+                        parse_mode=ParseMode.HTML
                     )
                 except Exception as e:
                     logger.error(f"Error showing loading GIF for calendar analysis: {str(e)}")
-                    # Fallback to standard caption update
+                    # Fallback to standard text message
                     try:
-                        await query.edit_message_caption(
-                            caption=f"Loading economic calendar... Please wait.",
-                            reply_markup=None
+                        loading_message = await context.bot.send_message(
+                            chat_id=update.effective_chat.id,
+                            text=f"Loading economic calendar... Please wait."
                         )
-                    except Exception as caption_error:
-                        logger.error(f"Error updating caption: {str(caption_error)}")
+                    except Exception as msg_error:
+                        logger.error(f"Error sending loading message: {str(msg_error)}")
+                
+                # Store loading message in context for later reference
+                if context and hasattr(context, 'user_data') and loading_message:
+                    context.user_data['loading_message'] = loading_message
                 
                 return await self.show_calendar_analysis(update, context)
                 
