@@ -3823,3 +3823,53 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             logger.error(f"Error in show_sentiment_analysis: {str(e)}")
             logger.error(traceback.format_exc())
             return CHOOSE_ANALYSIS
+
+    async def analysis_callback(self, update: Update, context=None) -> int:
+        """Handle analysis menu callback"""
+        query = update.callback_query
+        await query.answer()
+        
+        logger.info("analysis_callback called")
+        
+        try:
+            # Reset analysis specific context
+            if context and hasattr(context, 'user_data'):
+                keys_to_remove = ['market', 'instrument', 'timeframe', 'analysis_type']
+                for key in keys_to_remove:
+                    if key in context.user_data:
+                        del context.user_data[key]
+            
+            # Show analysis options menu
+            text = "Select your analysis type:"
+            keyboard = InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
+            
+            # Try to update with GIF
+            gif_url = "https://media.giphy.com/media/gSzIKNrqtotEYrZv7i/giphy.gif"
+            
+            try:
+                # First try to delete and send new message
+                await query.message.delete()
+                await context.bot.send_animation(
+                    chat_id=update.effective_chat.id,
+                    animation=gif_url,
+                    caption=text,
+                    reply_markup=keyboard,
+                    parse_mode=ParseMode.HTML
+                )
+            except Exception as e:
+                logger.warning(f"Could not send new message with GIF: {str(e)}")
+                # Fall back to updating existing message
+                await self.update_message(
+                    query=query,
+                    text=text,
+                    keyboard=keyboard,
+                    parse_mode=ParseMode.HTML
+                )
+            
+            return CHOOSE_ANALYSIS
+            
+        except Exception as e:
+            logger.error(f"Error in analysis_callback: {str(e)}")
+            # Try to recover by showing main menu
+            await self.show_main_menu(update, context)
+            return MENU
