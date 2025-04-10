@@ -168,45 +168,62 @@ class DeepseekService:
         
         if "economic calendar" in prompt.lower():
             # Controleer of er een specifieke datum in de prompt staat
+            from datetime import datetime
+            
+            # Verkrijg de huidige datum in verschillende formaten
             current_date = datetime.now().strftime("%Y-%m-%d")
-            today_only = True  # Standaard alleen vandaag tonen
+            current_formatted = datetime.now().strftime("%B %d, %Y")
+            
+            # Haal vlaggen op uit de prompt indien beschikbaar
+            currencies = []
+            if "currencies:" in prompt:
+                try:
+                    currencies_part = prompt.split("currencies:")[1].split("\n")[0].strip()
+                    currencies = [c.strip() for c in currencies_part.split(",")]
+                except:
+                    currencies = ["USD", "EUR"]
+            else:
+                currencies = ["USD", "EUR"]
+                
+            # Log wat we gevonden hebben
+            logger.info(f"Mock data: Using current date {current_date} and currencies {currencies}")
             
             # Return a mock economic calendar JSON - alleen voor vandaag
-            return """```json
-{
+            return f"""```json
+{{
   "USD": [
-    {
+    {{
       "time": "08:30 EST",
       "event": "Initial Jobless Claims",
       "impact": "Medium",
-      "date": "%s"
-    },
-    {
+      "date": "{current_date}"
+    }},
+    {{
       "time": "08:30 EST",
       "event": "Trade Balance",
       "impact": "Medium",
-      "date": "%s"
-    },
-    {
+      "date": "{current_date}"
+    }},
+    {{
       "time": "15:30 EST",
       "event": "Fed Chair Speech",
       "impact": "High",
-      "date": "%s"
-    }
+      "date": "{current_date}"
+    }}
   ],
   "EUR": [
-    {
+    {{
       "time": "07:45 EST",
       "event": "ECB Interest Rate Decision",
       "impact": "High",
-      "date": "%s"
-    },
-    {
+      "date": "{current_date}"
+    }},
+    {{
       "time": "08:30 EST",
       "event": "ECB Press Conference",
       "impact": "High",
-      "date": "%s"
-    }
+      "date": "{current_date}"
+    }}
   ],
   "GBP": [],
   "JPY": [],
@@ -214,7 +231,7 @@ class DeepseekService:
   "AUD": [],
   "NZD": [],
   "CAD": []
-}```""" % (current_date, current_date, current_date, current_date, current_date)
+}}```"""
         elif "sentiment" in prompt.lower():
             # Return a mock sentiment analysis
             is_bullish = random.choice([True, False])
