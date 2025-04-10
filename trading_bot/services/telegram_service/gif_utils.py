@@ -168,7 +168,7 @@ async def send_loading_gif(bot, chat_id, caption=None):
 async def get_loading_gif():
     """Get the loading GIF URL."""
     # Using a specialized loading animation GIF - clean spinning loader with subtle animation
-    return "https://media.giphy.com/media/sSgvbe1m3n93G/giphy.gif"
+    return "https://media.giphy.com/media/dpjUltnOPye7azvAhH/giphy.gif"
 
 async def embed_gif_in_text(gif_url: str, text: str) -> str:
     """
