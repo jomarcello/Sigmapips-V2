@@ -3688,3 +3688,91 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             except Exception as e2:
                 logger.error(f"Could not show main menu as fallback: {str(e2)}")
             return MENU
+
+    async def back_to_signal_analysis_callback(self, update: Update, context=None) -> int:
+        """Handle back_to_signal_analysis button press"""
+        query = update.callback_query
+        await query.answer()
+        
+        logger.info("back_to_signal_analysis_callback called")
+        
+        # Restore any backed up signal data if available
+        if context and hasattr(context, 'user_data'):
+            # Check for backed up signal data
+            if 'signal_instrument_backup' in context.user_data:
+                context.user_data['instrument'] = context.user_data['signal_instrument_backup']
+                
+            if 'signal_direction_backup' in context.user_data:
+                context.user_data['signal_direction'] = context.user_data['signal_direction_backup']
+                
+            if 'signal_timeframe_backup' in context.user_data:
+                context.user_data['signal_timeframe'] = context.user_data['signal_timeframe_backup']
+                
+            # Keep from_signal flag
+            context.user_data['from_signal'] = True
+            
+            logger.info(f"Restored signal context: {context.user_data}")
+        
+        # Create keyboard for signal analysis options
+        keyboard = InlineKeyboardMarkup(SIGNAL_ANALYSIS_KEYBOARD)
+        
+        # Update the message
+        await self.update_message(
+            query=query,
+            text=f"<b>🔍 Signal Analysis</b>\n\nChoose analysis type for this signal:",
+            keyboard=keyboard
+        )
+        
+        return CHOOSE_ANALYSIS
+
+    def _load_signals(self):
+        """Load signals from the signals directory"""
+        try:
+            logger.info("Loading signals from directory")
+            
+            # Initialize signals cache
+            self.user_signals = {}
+            
+            # Check if signals directory exists
+            if not os.path.exists(self.signals_dir):
+                os.makedirs(self.signals_dir, exist_ok=True)
+                logger.info(f"Created signals directory: {self.signals_dir}")
+                return
+            
+            # List signal files
+            signal_files = [f for f in os.listdir(self.signals_dir) if f.endswith('.json')]
+            
+            if not signal_files:
+                logger.info("No signal files found")
+                return
+                
+            # Load each signal file
+            for signal_file in signal_files:
+                try:
+                    with open(os.path.join(self.signals_dir, signal_file), 'r') as f:
+                        signal_data = json.load(f)
+                        
+                    # Extract signal ID
+                    signal_id = signal_data.get('id')
+                    
+                    if not signal_id:
+                        # Try to extract from filename
+                        signal_id = signal_file.replace('.json', '')
+                        
+                    # Initialize for admin users
+                    if hasattr(self, 'admin_users') and self.admin_users:
+                        for admin_id in self.admin_users:
+                            admin_str_id = str(admin_id)
+                            if admin_str_id not in self.user_signals:
+                                self.user_signals[admin_str_id] = {}
+                            
+                            # Store signal for admin
+                            self.user_signals[admin_str_id][signal_id] = signal_data
+                except Exception as e:
+                    logger.error(f"Error loading signal file {signal_file}: {str(e)}")
+                    continue
+                    
+            logger.info(f"Loaded {len(signal_files)} signal files")
+            
+        except Exception as e:
+            logger.error(f"Error loading signals: {str(e)}")
