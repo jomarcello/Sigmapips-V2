@@ -188,7 +188,7 @@ class DeepseekService:
             # Log wat we gevonden hebben
             logger.info(f"Mock data: Using current date {current_date} and currencies {currencies}")
             
-            # Return a mock economic calendar JSON - alleen voor vandaag
+            # Return a mock economic calendar JSON - alleen voor vandaag, zonder datums in de titels
             return f"""```json
 {{
   "USD": [
@@ -199,13 +199,13 @@ class DeepseekService:
       "date": "{current_date}"
     }},
     {{
-      "time": "08:30 EST",
+      "time": "09:30 EST",
       "event": "Trade Balance",
       "impact": "Medium",
       "date": "{current_date}"
     }},
     {{
-      "time": "15:30 EST",
+      "time": "14:00 EST",
       "event": "Fed Chair Speech",
       "impact": "High",
       "date": "{current_date}"
@@ -219,14 +219,28 @@ class DeepseekService:
       "date": "{current_date}"
     }},
     {{
-      "time": "08:30 EST",
+      "time": "09:30 EST",
       "event": "ECB Press Conference",
+      "impact": "High", 
+      "date": "{current_date}"
+    }}
+  ],
+  "GBP": [
+    {{
+      "time": "10:00 EST",
+      "event": "Manufacturing Production",
+      "impact": "Medium",
+      "date": "{current_date}"
+    }}
+  ],
+  "JPY": [
+    {{
+      "time": "02:30 EST",
+      "event": "BOJ Monetary Policy Statement",
       "impact": "High",
       "date": "{current_date}"
     }}
   ],
-  "GBP": [],
-  "JPY": [],
   "CHF": [],
   "AUD": [],
   "NZD": [],
