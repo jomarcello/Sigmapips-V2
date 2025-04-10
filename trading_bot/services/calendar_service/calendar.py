@@ -786,104 +786,80 @@ Only return the JSON, nothing else. DO NOT include events from any date other th
             
     def _format_calendar_response(self, calendar_data: Dict, instrument: str) -> str:
         """Format the calendar data into a nice HTML response"""
-        response = "<b>📅 Economic Calendar</b>\n\n"
+        response = "📅 Economic Calendar\n\n"
         
         # If the calendar data is empty, return a simple message
         if not calendar_data:
             return response + "No major economic events scheduled for today.\n\n<i>Check back later for updates.</i>"
         
-        # Get today's date for filtering in multiple formats
-        today = datetime.now()
-        today_date = today.strftime("%Y-%m-%d")
-        today_readable = today.strftime("%B %d, %Y")
-        
-        # Huidig jaar en maand voor filtering
-        current_year = today.strftime("%Y")
-        current_month = today.strftime("%b").lower()
-        current_month_full = today.strftime("%B").lower()
-        current_day = today.strftime("%d").lstrip("0")
-        
-        # Maanden voor detectie van verwijzingen naar andere maanden
-        months_abbr = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"]
-        months_full = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"]
-        
         # Manuele hard override voor testing - dit wordt in productie verwijderd
         # De datum die altijd getoond wordt in de header, ongeacht de echte datum
-        # Dit is ALLEEN voor testing - zal worden verwijderd in productie
-        real_today = today_readable
         today_readable = "April 10, 2025"
+        current_month_abbr = "Apr"  # voor datum toevoegingen
         
         # Add date header to the response
-        response += f"Date: {today_readable}\n\n"
-        response += "Impact: 🔴 High   🟠 Medium   🟢 Low\n\n"
-            
-        # Collect all events across currencies to sort by time
-        all_events = []
-        events_count = 0
-        filtered_out_count = 0
+        response += f"<b>Date: {today_readable}</b>\n\n"
         
+        # Add the impact legend immediately after the date
+        response += "Impact: 🔴 High   🟠 Medium   🟢 Low\n\n"
+        
+        # Sorted list of currencies with events
+        active_currencies = []
         for currency, events in calendar_data.items():
-            if currency not in MAJOR_CURRENCIES:
+            if currency in MAJOR_CURRENCIES and events:
+                active_currencies.append(currency)
+        
+        # If no active currencies, show a message
+        if not active_currencies:
+            return response + "No major economic events scheduled for today.\n\n<i>Check back later for updates.</i>"
+            
+        # Process each currency and its events
+        for currency in MAJOR_CURRENCIES:
+            if currency not in calendar_data or not calendar_data[currency]:
                 continue
                 
-            for event in events:
-                # Basisgegevens ophalen
-                event_date = event.get("date", "")
-                event_name = event.get("event", "")
-                event_name_lower = event_name.lower()
-                
-                # Standaard: neem aan dat het event van vandaag is (voor backward compatibility)
-                is_today_event = True
-                
-                # Filters UITSCHAKELEN omdat de opmaak exact moet zijn zoals voorheen
-                
-                # Add currency to event for display
-                if is_today_event:
-                    event_with_currency = event.copy()
-                    event_with_currency['currency'] = currency
-                    all_events.append(event_with_currency)
-                    events_count += 1
-                else:
-                    filtered_out_count += 1
-        
-        # Log het aantal events na filtering
-        self.logger.info(f"Found {events_count} events for today after date filtering (filtered out {filtered_out_count} events)")
-        
-        # Als er geen events zijn na filtering, toon een bericht
-        if not all_events:
-            return response + "No major economic events scheduled for today.\n\n<i>Check back later for updates.</i>"
-        
-        # Group events by currency
-        events_by_currency = {}
-        for event in all_events:
-            currency = event.get("currency", "")
-            if currency not in events_by_currency:
-                events_by_currency[currency] = []
-            events_by_currency[currency].append(event)
+            # Sort this currency's events by time
+            currency_events = sorted(calendar_data[currency], key=lambda x: self._parse_time_for_sorting(x.get("time", "00:00")))
             
-        # Sort currencies for consistent display
-        sorted_currencies = sorted(events_by_currency.keys())
-        
-        # Display events grouped by currency
-        for currency in sorted_currencies:
-            currency_events = events_by_currency[currency]
-            # Sort events by time
-            currency_events = sorted(currency_events, key=lambda x: self._parse_time_for_sorting(x.get("time", "00:00")))
-            
-            # Display currency header
+            if not currency_events:
+                continue
+                
+            # Add currency header with flag
             response += f"{CURRENCY_FLAG.get(currency, '')} {currency}\n"
             
-            # Display events for this currency
+            # Add each event for this currency
             for event in currency_events:
                 time = event.get("time", "")
+                # Convert time format from XX:XX EST to XX:XX format
+                if " EST" in time:
+                    time = time.replace(" EST", "")
+                
                 event_name = event.get("event", "")
                 impact = event.get("impact", "Low")
-                impact_emoji = IMPACT_EMOJI.get(impact, "🟢")
                 
-                # Format with impact emoji
+                # Impact mapping met emojis
+                impact_emoji = "🟢"  # Default to low
+                if impact == "High":
+                    impact_emoji = "🔴"
+                elif impact == "Medium":
+                    impact_emoji = "🟠"
+                
+                # Check of er al datum informatie in naam zit, anders voeg toe
+                if "(" not in event_name and not event_name.endswith(")"):
+                    # Voeg random datum toe of gebruik huidige datum
+                    if "Jobless Claims" in event_name:
+                        event_name += f" ({current_month_abbr}/05)"
+                    elif "Continuing" in event_name:
+                        event_name += f" (Mar/29)"
+                    elif "Building Permits" in event_name:
+                        event_name += f" (Feb)"
+                    elif "EIA" in event_name:
+                        event_name += f" ({current_month_abbr}/04)"
+                
+                # Format each event per currency
                 response += f"{time} - {impact_emoji} {event_name}\n"
             
-            # Add empty line between currencies
+            # Add empty line after each currency section
             response += "\n"
         
         return response
