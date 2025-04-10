@@ -1721,11 +1721,12 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         query = update.callback_query
         await query.answer()
         
-        # Check if signal-specific data is present in callback data
+        # Set analysis type in context
         if context and hasattr(context, 'user_data'):
             context.user_data['analysis_type'] = 'technical'
+            logger.info("Set analysis_type to technical")
         
-        # Set the callback data
+        # Check if signal-specific data is present in callback data
         callback_data = query.data
         
         # Set the instrument if it was passed in the callback data
@@ -2977,19 +2978,36 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         query = update.callback_query
         await query.answer()
         
-        # Get the instrument from the callback data
-        instrument = query.data.split("_")[1]
-        instrument_type = context.user_data.get('analysis_type') if context and hasattr(context, 'user_data') else None
+        # Get the instrument and type from the callback data
+        callback_data = query.data
+        parts = callback_data.split("_")
         
-        logger.info(f"Selected instrument: {instrument}, type: {instrument_type}")
+        # Extract instrument and type
+        instrument = parts[1]
+        instrument_type = parts[2] if len(parts) > 2 else None  # chart, sentiment, calendar
         
-        # Save instrument in context
+        # Map instrument_type to analysis_type
+        if instrument_type == "chart":
+            analysis_type = "technical"
+        elif instrument_type == "sentiment":
+            analysis_type = "sentiment"
+        elif instrument_type == "calendar":
+            analysis_type = "calendar"
+        else:
+            # Get from context
+            analysis_type = context.user_data.get('analysis_type') if context and hasattr(context, 'user_data') else None
+        
+        logger.info(f"Selected instrument: {instrument}, type: {analysis_type}")
+        
+        # Save instrument and analysis type in context
         if context and hasattr(context, 'user_data'):
             context.user_data['instrument'] = instrument
+            if analysis_type:
+                context.user_data['analysis_type'] = analysis_type
         
         try:
-            # Handle different instrument types
-            if instrument_type == "chart" or instrument_type is None:
+            # Handle different analysis types
+            if analysis_type == "technical" or instrument_type == "chart":
                 # Show loading message first with loading GIF
                 loading_message = None
                 try:
@@ -3103,7 +3121,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     )
                     return CHOOSE_ANALYSIS
                     
-            elif instrument_type == "sentiment":
+            elif analysis_type == "sentiment" or instrument_type == "sentiment":
                 # Show loading GIF for sentiment analysis
                 try:
                     # Get loading GIF URL
@@ -3130,7 +3148,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 
                 return await self.show_sentiment_analysis(update, context, instrument=instrument)
                     
-            elif instrument_type == "calendar":
+            elif analysis_type == "calendar" or instrument_type == "calendar":
                 # Show loading GIF for calendar analysis
                 try:
                     # Get loading GIF URL
