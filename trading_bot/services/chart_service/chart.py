@@ -729,23 +729,23 @@ class ChartService:
                 # Create a fallback analysis text in the exact format we need
                 fallback_analysis = f"""{instrument} - {timeframe}
 
-**Trend - {action}**
+<b>Trend - {action}</b>
 
 Zone Strength 1-5: {'★★★★☆' if is_bullish else '★★★☆☆'}
 
-**📊 Market Overview**
+<b>📊 Market Overview</b>
 {instrument} is trading at {formatted_price}, showing {action.lower()} momentum near the daily {'high' if is_bullish else 'low'} ({formatted_daily_high}). The price remains {'above' if is_bullish else 'below'} key EMAs (50 & 200), confirming an {'uptrend' if is_bullish else 'downtrend'}.
 
-**🔑 Key Levels**
+<b>🔑 Key Levels</b>
 Support: {formatted_support} (daily low), {formatted_support}
 Resistance: {formatted_daily_high} (daily high), {formatted_resistance}
 
-**📈 Technical Indicators**
+<b>📈 Technical Indicators</b>
 RSI: {rsi:.2f} (neutral)
 MACD: {action} (0.00244 > signal 0.00070)
 Moving Averages: Price {'above' if is_bullish else 'below'} EMA 50, reinforcing {action.lower()} bias.
 
-**🤖 Sigmapips AI Recommendation**
+<b>🤖 Sigmapips AI Recommendation</b>
 The market shows {'strong buying' if is_bullish else 'strong selling'} pressure. Traders should watch the {formatted_resistance} {'resistance' if is_bullish else 'support'} level carefully. {'A break above could lead to further upside momentum.' if is_bullish else 'A break below could accelerate the downward trend.'}
 
 ⚠️ Disclaimer: Please note that the information/analysis provided is strictly for study and educational purposes only. It should not be constructed as financial advice and always do your own analysis."""
@@ -1145,23 +1145,23 @@ The market shows {'strong buying' if is_bullish else 'strong selling'} pressure.
             if instrument == "USDJPY":
                 return """USDJPY - 15
 
-**Trend - BUY**
+<b>Trend - BUY</b>
 
 Zone Strength 1-5: ★★★★☆
 
-**📊 Market Overview**
+<b>📊 Market Overview</b>
 USDJPY is trading at 147.406, showing buy momentum near the daily high (148.291). The price remains above key EMAs (50 & 200), confirming an uptrend.
 
-**🔑 Key Levels**
+<b>🔑 Key Levels</b>
 Support: 0.000 (daily low), 0.000
 Resistance: 148.291 (daily high), 148.143
 
-**📈 Technical Indicators**
+<b>📈 Technical Indicators</b>
 RSI: 65.00 (neutral)
 MACD: Buy (0.00244 > signal 0.00070)
 Moving Averages: Price above EMA 50 (150.354) and EMA 200 (153.302), reinforcing buy bias.
 
-**🤖 Sigmapips AI Recommendation**
+<b>🤖 Sigmapips AI Recommendation</b>
 The bias remains bullish but watch for resistance near 148.143. A break above could target higher levels, while failure may test 0.000 support.
 
 ⚠️ Disclaimer: Please note that the information/analysis provided is strictly for study and educational purposes only. It should not be constructed as financial advice and always do your own analysis."""
@@ -1230,23 +1230,23 @@ Based on this data, you must determine if the trend is {action}, and identify ke
 YOUR RESPONSE MUST BE IN THIS EXACT FORMAT:
 {instrument} - {timeframe}
 
-**Trend - {action}**
+<b>Trend - {action}</b>
 
 Zone Strength 1-5: {'★★★★☆' if is_bullish else '★★★☆☆'}
 
-**📊 Market Overview**
+<b>📊 Market Overview</b>
 {instrument} is trading at {formatted_price}, showing {action.lower()} momentum near the daily {'high' if is_bullish else 'low'} ({formatted_daily_high}). The price remains {'above' if is_bullish else 'below'} key EMAs (50 & 200), confirming an {'uptrend' if is_bullish else 'downtrend'}.
 
-**🔑 Key Levels**
+<b>🔑 Key Levels</b>
 Support: {formatted_support} (daily low), {formatted_support}
 Resistance: {formatted_daily_high} (daily high), {formatted_resistance}
 
-**📈 Technical Indicators**
+<b>📈 Technical Indicators</b>
 RSI: {rsi:.2f} (neutral)
 MACD: {action} (0.00244 > signal 0.00070)
 Moving Averages: Price {'above' if is_bullish else 'below'} EMA 50 ({formatted_ema50}) and EMA 200 ({formatted_ema200}), reinforcing {action.lower()} bias.
 
-**🤖 Sigmapips AI Recommendation**
+<b>🤖 Sigmapips AI Recommendation</b>
 [2-3 sentences with market advice based on the analysis. Focus on key levels to watch and overall market bias.]
 
 ⚠️ Disclaimer: Please note that the information/analysis provided is strictly for study and educational purposes only. It should not be constructed as financial advice and always do your own analysis.
@@ -1259,7 +1259,7 @@ CRITICAL REQUIREMENTS:
 5. DO NOT add any introduction or explanations
 6. USE THE EXACT PHRASES PROVIDED - no paraphrasing
 7. USE EXACTLY THE SAME DECIMAL PLACES PROVIDED IN MY TEMPLATE - no additional or fewer decimal places
-8. Bold formatting should be used for headers (using ** before and after the header text)
+8. Bold formatting should be used for headers (using <b> and </b> HTML tags)
 9. Do NOT include the line "Sigmapips AI identifies strong buy/sell probability..." - skip directly from Trend to Zone Strength
 """
             
@@ -1331,12 +1331,15 @@ CRITICAL REQUIREMENTS:
                                 # Remove the "Sigmapips AI identifies..." line if it exists
                                 analysis = re.sub(r'\n\nSigmapips AI identifies strong (buy|sell) probability.*?\n\n', '\n\n', analysis, flags=re.IGNORECASE)
                                 
-                                # Add bold formatting to headers if not already present
-                                analysis = re.sub(r'\n(Trend - [A-Z]+)\n', r'\n**\1**\n', analysis)
-                                analysis = re.sub(r'\n(📊 Market Overview)\n', r'\n**\1**\n', analysis)
-                                analysis = re.sub(r'\n(🔑 Key Levels)\n', r'\n**\1**\n', analysis)
-                                analysis = re.sub(r'\n(📈 Technical Indicators)\n', r'\n**\1**\n', analysis)
-                                analysis = re.sub(r'\n(🤖 Sigmapips AI Recommendation)\n', r'\n**\1**\n', analysis)
+                                # Convert markdown bold to HTML bold if needed
+                                analysis = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', analysis)
+                                
+                                # Add HTML bold formatting to headers if not already present
+                                analysis = re.sub(r'\n(Trend - [A-Z]+)\n', r'\n<b>\1</b>\n', analysis)
+                                analysis = re.sub(r'\n(📊 Market Overview)\n', r'\n<b>\1</b>\n', analysis)
+                                analysis = re.sub(r'\n(🔑 Key Levels)\n', r'\n<b>\1</b>\n', analysis)
+                                analysis = re.sub(r'\n(📈 Technical Indicators)\n', r'\n<b>\1</b>\n', analysis)
+                                analysis = re.sub(r'\n(🤖 Sigmapips AI Recommendation)\n', r'\n<b>\1</b>\n', analysis)
                             
                             # Just return the analysis directly, skipping _clean_for_telegram
                             return analysis
