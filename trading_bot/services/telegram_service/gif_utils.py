@@ -9,12 +9,12 @@ logger = logging.getLogger(__name__)
 async def get_welcome_gif():
     """Get the welcome GIF URL."""
     # SigmaPips welcome GIF in zwart met logo
-    return "https://media.giphy.com/media/dpjUltnOPye7azvAhH/giphy.gif"
+    return "https://media.giphy.com/media/gSzIKNrqtotEYrZv7i/giphy.gif"
 
 async def get_menu_gif():
     """Get the menu GIF URL."""
     # SigmaPips welcome GIF in zwart met logo
-    return "https://media.giphy.com/media/dpjUltnOPye7azvAhH/giphy.gif"
+    return "https://media.giphy.com/media/gSzIKNrqtotEYrZv7i/giphy.gif"
 
 async def get_analyse_gif():
     """Get the analysis GIF URL."""
@@ -70,7 +70,7 @@ async def send_welcome_gif(bot, chat_id, caption=None):
     """Send a welcome GIF to the user."""
     try:
         # Use the new welcome GIF URL
-        gif_url = "https://media.giphy.com/media/dpjUltnOPye7azvAhH/giphy.gif"
+        gif_url = "https://media.giphy.com/media/gSzIKNrqtotEYrZv7i/giphy.gif"
         
         # Send the GIF animation
         await bot.send_animation(
@@ -88,7 +88,7 @@ async def send_menu_gif(bot, chat_id, caption=None):
     """Send a menu GIF to the user."""
     try:
         # Use the welcome GIF URL for menu as well
-        gif_url = "https://media.giphy.com/media/dpjUltnOPye7azvAhH/giphy.gif"
+        gif_url = "https://media.giphy.com/media/gSzIKNrqtotEYrZv7i/giphy.gif"
         
         # Send the GIF animation
         await bot.send_animation(
@@ -150,8 +150,8 @@ async def send_signals_gif(bot, chat_id, caption=None):
 async def send_loading_gif(bot, chat_id, caption=None):
     """Send a loading GIF to the user."""
     try:
-        # Loading GIF URL
-        gif_url = "https://media.giphy.com/media/dpjUltnOPye7azvAhH/giphy.gif"
+        # Get the loading GIF URL from the dedicated function to ensure consistency
+        gif_url = await get_loading_gif()
         
         # Explicitly use send_animation to ensure it's treated as a GIF
         await bot.send_animation(
@@ -167,8 +167,8 @@ async def send_loading_gif(bot, chat_id, caption=None):
 
 async def get_loading_gif():
     """Get the loading GIF URL."""
-    # This is the correct loading GIF URL, different from the welcome GIF
-    return "https://media.giphy.com/media/dpjUltnOPye7azvAhH/giphy.gif"
+    # Using a specialized loading animation GIF - clean spinning loader with subtle animation
+    return "https://media.giphy.com/media/sSgvbe1m3n93G/giphy.gif"
 
 async def embed_gif_in_text(gif_url: str, text: str) -> str:
     """
