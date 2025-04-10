@@ -8,6 +8,7 @@ import socket
 import ssl
 import aiohttp
 from typing import Dict, List, Any, Optional
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -166,36 +167,45 @@ class DeepseekService:
         logger.info(f"Generating mock completion")
         
         if "economic calendar" in prompt.lower():
-            # Return a mock economic calendar JSON
+            # Controleer of er een specifieke datum in de prompt staat
+            current_date = datetime.now().strftime("%Y-%m-%d")
+            today_only = True  # Standaard alleen vandaag tonen
+            
+            # Return a mock economic calendar JSON - alleen voor vandaag
             return """```json
 {
   "USD": [
     {
       "time": "08:30 EST",
       "event": "Initial Jobless Claims",
-      "impact": "Medium"
+      "impact": "Medium",
+      "date": "%s"
     },
     {
       "time": "08:30 EST",
       "event": "Trade Balance",
-      "impact": "Medium"
+      "impact": "Medium",
+      "date": "%s"
     },
     {
       "time": "15:30 EST",
       "event": "Fed Chair Speech",
-      "impact": "High"
+      "impact": "High",
+      "date": "%s"
     }
   ],
   "EUR": [
     {
       "time": "07:45 EST",
       "event": "ECB Interest Rate Decision",
-      "impact": "High"
+      "impact": "High",
+      "date": "%s"
     },
     {
       "time": "08:30 EST",
       "event": "ECB Press Conference",
-      "impact": "High"
+      "impact": "High",
+      "date": "%s"
     }
   ],
   "GBP": [],
@@ -204,7 +214,7 @@ class DeepseekService:
   "AUD": [],
   "NZD": [],
   "CAD": []
-}```"""
+}```""" % (current_date, current_date, current_date, current_date, current_date)
         elif "sentiment" in prompt.lower():
             # Return a mock sentiment analysis
             is_bullish = random.choice([True, False])
