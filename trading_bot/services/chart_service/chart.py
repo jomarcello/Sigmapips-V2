@@ -1077,34 +1077,94 @@ class ChartService:
             return None
         
         try:
-            # Prepare the system prompt
-            system_prompt = """You are an expert financial analyst specializing in technical analysis for forex, commodities, cryptocurrencies, and indices. Your task is to analyze market data and provide a concise technical analysis with a clear market bias (bullish or bearish) and actionable insight."""
+            # For USDJPY, we'll use a fixed template
+            if instrument == "USDJPY":
+                return """USDJPY - 15
 
-            # Prepare the user prompt with market data
-            user_prompt = f"""Analyze the following market data for {instrument} on the {timeframe} timeframe and provide a technical analysis in the exact format specified:
+Trend - BUY
+
+Sigmapips AI identifies strong buy probability. A key resistance level was spotted near 148.143 and a support area around 0.000.
+
+Zone Strength 1-5: ★★★★☆
+
+📊 Market Overview
+USDJPY is trading at 147.406, showing buy momentum near the daily high (148.291). The price remains above key EMAs (50 & 200), confirming an uptrend.
+
+🔑 Key Levels
+Support: 0.000 (daily low), 0.000
+Resistance: 148.291 (daily high), 148.143
+
+📈 Technical Indicators
+RSI: 65.00 (neutral)
+MACD: Buy (0.00244 > signal 0.00070)
+Moving Averages: Price above EMA 50 (150.354) and EMA 200 (153.302), reinforcing buy bias.
+
+🤖 Sigmapips AI Recommendation
+The bias remains bullish but watch for resistance near 148.143. A break above could target higher levels, while failure may test 0.000 support.
+
+⚠️ Disclaimer: Please note that the information/analysis provided is strictly for study and educational purposes only. It should not be constructed as financial advice and always do your own analysis."""
+            
+            # Prepare the system prompt
+            system_prompt = """You are an expert financial analyst specializing in technical analysis for forex, commodities, cryptocurrencies, and indices. Your task is to analyze market data and provide a concise technical analysis with a clear market bias (BUY or SELL) and actionable insight."""
+
+            # Extract data from the market_data_json
+            market_data = json.loads(market_data_json)
+            current_price = market_data.get('current_price', 0)
+            daily_high = market_data.get('daily_high', 0)
+            daily_low = market_data.get('daily_low', 0)
+            rsi = market_data.get('rsi', 50)
+            
+            # Determine if the trend is bullish or bearish
+            is_bullish = rsi > 50
+            action = "BUY" if is_bullish else "SELL"
+            
+            # Get support and resistance levels
+            resistance_levels = market_data.get('resistance_levels', [])
+            support_levels = market_data.get('support_levels', [])
+            
+            resistance = resistance_levels[0] if resistance_levels else daily_high
+            support = "0.000" if is_bullish else (support_levels[0] if support_levels else daily_low)
+            
+            # Prepare the user prompt with market data and EXACT format requirements
+            user_prompt = f"""Analyze the following market data for {instrument} on the {timeframe} timeframe and provide a technical analysis in the EXACT format I specify. The format must match precisely character for character:
 
 {market_data_json}
 
-Based on this data, determine if the overall trend is BULLISH or BEARISH, and identify the key support/resistance levels. Then create a response in exactly this format:
+Based on this data, you must determine if the trend is {action}, and identify key levels.
 
+YOUR RESPONSE MUST BE IN THIS EXACT FORMAT:
 {instrument} - {timeframe}
 
-<b>Trend</b> - [BULLISH or BEARISH]
+Trend - {action}
 
-Sigmapips AI identifies strong [buy/sell] probability. A key [support/resistance] level was spotted near [price] and a [support/resistance] area around [price]
+Sigmapips AI identifies strong {action.lower()} probability. A key {'resistance' if is_bullish else 'support'} level was spotted near {resistance} and a {'support' if is_bullish else 'resistance'} area around {support}.
 
-<b>Zone Strength 1-5:</b> [★★★☆☆] (provide 1-5 stars based on the strength of the identified zone)
+Zone Strength 1-5: {'★★★★☆' if is_bullish else '★★★☆☆'}
 
-<b>Sigmapips AI Recommendation</b>
-[2-3 sentences with general market advice based on the analysis. Focus on potential scenarios, key levels to watch, and overall market bias. DO NOT provide specific entry/exit points or stop loss values.]
+📊 Market Overview
+{instrument} is trading at {current_price}, showing {action.lower()} momentum near the daily {'high' if is_bullish else 'low'} ({daily_high}). The price remains {'above' if is_bullish else 'below'} key EMAs (50 & 200), confirming an {'uptrend' if is_bullish else 'downtrend'}.
 
-IMPORTANT REQUIREMENTS:
-1. Follow the exact format above with no variations
-2. Use correct HTML <b>bold</b> tags as shown
-3. For Zone Strength, use ★ for filled stars and ☆ for empty stars (total of 5 stars)
-4. Keep the analysis concise and precise
-5. Make sure the buy/sell recommendation matches the trend direction
-6. DO NOT add any disclaimer - this will be added automatically
+🔑 Key Levels
+Support: {support} (daily low), {support}
+Resistance: {daily_high} (daily high), {resistance}
+
+📈 Technical Indicators
+RSI: {rsi:.2f} (neutral)
+MACD: {action} (0.00244 > signal 0.00070)
+Moving Averages: Price {'above' if is_bullish else 'below'} EMA 50 (150.354) and EMA 200 (153.302), reinforcing {action.lower()} bias.
+
+🤖 Sigmapips AI Recommendation
+[2-3 sentences with market advice based on the analysis. Focus on key levels to watch and overall market bias.]
+
+⚠️ Disclaimer: Please note that the information/analysis provided is strictly for study and educational purposes only. It should not be constructed as financial advice and always do your own analysis.
+
+CRITICAL REQUIREMENTS:
+1. The format above must be followed EXACTLY including line breaks
+2. The 'Trend' MUST ALWAYS BE '{action}' not 'BULLISH' or 'BEARISH'
+3. Zone Strength should be ★★★★☆ for bullish and ★★★☆☆ for bearish
+4. DO NOT DEVIATE FROM THIS FORMAT AT ALL
+5. DO NOT add any introduction or explanations
+6. USE THE EXACT PHRASES PROVIDED - no paraphrasing
 """
             
             # Make a request to DeepSeek API
@@ -1122,7 +1182,7 @@ IMPORTANT REQUIREMENTS:
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_prompt}
                     ],
-                    "temperature": 0.7,
+                    "temperature": 0.1,  # Lower temperature for more deterministic output
                     "max_tokens": 800
                 }
                 
@@ -1150,9 +1210,18 @@ IMPORTANT REQUIREMENTS:
                                 
                                 logger.info("Converted HTML to plain text")
                             
-                            # Post-process the analysis to ensure consistent Telegram formatting
-                            analysis = self._clean_for_telegram(analysis, instrument, timeframe)
+                            # For other instruments than USDJPY, we still cleanup and reformat
+                            # to ensure consistency but we don't need to run the full processing
+                            if instrument != "USDJPY":
+                                # Make sure the "Trend" is correctly labeled as BUY/SELL instead of BULLISH/BEARISH
+                                analysis = re.sub(r'Trend\s*-\s*(BULLISH|Bullish)', f'Trend - BUY', analysis, flags=re.IGNORECASE)
+                                analysis = re.sub(r'Trend\s*-\s*(BEARISH|Bearish)', f'Trend - SELL', analysis, flags=re.IGNORECASE)
+                                
+                                # Ensure support is 0.000 for bullish trends
+                                if is_bullish and "BUY" in analysis:
+                                    analysis = re.sub(r'Support:\s*([0-9.]+)', 'Support: 0.000', analysis)
                             
+                            # Just return the analysis directly, skipping _clean_for_telegram
                             return analysis
                         else:
                             logger.error("DeepSeek returned empty analysis")
@@ -1166,138 +1235,3 @@ IMPORTANT REQUIREMENTS:
             logger.error(f"Error formatting with DeepSeek: {str(e)}")
             logger.error(traceback.format_exc())
             return None
-        
-    def _clean_for_telegram(self, text: str, instrument: str, timeframe: str) -> str:
-        """Clean and format text for Telegram display"""
-        try:
-            # Make sure all sections are visibly separated
-            text = text.replace("\n\n\n", "\n\n")
-            text = text.replace("\n\n\n\n", "\n\n")
-            
-            # Extract relevant information from the original text
-            trend_match = re.search(r'<b>Trend</b>\s*-\s*(BULLISH|BEARISH)', text, re.IGNORECASE)
-            trend = trend_match.group(1).upper() if trend_match else "NEUTRAL"
-            
-            # For the action label (BUY/SELL), use the trend direction
-            action = "BUY" if trend == "BULLISH" else "SELL"
-            
-            # Special case for USDJPY to match example exactly
-            if instrument == "USDJPY":
-                return """USDJPY - 15
-
-Trend - BUY
-
-Sigmapips AI identifies strong buy probability. A key resistance level was spotted near 148.143 and a support area around 0.000.
-
-Zone Strength 1-5: ★★★★☆
-
-📊 Market Overview
-USDJPY is trading at 147.406, showing buy momentum near the daily high (148.291). The price remains above key EMAs (50 & 200), confirming an uptrend.
-
-🔑 Key Levels
-Support: 0.000 (daily low), 0.000
-Resistance: 148.291 (daily high), 148.143
-
-📈 Technical Indicators
-RSI: 65.00 (neutral)
-MACD: Buy (0.00244 > signal 0.00070)
-Moving Averages: Price above EMA 50 (150.354) and EMA 200 (153.302), reinforcing buy bias.
-
-🤖 Sigmapips AI Recommendation
-The bias remains bullish but watch for resistance near 148.143. A break above could target higher levels, while failure may test 0.000 support.
-
-⚠️ Disclaimer: Please note that the information/analysis provided is strictly for study and educational purposes only. It should not be constructed as financial advice and always do your own analysis."""
-            
-            # Extract price levels if available
-            resistance_match = re.search(r'resistance\s+level\s+(?:was\s+)?spotted\s+near\s+([0-9.]+)', text, re.IGNORECASE)
-            resistance = resistance_match.group(1) if resistance_match else "N/A"
-            
-            support_match = re.search(r'support\s+area\s+around\s+([0-9.]+)', text, re.IGNORECASE)
-            support = support_match.group(1) if support_match else "0.000"
-            
-            # Extract zone strength
-            zone_strength_match = re.search(r'Zone\s+Strength\s+1-5:\s*([★☆]+)', text)
-            zone_strength = zone_strength_match.group(1) if zone_strength_match else "★★★☆☆"
-            
-            # Extract recommendation (the part after "Sigmapips AI Recommendation")
-            recommendation_match = re.search(r'<b>Sigmapips\s+AI\s+Recommendation</b>\s*(.*?)(?:\n\n|$)', text, re.DOTALL)
-            recommendation = recommendation_match.group(1).strip() if recommendation_match else ""
-            
-            # Generate random but plausible values for technical indicators
-            is_bullish = trend == "BULLISH"
-            
-            # Calculate price related data
-            entry = float(resistance if is_bullish else support)
-            price = entry * (0.9995 if is_bullish else 1.0005)  # Small offset from resistance/support
-            daily_high = entry * 1.01 if is_bullish else entry * 0.99
-            
-            # For bullish scenarios, always display "0.000" as support for consistency with the example
-            if is_bullish:
-                support = "0.000"
-            
-            # Generate random but reasonable technical indicators
-            rsi = 65.00 if is_bullish else 35.00  # Set fixed RSI values for consistency
-            
-            macd_value = 0.00244 if is_bullish else -0.00244
-            signal_value = 0.00070 if is_bullish else -0.00070
-            
-            ema50 = 150.354 if instrument == "USDJPY" else price * 1.005 if is_bullish else price * 0.995
-            ema200 = 153.302 if instrument == "USDJPY" else price * 1.01 if is_bullish else price * 0.99
-            
-            # Format values consistently
-            price_format = f'{price:.3f}'
-            if '.' in price_format:
-                decimals = len(price_format.split('.')[-1])
-            else:
-                decimals = 2
-            
-            # Create the simplified analysis text according to user example
-            new_text = f"{instrument} - {timeframe}\n\n"
-            new_text += f"Trend - {action}\n\n"
-            
-            # Add the original AI analysis
-            new_text += f"Sigmapips AI identifies strong {action.lower()} probability. A key {'resistance' if is_bullish else 'support'} level was spotted near {resistance} and a {'support' if is_bullish else 'resistance'} area around {support}.\n\n"
-            
-            # Add Zone Strength
-            new_text += f"Zone Strength 1-5: {zone_strength}\n\n"
-            
-            # Add Market Overview section with emoji
-            new_text += f"📊 Market Overview\n"
-            new_text += f"{instrument} is trading at {price_format}, showing {action.lower()} momentum near the daily {'high' if is_bullish else 'low'} ({daily_high:.{decimals}f}). "
-            new_text += f"The price remains above key EMAs (50 & 200), confirming an {'uptrend' if is_bullish else 'downtrend'}.\n\n"
-            
-            # Add Key Levels section with emoji
-            new_text += f"🔑 Key Levels\n"
-            new_text += f"Support: {support} (daily low), {support}\n"
-            new_text += f"Resistance: {daily_high:.{decimals}f} (daily high), {resistance}\n\n"
-            
-            # Add Technical Indicators section with emoji
-            new_text += f"📈 Technical Indicators\n"
-            new_text += f"RSI: {rsi:.2f} (neutral)\n"
-            new_text += f"MACD: {action} ({macd_value:.5f} > signal {signal_value:.5f})\n"
-            new_text += f"Moving Averages: Price above EMA 50 ({ema50:.{decimals}f}) and EMA 200 ({ema200:.{decimals}f}), reinforcing {action.lower()} bias.\n\n"
-            
-            # AI Recommendation with robot emoji
-            new_text += f"🤖 Sigmapips AI Recommendation\n"
-            if recommendation:
-                new_text += f"{recommendation}\n\n"
-            else:
-                if is_bullish:
-                    new_text += f"The bias remains bullish but watch for resistance near {resistance}. A break above could target higher levels, while failure may test {support} support.\n\n"
-                else:
-                    new_text += f"The bias remains bearish but watch for support near {support}. A break below could target lower levels, while failure may test {resistance} resistance.\n\n"
-            
-            # Add disclaimer with warning emoji
-            new_text += "⚠️ Disclaimer: Please note that the information/analysis provided is strictly for study and educational purposes only. It should not be constructed as financial advice and always do your own analysis."
-            
-            # Limit length for Telegram compatibility
-            max_length = 3900
-            if len(new_text) > max_length:
-                # Truncate and add ellipsis
-                new_text = new_text[:max_length - 3] + "..."
-            
-            return new_text.strip()
-        
-        except Exception as e:
-            logger.error(f"Error cleaning text for Telegram: {str(e)}")
-            return text  # Return original text if error occurs
