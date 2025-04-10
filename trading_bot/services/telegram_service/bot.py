@@ -1355,7 +1355,7 @@ Discover powerful trading signals for various markets:
 • Forex - Major and minor currency pairs
 
 • Crypto - Bitcoin, Ethereum and other top
- cryptocurrencies
+cryptocurrencies
 
 • Indices - Global market indices
 
@@ -3702,82 +3702,56 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             if isinstance(sentiment_data.get('analysis'), str):
                 analysis_text = sentiment_data['analysis']
             
-            # Prepare the message format without relying on regex
-            # This will help avoid HTML parsing errors
-            title = f"<b>🎯 {clean_instrument} Market Analysis</b>"
-            overall_sentiment = f"<b>Overall Sentiment:</b> {overall} {emoji}"
+            # Vereenvoudigde HTML-veilige versie
+            # Vermijd complexe HTML-bewerking die problemen kan veroorzaken
+            simple_message = f"<b>🎯 {clean_instrument} Market Analysis</b>\n\n<b>Overall Sentiment:</b> {overall} {emoji}\n\n"
             
-            # Define common headers that might be in the analysis text
-            headers = [
-                "Market Sentiment Breakdown:",
-                "📈 Market Direction:",
-                "📊 Technical Analysis:",
-                "📰 Latest News & Events:",
-                "⚠️ Risk Factors:",
-                "💡 Conclusion:"
-            ]
+            # Voeg eenvoudige sentiment breakdown toe
+            simple_message += f"<b>Market Sentiment Breakdown:</b>\n"
+            simple_message += f"🟢 Bullish: {bullish}%\n"
+            simple_message += f"🔴 Bearish: {bearish}%\n"
+            simple_message += f"⚪️ Neutral: {neutral}%\n\n"
             
-            # Process the analysis text to ensure correct HTML formatting
+            # Voeg alleen de basisanalyse toe, zonder complexe HTML-parsing
             if analysis_text:
-                # Ensure all section headers are bold
-                for header in headers:
-                    analysis_text = analysis_text.replace(f"{header}", f"<b>{header}</b>")
+                # Verwijder HTML-tags om parsing problemen te voorkomen
+                clean_analysis = re.sub(r'<[^>]+>', '', analysis_text)
                 
-                # Remove excessive newlines
-                analysis_text = re.sub(r'\n{3,}', '\n\n', analysis_text)
-                analysis_text = re.sub(r'^\n+', '', analysis_text)  # Remove leading newlines
-            
-            # Replace 3+ newlines with 2
-            analysis_text = re.sub(r'^\n+', '', analysis_text)  # Remove leading newlines
-            
-            # Verbeter de layout van het bericht
-            # Specifiek verwijder witruimte tussen Overall Sentiment en Market Sentiment Breakdown
-            full_message = f"{title}\n\n{overall_sentiment}"
-            
-            # If there's analysis text, add it with compact formatting
-            if analysis_text:
-                found_header = False
+                # Zoek belangrijke secties met regex
+                market_direction = ""
+                news_events = ""
+                risk_factors = ""
+                conclusion = ""
                 
-                # Controleer specifiek op Market Sentiment Breakdown header
-                if "<b>Market Sentiment Breakdown:</b>" in analysis_text:
-                    parts = analysis_text.split("<b>Market Sentiment Breakdown:</b>", 1)
-                    full_message += f"\n\n<b>Market Sentiment Breakdown:</b>{parts[1]}"
-                    found_header = True
-                elif "Market Sentiment Breakdown:" in analysis_text:
-                    # Als de header er wel is maar niet bold, fix het
-                    parts = analysis_text.split("Market Sentiment Breakdown:", 1)
-                    full_message += f"\n\n<b>Market Sentiment Breakdown:</b>{parts[1]}"
-                    found_header = True
+                # Extract sections
+                direction_match = re.search(r'Market Direction:(.*?)(?:Latest News|Risk Factors|Conclusion|$)', clean_analysis, re.DOTALL)
+                if direction_match:
+                    market_direction = direction_match.group(1).strip()
                 
-                # Als de Market Sentiment header niet gevonden is, zoek andere headers
-                if not found_header:
-                    for header in headers:
-                        header_bold = f"<b>{header}</b>"
-                        if header_bold in analysis_text:
-                            parts = analysis_text.split(header_bold, 1)
-                            full_message += f"\n\n{header_bold}{parts[1]}"
-                            found_header = True
-                            break
-                        elif header in analysis_text:
-                            # Als de header er wel is maar niet bold, fix het
-                            parts = analysis_text.split(header, 1)
-                            full_message += f"\n\n<b>{header}</b>{parts[1]}"
-                            found_header = True
-                            break
+                news_match = re.search(r'Latest News[^:]*:(.*?)(?:Risk Factors|Conclusion|$)', clean_analysis, re.DOTALL)
+                if news_match:
+                    news_events = news_match.group(1).strip()
                 
-                # Als geen headers gevonden, voeg de volledige analyse toe
-                if not found_header:
-                    full_message += f"\n\n{analysis_text}"
-            else:
-                # No analysis text, add a manual breakdown without extra spacing
-                full_message += f"""
-<b>Market Sentiment Breakdown:</b>
-🟢 Bullish: {bullish}%
-🔴 Bearish: {bearish}%
-⚪️ Neutral: {neutral}%"""
-
-            # Verwijder alle dubbele newlines om nog meer witruimte te voorkomen
-            full_message = re.sub(r'\n{3,}', '\n\n', full_message)
+                risk_match = re.search(r'Risk Factors:(.*?)(?:Conclusion|$)', clean_analysis, re.DOTALL)
+                if risk_match:
+                    risk_factors = risk_match.group(1).strip()
+                
+                conclusion_match = re.search(r'Conclusion:(.*?)$', clean_analysis, re.DOTALL)
+                if conclusion_match:
+                    conclusion = conclusion_match.group(1).strip()
+                
+                # Add extracted sections with proper formatting
+                if market_direction:
+                    simple_message += f"<b>📈 Market Direction:</b>\n{market_direction}\n\n"
+                
+                if news_events:
+                    simple_message += f"<b>📰 Latest News & Events:</b>\n{news_events}\n\n"
+                
+                if risk_factors:
+                    simple_message += f"<b>⚠️ Risk Factors:</b>\n{risk_factors}\n\n"
+                
+                if conclusion:
+                    simple_message += f"<b>💡 Conclusion:</b>\n{conclusion}"
             
             # Create reply markup with back button - use correct back button based on flow
             back_callback = "back_to_signal_analysis" if is_from_signal else "back_to_analysis"
@@ -3792,29 +3766,38 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             
             # Replace message with result
             try:
-                # Try to edit the message text first (most likely to work with GIFs)
+                # Probeer het bericht te bewerken
                 await query.edit_message_text(
-                    text=full_message,
+                    text=simple_message,
                     reply_markup=reply_markup,
                     parse_mode=ParseMode.HTML
                 )
             except telegram.error.BadRequest as e:
-                # If we can't edit text (e.g., because it's an animation), try caption
                 logger.info(f"Could not edit message text, trying caption: {str(e)}")
+                
+                # Maak een nog kortere versie voor caption (captions hebben limieten)
+                short_message = f"<b>🎯 {clean_instrument} Analysis</b>\n\n<b>Sentiment:</b> {overall} {emoji}\n\nBullish: {bullish}%\nBearish: {bearish}%"
+                
                 try:
                     await query.edit_message_caption(
-                        caption=full_message,
+                        caption=short_message,
                         reply_markup=reply_markup,
                         parse_mode=ParseMode.HTML
                     )
                 except Exception as e2:
                     logger.error(f"Error updating caption: {str(e2)}")
-                    # Last resort: delete and send new message
-                    await query.message.delete()
-                    await query.message.reply_text(
-                        text=full_message,
-                        reply_markup=reply_markup,
-                        parse_mode=ParseMode.HTML
+                    
+                    # Als laatste optie, verwijder en stuur een nieuw bericht
+                    try:
+                        await query.message.delete()
+                    except Exception:
+                        pass
+                    
+                    # Stuur een bericht zonder HTML
+                    await context.bot.send_message(
+                        chat_id=update.effective_chat.id,
+                        text=f"{clean_instrument} Analysis\n\nSentiment: {overall}\n\nBullish: {bullish}%\nBearish: {bearish}%\nNeutral: {neutral}%",
+                        reply_markup=reply_markup
                     )
             
             return CHOOSE_ANALYSIS
