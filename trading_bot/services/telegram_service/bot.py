@@ -2052,7 +2052,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 logger.info("Set from_signal flag to True")
             
             # Try to show loading animation first
-            loading_gif_url = "https://media.giphy.com/media/gSzIKNrqtotEYrZv7i/giphy.gif"
+            loading_gif_url = "https://media.giphy.com/media/dpjUltnOPye7azvAhH/giphy.gif"
             loading_text = f"Loading {instrument} chart..."
             
             # Store the current message ID to ensure we can find it later
@@ -2155,7 +2155,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 context.user_data['from_signal'] = True
             
             # Try to show loading animation first
-            loading_gif_url = "https://media.giphy.com/media/gSzIKNrqtotEYrZv7i/giphy.gif"
+            loading_gif_url = "https://media.giphy.com/media/dpjUltnOPye7azvAhH/giphy.gif"
             loading_text = f"Loading sentiment analysis for {instrument}..."
             
             try:
@@ -2277,8 +2277,8 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             logger.info(f"Set from_signal flag to True for calendar analysis")
         
         # Try to show loading animation first
-        loading_gif_url = "https://media.giphy.com/media/gSzIKNrqtotEYrZv7i/giphy.gif"
-        loading_text = f"Loading economic calendar..."
+        loading_gif_url = "https://media.giphy.com/media/dpjUltnOPye7azvAhH/giphy.gif"
+        loading_text = f"Loading economic calendar data..."
         
         try:
             # Try to update with animated GIF first (best visual experience)
@@ -2782,7 +2782,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         # Get the welcome GIF URL to maintain it during navigation
         try:
             # Get welcome GIF URL
-            welcome_gif_url = "https://media.giphy.com/media/dpjUltnOPye7azvAhH/giphy.gif"
+            welcome_gif_url = "https://media.giphy.com/media/gSzIKNrqtotEYrZv7i/giphy.gif"
             
             # Use update_message_with_gif to keep the welcome GIF visible
             success = await gif_utils.update_message_with_gif(
