@@ -1319,14 +1319,20 @@ CRITICAL REQUIREMENTS:
                                 
                                 # Ensure prices have consistent decimal places
                                 def fix_numbers(match):
+                                    """Fix number formatting in analysis text"""
                                     try:
-                                        num = float(match.group(1))
-                                        return f"{num:.{decimals}f}"
+                                        number = float(match.group(0))
+                                        if number >= 1000:
+                                            return f"{number:,.0f}"  # Format large numbers with commas
+                                        elif number >= 100:
+                                            return f"{number:.1f}"   # One decimal for medium numbers
+                                        else:
+                                            return f"{number:.2f}"   # Two decimals for small numbers
                                     except:
-                                        return match.group(0)
+                                        return match.group(0)  # Return original if conversion fails
                                 
                                 # Apply regex to fix decimals in numerical values
-                                analysis = re.sub(r'(\d+\.\d+)', lambda m: fix_numbers({'group': lambda x: m.group(0)}.group(1)), analysis)
+                                analysis = re.sub(r'(\d+\.\d+)', fix_numbers, analysis)
                                 
                                 # Remove the "Sigmapips AI identifies..." line if it exists
                                 analysis = re.sub(r'\n\nSigmapips AI identifies strong (buy|sell) probability.*?\n\n', '\n\n', analysis, flags=re.IGNORECASE)
