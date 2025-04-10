@@ -41,7 +41,7 @@ from trading_bot.services.telegram_service.states import (
     CHOOSE_ANALYSIS, SIGNAL_DETAILS,
     CALLBACK_MENU_ANALYSE, CALLBACK_MENU_SIGNALS, CALLBACK_ANALYSIS_TECHNICAL,
     CALLBACK_ANALYSIS_SENTIMENT, CALLBACK_ANALYSIS_CALENDAR, CALLBACK_SIGNALS_ADD,
-    CALLBACK_SIGNALS_MANAGE, CALLBACK_BACK_MENU
+    CALLBACK_SIGNALS_MANAGE, CALLBACK_BACK_MENU, CALLBACK_SIGNAL_PARAM
 )
 import trading_bot.services.telegram_service.gif_utils as gif_utils
 
@@ -117,6 +117,7 @@ CALLBACK_SIGNALS_ADD = "signals_add"
 CALLBACK_SIGNALS_MANAGE = "signals_manage"
 CALLBACK_MENU_ANALYSE = "menu_analyse"
 CALLBACK_MENU_SIGNALS = "menu_signals"
+CALLBACK_SIGNAL_PARAM = "signal_param"
 
 # States
 MENU = 0
@@ -3197,39 +3198,32 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                         logger.error(f"Error updating caption: {str(caption_error)}")
                 
                 return await self.show_sentiment_analysis(update, context, instrument=instrument)
-            except Exception as delete_error:
-                logger.warning(f"Could not delete message: {str(delete_error)}")
                 
-                # Step 2: If deletion fails, try replacing with a GIF or transparent GIF
+            elif instrument_type == "calendar":
+                # Show loading GIF for calendar analysis
                 try:
-                    if has_photo:
-                        # Replace with the analysis GIF
-                        await query.edit_message_media(
-                            media=InputMediaAnimation(
-                                media=gif_url,
-                                caption="Select your analysis type:"
-                            ),
-                            reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
-                        )
-                    else:
-                        # Just update the text
-                        await query.edit_message_text(
-                            text="Select your analysis type:",
-                            reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
-                            parse_mode=ParseMode.HTML
-                        )
-                    logger.info("Updated message with analysis menu")
-                    return CHOOSE_ANALYSIS
-                except Exception as media_error:
-                    logger.warning(f"Could not update media: {str(media_error)}")
+                    # Get loading GIF URL
+                    loading_gif_url = await gif_utils.get_loading_gif()
+                    logger.info(f"Using loading GIF URL for calendar: {loading_gif_url}")
                     
-                    # Step 3: As last resort, only update the caption
+                    # Update message with loading GIF
+                    await gif_utils.update_message_with_gif(
+                        query=query, 
+                        gif_url=loading_gif_url,
+                        text=f"Loading economic calendar... Please wait.",
+                        reply_markup=None
+                    )
+                except Exception as e:
+                    logger.error(f"Error showing loading GIF for calendar analysis: {str(e)}")
+                    # Fallback to standard caption update
                     try:
                         await query.edit_message_caption(
-                            caption="Select your analysis type:",
-                            reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
-                            parse_mode=ParseMode.HTML
+                            caption=f"Loading economic calendar... Please wait.",
+                            reply_markup=None
                         )
+                    except Exception as caption_error:
+                        logger.error(f"Error updating caption: {str(caption_error)}")
+                
                         logger.info("Updated caption with analysis menu")
                         return CHOOSE_ANALYSIS
                     except Exception as caption_error:
@@ -3241,17 +3235,58 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                             parse_mode=ParseMode.HTML,
                             reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
                         )
+            elif instrument_type == "signals":
+                # We're adding a signal for this instrument
+                if context and hasattr(context, 'user_data'):
+                    context.user_data['signals_instrument'] = instrument
+                    
+                # Initialize the signal in user data
+                if not context.user_data.get('new_signal'):
+                    context.user_data['new_signal'] = {}
+                    
+                context.user_data['new_signal']['instrument'] = instrument
+                
+                # Show signal configuration options
+                keyboard = [
+                    [
+                        InlineKeyboardButton("Price Target", callback_data="signal_price_target"),
+                        InlineKeyboardButton("Take Profit", callback_data="signal_take_profit")
+                    ],
+                    [
+                        InlineKeyboardButton("Stop Loss", callback_data="signal_stop_loss"),
+                        InlineKeyboardButton("Direction", callback_data="signal_direction")
+                    ],
+                    [
+                        InlineKeyboardButton("✅ Save Signal", callback_data="signal_save"),
+                        InlineKeyboardButton("❌ Cancel", callback_data="back_signals")
+                    ]
+                ]
+                
+                await self.update_message(
+                    query, 
+                    f"Configuring signal for {instrument}\n\n"
+                    f"Please set the parameters for your signal:", 
+                    keyboard=keyboard
+                )
+                
+                return CHOOSE_SIGNAL_PARAM
+                
         except Exception as e:
-            logger.error(f"Error in analysis_callback: {str(e)}")
-            # Send a new message as fallback
-            await context.bot.send_message(
-                chat_id=update.effective_chat.id,
-                text="Select your analysis type:",
-                parse_mode=ParseMode.HTML,
-                reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
-            )
+            logger.error(f"Error in instrument_callback: {str(e)}")
+            logger.error(traceback.format_exc())
             
-        return CHOOSE_ANALYSIS
+            # In case of error, show a generic error message and go back to instrument selection
+            try:
+                keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]]
+                await query.edit_message_text(
+                    text=f"An error occurred. Please try again or select a different instrument.",
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.HTML
+                )
+            except Exception:
+                pass
+                
+            return CHOOSE_INSTRUMENT
 
     async def back_menu_callback(self, update: Update, context=None) -> int:
         """Handle back_menu button press to return to main menu.
