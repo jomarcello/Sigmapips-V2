@@ -747,10 +747,24 @@ class TradingViewCalendarService:
         """Extract and format economic events from TradingView API response"""
         formatted_events = []
         
+        # ABSOLUTE MAPPING VAN VALUTA NAAR VLAGGEN - Het enige dat mag worden gebruikt
+        # Deze mapping mag absoluut NIET gewijzigd worden
+        ABSOLUTE_VLAG_VALUTA = {
+            "USD": "🇺🇸",  # Verenigde Staten
+            "EUR": "🇪🇺",  # Europese Unie
+            "GBP": "🇬🇧",  # Verenigd Koninkrijk
+            "JPY": "🇯🇵",  # Japan
+            "CHF": "🇨🇭",  # Zwitserland
+            "AUD": "🇦🇺",  # Australië
+            "NZD": "🇳🇿",  # Nieuw-Zeeland
+            "CAD": "🇨🇦"   # Canada
+        }
+        
         # Create reverse mapping from country code to currency
         country_to_currency = {v: k for k, v in CURRENCY_COUNTRY_MAP.items()}
         
         # Debug logging
+        self.logger.info(f"USING ABSOLUTE FLAG-CURRENCY MAPPING: {json.dumps(ABSOLUTE_VLAG_VALUTA)}")
         self.logger.info(f"Country to currency mapping: {json.dumps({k: v for k, v in country_to_currency.items() if k in ('US', 'EU', 'GB', 'JP', 'CH', 'AU', 'NZ', 'CA')})}")
         
         # Debug: Sample of raw events
@@ -796,40 +810,45 @@ class TradingViewCalendarService:
         # Opslaan van event_time objecten voor betere sortering
         event_times = {}
         
-        # Directe mapping van landcode naar valuta EN vlag 
-        # Dit zorgt ervoor dat er geen mismatch kan ontstaan tussen de valuta en vlag
-        direct_mapping = {
-            "US": {"currency": "USD", "flag": "🇺🇸"},
-            "EU": {"currency": "EUR", "flag": "🇪🇺"},
-            "GB": {"currency": "GBP", "flag": "🇬🇧"},
-            "JP": {"currency": "JPY", "flag": "🇯🇵"},
-            "CH": {"currency": "CHF", "flag": "🇨🇭"},
-            "AU": {"currency": "AUD", "flag": "🇦🇺"},
-            "NZ": {"currency": "NZD", "flag": "🇳🇿"},
-            "CA": {"currency": "CAD", "flag": "🇨🇦"}
-        }
-        
         for event in events_data:
             try:
-                # Get country code
+                # Get country code from the event
                 country_code = event.get('country')
                 
-                # Gebruik directe mapping
-                if country_code in direct_mapping:
-                    mapping = direct_mapping[country_code]
-                    currency = mapping["currency"]
-                    flag = mapping["flag"]
-                else:
-                    # Fallback naar de algemene mapping
-                    currency = country_to_currency.get(country_code, "")
-                    flag = CURRENCY_FLAG.get(currency, "")
+                # VALIDATIE: Log de originele landcode
+                self.logger.debug(f"Processing event with country_code: {country_code}")
                 
-                # Debug logging voor deze event
-                self.logger.debug(f"Processing event: country_code={country_code}, mapped to currency={currency}, flag={flag}")
+                # FORCE GEBRUIK VAN ABSOLUTE MAPPING: Dit is de enige juiste manier
+                # Landcode omzetten naar valuta
+                # DEFINITIEVE MAPPING om landcode naar valuta en vlag te converteren
+                country_to_currency_mapping = {
+                    "US": "USD",
+                    "EU": "EUR",
+                    "GB": "GBP",
+                    "JP": "JPY",
+                    "CH": "CHF",
+                    "AU": "AUD",
+                    "NZ": "NZD",
+                    "CA": "CAD"
+                }
                 
-                # Skip events without a known currency or not in major currencies
-                if not currency or currency not in MAJOR_CURRENCIES:
+                # Controleer of landcode bekend is
+                if country_code not in country_to_currency_mapping:
+                    # Als landcode niet in onze mapping staat, skip dit event
+                    self.logger.debug(f"Skipping event with unknown country_code: {country_code}")
                     continue
+                
+                # Haal de valuta op via de mapping
+                currency = country_to_currency_mapping.get(country_code)
+                if not currency:
+                    self.logger.warning(f"Unknown country code: {country_code}")
+                    continue
+                    
+                # Haal de vlag op uit de absolute mapping
+                flag = ABSOLUTE_VLAG_VALUTA.get(currency)
+                
+                # VALIDATIE: Controleer dat valuta en vlag correct zijn
+                self.logger.debug(f"Mapped {country_code} to currency={currency}, flag={flag}")
                 
                 # Extract time (convert to local time)
                 event_time_str = event.get('date', "")
@@ -848,32 +867,27 @@ class TradingViewCalendarService:
                     self.logger.warning(f"Invalid date format: {event_time_str} - {e}")
                     time_str = ""
                 
-                # Extract impact level - TradingView gebruikt verschillende manieren
+                # Verwerk de impact level
                 importance_value = event.get('importance')
+                impact_level = "Low"  # Standaard waarde
                 
-                # Standaard is Low impact
-                impact_level = "Low"
-                
-                # Probeer de importance value te bepalen
                 if importance_value is not None:
                     try:
                         importance = int(importance_value)
                         impact_level = impact_map.get(importance, "Low")
                     except (ValueError, TypeError):
                         self.logger.warning(f"Invalid importance value: {importance_value}")
-                        impact_level = "Low"
                 
-                # Haal de titel op voor keyword matching
+                # Verfijn impact op basis van title
                 event_title = event.get('title', event.get('indicator', "Unknown Event")).lower()
                 
-                # Check voor High impact keywords
+                # Keywords checks
                 if any(keyword in event_title for keyword in high_impact_keywords):
                     impact_level = "High"
-                # Als het niet High is, check voor Medium impact
                 elif any(keyword in event_title for keyword in medium_impact_keywords):
                     impact_level = "Medium"
                 
-                # Speciale gevallen op basis van ervaring met TradingView
+                # Speciale gevallen
                 if "fomc" in event_title or "fed" in event_title:
                     impact_level = "High"
                 elif "pmi" in event_title:
@@ -894,11 +908,11 @@ class TradingViewCalendarService:
                 previous = event.get('previous')
                 actual = event.get('actual')
                 
-                # Create formatted event
+                # Create formatted event - met gegarandeerde correcte valuta en vlag
                 formatted_event = {
                     "time": time_str,
-                    "country": currency,  # Belangrijk: dit is nu de valutacode, niet de landcode
-                    "country_flag": flag,  # Gebruik direct de vlag uit onze mapping
+                    "country": currency,  # Dit is de valutacode, niet de landcode
+                    "country_flag": flag,  # We gebruiken altijd de vlag uit onze absolute mapping
                     "title": event_title,
                     "impact": impact_level,
                     # Additional fields that might be useful
@@ -909,7 +923,7 @@ class TradingViewCalendarService:
                     "event_id": event_id
                 }
                 
-                # Debug output voor dit event
+                # VALIDATIE: Log het volledige event voor debugging
                 self.logger.info(f"Created formatted event: currency={currency}, flag={flag}, title={event_title[:20]}...")
                 
                 formatted_events.append(formatted_event)
@@ -918,6 +932,20 @@ class TradingViewCalendarService:
                 self.logger.error(f"Error processing event: {e}")
                 self.logger.error(f"Event data: {event}")
                 continue
+        
+        # FINAL VALIDATION - CRITICAL: Force the correct flag for each currency
+        for event in formatted_events:
+            currency = event.get("country", "")
+            if currency in ABSOLUTE_VLAG_VALUTA:
+                # FORCE the correct flag - overwrite any existing flag
+                event["country_flag"] = ABSOLUTE_VLAG_VALUTA[currency]
+            else:
+                # If currency is not recognized, log and use empty flag
+                self.logger.warning(f"Unrecognized currency in event: {currency}")
+                event["country_flag"] = ""
+                
+        # Log validation success
+        self.logger.info("✅ FINAL VALIDATION - All events now have the correct currency flags")
         
         # Sort events chronologically using the stored datetime objects
         try:
