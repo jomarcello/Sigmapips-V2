@@ -1060,7 +1060,8 @@ async def format_calendar_for_telegram(events: List[Dict]) -> str:
                 details = f" ({', '.join(details_parts)})"
         
         # Valutacode in bold zetten en tijd eerst, daarna valuta, dan titel en impact emoji aan het einde
-        message += f"{time} - <b>{country}</b> - {title}{details} {impact_emoji}\n"
+        # Gebruik dubbele <b> tags voor extra zichtbaarheid
+        message += f"{time} - <b><b>{country}</b></b> - {title}{details} {impact_emoji}\n"
     
     # Add legend
     message += "\n-------------------\n"
