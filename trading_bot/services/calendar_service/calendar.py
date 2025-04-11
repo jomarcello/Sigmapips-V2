@@ -369,6 +369,19 @@ class EconomicCalendarService:
                 self.logger.info(f"Using cached calendar data for {instrument}")
                 return self.cache[instrument]
             
+            # 100% HARDCODED OPLOSSING - Deze vlag-valuta koppeling is de absolute waarheid
+            # Dit is de enige bron van waarheid voor vlag-valuta koppeling
+            ABSOLUTE_VLAG_VALUTA = {
+                "USD": "🇺🇸",  # Verenigde Staten
+                "EUR": "🇪🇺",  # Europese Unie
+                "GBP": "🇬🇧",  # Verenigd Koninkrijk
+                "JPY": "🇯🇵",  # Japan
+                "CHF": "🇨🇭",  # Zwitserland
+                "AUD": "🇦🇺",  # Australië
+                "NZD": "🇳🇿",  # Nieuw-Zeeland
+                "CAD": "🇨🇦"   # Canada
+            }
+            
             # Get currencies related to this instrument
             currencies = INSTRUMENT_CURRENCY_MAP.get(instrument, [])
             
@@ -422,56 +435,62 @@ class EconomicCalendarService:
         response += "Impact: 🔴 High   🟠 Medium   🟢 Low\n\n"
         
         # 100% HARDCODED OPLOSSING - Deze vlag-valuta koppeling is de absolute waarheid
-        # We negeren alle data uit de events en wijzen de vlag zelf toe
-        ABSOLUTE_VLAG_VALUTA = [
-            {"currency": "USD", "flag": "🇺🇸"},
-            {"currency": "EUR", "flag": "🇪🇺"},
-            {"currency": "GBP", "flag": "🇬🇧"},
-            {"currency": "JPY", "flag": "🇯🇵"},
-            {"currency": "CHF", "flag": "🇨🇭"},
-            {"currency": "AUD", "flag": "🇦🇺"},
-            {"currency": "NZD", "flag": "🇳🇿"},
-            {"currency": "CAD", "flag": "🇨🇦"}
-        ]
+        # Dit is de ENIGE bron van waarheid voor vlag-valuta koppeling
+        ABSOLUTE_VLAG_VALUTA = {
+            "USD": "🇺🇸",  # Verenigde Staten
+            "EUR": "🇪🇺",  # Europese Unie
+            "GBP": "🇬🇧",  # Verenigd Koninkrijk
+            "JPY": "🇯🇵",  # Japan
+            "CHF": "🇨🇭",  # Zwitserland
+            "AUD": "🇦🇺",  # Australië
+            "NZD": "🇳🇿",  # Nieuw-Zeeland
+            "CAD": "🇨🇦"   # Canada
+        }
         
-        # Events groeperen per valuta code (country field)
-        currency_events = {}
+        # Maak een nieuwe lijst met events gebaseerd op de currency en de juiste vlag uit onze hardcoded mapping
+        hardcoded_events = {}
+        
+        # Stap 1: De events grouperen per valuta, waarbij we ALLEEN valuta gebruiken uit onze ABSOLUTE_VLAG_VALUTA mapping
         for event in events:
             currency = event.get("country", "")
             
-            # Als het geen valuta is die we kennen of niet in de filter zit, slaan we over
-            if not currency or (instrument != "GLOBAL" and currency not in filter_currencies):
+            # Sla events over met onbekende valuta of valuta die niet in de filter lijst staat
+            if not currency or currency not in ABSOLUTE_VLAG_VALUTA.keys():
                 continue
                 
-            # Voeg het event toe aan de juiste valuta groep
-            if currency not in currency_events:
-                currency_events[currency] = []
+            # Skip valuta die niet in de filter lijst staan, tenzij het instrument GLOBAL is
+            if instrument != "GLOBAL" and currency not in filter_currencies:
+                continue
                 
-            currency_events[currency].append({
+            # Voeg event toe aan de juiste valuta groep
+            if currency not in hardcoded_events:
+                hardcoded_events[currency] = []
+                
+            # Voeg het event toe MET DE CORRECTE VLAG uit de hardcoded mapping
+            hardcoded_events[currency].append({
                 "time": event.get("time", ""),
                 "title": event.get("title", "Unknown Event"),
                 "impact": event.get("impact", "Low")
             })
         
         # Als er geen events zijn, toon een bericht
-        if not currency_events:
+        if not hardcoded_events:
             return response + "No major economic events scheduled for today.\n\n<i>Check back later for updates.</i>"
-        
-        # Nu de output genereren MET ABSOLUTE VLAG TOEWIJZING
-        # Doorloop elke valuta uit onze hardcoded lijst
-        for vlag_valuta in ABSOLUTE_VLAG_VALUTA:
-            currency = vlag_valuta["currency"]
-            flag = vlag_valuta["flag"]
-            
-            # Skip valuta die niet in onze events voorkomen
-            if currency not in currency_events:
+
+        # Stap 2: Doorloop de valuta's in de volgorde van MAJOR_CURRENCIES om consistente weergave te garanderen
+        for currency in MAJOR_CURRENCIES:
+            # Skip valuta's die niet in onze events zitten
+            if currency not in hardcoded_events:
                 continue
                 
-            # Hier forceren we de juiste combinatie vlag + valuta in de output
+            # Haal de juiste vlag op uit onze ABSOLUTE mapping
+            flag = ABSOLUTE_VLAG_VALUTA[currency]
+            
+            # Valuta header toevoegen met de juiste vlag
             response += f"{flag} {currency}\n"
             
             # Sorteer events voor deze valuta op tijd
-            sorted_events = sorted(currency_events[currency], key=lambda x: x.get("time", "00:00"))
+            sorted_events = sorted(hardcoded_events[currency], key=lambda x: x.get("time", "00:00"))
             
             # Voeg elk event toe
             for event in sorted_events:
@@ -489,7 +508,7 @@ class EconomicCalendarService:
             response += "\n"
         
         # Tel het aantal events
-        total_events = sum(len(events) for currency, events in currency_events.items())
+        total_events = sum(len(events) for events in hardcoded_events.values())
         self.logger.info(f"Showing {total_events} events in calendar with HARDCODED FLAGS")
         
         # Voeg opmerking toe
@@ -956,23 +975,31 @@ IMPORTANT: ONLY return the JSON with TODAY's events. No explanation text.
         """Generate a fallback response if getting the calendar fails"""
         response = "<b>📅 Economic Calendar</b>\n\n"
         
+        # Get current date
+        today = datetime.now()
+        today_readable = today.strftime("%B %d, %Y")
+        
+        # Add date header to the response
+        response += f"<b>Date: {today_readable}</b>\n\n"
+        
+        # Add the impact legend immediately after the date
+        response += "Impact: 🔴 High   🟠 Medium   🟢 Low\n\n"
+        
         # 100% HARDCODED OPLOSSING - Deze vlag-valuta koppeling is de absolute waarheid
+        # Dit is de ENIGE bron van waarheid voor vlag-valuta koppeling
         ABSOLUTE_VLAG_VALUTA = {
-            "USD": "🇺🇸",
-            "EUR": "🇪🇺",
-            "GBP": "🇬🇧",
-            "JPY": "🇯🇵",
-            "CHF": "🇨🇭",
-            "AUD": "🇦🇺",
-            "NZD": "🇳🇿",
-            "CAD": "🇨🇦"
+            "USD": "🇺🇸",  # Verenigde Staten
+            "EUR": "🇪🇺",  # Europese Unie
+            "GBP": "🇬🇧",  # Verenigd Koninkrijk
+            "JPY": "🇯🇵",  # Japan
+            "CHF": "🇨🇭",  # Zwitserland
+            "AUD": "🇦🇺",  # Australië
+            "NZD": "🇳🇿",  # Nieuw-Zeeland
+            "CAD": "🇨🇦"   # Canada
         }
         
         currencies = INSTRUMENT_CURRENCY_MAP.get(instrument, ["USD"])
         currencies = [c for c in currencies if c in MAJOR_CURRENCIES]
-        
-        # Generate some mock data based on the instrument
-        today = datetime.now()
         
         # Check if it's a weekend
         if today.weekday() >= 5:  # 5 = Saturday, 6 = Sunday
@@ -1039,22 +1066,41 @@ IMPORTANT: ONLY return the JSON with TODAY's events. No explanation text.
         # Sort events by time
         all_events = sorted(all_events, key=lambda x: x.get("time", "00:00"))
         
-        # Display events in chronological order
+        # Group events by currency
+        events_by_currency = {}
         for event in all_events:
-            time = event.get("time", "")
             currency = event.get("currency", "")
-            event_name = event.get("event", "")
-            impact = event.get("impact", "Low")
-            impact_emoji = IMPACT_EMOJI.get(impact, "🟢")
-            
-            # Haal de vlag ALLEEN uit de ABSOLUTE lookup
+            if currency not in events_by_currency:
+                events_by_currency[currency] = []
+            events_by_currency[currency].append(event)
+        
+        # Nu de output genereren volgens MAJOR_CURRENCIES volgorde
+        for currency in MAJOR_CURRENCIES:
+            # Skip valuta die niet in onze events voorkomen
+            if currency not in events_by_currency:
+                continue
+                
+            # Hier forceren we de juiste combinatie vlag + valuta in de output
             flag = ABSOLUTE_VLAG_VALUTA[currency]
+            response += f"{flag} {currency}\n"
             
-            # Format with currency flag - no extra newline after each event
-            response += f"{time} - {flag} {currency} - {event_name} {impact_emoji}\n"
+            # Voeg events toe
+            sorted_events = sorted(events_by_currency[currency], key=lambda x: x.get("time", "00:00"))
+            
+            for event in sorted_events:
+                time = event.get("time", "")
+                event_name = event.get("event", "")
+                impact = event.get("impact", "Low")
+                impact_emoji = IMPACT_EMOJI.get(impact, "🟢")
+                
+                # Format with currency flag - no extra newline after each event
+                response += f"{time} - {impact_emoji} {event_name}\n"
+            
+            # Lege regel na elke valuta sectie
+            response += "\n"
         
         # Add empty line before legend
-        response += "\n-------------------\n"
+        response += "-------------------\n"
         response += "🔴 High Impact\n"
         response += "🟠 Medium Impact\n"
         response += "🟢 Low Impact"
