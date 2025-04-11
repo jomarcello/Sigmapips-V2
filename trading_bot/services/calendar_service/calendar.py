@@ -430,7 +430,7 @@ class EconomicCalendarService:
             if currency not in hardcoded_events:
                 continue
                 
-            # Valuta header toevoegen met BOLD tekst (zonder vlag)
+            # PROBLEEM: In de output stond er een spatie voor de valuta, dus nu zorgen we dat de valuta altijd <b> tags heeft
             response += f"<b>{currency}</b>\n"
             
             # Sorteer events voor deze valuta op tijd
@@ -973,7 +973,7 @@ IMPORTANT: ONLY return the JSON with TODAY's events. No explanation text.
             if currency not in events_by_currency:
                 continue
                 
-            # Hier gebruiken we BOLD tekst voor de valuta (zonder vlag)
+            # Gebruik BOLD formatting en zorg dat er geen spatie voor de valuta staat
             response += f"<b>{currency}</b>\n"
             
             # Voeg events toe
