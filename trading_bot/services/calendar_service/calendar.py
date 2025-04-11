@@ -307,8 +307,10 @@ class EconomicCalendarService:
             events = []
             for currency, currency_events in calendar_data.items():
                 for event in currency_events:
+                    # Zorg ervoor dat we de juiste vlag gebruiken uit de CURRENCY_FLAG constante
+                    flag = CURRENCY_FLAG.get(currency, "")
                     events.append({
-                        "date": f"{event.get('time', 'TBD')} - {CURRENCY_FLAG.get(currency, '')} {currency}",
+                        "date": f"{event.get('time', 'TBD')} - {flag} {currency}",
                         "title": event.get("event", "Unknown Event"),
                         "impact": event.get("impact", "low").lower(),
                         "forecast": "",  # Could be expanded in the future
@@ -396,8 +398,8 @@ class EconomicCalendarService:
         # Add the impact legend immediately after the date
         response += "Impact: 🔴 High   🟠 Medium   🟢 Low\n\n"
         
-        # Correcte mapping van currency naar vlag
-        correct_flags = {
+        # Correcte mapping van currency naar vlag - dit is de enige juiste mapping die we gebruiken
+        currency_flags = {
             "USD": "🇺🇸",
             "EUR": "🇪🇺",
             "GBP": "🇬🇧",
@@ -421,67 +423,31 @@ class EconomicCalendarService:
         if not filtered_events:
             return response + "No major economic events scheduled for today.\n\n<i>Check back later for updates.</i>"
         
-        # Debug the events to see what's happening
-        for event in filtered_events[:5]:  # Log first 5 for debugging
-            self.logger.info(f"Event sample: {json.dumps(event)}")
-        
-        # Corrigeer de currency-velden in alle events voordat we ze groeperen
-        corrected_events = []
+        # De standaard correcte mapping forceren voor alle events
+        standardized_events = []
         for event in filtered_events:
-            # Maak een kopie van het event
-            corrected_event = event.copy()
+            # Maak een nieuw event om schone data te garanderen
+            standardized_event = {
+                "time": event.get("time", ""),
+                "title": event.get("title", "Unknown Event"),
+                "impact": event.get("impact", "Low"),
+            }
             
-            # Haal de landcode op
+            # Bepaal de valuta (country) en standaardiseer deze
             country = event.get("country", "")
-            
-            # Force de correcte landcode op basis van valuta-veld
-            # Dit is een harde mapping op basis van observaties
-            if country == "USD":
-                corrected_event["country"] = "USD"
-                corrected_event["country_display"] = "USD"
-                corrected_event["flag"] = "🇺🇸"
-            elif country == "EUR":
-                corrected_event["country"] = "EUR"
-                corrected_event["country_display"] = "EUR"  
-                corrected_event["flag"] = "🇪🇺"
-            elif country == "GBP":
-                corrected_event["country"] = "GBP"
-                corrected_event["country_display"] = "GBP"
-                corrected_event["flag"] = "🇬🇧"
-            elif country == "JPY":
-                corrected_event["country"] = "JPY"
-                corrected_event["country_display"] = "JPY"
-                corrected_event["flag"] = "🇯🇵"
-            elif country == "CHF":
-                corrected_event["country"] = "CHF"
-                corrected_event["country_display"] = "CHF"
-                corrected_event["flag"] = "🇨🇭"
-            elif country == "AUD":
-                corrected_event["country"] = "AUD"
-                corrected_event["country_display"] = "AUD"
-                corrected_event["flag"] = "🇦🇺"
-            elif country == "NZD":
-                corrected_event["country"] = "NZD"
-                corrected_event["country_display"] = "NZD"
-                corrected_event["flag"] = "🇳🇿"
-            elif country == "CAD":
-                corrected_event["country"] = "CAD"
-                corrected_event["country_display"] = "CAD"
-                corrected_event["flag"] = "🇨🇦"
+            if country in currency_flags:
+                standardized_event["currency"] = country
             else:
-                # Als het een onbekende valuta is, houden we de oorspronkelijke waarde
-                corrected_event["country_display"] = country
-                corrected_event["flag"] = ""
+                # Als het een onbekende valuta is, overslaan we deze
+                self.logger.warning(f"Onbekende valuta gevonden: {country}, wordt overgeslagen")
+                continue
                 
-            corrected_events.append(corrected_event)
+            standardized_events.append(standardized_event)
             
-        # Gebruik de gecorrigeerde events
-        filtered_events = corrected_events
-        
         # Groepeer evenementen per valuta
         events_by_currency = {}
         for currency in MAJOR_CURRENCIES:
-            currency_events = [e for e in filtered_events if e.get("country", "") == currency]
+            currency_events = [e for e in standardized_events if e.get("currency") == currency]
             if currency_events:
                 events_by_currency[currency] = currency_events
         
@@ -495,8 +461,10 @@ class EconomicCalendarService:
             # Sorteer de evenementen op tijd
             sorted_events = sorted(currency_events, key=lambda x: x.get("time", "00:00"))
             
-            # Gebruik direct de correcte vlag uit onze mapping
-            flag = correct_flags.get(currency, "")
+            # Haal de juiste vlag op uit onze mapping
+            flag = currency_flags.get(currency, "")
+            
+            # Toon de valuta met de juiste vlag
             response += f"{flag} {currency}\n"
             
             # Voeg elk evenement toe voor deze valuta
@@ -1018,8 +986,11 @@ IMPORTANT: ONLY return the JSON with TODAY's events. No explanation text.
             impact = event.get("impact", "Low")
             impact_emoji = IMPACT_EMOJI.get(impact, "🟢")
             
+            # Haal de juiste vlag op uit CURRENCY_FLAG constante
+            flag = CURRENCY_FLAG.get(currency, "")
+            
             # Format with currency flag - no extra newline after each event
-            response += f"{time} - {CURRENCY_FLAG.get(currency, '')} {currency} - {event_name} {impact_emoji}\n"
+            response += f"{time} - {flag} {currency} - {event_name} {impact_emoji}\n"
         
         # Add empty line before legend
         response += "\n-------------------\n"
