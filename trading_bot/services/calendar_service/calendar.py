@@ -302,7 +302,7 @@ class EconomicCalendarService:
                 
                 for event in currency_events:
                     events.append({
-                        "date": f"{event.get('time', 'TBD')} - <b>{currency}</b>",
+                        "date": f"{event.get('time', 'TBD')} - <b>⟪{currency}⟫</b>",
                         "title": event.get("event", "Unknown Event"),
                         "impact": event.get("impact", "low").lower(),
                         "forecast": "",  # Could be expanded in the future
@@ -314,7 +314,7 @@ class EconomicCalendarService:
             
             # Create a simple explanation of the impact - zonder vlaggen
             explanation = f"These economic events may impact {instrument} as they affect "
-            explanation += ", ".join([f"<b>{c}</b>" for c in currencies])
+            explanation += ", ".join([f"<b>⟪{c}⟫</b>" for c in currencies])
             explanation += " which are the base currencies for this instrument."
             
             return {
@@ -431,7 +431,7 @@ class EconomicCalendarService:
                 continue
                 
             # Valuta header toevoegen met speciale tekens voor betere zichtbaarheid
-            response += f"「<b>{currency}</b>」\n"
+            response += f"<b>⟪{currency}⟫</b>:\n"
             
             # Sorteer events voor deze valuta op tijd
             sorted_events = sorted(hardcoded_events[currency], key=lambda x: x.get("time", "00:00"))
@@ -974,7 +974,7 @@ IMPORTANT: ONLY return the JSON with TODAY's events. No explanation text.
                 continue
                 
             # Gebruik speciale tekens om valuta te markeren voor betere zichtbaarheid
-            response += f"「<b>{currency}</b>」\n"
+            response += f"<b>⟪{currency}⟫</b>:\n"
             
             # Voeg events toe
             sorted_events = sorted(events_by_currency[currency], key=lambda x: x.get("time", "00:00"))
