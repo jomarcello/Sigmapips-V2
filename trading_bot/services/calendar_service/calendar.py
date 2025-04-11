@@ -342,19 +342,6 @@ class EconomicCalendarService:
                 self.logger.info(f"Using cached calendar data for {instrument}")
                 return self.cache[instrument]
             
-            # 100% HARDCODED OPLOSSING - Deze vlag-valuta koppeling is de absolute waarheid
-            # Dit is de enige bron van waarheid voor vlag-valuta koppeling
-            ABSOLUTE_VLAG_VALUTA = {
-                "USD": "🇺🇸",  # Verenigde Staten
-                "EUR": "🇪🇺",  # Europese Unie
-                "GBP": "🇬🇧",  # Verenigd Koninkrijk
-                "JPY": "🇯🇵",  # Japan
-                "CHF": "🇨🇭",  # Zwitserland
-                "AUD": "🇦🇺",  # Australië
-                "NZD": "🇳🇿",  # Nieuw-Zeeland
-                "CAD": "🇨🇦"   # Canada
-            }
-            
             # Get currencies related to this instrument
             currencies = INSTRUMENT_CURRENCY_MAP.get(instrument, [])
             
@@ -407,28 +394,15 @@ class EconomicCalendarService:
         # Add the impact legend immediately after the date
         response += "Impact: 🔴 High   🟠 Medium   🟢 Low\n\n"
         
-        # 100% HARDCODED OPLOSSING - Deze vlag-valuta koppeling is de absolute waarheid
-        # Dit is de ENIGE bron van waarheid voor vlag-valuta koppeling
-        ABSOLUTE_VLAG_VALUTA = {
-            "USD": "🇺🇸",  # Verenigde Staten
-            "EUR": "🇪🇺",  # Europese Unie
-            "GBP": "🇬🇧",  # Verenigd Koninkrijk
-            "JPY": "🇯🇵",  # Japan
-            "CHF": "🇨🇭",  # Zwitserland
-            "AUD": "🇦🇺",  # Australië
-            "NZD": "🇳🇿",  # Nieuw-Zeeland
-            "CAD": "🇨🇦"   # Canada
-        }
-        
-        # Maak een nieuwe lijst met events gebaseerd op de currency en de juiste vlag uit onze hardcoded mapping
+        # Maak een nieuwe lijst met events gebaseerd op de currency
         hardcoded_events = {}
         
-        # Stap 1: De events grouperen per valuta, waarbij we ALLEEN valuta gebruiken uit onze ABSOLUTE_VLAG_VALUTA mapping
+        # Stap 1: De events grouperen per valuta, waarbij we ALLEEN valuta gebruiken uit MAJOR_CURRENCIES
         for event in events:
             currency = event.get("country", "")
             
             # Sla events over met onbekende valuta of valuta die niet in de filter lijst staat
-            if not currency or currency not in ABSOLUTE_VLAG_VALUTA.keys():
+            if not currency or currency not in MAJOR_CURRENCIES:
                 continue
                 
             # Skip valuta die niet in de filter lijst staan, tenzij het instrument GLOBAL is
@@ -921,19 +895,6 @@ IMPORTANT: ONLY return the JSON with TODAY's events. No explanation text.
         # Add the impact legend immediately after the date
         response += "Impact: 🔴 High   🟠 Medium   🟢 Low\n\n"
         
-        # 100% HARDCODED OPLOSSING - Deze vlag-valuta koppeling is de absolute waarheid
-        # Dit is de ENIGE bron van waarheid voor vlag-valuta koppeling
-        ABSOLUTE_VLAG_VALUTA = {
-            "USD": "🇺🇸",  # Verenigde Staten
-            "EUR": "🇪🇺",  # Europese Unie
-            "GBP": "🇬🇧",  # Verenigd Koninkrijk
-            "JPY": "🇯🇵",  # Japan
-            "CHF": "🇨🇭",  # Zwitserland
-            "AUD": "🇦🇺",  # Australië
-            "NZD": "🇳🇿",  # Nieuw-Zeeland
-            "CAD": "🇨🇦"   # Canada
-        }
-        
         currencies = INSTRUMENT_CURRENCY_MAP.get(instrument, ["USD"])
         currencies = [c for c in currencies if c in MAJOR_CURRENCIES]
         
@@ -958,10 +919,6 @@ IMPORTANT: ONLY return the JSON with TODAY's events. No explanation text.
         all_events = []
             
         for currency in MAJOR_CURRENCIES:
-            # Controleer of de valuta bestaat in onze ABSOLUTE mapping
-            if currency not in ABSOLUTE_VLAG_VALUTA:
-                continue
-                
             # Add mock events if this is an active currency
             if currency in active_currencies:
                 if currency == "USD":
