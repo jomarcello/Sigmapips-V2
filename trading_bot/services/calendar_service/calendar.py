@@ -431,7 +431,7 @@ class EconomicCalendarService:
                 continue
                 
             # Valuta header toevoegen met speciale tekens voor betere zichtbaarheid
-            response += f"「{currency}」\n"
+            response += f"「<b>{currency}</b>」\n"
             
             # Sorteer events voor deze valuta op tijd
             sorted_events = sorted(hardcoded_events[currency], key=lambda x: x.get("time", "00:00"))
@@ -974,7 +974,7 @@ IMPORTANT: ONLY return the JSON with TODAY's events. No explanation text.
                 continue
                 
             # Gebruik speciale tekens om valuta te markeren voor betere zichtbaarheid
-            response += f"「{currency}」\n"
+            response += f"「<b>{currency}</b>」\n"
             
             # Voeg events toe
             sorted_events = sorted(events_by_currency[currency], key=lambda x: x.get("time", "00:00"))
