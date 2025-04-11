@@ -753,6 +753,20 @@ class TradingViewCalendarService:
         # Debug logging
         self.logger.info(f"Country to currency mapping: {json.dumps({k: v for k, v in country_to_currency.items() if k in ('US', 'EU', 'GB', 'JP', 'CH', 'AU', 'NZ', 'CA')})}")
         
+        # Debug: Sample of raw events
+        if events_data and len(events_data) > 0:
+            self.logger.info(f"SAMPLE RAW EVENT DATA: {json.dumps(events_data[0])}")
+            
+            # Count countries
+            countries = {}
+            for event in events_data:
+                country = event.get('country', 'UNKNOWN')
+                if country not in countries:
+                    countries[country] = 0
+                countries[country] += 1
+            
+            self.logger.info(f"Countries in raw data: {json.dumps(countries)}")
+        
         # Map TradingView impact levels to our format
         # Belangrijk: TradingView API gebruikt een andere waarde voor importance
         # In de API kan importance -1 zijn voor normale events
@@ -782,16 +796,17 @@ class TradingViewCalendarService:
         # Opslaan van event_time objecten voor betere sortering
         event_times = {}
         
-        # Handmatige correcties voor valuta/land mapping
-        currency_corrections = {
-            "EU": "EUR",  # EU landcode moet naar EUR valuta
-            "GB": "GBP",  # GB landcode moet naar GBP valuta
-            "US": "USD",  # US landcode moet naar USD valuta
-            "JP": "JPY",  # JP landcode moet naar JPY valuta
-            "CH": "CHF",  # CH landcode moet naar CHF valuta
-            "AU": "AUD",  # AU landcode moet naar AUD valuta
-            "NZ": "NZD",  # NZ landcode moet naar NZD valuta
-            "CA": "CAD"   # CA landcode moet naar CAD valuta
+        # Directe mapping van landcode naar valuta EN vlag 
+        # Dit zorgt ervoor dat er geen mismatch kan ontstaan tussen de valuta en vlag
+        direct_mapping = {
+            "US": {"currency": "USD", "flag": "🇺🇸"},
+            "EU": {"currency": "EUR", "flag": "🇪🇺"},
+            "GB": {"currency": "GBP", "flag": "🇬🇧"},
+            "JP": {"currency": "JPY", "flag": "🇯🇵"},
+            "CH": {"currency": "CHF", "flag": "🇨🇭"},
+            "AU": {"currency": "AUD", "flag": "🇦🇺"},
+            "NZ": {"currency": "NZD", "flag": "🇳🇿"},
+            "CA": {"currency": "CAD", "flag": "🇨🇦"}
         }
         
         for event in events_data:
@@ -799,15 +814,18 @@ class TradingViewCalendarService:
                 # Get country code
                 country_code = event.get('country')
                 
-                # Map country code to currency using direct corrections
-                if country_code in currency_corrections:
-                    currency = currency_corrections[country_code]
+                # Gebruik directe mapping
+                if country_code in direct_mapping:
+                    mapping = direct_mapping[country_code]
+                    currency = mapping["currency"]
+                    flag = mapping["flag"]
                 else:
                     # Fallback naar de algemene mapping
                     currency = country_to_currency.get(country_code, "")
+                    flag = CURRENCY_FLAG.get(currency, "")
                 
                 # Debug logging voor deze event
-                self.logger.debug(f"Processing event: country_code={country_code}, mapped to currency={currency}")
+                self.logger.debug(f"Processing event: country_code={country_code}, mapped to currency={currency}, flag={flag}")
                 
                 # Skip events without a known currency or not in major currencies
                 if not currency or currency not in MAJOR_CURRENCIES:
@@ -880,7 +898,7 @@ class TradingViewCalendarService:
                 formatted_event = {
                     "time": time_str,
                     "country": currency,  # Belangrijk: dit is nu de valutacode, niet de landcode
-                    "country_flag": CURRENCY_FLAG.get(currency, ""),
+                    "country_flag": flag,  # Gebruik direct de vlag uit onze mapping
                     "title": event_title,
                     "impact": impact_level,
                     # Additional fields that might be useful
@@ -890,6 +908,9 @@ class TradingViewCalendarService:
                     # ID voor chronologische sortering
                     "event_id": event_id
                 }
+                
+                # Debug output voor dit event
+                self.logger.info(f"Created formatted event: currency={currency}, flag={flag}, title={event_title[:20]}...")
                 
                 formatted_events.append(formatted_event)
                 
