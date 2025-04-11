@@ -358,54 +358,18 @@ class EconomicCalendarService:
             # Filter to only include major currencies
             currencies = [c for c in currencies if c in MAJOR_CURRENCIES]
             
-            # DIRECTE AANPAK: Gebruik eerst de calendar service om events op te halen
-            try:
-                self.logger.info("Trying direct calendar service approach first")
-                calendar_events = await self.calendar_service.get_calendar(days_ahead=0, min_impact="Low")
-                
-                if calendar_events and len(calendar_events) > 0:
-                    self.logger.info(f"Received {len(calendar_events)} events directly from calendar service")
-                    
-                    # Structuur aanpassen voor _format_calendar_response
-                    calendar_data = {currency: [] for currency in MAJOR_CURRENCIES}
-                    
-                    # Events sorteren per currency en alleen relevante currencies behouden
-                    for event in calendar_events:
-                        event_currency = event.get("country", "")
-                        if event_currency in MAJOR_CURRENCIES:
-                            calendar_data[event_currency].append({
-                                "time": event.get("time", ""),
-                                "event": event.get("title", "Unknown Event"),
-                                "impact": event.get("impact", "Low")
-                            })
-                    
-                    # Format de response, maar alleen voor de gevraagde currencies als instrument niet "GLOBAL" is
-                    if instrument != "GLOBAL":
-                        # Filter alleen de gevraagde currencies
-                        filtered_calendar_data = {currency: events for currency, events in calendar_data.items() 
-                                                if currency in currencies}
-                        formatted_response = self._format_calendar_response(filtered_calendar_data, instrument)
-                    else:
-                        # Toon alle beschikbare currencies
-                        formatted_response = self._format_calendar_response(calendar_data, instrument)
-                    
-                    # Cache het resultaat
-                    self.cache[instrument] = formatted_response
-                    self.cache_time[instrument] = now
-                    
-                    return formatted_response
-            except Exception as direct_error:
-                self.logger.error(f"Error using direct calendar service: {str(direct_error)}")
-                self.logger.exception(direct_error)
+            self.logger.info(f"Directly fetching calendar events for instrument {instrument} with currencies {currencies}")
             
-            # Als directe aanpak faalt, val terug op de oude methode
-            self.logger.info("Falling back to original approach")
-            calendar_data = await self._get_economic_calendar_data(currencies, datetime.now().strftime("%B %d, %Y"), datetime.now().strftime("%B %d, %Y"))
+            # Haal alle evenementen op
+            calendar_events = await self.calendar_service.get_calendar(days_ahead=0, min_impact="Low")
             
-            # Format the response
-            formatted_response = self._format_calendar_response(calendar_data, instrument)
+            # Loggen hoeveel evenementen er zijn opgehaald
+            self.logger.info(f"Retrieved {len(calendar_events)} calendar events")
             
-            # Cache the result
+            # Direct format functie
+            formatted_response = self._direct_format_calendar_response(calendar_events, currencies, instrument)
+            
+            # Cache het resultaat
             self.cache[instrument] = formatted_response
             self.cache_time[instrument] = now
             
@@ -416,6 +380,79 @@ class EconomicCalendarService:
             self.logger.exception(e)
             return self._get_fallback_calendar(instrument)
             
+    def _direct_format_calendar_response(self, events: List[Dict], filter_currencies: List[str], instrument: str) -> str:
+        """Format the calendar events directly into a nice HTML response"""
+        self.logger.info(f"Formatting {len(events)} events for {instrument} with currencies {filter_currencies}")
+        
+        response = "📅 Economic Calendar\n\n"
+        
+        # Get current date
+        today = datetime.now()
+        today_readable = today.strftime("%B %d, %Y")
+        
+        # Add date header to the response
+        response += f"<b>Date: {today_readable}</b>\n\n"
+        
+        # Add the impact legend immediately after the date
+        response += "Impact: 🔴 High   🟠 Medium   🟢 Low\n\n"
+        
+        # Filter events to only include the requested currencies
+        # Als dit "GLOBAL" is, dan tonen we alles
+        if instrument != "GLOBAL":
+            filtered_events = [event for event in events if event.get("country", "") in filter_currencies]
+        else:
+            filtered_events = events
+        
+        self.logger.info(f"Filtered to {len(filtered_events)} events for requested currencies")
+        
+        # Als er geen evenementen zijn, toon een bericht
+        if not filtered_events:
+            return response + "No major economic events scheduled for today.\n\n<i>Check back later for updates.</i>"
+        
+        # Groepeer evenementen per valuta
+        events_by_currency = {}
+        for currency in MAJOR_CURRENCIES:
+            currency_events = [e for e in filtered_events if e.get("country", "") == currency]
+            if currency_events:
+                events_by_currency[currency] = currency_events
+        
+        # Als er geen events per valuta zijn, toon een bericht
+        if not events_by_currency:
+            self.logger.warning("No events found after grouping by currency")
+            return response + "No major economic events scheduled for today.\n\n<i>Check back later for updates.</i>"
+        
+        # Process each currency and its events
+        for currency, currency_events in events_by_currency.items():
+            # Sorteer de evenementen op tijd
+            sorted_events = sorted(currency_events, key=lambda x: x.get("time", "00:00"))
+            
+            # Voeg valuta header toe met vlag
+            response += f"{CURRENCY_FLAG.get(currency, '')} {currency}\n"
+            
+            # Voeg elk evenement toe voor deze valuta
+            for event in sorted_events:
+                time = event.get("time", "")
+                title = event.get("title", "Unknown Event")
+                impact = event.get("impact", "Low")
+                
+                # Impact mapping naar emoji's
+                impact_emoji = IMPACT_EMOJI.get(impact, "🟢")
+                
+                # Format each event
+                response += f"{time} - {impact_emoji} {title}\n"
+            
+            # Voeg lege regel toe na elke valuta sectie
+            response += "\n"
+        
+        # Log hoeveel evenementen er worden getoond
+        total_shown = sum(len(events) for events in events_by_currency.values())
+        self.logger.info(f"Showing {total_shown} events in the calendar")
+        
+        # Voeg opmerking toe dat we alleen evenementen voor vandaag tonen
+        response += "Note: Only showing events scheduled for today."
+        
+        return response
+    
     async def _get_economic_calendar_data(self, currency_list, start_date, end_date, lookback_hours = 8):
         """
         Retrieve economic calendar data for select currencies within a date range
@@ -832,124 +869,6 @@ IMPORTANT: ONLY return the JSON with TODAY's events. No explanation text.
         
         return calendar_data
             
-    def _format_calendar_response(self, calendar_data: Dict, instrument: str) -> str:
-        """Format the calendar data into a nice HTML response"""
-        response = "📅 Economic Calendar\n\n"
-        
-        # If the calendar data is empty, return a simple message
-        if not calendar_data:
-            return response + "No major economic events scheduled for today.\n\n<i>Check back later for updates.</i>"
-        
-        # Get current date if not testing
-        today = datetime.now()
-        today_readable = today.strftime("%B %d, %Y")
-        current_month_abbr = today.strftime("%b")
-        
-        # Override voor testing kan worden toegevoegd via environment variable
-        test_date = os.environ.get("CALENDAR_TEST_DATE", "")
-        if test_date:
-            try:
-                test_date_obj = datetime.strptime(test_date, "%Y-%m-%d")
-                today_readable = test_date_obj.strftime("%B %d, %Y")
-                current_month_abbr = test_date_obj.strftime("%b")
-            except:
-                pass
-                
-        # Add date header to the response
-        response += f"<b>Date: {today_readable}</b>\n\n"
-        
-        # Add the impact legend immediately after the date
-        response += "Impact: 🔴 High   🟠 Medium   🟢 Low\n\n"
-        
-        # Sorted list of currencies with events
-        active_currencies = []
-        for currency in MAJOR_CURRENCIES:
-            if currency in calendar_data and calendar_data[currency]:
-                active_currencies.append(currency)
-        
-        # If no active currencies, show a message
-        if not active_currencies:
-            return response + "No major economic events scheduled for today.\n\n<i>Check back later for updates.</i>"
-            
-        # Process each currency and its events, following MAJOR_CURRENCIES order
-        for currency in MAJOR_CURRENCIES:
-            if currency not in calendar_data or not calendar_data[currency]:
-                continue
-                
-            # Sort this currency's events by time
-            currency_events = sorted(calendar_data[currency], key=lambda x: self._parse_time_for_sorting(x.get("time", "00:00")))
-            
-            if not currency_events:
-                continue
-                
-            # Add currency header with flag
-            response += f"{CURRENCY_FLAG.get(currency, '')} {currency}\n"
-            
-            # Add each event for this currency
-            for event in currency_events:
-                time = event.get("time", "")
-                # Remove any timezone markers if still present
-                if " " in time:
-                    time = time.split(" ")[0]
-                
-                event_name = event.get("event", "")
-                impact = event.get("impact", "Low")
-                
-                # Impact mapping naar emoji's
-                impact_emoji = "🟢"  # Default to low
-                if impact == "High":
-                    impact_emoji = "🔴"
-                elif impact == "Medium":
-                    impact_emoji = "🟠"
-                
-                # Format each event per currency - exactly as in the example
-                response += f"{time} - {impact_emoji} {event_name}\n"
-            
-            # Add empty line after each currency section
-            response += "\n"
-        
-        return response
-        
-    def _parse_time_for_sorting(self, time_str: str) -> int:
-        """Parse time string to minutes for sorting"""
-        # Default value
-        minutes = 0
-        
-        try:
-            # Extract only time part if it contains timezone
-            if " " in time_str:
-                time_parts = time_str.split(" ")
-                time_str = time_parts[0]
-                
-            # Handle AM/PM format
-            if "AM" in time_str.upper() or "PM" in time_str.upper():
-                # Parse 12h format
-                time_only = time_str.upper().replace("AM", "").replace("PM", "").strip()
-                parts = time_only.split(":")
-                hours = int(parts[0])
-                minutes_part = int(parts[1]) if len(parts) > 1 else 0
-                
-                # Add 12 hours for PM times (except 12 PM)
-                if "PM" in time_str.upper() and hours < 12:
-                    hours += 12
-                # 12 AM should be 0
-                if "AM" in time_str.upper() and hours == 12:
-                    hours = 0
-                
-                minutes = hours * 60 + minutes_part
-            else:
-                # Handle 24h format
-                parts = time_str.split(":")
-                if len(parts) >= 2:
-                    hours = int(parts[0])
-                    minutes_part = int(parts[1])
-                    minutes = hours * 60 + minutes_part
-        except Exception:
-            # In case of parsing error, default to 0
-            minutes = 0
-            
-        return minutes
-        
     def _get_fallback_calendar(self, instrument: str) -> str:
         """Generate a fallback response if getting the calendar fails"""
         response = "<b>📅 Economic Calendar</b>\n\n"
