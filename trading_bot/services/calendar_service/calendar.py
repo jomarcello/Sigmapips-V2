@@ -358,7 +358,48 @@ class EconomicCalendarService:
             # Filter to only include major currencies
             currencies = [c for c in currencies if c in MAJOR_CURRENCIES]
             
-            # Get calendar data for these currencies
+            # DIRECTE AANPAK: Gebruik eerst de calendar service om events op te halen
+            try:
+                self.logger.info("Trying direct calendar service approach first")
+                calendar_events = await self.calendar_service.get_calendar(days_ahead=0, min_impact="Low")
+                
+                if calendar_events and len(calendar_events) > 0:
+                    self.logger.info(f"Received {len(calendar_events)} events directly from calendar service")
+                    
+                    # Structuur aanpassen voor _format_calendar_response
+                    calendar_data = {currency: [] for currency in MAJOR_CURRENCIES}
+                    
+                    # Events sorteren per currency en alleen relevante currencies behouden
+                    for event in calendar_events:
+                        event_currency = event.get("country", "")
+                        if event_currency in MAJOR_CURRENCIES:
+                            calendar_data[event_currency].append({
+                                "time": event.get("time", ""),
+                                "event": event.get("title", "Unknown Event"),
+                                "impact": event.get("impact", "Low")
+                            })
+                    
+                    # Format de response, maar alleen voor de gevraagde currencies als instrument niet "GLOBAL" is
+                    if instrument != "GLOBAL":
+                        # Filter alleen de gevraagde currencies
+                        filtered_calendar_data = {currency: events for currency, events in calendar_data.items() 
+                                                if currency in currencies}
+                        formatted_response = self._format_calendar_response(filtered_calendar_data, instrument)
+                    else:
+                        # Toon alle beschikbare currencies
+                        formatted_response = self._format_calendar_response(calendar_data, instrument)
+                    
+                    # Cache het resultaat
+                    self.cache[instrument] = formatted_response
+                    self.cache_time[instrument] = now
+                    
+                    return formatted_response
+            except Exception as direct_error:
+                self.logger.error(f"Error using direct calendar service: {str(direct_error)}")
+                self.logger.exception(direct_error)
+            
+            # Als directe aanpak faalt, val terug op de oude methode
+            self.logger.info("Falling back to original approach")
             calendar_data = await self._get_economic_calendar_data(currencies, datetime.now().strftime("%B %d, %Y"), datetime.now().strftime("%B %d, %Y"))
             
             # Format the response
