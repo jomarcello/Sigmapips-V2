@@ -71,51 +71,6 @@ CURRENCY_COUNTRY_MAP = {
     "ARS": "AR"   # Argentinië
 }
 
-# Map of major currencies to flag emojis
-CURRENCY_FLAG = {
-    "USD": "🇺🇸",
-    "EUR": "🇪🇺",
-    "GBP": "🇬🇧",
-    "JPY": "🇯🇵",
-    "CHF": "🇨🇭",
-    "AUD": "🇦🇺",
-    "NZD": "🇳🇿",
-    "CAD": "🇨🇦",
-    # Extra vlaggen toevoegen
-    "CNY": "🇨🇳",
-    "HKD": "🇭🇰",
-    "SGD": "🇸🇬",
-    "INR": "🇮🇳",
-    "BRL": "🇧🇷",
-    "MXN": "🇲🇽",
-    "ZAR": "🇿🇦", 
-    "SEK": "🇸🇪",
-    "NOK": "🇳🇴",
-    "DKK": "🇩🇰",
-    "PLN": "🇵🇱",
-    "TRY": "🇹🇷",
-    "RUB": "🇷🇺",
-    "KRW": "🇰🇷",
-    "ILS": "🇮🇱",
-    # Ontbrekende vlaggen toevoegen
-    "IDR": "🇮🇩",  # Indonesië
-    "SAR": "🇸🇦",  # Saudi Arabië
-    "THB": "🇹🇭",  # Thailand
-    "MYR": "🇲🇾",  # Maleisië
-    "PHP": "🇵🇭",  # Filipijnen
-    "VND": "🇻🇳",  # Vietnam
-    "UAH": "🇺🇦",  # Oekraïne  
-    "AED": "🇦🇪",  # Verenigde Arabische Emiraten
-    "QAR": "🇶🇦",  # Qatar
-    "CZK": "🇨🇿",  # Tsjechië
-    "HUF": "🇭🇺",  # Hongarije
-    "RON": "🇷🇴",  # Roemenië
-    "CLP": "🇨🇱",  # Chili
-    "COP": "🇨🇴",  # Colombia
-    "PEN": "🇵🇪",  # Peru
-    "ARS": "🇦🇷"   # Argentinië
-}
-
 # Impact levels and their emoji representations
 IMPACT_EMOJI = {
     "High": "🔴",
@@ -747,24 +702,11 @@ class TradingViewCalendarService:
         """Extract and format economic events from TradingView API response"""
         formatted_events = []
         
-        # ABSOLUTE MAPPING VAN VALUTA NAAR VLAGGEN - Het enige dat mag worden gebruikt
-        # Deze mapping mag absoluut NIET gewijzigd worden
-        ABSOLUTE_VLAG_VALUTA = {
-            "USD": "🇺🇸",  # Verenigde Staten
-            "EUR": "🇪🇺",  # Europese Unie
-            "GBP": "🇬🇧",  # Verenigd Koninkrijk
-            "JPY": "🇯🇵",  # Japan
-            "CHF": "🇨🇭",  # Zwitserland
-            "AUD": "🇦🇺",  # Australië
-            "NZD": "🇳🇿",  # Nieuw-Zeeland
-            "CAD": "🇨🇦"   # Canada
-        }
-        
         # Create reverse mapping from country code to currency
         country_to_currency = {v: k for k, v in CURRENCY_COUNTRY_MAP.items()}
         
         # Debug logging
-        self.logger.info(f"USING ABSOLUTE FLAG-CURRENCY MAPPING: {json.dumps(ABSOLUTE_VLAG_VALUTA)}")
+        self.logger.info("Extracting events from TradingView data")
         self.logger.info(f"Country to currency mapping: {json.dumps({k: v for k, v in country_to_currency.items() if k in ('US', 'EU', 'GB', 'JP', 'CH', 'AU', 'NZ', 'CA')})}")
         
         # Debug: Sample of raw events
@@ -810,6 +752,19 @@ class TradingViewCalendarService:
         # Opslaan van event_time objecten voor betere sortering
         event_times = {}
         
+        # 100% HARDCODED MAPPING voor landcode naar valuta
+        # Dit is de ENIGE bron van waarheid
+        COUNTRY_TO_CURRENCY_MAPPING = {
+            "US": "USD",
+            "EU": "EUR",
+            "GB": "GBP",
+            "JP": "JPY",
+            "CH": "CHF",
+            "AU": "AUD",
+            "NZ": "NZD",
+            "CA": "CAD"
+        }
+        
         for event in events_data:
             try:
                 # Get country code from the event
@@ -818,37 +773,22 @@ class TradingViewCalendarService:
                 # VALIDATIE: Log de originele landcode
                 self.logger.debug(f"Processing event with country_code: {country_code}")
                 
-                # FORCE GEBRUIK VAN ABSOLUTE MAPPING: Dit is de enige juiste manier
-                # Landcode omzetten naar valuta
-                # DEFINITIEVE MAPPING om landcode naar valuta en vlag te converteren
-                country_to_currency_mapping = {
-                    "US": "USD",
-                    "EU": "EUR",
-                    "GB": "GBP",
-                    "JP": "JPY",
-                    "CH": "CHF",
-                    "AU": "AUD",
-                    "NZ": "NZD",
-                    "CA": "CAD"
-                }
-                
-                # Controleer of landcode bekend is
-                if country_code not in country_to_currency_mapping:
+                # Controleer of landcode geldig is
+                if country_code not in COUNTRY_TO_CURRENCY_MAPPING:
                     # Als landcode niet in onze mapping staat, skip dit event
                     self.logger.debug(f"Skipping event with unknown country_code: {country_code}")
                     continue
                 
-                # Haal de valuta op via de mapping
-                currency = country_to_currency_mapping.get(country_code)
+                # Haal de valuta op via de hardcoded mapping
+                currency = COUNTRY_TO_CURRENCY_MAPPING.get(country_code)
+                
+                # Controleer of we een valuta hebben
                 if not currency:
                     self.logger.warning(f"Unknown country code: {country_code}")
                     continue
-                    
-                # Haal de vlag op uit de absolute mapping
-                flag = ABSOLUTE_VLAG_VALUTA.get(currency)
                 
-                # VALIDATIE: Controleer dat valuta en vlag correct zijn
-                self.logger.debug(f"Mapped {country_code} to currency={currency}, flag={flag}")
+                # VALIDATIE: Controleer dat valuta correct is
+                self.logger.debug(f"Mapped {country_code} to currency={currency}")
                 
                 # Extract time (convert to local time)
                 event_time_str = event.get('date', "")
@@ -908,11 +848,11 @@ class TradingViewCalendarService:
                 previous = event.get('previous')
                 actual = event.get('actual')
                 
-                # Create formatted event - met gegarandeerde correcte valuta en vlag
+                # Create formatted event - met gegarandeerde correcte valuta
                 formatted_event = {
                     "time": time_str,
                     "country": currency,  # Dit is de valutacode, niet de landcode
-                    "country_flag": flag,  # We gebruiken altijd de vlag uit onze absolute mapping
+                    "country_flag": "",   # Geen vlag meer gebruiken
                     "title": event_title,
                     "impact": impact_level,
                     # Additional fields that might be useful
@@ -924,7 +864,7 @@ class TradingViewCalendarService:
                 }
                 
                 # VALIDATIE: Log het volledige event voor debugging
-                self.logger.info(f"Created formatted event: currency={currency}, flag={flag}, title={event_title[:20]}...")
+                self.logger.info(f"Created formatted event: currency={currency}, title={event_title[:20]}...")
                 
                 formatted_events.append(formatted_event)
                 
@@ -933,38 +873,23 @@ class TradingViewCalendarService:
                 self.logger.error(f"Event data: {event}")
                 continue
         
-        # FINAL VALIDATION - CRITICAL: Force the correct flag for each currency
+        # FINAL VALIDATION - CRITICAL: Zorg dat er geen vlaggen meer gebruikt worden
+        for event in formatted_events:
+            # Zet de vlag op leeg
+            event["country_flag"] = ""
+                
+        # Log final validation results
+        self.logger.info("✅ FINAL VALIDATION - All events now have empty country_flag")
+        
+        # Loggen hoeveel events er per valuta zijn
+        currency_counts = {}
         for event in formatted_events:
             currency = event.get("country", "")
-            if currency in ABSOLUTE_VLAG_VALUTA:
-                # FORCE the correct flag - overwrite any existing flag
-                event["country_flag"] = ABSOLUTE_VLAG_VALUTA[currency]
-            else:
-                # If currency is not recognized, log and use empty flag
-                self.logger.warning(f"Unrecognized currency in event: {currency}")
-                event["country_flag"] = ""
-                
-        # Log validation success
-        self.logger.info("✅ FINAL VALIDATION - All events now have the correct currency flags")
-        
-        # Sort events chronologically using the stored datetime objects
-        try:
-            formatted_events = sorted(formatted_events, key=lambda x: event_times.get(x.get('event_id'), datetime.min))
-        except Exception as e:
-            self.logger.error(f"Error sorting events: {e}")
-            # Fallback naar string-based sortering als datetime sortering faalt
-            formatted_events = sorted(formatted_events, key=lambda x: x.get('time', '00:00'))
-        
-        # Log aantal events per valuta voor debugging
-        events_by_currency = {}
-        for event in formatted_events:
-            currency = event.get('country', '')
-            if currency not in events_by_currency:
-                events_by_currency[currency] = 0
-            events_by_currency[currency] += 1
-        
-        self.logger.info(f"Events per currency: {json.dumps(events_by_currency)}")
-        self.logger.info(f"Extracted {len(formatted_events)} formatted events")
+            if currency not in currency_counts:
+                currency_counts[currency] = 0
+            currency_counts[currency] += 1
+            
+        self.logger.info(f"Events per currency: {json.dumps(currency_counts)}")
         
         return formatted_events
     
@@ -987,7 +912,7 @@ class TradingViewCalendarService:
             {
                 "time": "08:30",
                 "country": "USD",
-                "country_flag": "🇺🇸",
+                "country_flag": "",  # Vlag verwijderd
                 "title": "Initial Jobless Claims",
                 "impact": "Medium",
                 "forecast": "225K",
@@ -996,7 +921,7 @@ class TradingViewCalendarService:
             {
                 "time": "10:00",
                 "country": "USD",
-                "country_flag": "🇺🇸",
+                "country_flag": "",  # Vlag verwijderd
                 "title": "Fed Chair Speech",
                 "impact": "High",
                 "forecast": "",
@@ -1005,7 +930,7 @@ class TradingViewCalendarService:
             {
                 "time": "07:45",
                 "country": "EUR",
-                "country_flag": "🇪🇺",
+                "country_flag": "",  # Vlag verwijderd
                 "title": "ECB Interest Rate Decision",
                 "impact": "High",
                 "forecast": "4.50%",
@@ -1014,7 +939,7 @@ class TradingViewCalendarService:
             {
                 "time": "08:30",
                 "country": "EUR",
-                "country_flag": "🇪🇺",
+                "country_flag": "",  # Vlag verwijderd
                 "title": "ECB Press Conference",
                 "impact": "High",
                 "forecast": "",
@@ -1023,7 +948,7 @@ class TradingViewCalendarService:
             {
                 "time": "09:00",
                 "country": "GBP",
-                "country_flag": "🇬🇧",
+                "country_flag": "",  # Vlag verwijderd
                 "title": "Manufacturing PMI",
                 "impact": "Medium",
                 "forecast": "49.5",
@@ -1032,7 +957,7 @@ class TradingViewCalendarService:
             {
                 "time": "00:30",
                 "country": "JPY",
-                "country_flag": "🇯🇵",
+                "country_flag": "",  # Vlag verwijderd
                 "title": "Tokyo CPI",
                 "impact": "Medium",
                 "forecast": "2.6%",
@@ -1041,7 +966,7 @@ class TradingViewCalendarService:
             {
                 "time": "21:30",
                 "country": "AUD",
-                "country_flag": "🇦🇺",
+                "country_flag": "",  # Vlag verwijderd
                 "title": "Employment Change",
                 "impact": "High",
                 "forecast": "25.3K",
@@ -1050,7 +975,7 @@ class TradingViewCalendarService:
             {
                 "time": "13:30",
                 "country": "CAD",
-                "country_flag": "🇨🇦",
+                "country_flag": "",  # Vlag verwijderd
                 "title": "Trade Balance",
                 "impact": "Medium",
                 "forecast": "1.2B",
@@ -1111,7 +1036,7 @@ async def format_calendar_for_telegram(events: List[Dict]) -> str:
     
     for event in sorted_events:
         country = event.get("country", "")
-        country_flag = event.get("country_flag", "")
+        # Verwijder de vlag en gebruik alleen de valutacode in dikgedrukt formaat
         time = event.get("time", "")
         title = event.get("title", "")
         impact = event.get("impact", "Low")
@@ -1135,7 +1060,7 @@ async def format_calendar_for_telegram(events: List[Dict]) -> str:
             if details_parts:
                 details = f" ({', '.join(details_parts)})"
         
-        message += f"{time} {country_flag} <b>{country}</b> - {title}{details} {impact_emoji}\n"
+        message += f"{time} <b>{country}</b> - {title}{details} {impact_emoji}\n"
     
     # Add legend
     message += "\n-------------------\n"
