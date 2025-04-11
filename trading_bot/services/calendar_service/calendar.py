@@ -413,10 +413,36 @@ class EconomicCalendarService:
             if currency not in hardcoded_events:
                 hardcoded_events[currency] = []
                 
+            # Haal de tijd op en converteer naar MYT (UTC+8)
+            time_str = event.get("time", "")
+            if time_str:
+                try:
+                    # Parse de tijd
+                    time_parts = time_str.split(':')
+                    if len(time_parts) >= 2:
+                        hour = int(time_parts[0])
+                        minute = time_parts[1].split()[0]  # Verwijder eventuele tijdzone
+                        
+                        # Converteer naar MYT (UTC+8)
+                        hour = (hour + 8) % 24
+                        time_str = f"{hour:02d}:{minute}"
+                except:
+                    pass
+                
+            # Verwijder de maand uit de titel
+            title = event.get("title", "Unknown Event")
+            title = re.sub(r'\([A-Za-z]{3}\)', '', title)  # Verwijder (Mar), (Apr), etc.
+            title = re.sub(r'\([A-Za-z]{3,}\)', '', title)  # Verwijder (March), (April), etc.
+            title = re.sub(r'\([A-Za-z]{3}\/\d{2}\)', '', title)  # Verwijder (Mar/11), etc.
+            title = re.sub(r'\([A-Za-z]{3,}\/\d{2}\)', '', title)  # Verwijder (March/11), etc.
+            title = re.sub(r'\([A-Za-z]{3}\s\d{2}\)', '', title)  # Verwijder (Mar 11), etc.
+            title = re.sub(r'\([A-Za-z]{3,}\s\d{2}\)', '', title)  # Verwijder (March 11), etc.
+            title = title.strip()
+                
             # Voeg het event toe
             hardcoded_events[currency].append({
-                "time": event.get("time", ""),
-                "title": event.get("title", "Unknown Event"),
+                "time": time_str,
+                "title": title,
                 "impact": event.get("impact", "Low")
             })
         
@@ -446,7 +472,7 @@ class EconomicCalendarService:
                 impact_emoji = IMPACT_EMOJI.get(impact, "🟢")
                 
                 # Voeg het event toe aan de output met time vooraan, dan impact emoji, dan titel
-                response += f"{time} - {impact_emoji} {title}\n"
+                response += f"{time} MYT - {impact_emoji} {title}\n"
             
             # Lege regel na elke valuta sectie
             response += "\n"
