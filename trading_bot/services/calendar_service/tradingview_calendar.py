@@ -1059,9 +1059,9 @@ async def format_calendar_for_telegram(events: List[Dict]) -> str:
             if details_parts:
                 details = f" ({', '.join(details_parts)})"
         
-        # Valutacode in bold zetten en tijd eerst, daarna valuta, dan titel en impact emoji aan het einde
-        # Gebruik dubbele <b> tags voor extra zichtbaarheid
-        message += f"{time} - <b><b>{country}</b></b> - {title}{details} {impact_emoji}\n"
+        # Format the line with enhanced visibility for country - in plaats van alleen bold 
+        # gebruiken we nu "「{country}」" voor betere zichtbaarheid in Telegram
+        message += f"{time} - 「{country}」 - {title}{details} {impact_emoji}\n"
     
     # Add legend
     message += "\n-------------------\n"
