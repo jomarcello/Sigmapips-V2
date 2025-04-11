@@ -1036,7 +1036,6 @@ async def format_calendar_for_telegram(events: List[Dict]) -> str:
     
     for event in sorted_events:
         country = event.get("country", "")
-        # Verwijder de vlag en gebruik alleen de valutacode in dikgedrukt formaat
         time = event.get("time", "")
         title = event.get("title", "")
         impact = event.get("impact", "Low")
@@ -1060,7 +1059,8 @@ async def format_calendar_for_telegram(events: List[Dict]) -> str:
             if details_parts:
                 details = f" ({', '.join(details_parts)})"
         
-        message += f"{time} <b>{country}</b> - {title}{details} {impact_emoji}\n"
+        # Valutacode in bold zetten en tijd eerst, daarna valuta, dan titel en impact emoji aan het einde
+        message += f"{time} - <b>{country}</b> - {title}{details} {impact_emoji}\n"
     
     # Add legend
     message += "\n-------------------\n"
