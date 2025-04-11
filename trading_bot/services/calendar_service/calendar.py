@@ -445,7 +445,7 @@ class EconomicCalendarService:
                 # Impact emoji bepalen
                 impact_emoji = IMPACT_EMOJI.get(impact, "🟢")
                 
-                # Voeg het event toe aan de output
+                # Voeg het event toe aan de output met time vooraan, dan impact emoji, dan titel
                 response += f"{time} - {impact_emoji} {title}\n"
             
             # Lege regel na elke valuta sectie
@@ -985,7 +985,7 @@ IMPORTANT: ONLY return the JSON with TODAY's events. No explanation text.
                 impact = event.get("impact", "Low")
                 impact_emoji = IMPACT_EMOJI.get(impact, "🟢")
                 
-                # Format with currency flag - no extra newline after each event
+                # Format with time first, then impact emoji and event name
                 response += f"{time} - {impact_emoji} {event_name}\n"
             
             # Lege regel na elke valuta sectie
