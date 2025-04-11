@@ -617,11 +617,29 @@ class EconomicCalendarService:
             current_month_abbr = today.strftime("%b")  # Abbreviated month name
             current_day = today.strftime("%d").lstrip("0")  # 5, 10, etc. (zonder voorloopnul)
             
+            # ABSOLUTE MAPPING VAN VALUTA NAAR VLAGGEN - dit is cruciaal
+            ABSOLUTE_VLAG_VALUTA = {
+                "USD": "🇺🇸",  # Verenigde Staten
+                "EUR": "🇪🇺",  # Europese Unie
+                "GBP": "🇬🇧",  # Verenigd Koninkrijk
+                "JPY": "🇯🇵",  # Japan
+                "CHF": "🇨🇭",  # Zwitserland
+                "AUD": "🇦🇺",  # Australië
+                "NZD": "🇳🇿",  # Nieuw-Zeeland
+                "CAD": "🇨🇦"   # Canada
+            }
+            
+            # Voeg expliciet de vlag-valuta mapping toe aan de prompt
+            correct_currency_flags = "\n".join([f"{currency}: {flag}" for currency, flag in ABSOLUTE_VLAG_VALUTA.items()])
+            
             prompt = f"""TASK: Extract economic calendar events ONLY for TODAY ({today_formatted}) from the text.
 
 TODAY'S DATE: {today_formatted}
 TODAY'S DAY: {current_day}
 TODAY'S MONTH: {current_month} ({current_month_abbr})
+
+IMPORTANT: Use ONLY these exact currency-flag pairs - NEVER mix them up:
+{correct_currency_flags}
 
 Format the response as JSON with this structure:
 ```json
@@ -636,6 +654,17 @@ Format the response as JSON with this structure:
   "EUR": [ /* events for EUR */ ]
 }}
 ```
+
+STRICT CURRENCY AND FLAG MATCHING RULES:
+1. USD currency MUST ONLY use the 🇺🇸 flag
+2. EUR currency MUST ONLY use the 🇪🇺 flag
+3. GBP currency MUST ONLY use the 🇬🇧 flag
+4. JPY currency MUST ONLY use the 🇯🇵 flag
+5. CHF currency MUST ONLY use the 🇨🇭 flag
+6. AUD currency MUST ONLY use the 🇦🇺 flag
+7. NZD currency MUST ONLY use the 🇳🇿 flag
+8. CAD currency MUST ONLY use the 🇨🇦 flag
+9. NEVER mix up these flags and currencies
 
 STRICT DATE FILTERING RULES:
 1. ONLY extract events specifically happening TODAY ({today_formatted})
@@ -682,9 +711,19 @@ IMPORTANT: ONLY return the JSON with TODAY's events. No explanation text.
                     self.logger.warning("DeepSeek response is not a dictionary, falling back to regex extraction")
                     return self._extract_calendar_data_from_text(text, currencies)
                 
+                # Maak een nieuw resultaat met de CORRECTE vlag-valuta koppelingen
+                validated_result = {}
+                
                 # Process the data to ensure it matches our expected structure
                 for currency in currencies:
                     if currency in parsed_data and isinstance(parsed_data[currency], list):
+                        # Controleer of valuta geldig is
+                        if currency not in ABSOLUTE_VLAG_VALUTA:
+                            self.logger.warning(f"Skip onbekende valuta: {currency}")
+                            continue
+                            
+                        validated_result[currency] = []
+                        
                         for event in parsed_data[currency]:
                             if isinstance(event, dict) and "time" in event and "event" in event:
                                 # Ensure impact is one of High, Medium, Low
@@ -699,18 +738,18 @@ IMPORTANT: ONLY return the JSON with TODAY's events. No explanation text.
                                     event["time"] = time_str
                                 
                                 # Add to result
-                                result[currency].append({
+                                validated_result[currency].append({
                                     "time": event.get("time", ""),
                                     "event": event.get("event", ""),
                                     "impact": event.get("impact", "Medium")
                                 })
                 
                 # Check if we found any events
-                total_events = sum(len(events) for events in result.values())
+                total_events = sum(len(events) for events in validated_result.values())
                 self.logger.info(f"DeepSeek extracted {total_events} events from calendar data")
                 
                 if total_events > 0:
-                    return result
+                    return validated_result
                 else:
                     self.logger.warning("No events found in DeepSeek response, falling back to regex extraction")
                     return self._extract_calendar_data_from_text(text, currencies)
