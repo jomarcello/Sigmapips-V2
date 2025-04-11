@@ -368,6 +368,10 @@ class EconomicCalendarService:
             # Loggen hoeveel evenementen er zijn opgehaald
             self.logger.info(f"Retrieved {len(calendar_events)} calendar events")
             
+            # Debug: Controleer de eerste 5 evenementen om te zien wat ze bevatten
+            for i, event in enumerate(calendar_events[:5]):
+                self.logger.info(f"DEBUG - Event {i}: {json.dumps(event)}")
+            
             # Direct format functie
             formatted_response = self._direct_format_calendar_response(calendar_events, currencies, instrument)
             
@@ -410,83 +414,73 @@ class EconomicCalendarService:
             "CAD": "🇨🇦"
         }
         
-        # Filter events to only include the requested currencies
-        # Als dit "GLOBAL" is, dan tonen we alles
-        if instrument != "GLOBAL":
-            filtered_events = [event for event in events if event.get("country", "") in filter_currencies]
-        else:
-            filtered_events = events
+        # First, debug the events - let's see exactly what's in them
+        for i, event in enumerate(events[:3]):
+            self.logger.info(f"DEBUG FORMAT - Event {i} details: country={event.get('country', 'None')}, "
+                             f"country_flag={event.get('country_flag', 'None')}, "
+                             f"title={event.get('title', 'Unknown')[:20]}")
         
-        self.logger.info(f"Filtered to {len(filtered_events)} events for requested currencies")
+        # FINALE FIX: Gebruik directe mapping gebaseerd op valuta 
+        # Herverdeel alle events in de juiste valuta groepen
+        grouped_events = {}
         
-        # Als er geen evenementen zijn, toon een bericht
-        if not filtered_events:
-            return response + "No major economic events scheduled for today.\n\n<i>Check back later for updates.</i>"
-        
-        # De standaard correcte mapping forceren voor alle events
-        standardized_events = []
-        for event in filtered_events:
-            # Maak een nieuw event om schone data te garanderen
-            standardized_event = {
-                "time": event.get("time", ""),
-                "title": event.get("title", "Unknown Event"),
-                "impact": event.get("impact", "Low"),
-            }
+        # Stap 1: Maak event-valuta koppelingen op basis van de country veld
+        for event in events:
+            currency = event.get("country", "")
             
-            # Bepaal de valuta (country) en standaardiseer deze
-            country = event.get("country", "")
-            if country in currency_flags:
-                standardized_event["currency"] = country
-            else:
-                # Als het een onbekende valuta is, overslaan we deze
-                self.logger.warning(f"Onbekende valuta gevonden: {country}, wordt overgeslagen")
+            # Als de valuta ontbreekt of niet in onze majors zit, sla deze over
+            if not currency or (instrument != "GLOBAL" and currency not in filter_currencies):
                 continue
                 
-            standardized_events.append(standardized_event)
+            # Maak een kopie van het event
+            clean_event = {
+                "time": event.get("time", ""),
+                "title": event.get("title", "Unknown Event"),
+                "impact": event.get("impact", "Low")
+            }
             
-        # Groepeer evenementen per valuta
-        events_by_currency = {}
-        for currency in MAJOR_CURRENCIES:
-            currency_events = [e for e in standardized_events if e.get("currency") == currency]
-            if currency_events:
-                events_by_currency[currency] = currency_events
-        
-        # Als er geen events per valuta zijn, toon een bericht
-        if not events_by_currency:
-            self.logger.warning("No events found after grouping by currency")
+            # Controleer of de valuta in onze groep zit
+            if currency not in grouped_events:
+                grouped_events[currency] = []
+                
+            # Voeg het event toe
+            grouped_events[currency].append(clean_event)
+            
+        # Als er geen events zijn, toon een bericht
+        if not grouped_events:
             return response + "No major economic events scheduled for today.\n\n<i>Check back later for updates.</i>"
         
-        # Process each currency and its events
-        for currency, currency_events in events_by_currency.items():
-            # Sorteer de evenementen op tijd
+        # Formateer de reactie
+        for currency, currency_events in grouped_events.items():
+            # Sorteer de events op tijd
             sorted_events = sorted(currency_events, key=lambda x: x.get("time", "00:00"))
             
-            # Haal de juiste vlag op uit onze mapping
+            # Haal de juiste vlag op voor deze valuta
             flag = currency_flags.get(currency, "")
             
-            # Toon de valuta met de juiste vlag
+            # Voeg een valuta-header toe
             response += f"{flag} {currency}\n"
             
-            # Voeg elk evenement toe voor deze valuta
+            # Voeg elk event toe
             for event in sorted_events:
                 time = event.get("time", "")
                 title = event.get("title", "Unknown Event")
                 impact = event.get("impact", "Low")
                 
-                # Impact mapping naar emoji's
+                # Bepaal emoji op basis van impact
                 impact_emoji = IMPACT_EMOJI.get(impact, "🟢")
                 
-                # Format each event
+                # Voeg event toe
                 response += f"{time} - {impact_emoji} {title}\n"
             
-            # Voeg lege regel toe na elke valuta sectie
+            # Voeg lege regel toe
             response += "\n"
         
-        # Log hoeveel evenementen er worden getoond
-        total_shown = sum(len(events) for events in events_by_currency.values())
-        self.logger.info(f"Showing {total_shown} events in the calendar")
+        # Tel het aantal events
+        total_events = sum(len(events) for currency, events in grouped_events.items())
+        self.logger.info(f"Showing {total_events} events in calendar")
         
-        # Voeg opmerking toe dat we alleen evenementen voor vandaag tonen
+        # Voeg opmerking toe
         response += "Note: Only showing events scheduled for today."
         
         return response
