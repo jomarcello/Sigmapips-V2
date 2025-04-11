@@ -113,8 +113,8 @@ class EconomicCalendarService:
             # Add impact emoji
             impact_icon = impact_emoji.get(impact, "🟢")
             
-            # Format the line with bold currency code
-            line = f"{time} - <b><b>{country}</b></b> - {title} {data_text} {impact_icon}\n"
+            # Format the line with special characters for country visibility
+            line = f"{time} - 「{country}」 - {title} {data_text} {impact_icon}\n"
             formatted += line
         
         # Add legend
