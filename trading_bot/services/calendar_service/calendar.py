@@ -409,6 +409,11 @@ class EconomicCalendarService:
         if not filtered_events:
             return response + "No major economic events scheduled for today.\n\n<i>Check back later for updates.</i>"
         
+        # Controleer of de gebeurtenissen de juiste velden hebben
+        for event in filtered_events:
+            if "country" not in event:
+                self.logger.warning(f"Event without country field: {event}")
+        
         # Groepeer evenementen per valuta
         events_by_currency = {}
         for currency in MAJOR_CURRENCIES:
@@ -426,8 +431,14 @@ class EconomicCalendarService:
             # Sorteer de evenementen op tijd
             sorted_events = sorted(currency_events, key=lambda x: x.get("time", "00:00"))
             
-            # Voeg valuta header toe met vlag
-            response += f"{CURRENCY_FLAG.get(currency, '')} {currency}\n"
+            # Voeg valuta header toe met JUISTE vlag
+            # Controleer of de valuta in de CURRENCY_FLAG dict staat
+            if currency in CURRENCY_FLAG:
+                flag = CURRENCY_FLAG[currency]
+                response += f"{flag} {currency}\n"
+            else:
+                # Fallback als de vlag niet gevonden wordt
+                response += f"{currency}\n"
             
             # Voeg elk evenement toe voor deze valuta
             for event in sorted_events:
