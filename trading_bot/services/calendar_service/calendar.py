@@ -1,174 +1,119 @@
-# Calendar service package
-# This file should be kept minimal to avoid import cycles
-
 import os
-import ssl
-import asyncio
+import sys
 import logging
-import aiohttp
-import redis
+import asyncio
 import json
-from typing import Dict, Any, List, Optional
-import base64
-import time
-import re
-import random
+import pandas as pd
+import aiohttp
+import http.client
+import urllib.parse
 from datetime import datetime, timedelta
-import socket
-import traceback
+from typing import Dict, List, Any, Optional
+from pathlib import Path
 
-from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery, InputMediaPhoto
-from telegram.ext import (
-    Application,
-    CommandHandler,
-    CallbackQueryHandler,
-    ConversationHandler,
-    ContextTypes,
-    CallbackContext,
-    MessageHandler,
-    filters,
-    PicklePersistence
-)
-from telegram.constants import ParseMode
-
-from trading_bot.services.database.db import Database
-from trading_bot.services.chart_service.chart import ChartService
-from trading_bot.services.sentiment_service.sentiment import MarketSentimentService
-from trading_bot.services.payment_service.stripe_service import StripeService
-from trading_bot.services.payment_service.stripe_config import get_subscription_features
-
-# Try to import AI services, but provide fallbacks if they don't exist
+# Import onze custom mock data generator
 try:
-    from trading_bot.services.ai_service.tavily_service import TavilyService
-    from trading_bot.services.ai_service.deepseek_service import DeepseekService
-    try:
-        from trading_bot.services.calendar_service.forexfactory_screenshot import ForexFactoryScreenshotService
-        HAS_SCREENSHOT_SERVICE = True
-    except ImportError:
-        HAS_SCREENSHOT_SERVICE = False
-    try:
-        from trading_bot.services.calendar_service.tradingview_calendar import TradingViewCalendarService
-        HAS_TRADINGVIEW_SERVICE = True
-    except ImportError:
-        HAS_TRADINGVIEW_SERVICE = False
-    HAS_AI_SERVICES = True
+    from trading_bot.services.calendar_service._generate_mock_calendar_data import generate_mock_calendar_data
+    HAS_CUSTOM_MOCK_DATA = True
 except ImportError:
-    logger = logging.getLogger(__name__)
-    logger.warning("AI services not available. Using fallback implementations.")
-    HAS_AI_SERVICES = False
-    HAS_SCREENSHOT_SERVICE = False
-    HAS_TRADINGVIEW_SERVICE = False
-    
-    # Define fallback classes if imports fail
-    class TavilyService:
-        """Fallback Tavily service implementation"""
-        async def search(self, query: str, max_results: int = 5) -> List[Dict[str, Any]]:
-            """Return mock search results"""
-            return [
-                {
-                    "title": "Economic Calendar - Today's Economic Events",
-                    "url": "https://www.forexfactory.com/calendar",
-                    "content": f"Economic calendar showing major events for today. The calendar includes data for USD, EUR, GBP, JPY, AUD, CAD, CHF, and NZD currencies. Upcoming events include interest rate decisions, employment reports, and inflation data. Each event is marked with an impact level (high, medium, or low)."
-                }
-            ]
-            
-    class DeepseekService:
-        """Fallback DeepSeek service implementation"""
-        async def generate_completion(self, prompt: str, model: str = "deepseek-chat", temperature: float = 0.2) -> str:
-            """Return mock completion"""
-            if "economic calendar" in prompt.lower():
-                # Mock economic calendar JSON
-                return """```json
-{
-  "USD": [
-    {
-      "time": "08:30 EST",
-      "event": "Initial Jobless Claims",
-      "impact": "Medium"
-    },
-    {
-      "time": "08:30 EST",
-      "event": "Trade Balance",
-      "impact": "Medium"
-    },
-    {
-      "time": "15:30 EST",
-      "event": "Fed Chair Speech",
-      "impact": "High"
-    }
-  ],
-  "EUR": [
-    {
-      "time": "07:45 EST",
-      "event": "ECB Interest Rate Decision",
-      "impact": "High"
-    },
-    {
-      "time": "08:30 EST",
-      "event": "ECB Press Conference",
-      "impact": "High"
-    }
-  ],
-  "GBP": [],
-  "JPY": [],
-  "CHF": [],
-  "AUD": [],
-  "NZD": [],
-  "CAD": []
-}```"""
-            else:
-                return "Fallback completion: DeepSeek API not available"
+    HAS_CUSTOM_MOCK_DATA = False
+    logging.getLogger(__name__).warning("Custom mock calendar data not available, using default mock data")
 
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
 logger = logging.getLogger(__name__)
 
-# Callback data constants
-CALLBACK_ANALYSIS_TECHNICAL = "analysis_technical"
-CALLBACK_ANALYSIS_SENTIMENT = "analysis_sentiment"
-CALLBACK_ANALYSIS_CALENDAR = "analysis_calendar"
-# ... rest of constants
+# Map of major currencies to country codes for TradingView API
+CURRENCY_COUNTRY_MAP = {
+    "USD": "US",
+    "EUR": "EU",
+    "GBP": "GB",
+    "JPY": "JP",
+    "CHF": "CH",
+    "AUD": "AU",
+    "NZD": "NZ",
+    "CAD": "CA",
+    # Extra landen toevoegen die op TradingView worden getoond
+    "CNY": "CN",  # China
+    "HKD": "HK",  # Hong Kong
+    "SGD": "SG",  # Singapore
+    "INR": "IN",  # India
+    "BRL": "BR",  # Brazilië
+    "MXN": "MX",  # Mexico
+    "ZAR": "ZA",  # Zuid-Afrika
+    "SEK": "SE",  # Zweden
+    "NOK": "NO",  # Noorwegen
+    "DKK": "DK",  # Denemarken
+    "PLN": "PL",  # Polen
+    "TRY": "TR",  # Turkije
+    "RUB": "RU",  # Rusland
+    "KRW": "KR",  # Zuid-Korea
+    "ILS": "IL",  # Israël
+    # Ontbrekende landen die op TradingView worden getoond
+    "IDR": "ID",  # Indonesië
+    "SAR": "SA",  # Saudi Arabië
+    "THB": "TH",  # Thailand
+    "MYR": "MY",  # Maleisië
+    "PHP": "PH",  # Filipijnen
+    "VND": "VN",  # Vietnam
+    "UAH": "UA",  # Oekraïne
+    "AED": "AE",  # Verenigde Arabische Emiraten
+    "QAR": "QA",  # Qatar
+    "CZK": "CZ",  # Tsjechië
+    "HUF": "HU",  # Hongarije
+    "RON": "RO",  # Roemenië
+    "CLP": "CL",  # Chili
+    "COP": "CO",  # Colombia
+    "PEN": "PE",  # Peru
+    "ARS": "AR"   # Argentinië
+}
 
-# Major currencies to focus on
-MAJOR_CURRENCIES = ["USD", "EUR", "GBP", "JPY", "CHF", "AUD", "NZD", "CAD"]
-
-# Map of instruments to their corresponding currencies
-INSTRUMENT_CURRENCY_MAP = {
-    # Special case for global view
-    "GLOBAL": MAJOR_CURRENCIES,
-    
-    # Forex
-    "EURUSD": ["EUR", "USD"],
-    "GBPUSD": ["GBP", "USD"],
-    "USDJPY": ["USD", "JPY"],
-    "USDCHF": ["USD", "CHF"],
-    "AUDUSD": ["AUD", "USD"],
-    "NZDUSD": ["NZD", "USD"],
-    "USDCAD": ["USD", "CAD"],
-    "EURGBP": ["EUR", "GBP"],
-    "EURJPY": ["EUR", "JPY"],
-    "GBPJPY": ["GBP", "JPY"],
-    
-    # Indices (mapped to their related currencies)
-    "US30": ["USD"],
-    "US100": ["USD"],
-    "US500": ["USD"],
-    "UK100": ["GBP"],
-    "GER40": ["EUR"],
-    "FRA40": ["EUR"],
-    "ESP35": ["EUR"],
-    "JP225": ["JPY"],
-    "AUS200": ["AUD"],
-    
-    # Commodities (mapped to USD primarily)
-    "XAUUSD": ["USD", "XAU"],  # Gold
-    "XAGUSD": ["USD", "XAG"],  # Silver
-    "USOIL": ["USD"],          # Oil (WTI)
-    "UKOIL": ["USD", "GBP"],   # Oil (Brent)
-    
-    # Crypto
-    "BTCUSD": ["USD", "BTC"],
-    "ETHUSD": ["USD", "ETH"],
-    "LTCUSD": ["USD", "LTC"],
-    "XRPUSD": ["USD", "XRP"]
+# Map of major currencies to flag emojis
+CURRENCY_FLAG = {
+    "USD": "🇺🇸",
+    "EUR": "🇪🇺",
+    "GBP": "🇬🇧",
+    "JPY": "🇯🇵",
+    "CHF": "🇨🇭",
+    "AUD": "🇦🇺",
+    "NZD": "🇳🇿",
+    "CAD": "🇨🇦",
+    # Extra vlaggen toevoegen
+    "CNY": "🇨🇳",
+    "HKD": "🇭🇰",
+    "SGD": "🇸🇬",
+    "INR": "🇮🇳",
+    "BRL": "🇧🇷",
+    "MXN": "🇲🇽",
+    "ZAR": "🇿🇦", 
+    "SEK": "🇸🇪",
+    "NOK": "🇳🇴",
+    "DKK": "🇩🇰",
+    "PLN": "🇵🇱",
+    "TRY": "🇹🇷",
+    "RUB": "🇷🇺",
+    "KRW": "🇰🇷",
+    "ILS": "🇮🇱",
+    # Ontbrekende vlaggen toevoegen
+    "IDR": "🇮🇩",  # Indonesië
+    "SAR": "🇸🇦",  # Saudi Arabië
+    "THB": "🇹🇭",  # Thailand
+    "MYR": "🇲🇾",  # Maleisië
+    "PHP": "🇵🇭",  # Filipijnen
+    "VND": "🇻🇳",  # Vietnam
+    "UAH": "🇺🇦",  # Oekraïne  
+    "AED": "🇦🇪",  # Verenigde Arabische Emiraten
+    "QAR": "🇶🇦",  # Qatar
+    "CZK": "🇨🇿",  # Tsjechië
+    "HUF": "🇭🇺",  # Hongarije
+    "RON": "🇷🇴",  # Roemenië
+    "CLP": "🇨🇱",  # Chili
+    "COP": "🇨🇴",  # Colombia
+    "PEN": "🇵🇪",  # Peru
+    "ARS": "🇦🇷"   # Argentinië
 }
 
 # Impact levels and their emoji representations
@@ -178,865 +123,1039 @@ IMPACT_EMOJI = {
     "Low": "🟢"
 }
 
-# Currency to flag emoji mapping
-CURRENCY_FLAG = {
-    "USD": "🇺🇸",
-    "EUR": "🇪🇺",
-    "GBP": "🇬🇧",
-    "JPY": "🇯🇵",
-    "CHF": "🇨🇭",
-    "AUD": "🇦🇺",
-    "NZD": "🇳🇿",
-    "CAD": "🇨🇦"
-}
+# Definieer de major currencies die we altijd willen tonen
+MAJOR_CURRENCIES = ["USD", "EUR", "GBP", "JPY", "CHF", "AUD", "NZD", "CAD"]
 
-# De hoofdklasse voor de calendar service
-class EconomicCalendarService:
-    """Service for retrieving economic calendar data"""
+class TradingViewCalendarService:
+    """Service for retrieving economic calendar data from TradingView's API using ScrapingAnt as a proxy"""
     
-    def __init__(self, tavily_service: Optional[TavilyService] = None, deepseek_service: Optional[DeepseekService] = None):
+    def __init__(self, use_mock_data: bool = False):
+        """Initialize the service"""
         self.logger = logging.getLogger(__name__)
-        self.logger.info("Initializing EconomicCalendarService - Using TradingView as source")
-        print("📅 Initializing Economic Calendar Service - Using TradingView API with ScrapingAnt")
+        self.logger.info("Initializing TradingViewCalendarService - Using real API data by default")
         
-        # Expliciete configuratie voor ScrapingAnt
-        use_scrapingant = os.environ.get("USE_SCRAPINGANT", "").lower() in ("true", "1", "yes")
-        api_key = os.environ.get("SCRAPINGANT_API_KEY", "")
-        is_railway = os.environ.get("RAILWAY_ENVIRONMENT") is not None
+        # Flag to use mock data if needed
+        self.use_mock_data = use_mock_data
         
-        # Log configuratie
-        if is_railway:
-            self.logger.info("✨ Running in Railway environment")
-            print("✨ Running in Railway environment")
+        # URL for TradingView calendar API
+        self.calendar_api_url = "https://economic-calendar.tradingview.com/events"
         
-        if use_scrapingant:
-            masked_key = f"{api_key[:5]}...{api_key[-3:]}" if api_key else "Not set"
-            self.logger.info(f"🔑 ScrapingAnt is ENABLED with key: {masked_key}")
-            print(f"🔑 ScrapingAnt is ENABLED with key: {masked_key}")
-        else:
-            self.logger.info("⚠️ ScrapingAnt is DISABLED")
-            print("⚠️ ScrapingAnt is DISABLED")
+        # ScrapingAnt API token
+        self.scrapingant_api_key = os.environ.get("SCRAPINGANT_API_KEY", "e63e79e708d247c798885c0c320f9f30")
         
-        # Create the TradingView calendar service
-        self.calendar_service = TradingViewCalendarService()
-        self.logger.info("Successfully created TradingViewCalendarService instance")
+        # Use ScrapingAnt or direct connection
+        self.use_scrapingant = os.environ.get("USE_SCRAPINGANT", "true").lower() in ["true", "1", "yes"]
         
-        self.tavily_service = tavily_service or TavilyService()
-        self.deepseek_service = deepseek_service or DeepseekService()
+        # Force real implementation
+        self.force_real_implementation = True
         
-        # Try to load API keys from environment on initialization
-        api_key = os.environ.get("TAVILY_API_KEY", "")
-        if api_key:
-            masked_key = api_key[:5] + "..." if len(api_key) > 5 else "[masked]"
-            self.logger.info(f"Found Tavily API key in environment: {masked_key}")
-            # Refresh the Tavily service with the key
-            self.tavily_service = TavilyService(api_key=api_key)
+        # Default headers for TradingView API
+        self.headers = {
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.110 Safari/537.36',
+            'Origin': 'https://in.tradingview.com',
+            'Referer': 'https://in.tradingview.com/'
+        }
         
-        # Always disable ForexFactory screenshot service
-        use_calendar_fallback = True  # Force to True to disable ForexFactory screenshot method
-        self.logger.warning("❌ Calendar fallback mode is ENABLED - ForexFactory screenshot service disabled permanently")
-        print("❌ Calendar fallback mode is ENABLED - ForexFactory screenshot service disabled permanently")
-        self.use_screenshot_method = False
+        # Enhanced headers for better API connectivity
+        self.enhanced_headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'application/json, text/plain, */*',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Origin': 'https://www.tradingview.com',
+            'Referer': 'https://www.tradingview.com/economic-calendar/',
+            'Sec-Fetch-Dest': 'empty',
+            'Sec-Fetch-Mode': 'cors',
+            'Sec-Fetch-Site': 'same-site',
+            'Connection': 'keep-alive',
+            'Cache-Control': 'no-cache',
+            'Pragma': 'no-cache'
+        }
         
-        self.cache = {}
-        self.cache_time = {}
-        self.cache_expiry = 3600  # 1 hour in seconds
+        # Important economic indicators for better filtering
+        self.important_indicators = [
+            # High importance keywords (case insensitive)
+            "interest rate", "rate decision", "fomc", "fed chair", "gdp", "nonfarm payroll",
+            "employment change", "unemployment", "cpi", "inflation", "retail sales", "pmi",
+            "manufacturing", "trade balance", "central bank", "ecb", "boe", "rba", "boc", "snb",
+            "monetary policy", "press conference"
+        ]
         
-        # Define loading GIF URLs
-        self.loading_gif = "https://media.giphy.com/media/dpjUltnOPye7azvAhH/giphy.gif"  # Update loading GIF
+        # Log configuration
+        self.logger.info(f"Using ScrapingAnt: {self.use_scrapingant}")
+        self.logger.info(f"ScrapingAnt API Key: {self.scrapingant_api_key[:5]}..." if self.scrapingant_api_key else "No ScrapingAnt API Key")
         
-    def get_loading_gif(self) -> str:
-        """Get the URL for the loading GIF"""
-        return self.loading_gif
+        # Run debug connection test if needed
+        if os.environ.get("DEBUG_TRADINGVIEW_API", "").lower() in ["true", "1", "yes"]:
+            try:
+                asyncio.create_task(self.debug_api_connection())
+            except Exception as e:
+                self.logger.error(f"Could not start debug task: {e}")
+    
+    async def fetch_via_scrapingant(self, url: str, params: Dict) -> Dict:
+        """Fetch data via ScrapingAnt proxy service"""
+        self.logger.info(f"Fetching via ScrapingAnt: {url}")
+        print(f"🔑 ScrapingAnt: Fetching data from {url}")
         
-    async def get_calendar(self, days_ahead: int = 0, min_impact: str = "Low") -> List[Dict]:
-        """Get the economic calendar for the specified number of days ahead
+        # Build the full URL with parameters
+        query_string = "&".join([f"{k}={urllib.parse.quote(str(v))}" for k, v in params.items()])
+        full_url = f"{url}?{query_string}"
+        self.logger.info(f"Full URL: {full_url}")
+        
+        # Create connection to ScrapingAnt
+        try:
+            # Use aiohttp for async HTTP requests
+            api_url = "https://api.scrapingant.com/v2/general"
+            scraping_params = {
+                'url': full_url,
+                'x-api-key': self.scrapingant_api_key,
+                'browser': 'false',  # API request, no need for browser rendering
+                'return_text': 'true'
+            }
+            
+            query_string = "&".join([f"{k}={urllib.parse.quote(str(v))}" for k, v in scraping_params.items() if k != 'x-api-key'])
+            api_key_masked = f"{self.scrapingant_api_key[:5]}...{self.scrapingant_api_key[-3:]}"
+            masked_params = scraping_params.copy()
+            masked_params['x-api-key'] = api_key_masked
+            
+            # Log volledig request, maar mask de API key
+            self.logger.info(f"ScrapingAnt request parameters: {masked_params}")
+            print(f"🔑 Using ScrapingAnt API key: {api_key_masked}")
+            
+            self.logger.info(f"Calling ScrapingAnt API: {api_url}")
+            print(f"📡 Calling ScrapingAnt API...")
+            
+            # Gebruik http.client voor een lager niveau controle over het request
+            try:
+                # Eerst proberen met aiohttp
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(f"{api_url}?{query_string}&x-api-key={self.scrapingant_api_key}", 
+                                   timeout=60) as response:
+                        status = response.status
+                        self.logger.info(f"ScrapingAnt response status: {status}")
+                        print(f"📊 ScrapingAnt response status: {status}")
+                        
+                        if status != 200:
+                            error_text = await response.text()
+                            self.logger.error(f"ScrapingAnt error: {error_text[:500]}")
+                            print(f"❌ ScrapingAnt error: {error_text[:100]}...")
+                            
+                            # Als het een authenticatiefout is, toon dan specifiekere info
+                            if status == 401 or status == 403:
+                                self.logger.error(f"API Authentication error. Check your API key: {api_key_masked}")
+                                print(f"🔐 API Authentication error. Check API key: {api_key_masked}")
+                            return {}
+                        
+                        response_text = await response.text()
+                        self.logger.info(f"ScrapingAnt response length: {len(response_text)} bytes")
+                        print(f"📦 Received {len(response_text)} bytes from ScrapingAnt")
+                        
+                        # Log de eerste deel van de response
+                        if len(response_text) > 0:
+                            self.logger.info(f"First 200 chars: {response_text[:200]}")
+                            
+                            # Een bestandje schrijven voor debugging doeleinden
+                            try:
+                                with open("scrapingant_response.txt", "w") as f:
+                                    f.write(response_text)
+                                self.logger.info("Saved raw ScrapingAnt response to scrapingant_response.txt")
+                            except Exception as e:
+                                self.logger.warning(f"Could not save response text file: {e}")
+                        
+                        # Parse as JSON
+                        try:
+                            self.logger.info("Parsing response as JSON")
+                            data = json.loads(response_text)
+                            
+                            # Controleer of het ScrapingAnt formaat of direct TradingView formaat is
+                            if 'content' in data and 'result' not in data:
+                                self.logger.info("Detected ScrapingAnt response format")
+                                # ScrapingAnt response contains HTML or JSON in 'content' field
+                                content = data.get('content', '{}')
+                                
+                                # Probeer de content te parsen als JSON
+                                try:
+                                    content_data = json.loads(content)
+                                    self.logger.info("Successfully parsed content field as JSON")
+                                    return content_data
+                                except json.JSONDecodeError:
+                                    self.logger.error("Content field is not valid JSON")
+                                    # ScrapingAnt heeft HTML teruggegeven
+                                    self.logger.error("ScrapingAnt returned HTML instead of JSON")
+                                    print("❌ ScrapingAnt returned HTML instead of JSON")
+                                    return {}
+                            else:
+                                # Direct TradingView API formaat
+                                self.logger.info("Detected direct TradingView API response format")
+                                return data
+                        except json.JSONDecodeError as e:
+                            self.logger.error(f"JSON parse error: {e}")
+                            print(f"❌ JSON parse error: {str(e)}")
+                            return {}
+                            
+            except Exception as e:
+                self.logger.error(f"Error with aiohttp: {e}")
+                
+                # Fallback naar http.client als aiohttp faalt
+                self.logger.info("Falling back to http.client for API request")
+                
+                # Parse API URL to get host and path
+                parsed_url = urllib.parse.urlparse(api_url)
+                host = parsed_url.netloc
+                
+                # Build complete path with parameters
+                path = f"{parsed_url.path}?{query_string}&x-api-key={self.scrapingant_api_key}"
+                
+                # Create connection
+                conn = http.client.HTTPSConnection(host, timeout=60)
+                
+                try:
+                    # Make request
+                    self.logger.info(f"Making HTTP request to {host}{path[:100]}...")
+                    conn.request("GET", path)
+                    
+                    # Get response
+                    response = conn.getresponse()
+                    self.logger.info(f"Response status: {response.status}")
+                    
+                    if response.status != 200:
+                        error_data = response.read().decode('utf-8')
+                        self.logger.error(f"Error response: {error_data[:500]}")
+                        return {}
+                    
+                    # Read response data
+                    response_data = response.read().decode('utf-8')
+                    self.logger.info(f"Response length: {len(response_data)} bytes")
+                    
+                    # Parse JSON
+                    try:
+                        data = json.loads(response_data)
+                        
+                        # Check for ScrapingAnt format vs direct TradingView format
+                        if 'content' in data and 'result' not in data:
+                            # ScrapingAnt response contains HTML or JSON in 'content' field
+                            content = data.get('content', '{}')
+                            
+                            # Try to parse content as JSON
+                            try:
+                                content_data = json.loads(content)
+                                return content_data
+                            except json.JSONDecodeError:
+                                # If content is not JSON, return empty dict
+                                self.logger.error("Content field is not valid JSON")
+                                return {}
+                        else:
+                            return data
+                    except json.JSONDecodeError:
+                        self.logger.error("Response is not valid JSON")
+                        return {}
+                        
+                except Exception as http_error:
+                    self.logger.error(f"HTTP client error: {http_error}")
+                    return {}
+                finally:
+                    conn.close()
+            
+        except Exception as e:
+            self.logger.error(f"Error using ScrapingAnt: {e}")
+            print(f"❌ Error using ScrapingAnt: {str(e)}")
+            return {}
+    
+    async def debug_api_connection(self):
+        """Test the TradingView API connection and log detailed results"""
+        self.logger.info("DEBUG: Testing TradingView API connection...")
+        
+        # Standard parameters
+        today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        tomorrow = today + timedelta(days=1)
+        params = {
+            'from': today.isoformat() + '.000Z',
+            'to': tomorrow.isoformat() + '.000Z'
+        }
+        
+        # Try different variations of headers and parameters
+        header_variations = [
+            {"name": "Enhanced Browser", "headers": self.enhanced_headers},
+            {"name": "Simple Browser", "headers": {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0',
+                'Origin': 'https://www.tradingview.com',
+                'Referer': 'https://www.tradingview.com/economic-calendar/'
+            }},
+            {"name": "Minimal", "headers": {
+                'User-Agent': 'Mozilla/5.0'
+            }}
+        ]
+        
+        param_variations = [
+            {"name": "All countries", "params": params},
+            {"name": "With USD only", "params": {**params, "countries": "US"}},
+            {"name": "With major countries", "params": {**params, "countries": "US,EU,GB,JP"}}
+        ]
+        
+        # Log environment info
+        self.logger.info(f"DEBUG: Running in environment: {os.environ.get('RAILWAY_ENVIRONMENT', 'local')}")
+        
+        # Test ScrapingAnt if enabled
+        if self.use_scrapingant:
+            self.logger.info("DEBUG: Testing ScrapingAnt connection")
+            
+            # Test params
+            test_params = {
+                'from': today.isoformat() + '.000Z',
+                'to': tomorrow.isoformat() + '.000Z'
+            }
+            
+            try:
+                data = await self.fetch_via_scrapingant(self.calendar_api_url, test_params)
+                if data and 'result' in data:
+                    events = data.get('result', [])
+                    self.logger.info(f"DEBUG: ScrapingAnt SUCCESS! Found {len(events)} events in response")
+                else:
+                    self.logger.warning("DEBUG: ScrapingAnt returned invalid data structure")
+            except Exception as e:
+                self.logger.error(f"DEBUG: ScrapingAnt test failed: {e}")
+        
+        # Test each combination for direct API access
+        for header_var in header_variations:
+            for param_var in param_variations:
+                try:
+                    self.logger.info(f"DEBUG: Testing with {header_var['name']} headers and {param_var['name']} params")
+                    
+                    async with aiohttp.ClientSession() as session:
+                        start_time = datetime.now()
+                        async with session.get(
+                            self.calendar_api_url,
+                            headers=header_var["headers"],
+                            params=param_var["params"],
+                            timeout=30
+                        ) as response:
+                            elapsed = (datetime.now() - start_time).total_seconds()
+                            status = response.status
+                            self.logger.info(f"DEBUG: API response status: {status} (time: {elapsed:.2f}s)")
+                            
+                            response_text = await response.text()
+                            self.logger.info(f"DEBUG: Response length: {len(response_text)} bytes")
+                            
+                            if len(response_text) < 500:
+                                self.logger.info(f"DEBUG: Full response: {response_text}")
+                            else:
+                                self.logger.info(f"DEBUG: First 200 chars: {response_text[:200]}")
+                            
+                            # Check if we got a valid response with events
+                            try:
+                                data = json.loads(response_text)
+                                events = data.get('result', [])
+                                self.logger.info(f"DEBUG: Found {len(events)} events in response")
+                                
+                                if events:
+                                    self.logger.info(f"DEBUG: SUCCESS with {header_var['name']} headers and {param_var['name']} params")
+                                    
+                                    # Remember successful config for future use
+                                    self.best_headers = header_var["headers"]
+                                    self.best_params_template = param_var["params"]
+                                    
+                            except Exception as e:
+                                self.logger.error(f"DEBUG: Error parsing response JSON: {e}")
+                            
+                except Exception as e:
+                    self.logger.error(f"DEBUG: Connection error with {header_var['name']} and {param_var['name']}: {e}")
+        
+        self.logger.info("DEBUG: API connection test completed")
+    
+    async def get_calendar(self, days_ahead: int = 2, min_impact: str = "Low") -> List[Dict]:
+        """Get the economic calendar events from TradingView
         
         Args:
-            days_ahead: Number of days to look ahead
+            days_ahead: Number of days to look ahead (default: 2)
             min_impact: Minimum impact level to include (Low, Medium, High)
             
         Returns:
             List of calendar events
         """
         try:
-            self.logger.info(f"MAIN: Getting economic calendar data (days_ahead={days_ahead}, min_impact={min_impact})")
-            print(f"📅 Getting economic calendar data for {days_ahead} days ahead with min impact {min_impact}")
+            self.logger.info(f"🔍 TradingViewCalendarService.get_calendar called with days_ahead={days_ahead}, min_impact={min_impact}")
+            print(f"🔍 TradingView Calendar Service: Getting calendar data for {days_ahead} days ahead")
+            print(f"⚙️ Configuration: use_scrapingant={self.use_scrapingant}, use_mock_data={self.use_mock_data}")
             
-            # Gebruik de TradingView kalender service om events op te halen
-            events = await self.calendar_service.get_calendar(days_ahead=days_ahead, min_impact=min_impact)
+            # Extra ScrapingAnt info
+            if self.use_scrapingant:
+                api_key_masked = f"{self.scrapingant_api_key[:5]}...{self.scrapingant_api_key[-3:]}"
+                print(f"🔑 Using ScrapingAnt API key: {api_key_masked}")
+                self.logger.info(f"Using ScrapingAnt with API key: {api_key_masked}")
             
-            self.logger.info(f"MAIN: Received {len(events)} calendar events")
-            print(f"📅 Successfully retrieved {len(events)} calendar events")
+            # Disable mock data in Railway environment
+            if os.environ.get("RAILWAY_ENVIRONMENT") is not None:
+                self.logger.info("Running in Railway environment, forcing real API usage")
+                self.use_mock_data = False
+            
+            # If mock data is requested, return it directly
+            if self.use_mock_data:
+                self.logger.info("Using mock data as requested")
+                calendar_data = self._generate_mock_calendar_data()
+                return self._filter_by_impact(calendar_data, min_impact)
+            
+            # First try with ScrapingAnt if enabled
+            if self.use_scrapingant:
+                self.logger.info("💻 Trying to fetch calendar data using ScrapingAnt")
+                print("💻 Fetching economic calendar data via ScrapingAnt proxy...")
+                events = await self._fetch_tradingview_calendar_via_scrapingant(days_ahead=days_ahead)
+                
+                if events and len(events) > 0:
+                    self.logger.info(f"✅ SUCCESS: Got {len(events)} events from TradingView API via ScrapingAnt")
+                    print(f"✅ SUCCESS: Fetched {len(events)} economic events via ScrapingAnt")
+                    filtered_events = self._filter_by_impact(events, min_impact)
+                    return filtered_events
+                else:
+                    self.logger.warning("❌ No events from TradingView API via ScrapingAnt, trying direct connection")
+                    print("❌ ScrapingAnt fetch failed, trying direct API connection...")
+            
+            # If ScrapingAnt failed or is disabled, try direct connection
+            self.logger.info("Trying direct API connection")
+            print("🔌 Attempting direct connection to TradingView API...")
+            events = await self._fetch_tradingview_calendar(days_ahead=days_ahead)
+            
+            if events and len(events) > 0:
+                self.logger.info(f"✅ SUCCESS: Got {len(events)} events from TradingView API via direct connection")
+                print(f"✅ SUCCESS: Fetched {len(events)} economic events via direct connection")
+                filtered_events = self._filter_by_impact(events, min_impact)
+                return filtered_events
+            else:
+                self.logger.warning("❌ No events from TradingView API, using fallback data")
+                print("❌ Direct API connection failed, using fallback calendar data")
+            
+            # If we reached this point, the API call failed or returned empty
+            self.logger.info("Using fallback calendar implementation")
+            try:
+                from trading_bot.services.calendar_service.calendar_fix import EconomicCalendarService
+                fallback = EconomicCalendarService()
+                mock_data = await fallback.get_calendar(days_ahead, min_impact)
+                self.logger.info(f"Successfully got {len(mock_data)} events from fallback implementation")
+                return mock_data
+            except Exception as fallback_error:
+                self.logger.error(f"Error using fallback implementation: {fallback_error}")
+                # Last resort: use our internal mock data
+                calendar_data = self._generate_mock_calendar_data()
+                return self._filter_by_impact(calendar_data, min_impact)
+            
+        except Exception as e:
+            self.logger.error(f"❌ Error getting calendar data: {e}")
+            self.logger.exception(e)
+            print(f"❌ Error in TradingView Calendar Service: {e}")
+            
+            # Use fallback on any error
+            try:
+                from trading_bot.services.calendar_service.calendar_fix import EconomicCalendarService
+                fallback = EconomicCalendarService()
+                return await fallback.get_calendar(days_ahead, min_impact)
+            except Exception:
+                # If anything fails, use our internal mock data
+                calendar_data = self._generate_mock_calendar_data()
+                return self._filter_by_impact(calendar_data, min_impact)
+    
+    async def _fetch_tradingview_calendar_via_scrapingant(self, days_ahead: int = 1) -> List[Dict]:
+        """Fetch calendar data via ScrapingAnt proxy"""
+        try:
+            self.logger.info(f"Fetching calendar data via ScrapingAnt, days ahead: {days_ahead}")
+            
+            # Calculate date range
+            today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+            start_date = today
+            days_to_add = max(1, days_ahead)
+            end_date = today + timedelta(days=days_to_add)
+            
+            # Prepare parameters
+            params = {
+                'from': start_date.isoformat() + '.000Z',
+                'to': end_date.isoformat() + '.000Z'
+            }
+            
+            # Fetch data via ScrapingAnt
+            data = await self.fetch_via_scrapingant(self.calendar_api_url, params)
+            
+            if not data or 'result' not in data:
+                self.logger.error(f"Invalid API response structure from ScrapingAnt")
+                return []
+            
+            # Process API response
+            events_data = data.get('result', [])
+            self.logger.info(f"Received {len(events_data)} events from TradingView API via ScrapingAnt")
+            
+            # Save raw data for debugging
+            try:
+                with open("tradingview_debug_scrapingant.json", "w") as f:
+                    json.dump(events_data, f, indent=2)
+                self.logger.info("Saved API response data to tradingview_debug_scrapingant.json")
+            except Exception as e:
+                self.logger.warning(f"Could not save debug file: {e}")
+            
+            # Extract and format events
+            events = self._extract_events_from_tradingview(events_data)
             
             return events
-        
-        except Exception as e:
-            self.logger.error(f"Error getting calendar: {e}")
-            # Probeer eens extra informatie te loggen bij een fout
-            try:
-                from inspect import getframeinfo, stack
-                caller = getframeinfo(stack()[1][0])
-                self.logger.error(f"Error location: {caller.filename}:{caller.lineno}")
-            except Exception:
-                # Ignore errors in debugging code
-                pass
             
-            # Return empty list on error
+        except Exception as e:
+            self.logger.error(f"Error fetching TradingView calendar data via ScrapingAnt: {e}")
+            self.logger.exception(e)
             return []
-            
-    async def get_events(self, instrument: str) -> Dict:
-        """Get economic calendar events and explanations for a specific instrument"""
+    
+    async def _fetch_tradingview_calendar(self, days_ahead: int = 1) -> List[Dict]:
+        """Fetch economic calendar data from TradingView API directly"""
         try:
-            self.logger.info(f"Getting economic calendar events for {instrument}")
+            self.logger.info(f"Fetching calendar data from TradingView API directly, days ahead: {days_ahead}")
             
-            # Get currencies related to this instrument
-            currencies = INSTRUMENT_CURRENCY_MAP.get(instrument, [])
+            # Calculate date range
+            today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
             
-            # If no currencies found, use USD as default
-            if not currencies:
-                currencies = ["USD"]
-                
-            # Filter to only include major currencies
-            currencies = [c for c in currencies if c in MAJOR_CURRENCIES]
+            # Start date is today at midnight
+            start_date = today
             
-            # Get calendar data for these currencies
-            calendar_data = await self._get_economic_calendar_data(currencies, datetime.now().strftime("%B %d, %Y"), datetime.now().strftime("%B %d, %Y"))
+            # End date is start_date + days_ahead (at least 1 day to get a full day)
+            days_to_add = max(1, days_ahead)
+            end_date = today + timedelta(days=days_to_add)
             
-            # Flatten the data into a list of events with the event information
-            events = []
-            for currency, currency_events in calendar_data.items():
-                for event in currency_events:
-                    # Zorg ervoor dat we de juiste vlag gebruiken uit de CURRENCY_FLAG constante
-                    flag = CURRENCY_FLAG.get(currency, "")
-                    events.append({
-                        "date": f"{event.get('time', 'TBD')} - {flag} {currency}",
-                        "title": event.get("event", "Unknown Event"),
-                        "impact": event.get("impact", "low").lower(),
-                        "forecast": "",  # Could be expanded in the future
-                        "previous": ""   # Could be expanded in the future
-                    })
-            
-            # Sort events by time
-            events = sorted(events, key=lambda x: x.get("date", ""))
-            
-            # Create a simple explanation of the impact
-            explanation = f"These economic events may impact {instrument} as they affect "
-            explanation += ", ".join([f"{CURRENCY_FLAG.get(c, '')} {c}" for c in currencies])
-            explanation += " which are the base currencies for this instrument."
-            
-            return {
-                "events": events,
-                "explanation": explanation
+            # Prepare parameters for API call
+            # Try without specific countries to get all events
+            params = {
+                'from': start_date.isoformat() + '.000Z',
+                'to': end_date.isoformat() + '.000Z',
+                # Not specifying countries to get all available events
             }
             
-        except Exception as e:
-            self.logger.error(f"Error getting events for {instrument}: {str(e)}")
-            self.logger.exception(e)
-            # Return empty data structure
-            return {
-                "events": [],
-                "explanation": f"No economic events found for {instrument}."
-            }
+            # Use headers that were successful in the debug test if available
+            headers_to_use = getattr(self, 'best_headers', self.enhanced_headers)
             
-    async def get_instrument_calendar(self, instrument: str) -> str:
-        """Get economic calendar events relevant to an instrument"""
-        try:
-            self.logger.info(f"Getting economic calendar for {instrument}")
+            self.logger.info(f"API parameters: {params}")
+            self.logger.info(f"Using headers: {headers_to_use.get('User-Agent', 'Not specified')}")
             
-            # Check cache first
-            now = time.time()
-            if instrument in self.cache and (now - self.cache_time.get(instrument, 0)) < self.cache_expiry:
-                self.logger.info(f"Using cached calendar data for {instrument}")
-                return self.cache[instrument]
+            # Log the full URL being called
+            query_string = "&".join([f"{k}={v}" for k, v in params.items()])
+            full_url = f"{self.calendar_api_url}?{query_string}"
+            self.logger.info(f"Calling API URL: {full_url}")
             
-            # Get currencies related to this instrument
-            currencies = INSTRUMENT_CURRENCY_MAP.get(instrument, [])
-            
-            # If no currencies found, use USD as default
-            if not currencies:
-                currencies = ["USD"]
+            # Make API call
+            async with aiohttp.ClientSession() as session:
+                try:
+                    async with session.get(
+                        self.calendar_api_url,
+                        headers=headers_to_use,
+                        params=params,
+                        timeout=30  # Add explicit timeout
+                    ) as response:
+                        status = response.status
+                        self.logger.info(f"API response status: {status}")
+                        
+                        if status != 200:
+                            self.logger.error(f"API request failed with status {status}")
+                            # Try to get response text for better debugging
+                            try:
+                                error_text = await response.text()
+                                self.logger.error(f"Error response: {error_text[:500]}")
+                            except Exception as text_error:
+                                self.logger.error(f"Could not read error response: {text_error}")
+                            return []
+                        
+                        # Log response headers for debugging
+                        self.logger.info(f"Response headers: {dict(response.headers)}")
+                        
+                        # Read response as text first for debugging
+                        response_text = await response.text()
+                        self.logger.info(f"Response length: {len(response_text)} bytes")
+                        
+                        # Save raw response for debugging
+                        try:
+                            with open("tradingview_response.txt", "w") as f:
+                                f.write(response_text)
+                            self.logger.info("Saved raw API response to tradingview_response.txt")
+                        except Exception as e:
+                            self.logger.warning(f"Could not save response text file: {e}")
+                        
+                        # Parse as JSON
+                        try:
+                            data = json.loads(response_text)
+                        except json.JSONDecodeError as e:
+                            self.logger.error(f"JSON parse error: {e}")
+                            self.logger.error(f"First 200 chars of response: {response_text[:200]}")
+                            return []
+                        
+                        if not data or 'result' not in data:
+                            self.logger.error(f"Invalid API response structure: {data}")
+                            return []
                 
-            # Filter to only include major currencies
-            currencies = [c for c in currencies if c in MAJOR_CURRENCIES]
+                except aiohttp.ClientError as e:
+                    self.logger.error(f"HTTP request error: {e}")
+                    return []
+                except asyncio.TimeoutError:
+                    self.logger.error("API request timed out")
+                    return []
             
-            self.logger.info(f"Directly fetching calendar events for instrument {instrument} with currencies {currencies}")
+            # Process API response
+            events_data = data.get('result', [])
+            self.logger.info(f"Received {len(events_data)} events from TradingView API")
             
-            # Haal alle evenementen op
-            calendar_events = await self.calendar_service.get_calendar(days_ahead=0, min_impact="Low")
+            # Test if return data is empty, try alternative approach
+            if not events_data:
+                self.logger.warning("Received empty events list, trying alternative approach")
+                
+                # Try with specific countries
+                alt_params = params.copy()
+                alt_params['countries'] = 'US,EU,GB,JP'
+                
+                self.logger.info(f"Trying alternative API parameters: {alt_params}")
+                
+                async with aiohttp.ClientSession() as session:
+                    try:
+                        async with session.get(
+                            self.calendar_api_url,
+                            headers=headers_to_use,
+                            params=alt_params,
+                            timeout=30
+                        ) as alt_response:
+                            if alt_response.status != 200:
+                                self.logger.error(f"Alternative API request failed with status {alt_response.status}")
+                                return []
+                            
+                            alt_data = await alt_response.json()
+                            
+                            if not alt_data or 'result' not in alt_data:
+                                self.logger.error(f"Invalid alternative API response: {alt_data}")
+                                return []
+                            
+                            events_data = alt_data.get('result', [])
+                            self.logger.info(f"Received {len(events_data)} events from alternative TradingView API call")
+                    
+                    except Exception as alt_error:
+                        self.logger.error(f"Alternative approach error: {alt_error}")
             
-            # Loggen hoeveel evenementen er zijn opgehaald
-            self.logger.info(f"Retrieved {len(calendar_events)} calendar events")
+            # Save raw data for debugging
+            try:
+                with open("tradingview_debug.json", "w") as f:
+                    json.dump(events_data, f, indent=2)
+                self.logger.info("Saved API response data to tradingview_debug.json")
+            except Exception as e:
+                self.logger.warning(f"Could not save debug file: {e}")
             
-            # Debug: Controleer de eerste 5 evenementen om te zien wat ze bevatten
-            for i, event in enumerate(calendar_events[:5]):
-                self.logger.info(f"DEBUG - Event {i}: {json.dumps(event)}")
+            # Extract and format events
+            events = self._extract_events_from_tradingview(events_data)
             
-            # Direct format functie
-            formatted_response = self._direct_format_calendar_response(calendar_events, currencies, instrument)
-            
-            # Cache het resultaat
-            self.cache[instrument] = formatted_response
-            self.cache_time[instrument] = now
-            
-            return formatted_response
+            return events
             
         except Exception as e:
-            self.logger.error(f"Error getting economic calendar: {str(e)}")
+            self.logger.error(f"Error fetching TradingView calendar data: {e}")
             self.logger.exception(e)
-            return self._get_fallback_calendar(instrument)
+            return []
+    
+    def _extract_events_from_tradingview(self, events_data: List[Dict]) -> List[Dict]:
+        """Extract and format economic events from TradingView API response"""
+        formatted_events = []
+        
+        # Create reverse mapping from country code to currency
+        country_to_currency = {v: k for k, v in CURRENCY_COUNTRY_MAP.items()}
+        
+        # Debug logging
+        self.logger.info(f"Country to currency mapping: {json.dumps({k: v for k, v in country_to_currency.items() if k in ('US', 'EU', 'GB', 'JP', 'CH', 'AU', 'NZ', 'CA')})}")
+        
+        # Debug: Sample of raw events
+        if events_data and len(events_data) > 0:
+            self.logger.info(f"SAMPLE RAW EVENT DATA: {json.dumps(events_data[0])}")
             
-    def _direct_format_calendar_response(self, events: List[Dict], filter_currencies: List[str], instrument: str) -> str:
-        """Format the calendar events directly into a nice HTML response"""
-        self.logger.info(f"Formatting {len(events)} events for {instrument} with currencies {filter_currencies}")
+            # Count countries
+            countries = {}
+            for event in events_data:
+                country = event.get('country', 'UNKNOWN')
+                if country not in countries:
+                    countries[country] = 0
+                countries[country] += 1
+            
+            self.logger.info(f"Countries in raw data: {json.dumps(countries)}")
         
-        response = "📅 Economic Calendar\n\n"
-        
-        # Get current date
-        today = datetime.now()
-        today_readable = today.strftime("%B %d, %Y")
-        
-        # Add date header to the response
-        response += f"<b>Date: {today_readable}</b>\n\n"
-        
-        # Add the impact legend immediately after the date
-        response += "Impact: 🔴 High   🟠 Medium   🟢 Low\n\n"
-        
-        # Correcte mapping van currency naar vlag - dit is de enige juiste mapping die we gebruiken
-        currency_flags = {
-            "USD": "🇺🇸",
-            "EUR": "🇪🇺",
-            "GBP": "🇬🇧",
-            "JPY": "🇯🇵",
-            "CHF": "🇨🇭",
-            "AUD": "🇦🇺",
-            "NZD": "🇳🇿",
-            "CAD": "🇨🇦"
+        # Map TradingView impact levels to our format
+        # Belangrijk: TradingView API gebruikt een andere waarde voor importance
+        # In de API kan importance -1 zijn voor normale events
+        impact_map = {
+            3: "High",
+            2: "Medium",
+            1: "Low",
+            0: "Low",
+            -1: "Low"  # Veel events hebben -1 als importance maar kunnen toch belangrijk zijn
         }
         
-        # First, debug the events - let's see exactly what's in them
-        for i, event in enumerate(events[:3]):
-            self.logger.info(f"DEBUG FORMAT - Event {i} details: country={event.get('country', 'None')}, "
-                             f"country_flag={event.get('country_flag', 'None')}, "
-                             f"title={event.get('title', 'Unknown')[:20]}")
+        # Lijst met woorden die duiden op een High impact event
+        high_impact_keywords = [
+            "interest rate", "rate decision", "fomc", "fed chair", "gdp", 
+            "nonfarm payroll", "employment change", "unemployment", "cpi", "inflation",
+            "monetary policy", "central bank", "economic sentiment", "monetary policy statement"
+        ]
         
-        # FINALE FIX: Gebruik directe mapping gebaseerd op valuta 
-        # Herverdeel alle events in de juiste valuta groepen
-        grouped_events = {}
+        # Lijst met woorden die duiden op een Medium impact event
+        medium_impact_keywords = [
+            "retail sales", "pmi", "manufacturing", "trade balance", "central bank", 
+            "ecb", "boe", "rba", "boc", "snb", "monetary policy", "press conference",
+            "consumer confidence", "business confidence", "industrial production", "factory orders",
+            "durable goods", "housing", "building permits", "construction"
+        ]
         
-        # Stap 1: Maak event-valuta koppelingen op basis van de country veld
-        for event in events:
-            currency = event.get("country", "")
-            
-            # Als de valuta ontbreekt of niet in onze majors zit, sla deze over
-            if not currency or (instrument != "GLOBAL" and currency not in filter_currencies):
-                continue
-                
-            # Maak een kopie van het event
-            clean_event = {
-                "time": event.get("time", ""),
-                "title": event.get("title", "Unknown Event"),
-                "impact": event.get("impact", "Low")
-            }
-            
-            # Controleer of de valuta in onze groep zit
-            if currency not in grouped_events:
-                grouped_events[currency] = []
-                
-            # Voeg het event toe
-            grouped_events[currency].append(clean_event)
-            
-        # Als er geen events zijn, toon een bericht
-        if not grouped_events:
-            return response + "No major economic events scheduled for today.\n\n<i>Check back later for updates.</i>"
+        # Opslaan van event_time objecten voor betere sortering
+        event_times = {}
         
-        # Formateer de reactie
-        for currency, currency_events in grouped_events.items():
-            # Sorteer de events op tijd
-            sorted_events = sorted(currency_events, key=lambda x: x.get("time", "00:00"))
-            
-            # Haal de juiste vlag op voor deze valuta
-            flag = currency_flags.get(currency, "")
-            
-            # Voeg een valuta-header toe
-            response += f"{flag} {currency}\n"
-            
-            # Voeg elk event toe
-            for event in sorted_events:
-                time = event.get("time", "")
-                title = event.get("title", "Unknown Event")
-                impact = event.get("impact", "Low")
-                
-                # Bepaal emoji op basis van impact
-                impact_emoji = IMPACT_EMOJI.get(impact, "🟢")
-                
-                # Voeg event toe
-                response += f"{time} - {impact_emoji} {title}\n"
-            
-            # Voeg lege regel toe
-            response += "\n"
+        # DEFINITIEVE FIX: Vastgelegde mapping van landcode naar valuta en vlag
+        # Deze mapping gebruiken we dwingend voor elke landcode
+        ABSOLUTE_MAPPING = {
+            # De mapping is direct met valuta en vlag samen, dit voorkomt mismatch
+            "US": {"currency": "USD", "flag": "🇺🇸"},
+            "EU": {"currency": "EUR", "flag": "🇪🇺"},
+            "GB": {"currency": "GBP", "flag": "🇬🇧"},
+            "JP": {"currency": "JPY", "flag": "🇯🇵"},
+            "CH": {"currency": "CHF", "flag": "🇨🇭"},
+            "AU": {"currency": "AUD", "flag": "🇦🇺"},
+            "NZ": {"currency": "NZD", "flag": "🇳🇿"},
+            "CA": {"currency": "CAD", "flag": "🇨🇦"}
+        }
         
-        # Tel het aantal events
-        total_events = sum(len(events) for currency, events in grouped_events.items())
-        self.logger.info(f"Showing {total_events} events in calendar")
+        # Log de mapping voor debugging
+        self.logger.info(f"ABSOLUTE MAPPING (definitieve fix): {json.dumps(ABSOLUTE_MAPPING)}")
         
-        # Voeg opmerking toe
-        response += "Note: Only showing events scheduled for today."
-        
-        return response
-    
-    async def _get_economic_calendar_data(self, currency_list, start_date, end_date, lookback_hours = 8):
-        """
-        Retrieve economic calendar data for select currencies within a date range
-        """
-        try:
-            # Initialize calendar_json to an empty dict to avoid reference before assignment
-            calendar_json = {}
-            
-            # Get Tavily API key from environment - expliciete refresh
-            env_tavily_key = os.getenv("TAVILY_API_KEY", "").strip()
-            
-            # Zorg ervoor dat de API key het tvly- prefix heeft voor Bearer authenticatie
-            if env_tavily_key:
-                # Voeg 'tvly-' prefix toe als dat niet aanwezig is, voor Bearer authenticatie
-                if not env_tavily_key.startswith("tvly-"):
-                    env_tavily_key = f"tvly-{env_tavily_key}"
-                    logger.info(f"Added 'tvly-' prefix to API key for Bearer authentication")
-                
-                # Update environment variable met het correcte formaat
-                os.environ["TAVILY_API_KEY"] = env_tavily_key
-                masked_key = f"{env_tavily_key[:8]}...{env_tavily_key[-4:]}" if len(env_tavily_key) > 12 else f"{env_tavily_key[:4]}..."
-                logger.info(f"Set TAVILY_API_KEY in environment: {masked_key}")
-            else:
-                # Gebruik de default API key als geen API key is ingesteld
-                default_key = "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"
-                env_tavily_key = default_key
-                os.environ["TAVILY_API_KEY"] = default_key
-                logger.info(f"Using default Tavily API key: {default_key[:8]}...{default_key[-4:]}")
-                
-            # Voeg debug info toe
-            logger.info(f"Tavily API key from env_tavily_key: {env_tavily_key[:8]}...{env_tavily_key[-4:] if len(env_tavily_key) > 12 else ''}")
-            logger.info(f"Tavily API key from os.environ: {os.environ.get('TAVILY_API_KEY', 'Not set')[:8]}...{os.environ.get('TAVILY_API_KEY', '')[-4:] if len(os.environ.get('TAVILY_API_KEY', '')) > 12 else ''}")
-            
-            # Form search query
-            query = f"Economic calendar for {', '.join(currency_list)} from {start_date} to {end_date}"
-            logger.info(f"Searching Tavily with query: {query}")
-            
-            # First attempt - general search
+        for event in events_data:
             try:
-                # Initialize with explicit key
-                tavily_service = TavilyService(api_key=env_tavily_key)
-                logger.info("Created new TavilyService instance with explicit API key")
+                # Get country code from the event
+                country_code = event.get('country')
                 
-                # Test tavily_service API key
-                if hasattr(tavily_service, 'api_key') and tavily_service.api_key:
-                    logger.info(f"TavilyService.api_key: {tavily_service.api_key[:5]}...{tavily_service.api_key[-4:] if len(tavily_service.api_key) > 9 else ''}")
+                # VALIDATIE: Log de originele landcode
+                self.logger.debug(f"Processing event with country_code: {country_code}")
+                
+                # FORCE GEBRUIK VAN ABSOLUTE MAPPING: Dit is de enige juiste manier
+                if country_code not in ABSOLUTE_MAPPING:
+                    # Als landcode niet in onze mapping staat, skip dit event
+                    self.logger.debug(f"Skipping event with unknown country_code: {country_code}")
+                    continue
+                
+                # Haal de valuta en vlag op uit de absolute mapping
+                mapping = ABSOLUTE_MAPPING[country_code]
+                currency = mapping["currency"]
+                flag = mapping["flag"]
+                
+                # VALIDATIE: Controleer dat valuta en vlag correct zijn
+                self.logger.debug(f"Mapped {country_code} to currency={currency}, flag={flag}")
+                
+                # Extract time (convert to local time)
+                event_time_str = event.get('date', "")
+                if not event_time_str:
+                    self.logger.warning(f"Missing date for event: {event.get('title', 'Unknown')}")
+                    continue  # Skip events without a date
+                
+                try:
+                    event_time = datetime.fromisoformat(event_time_str.replace('Z', '+00:00'))
+                    time_str = event_time.strftime("%H:%M")
+                    
+                    # Sla het originele datetime object op voor betere sortering
+                    event_id = f"{currency}_{event.get('id', '')}"
+                    event_times[event_id] = event_time
+                except (ValueError, TypeError) as e:
+                    self.logger.warning(f"Invalid date format: {event_time_str} - {e}")
+                    time_str = ""
+                
+                # Verwerk de impact level
+                importance_value = event.get('importance')
+                impact_level = "Low"  # Standaard waarde
+                
+                if importance_value is not None:
+                    try:
+                        importance = int(importance_value)
+                        impact_level = impact_map.get(importance, "Low")
+                    except (ValueError, TypeError):
+                        self.logger.warning(f"Invalid importance value: {importance_value}")
+                
+                # Verfijn impact op basis van title
+                event_title = event.get('title', event.get('indicator', "Unknown Event")).lower()
+                
+                # Keywords checks
+                if any(keyword in event_title for keyword in high_impact_keywords):
+                    impact_level = "High"
+                elif any(keyword in event_title for keyword in medium_impact_keywords):
+                    impact_level = "Medium"
+                
+                # Speciale gevallen
+                if "fomc" in event_title or "fed" in event_title:
+                    impact_level = "High"
+                elif "pmi" in event_title:
+                    impact_level = "Medium"
+                elif "gdp" in event_title:
+                    impact_level = "High"
+                elif "cpi" in event_title or "inflation" in event_title:
+                    impact_level = "High"
+                
+                # Format title with period
+                if event.get('period'):
+                    event_title = f"{event.get('title', event.get('indicator', 'Unknown Event'))} ({event.get('period')})"
                 else:
-                    logger.error("TavilyService API key not set after initialization!")
+                    event_title = event.get('title', event.get('indicator', 'Unknown Event'))
                 
-                # Perform search
-                logger.info("Starting Tavily search...")
-                search_results = await tavily_service.search(query)
+                # Get values, handling None and formatting
+                forecast = event.get('forecast')
+                previous = event.get('previous')
+                actual = event.get('actual')
                 
-                if search_results and isinstance(search_results, list):
-                    logger.info(f"Retrieved {len(search_results)} search results from Tavily")
-                    content = "\n".join([result.get('content', '') for result in search_results])
-                    
-                    # Extract calendar data from the content using DeepSeek
-                    calendar_json = await self._extract_calendar_data_with_deepseek(content, currency_list)
-                    logger.info(f"Extracted calendar data: {len(calendar_json)} currencies")
-                elif search_results and isinstance(search_results, dict) and search_results.get('results'):
-                    logger.info(f"Retrieved {len(search_results.get('results', []))} search results from Tavily (dict format)")
-                    content = "\n".join([result.get('content', '') for result in search_results.get('results', [])])
-                    
-                    # Extract calendar data from the content using DeepSeek
-                    calendar_json = await self._extract_calendar_data_with_deepseek(content, currency_list)
-                    logger.info(f"Extracted calendar data: {len(calendar_json)} currencies")
-                else:
-                    logger.warning("No search results from Tavily, trying search_internet instead")
-                    # Second attempt - internet search
-                    logger.info("Starting Tavily internet search...")
-                    search_results = await tavily_service.search_internet(query)
-                    
-                    if search_results and isinstance(search_results, dict) and search_results.get('results'):
-                        logger.info(f"Retrieved {len(search_results.get('results', []))} internet search results from Tavily")
-                        content = "\n".join([result.get('content', '') for result in search_results.get('results', [])])
-                        
-                        # Extract calendar data from the content using DeepSeek
-                        calendar_json = await self._extract_calendar_data_with_deepseek(content, currency_list)
-                        logger.info(f"Extracted calendar data: {len(calendar_json)} currencies")
-                    else:
-                        logger.error("Both Tavily search and search_internet failed, using mock data")
-                        logger.error(f"Search result type: {type(search_results)}")
-                        logger.error(f"Search result preview: {str(search_results)[:200]}...")
-                        return self._generate_mock_calendar_data(currency_list, start_date)
-                        
-            except Exception as e:
-                logger.error(f"Error retrieving economic calendar data from Tavily: {str(e)}")
-                logger.error(traceback.format_exc())
-                return self._generate_mock_calendar_data(currency_list, start_date)
-                
-            # Return the calendar data
-            return calendar_json
-            
-        except Exception as e:
-            logger.error(f"Unexpected error in _get_economic_calendar_data: {str(e)}")
-            logger.error(traceback.format_exc())
-            return self._generate_mock_calendar_data(currency_list, start_date)
-    
-    async def _extract_calendar_data_with_deepseek(self, text: str, currencies: List[str]) -> Dict[str, List[Dict[str, str]]]:
-        """Extract economic calendar data from text content using DeepSeek AI"""
-        self.logger.info("Extracting calendar data using DeepSeek AI")
-        
-        try:
-            # Initialize result dictionary with empty lists for all currencies
-            result = {currency: [] for currency in currencies}
-            
-            # Check if DeepSeek service is available
-            if not self.deepseek_service:
-                self.logger.warning("DeepSeek service not available, falling back to regex extraction")
-                return self._extract_calendar_data_from_text(text, currencies)
-            
-            # Create prompt for DeepSeek with explicit today's date
-            today = datetime.now()
-            today_date = today.strftime("%Y-%m-%d")
-            today_formatted = today.strftime("%B %d, %Y")
-            current_month = today.strftime("%B")  # Full month name
-            current_month_abbr = today.strftime("%b")  # Abbreviated month name
-            current_day = today.strftime("%d").lstrip("0")  # 5, 10, etc. (zonder voorloopnul)
-            
-            prompt = f"""TASK: Extract economic calendar events ONLY for TODAY ({today_formatted}) from the text.
-
-TODAY'S DATE: {today_formatted}
-TODAY'S DAY: {current_day}
-TODAY'S MONTH: {current_month} ({current_month_abbr})
-
-Format the response as JSON with this structure:
-```json
-{{
-  "USD": [
-    {{
-      "time": "08:30",
-      "event": "Initial Jobless Claims",
-      "impact": "Medium"
-    }}
-  ],
-  "EUR": [ /* events for EUR */ ]
-}}
-```
-
-STRICT DATE FILTERING RULES:
-1. ONLY extract events specifically happening TODAY ({today_formatted})
-2. EXCLUDE ALL events that:
-   - Mention future dates like "tomorrow", "next week"
-   - Mention past dates like "yesterday", "last week"
-   - Contain date formats that don't match today (e.g., Apr/11 when today is {current_month_abbr}/{current_day})
-   - Reference months other than {current_month}
-3. If event has date in format ({current_month_abbr}/{current_day}), it's VALID for today
-4. If a date reference isn't clearly today, EXCLUDE the event
-
-FORMATTING RULES:
-- Include events ONLY for these currencies: {', '.join(currencies)}
-- Remove any timezone (EST, GMT, etc.) from time fields - just use 24-hour format like "08:30"
-- For impact levels, ONLY use: "High", "Medium", or "Low"
-
-Text to extract from:
-{text}
-
-IMPORTANT: ONLY return the JSON with TODAY's events. No explanation text.
-"""
-
-            # Make the DeepSeek API call
-            self.logger.info("Calling DeepSeek API to extract calendar data")
-            response = await self.deepseek_service.generate_completion(prompt)
-            
-            if not response:
-                self.logger.warning("Empty response from DeepSeek, falling back to regex extraction")
-                return self._extract_calendar_data_from_text(text, currencies)
-            
-            # Extract JSON from response (it might be wrapped in ```json blocks)
-            json_match = re.search(r'```(?:json)?(.*?)```', response, re.DOTALL)
-            if json_match:
-                json_str = json_match.group(1).strip()
-            else:
-                json_str = response.strip()
-            
-            # Parse the JSON
-            try:
-                parsed_data = json.loads(json_str)
-                
-                # Validate the structure
-                if not isinstance(parsed_data, dict):
-                    self.logger.warning("DeepSeek response is not a dictionary, falling back to regex extraction")
-                    return self._extract_calendar_data_from_text(text, currencies)
-                
-                # Process the data to ensure it matches our expected structure
-                for currency in currencies:
-                    if currency in parsed_data and isinstance(parsed_data[currency], list):
-                        for event in parsed_data[currency]:
-                            if isinstance(event, dict) and "time" in event and "event" in event:
-                                # Ensure impact is one of High, Medium, Low
-                                if "impact" not in event or event["impact"] not in ["High", "Medium", "Low"]:
-                                    event["impact"] = "Medium"  # Default to Medium if missing or invalid
-                                
-                                # Remove timezone if present and format time
-                                if "time" in event:
-                                    # Strip any timezone identifiers
-                                    time_str = event["time"]
-                                    time_str = re.sub(r'\s+(?:EST|GMT|UTC|EDT|AM|PM).*$', '', time_str)
-                                    event["time"] = time_str
-                                
-                                # Add to result
-                                result[currency].append({
-                                    "time": event.get("time", ""),
-                                    "event": event.get("event", ""),
-                                    "impact": event.get("impact", "Medium")
-                                })
-                
-                # Check if we found any events
-                total_events = sum(len(events) for events in result.values())
-                self.logger.info(f"DeepSeek extracted {total_events} events from calendar data")
-                
-                if total_events > 0:
-                    return result
-                else:
-                    self.logger.warning("No events found in DeepSeek response, falling back to regex extraction")
-                    return self._extract_calendar_data_from_text(text, currencies)
-                    
-            except json.JSONDecodeError as e:
-                self.logger.error(f"Failed to parse DeepSeek JSON: {str(e)}")
-                self.logger.error(f"Raw response: {response[:200]}...")
-                return self._extract_calendar_data_from_text(text, currencies)
-                
-        except Exception as e:
-            self.logger.error(f"Error using DeepSeek to extract calendar data: {str(e)}")
-            self.logger.exception(e)
-            return self._extract_calendar_data_from_text(text, currencies)
-    
-    def _extract_calendar_data_from_text(self, text: str, currencies: List[str]) -> Dict[str, List[Dict[str, str]]]:
-        """Extract economic calendar data from text content"""
-        self.logger.info("Extracting calendar data from text content")
-        
-        result = {currency: [] for currency in currencies}
-        
-        try:
-            # Check for common time formats
-            time_pattern = r'(\d{1,2}:\d{2}(?:\s*(?:AM|PM|EST|GMT|UTC|EDT))?)'
-            currency_pattern = r'\b(' + '|'.join(currencies) + r')\b'
-            impact_pattern = r'\b(High|Medium|Low|high|medium|low)\b'
-            
-            # Find potential event blocks - lines containing both a time and a currency
-            lines = text.split('\n')
-            for line in lines:
-                # Skip empty lines
-                if not line.strip():
-                    continue
-                    
-                # Extract time
-                time_match = re.search(time_pattern, line)
-                if not time_match:
-                    continue
-                    
-                time_str = time_match.group(1)
-                
-                # Ensure time has EST suffix if no timezone specified
-                if not any(tz in time_str for tz in ['AM', 'PM', 'EST', 'GMT', 'UTC', 'EDT']):
-                    time_str += ' EST'
-                
-                # Extract currency
-                currency_match = re.search(currency_pattern, line, re.IGNORECASE)
-                if not currency_match:
-                    continue
-                    
-                currency = currency_match.group(1).upper()
-                
-                # Extract impact if present
-                impact = "Low"  # Default
-                impact_match = re.search(impact_pattern, line)
-                if impact_match:
-                    impact = impact_match.group(1).capitalize()
-                    
-                # Determine event name by removing time, currency and impact
-                event_name = line
-                event_name = re.sub(time_pattern, '', event_name)
-                event_name = re.sub(r'\b' + currency + r'\b', '', event_name, flags=re.IGNORECASE)
-                event_name = re.sub(impact_pattern, '', event_name, flags=re.IGNORECASE)
-                
-                # Clean up event name
-                event_name = re.sub(r'[^\w\s\-]', '', event_name)  # Remove special chars except dash
-                event_name = re.sub(r'\s+', ' ', event_name).strip()  # Remove extra whitespace
-                
-                # Skip if event name is too short or empty
-                if len(event_name) < 3:
-                    continue
-                
-                # Create event entry
-                event = {
+                # Create formatted event - met gegarandeerde correcte valuta en vlag
+                formatted_event = {
                     "time": time_str,
-                    "event": event_name,
-                    "impact": impact
+                    "country": currency,  # Dit is de valutacode, niet de landcode
+                    "country_flag": flag,  # We gebruiken altijd de vlag uit onze absolute mapping
+                    "title": event_title,
+                    "impact": impact_level,
+                    # Additional fields that might be useful
+                    "forecast": forecast if forecast is not None else "",
+                    "previous": previous if previous is not None else "",
+                    "actual": actual if actual is not None else "",
+                    # ID voor chronologische sortering
+                    "event_id": event_id
                 }
                 
-                # Add to correct currency
-                if currency in result:
-                    result[currency].append(event)
-            
-            # If we found any events, return the result
-            if any(len(events) > 0 for currency, events in result.items()):
-                self.logger.info(f"Successfully extracted {sum(len(events) for events in result.values())} events")
-                return result
+                # VALIDATIE: Log het volledige event voor debugging
+                self.logger.info(f"Created formatted event: currency={currency}, flag={flag}, title={event_title[:20]}...")
                 
-            # Otherwise return empty
-            self.logger.warning("No calendar events found in text content")
-            return {currency: [] for currency in currencies}
+                formatted_events.append(formatted_event)
+                
+            except Exception as e:
+                self.logger.error(f"Error processing event: {e}")
+                self.logger.error(f"Event data: {event}")
+                continue
+        
+        # VALIDATIE: Controleer of alle events een valuta en bijpassende vlag hebben
+        flag_currency_errors = []
+        for i, event in enumerate(formatted_events):
+            currency = event.get("country", "")
+            flag = event.get("country_flag", "")
             
+            # Controleer of de juiste vlag bij de valuta hoort
+            expected_flag = None
+            for mapping in ABSOLUTE_MAPPING.values():
+                if mapping["currency"] == currency:
+                    expected_flag = mapping["flag"]
+                    break
+            
+            if flag != expected_flag:
+                flag_currency_errors.append(f"Event {i}: currency={currency}, flag={flag}, expected_flag={expected_flag}")
+        
+        if flag_currency_errors:
+            self.logger.error(f"Found {len(flag_currency_errors)} flag/currency mismatches!")
+            for error in flag_currency_errors:
+                self.logger.error(f"Flag/currency mismatch: {error}")
+        else:
+            self.logger.info("VALIDATION PASSED: All events have correct currency/flag pairs")
+        
+        # Sort events chronologically using the stored datetime objects
+        try:
+            formatted_events = sorted(formatted_events, key=lambda x: event_times.get(x.get('event_id'), datetime.min))
         except Exception as e:
-            self.logger.error(f"Error extracting calendar data from text: {str(e)}")
-            self.logger.exception(e)
-            return {currency: [] for currency in currencies}
+            self.logger.error(f"Error sorting events: {e}")
+            # Fallback naar string-based sortering als datetime sortering faalt
+            formatted_events = sorted(formatted_events, key=lambda x: x.get('time', '00:00'))
+        
+        # Log aantal events per valuta voor debugging
+        events_by_currency = {}
+        for event in formatted_events:
+            currency = event.get('country', '')
+            if currency not in events_by_currency:
+                events_by_currency[currency] = 0
+            events_by_currency[currency] += 1
+        
+        self.logger.info(f"Events per currency: {json.dumps(events_by_currency)}")
+        self.logger.info(f"Extracted {len(formatted_events)} formatted events")
+        
+        return formatted_events
     
-    def _generate_mock_calendar_data(self, currencies: List[str], start_date: str) -> Dict:
-        """Generate mock calendar data for testing or when APIs fail"""
-        self.logger.info(f"Generating mock calendar data for {start_date}")
+    def _generate_mock_calendar_data(self) -> List[Dict]:
+        """Generate mock calendar data when extraction fails"""
+        self.logger.info("Generating mock calendar data")
         
-        # Create an empty dictionary with empty lists for all major currencies
-        calendar_data = {currency: [] for currency in MAJOR_CURRENCIES}
+        # Gebruik de custom mock data als deze beschikbaar is
+        if HAS_CUSTOM_MOCK_DATA:
+            self.logger.info("Using custom mock calendar data")
+            return generate_mock_calendar_data()
         
-        # Parse the start date
-        try:
-            today_date = datetime.strptime(start_date, "%Y-%m-%d")
-        except:
-            today_date = datetime.now()
-            
-        # Format for display
-        today_formatted = today_date.strftime("%B %d, %Y")
-        month_abbr = today_date.strftime("%b")
+        # Als de custom mock data niet beschikbaar is, gebruik de standaard mock data
+        self.logger.info("Using default mock calendar data")
         
-        self.logger.info(f"Using date: {today_formatted}")
+        # Get today's date
+        today = datetime.now().strftime("%Y-%m-%d")
         
-        # Set fixed seed for consistent results based on date
-        random.seed(today_date.day + today_date.month * 31 + today_date.year * 366)
+        mock_data = [
+            {
+                "time": "08:30",
+                "country": "USD",
+                "country_flag": "🇺🇸",
+                "title": "Initial Jobless Claims",
+                "impact": "Medium",
+                "forecast": "225K",
+                "previous": "230K"
+            },
+            {
+                "time": "10:00",
+                "country": "USD",
+                "country_flag": "🇺🇸",
+                "title": "Fed Chair Speech",
+                "impact": "High",
+                "forecast": "",
+                "previous": ""
+            },
+            {
+                "time": "07:45",
+                "country": "EUR",
+                "country_flag": "🇪🇺",
+                "title": "ECB Interest Rate Decision",
+                "impact": "High",
+                "forecast": "4.50%",
+                "previous": "4.50%"
+            },
+            {
+                "time": "08:30",
+                "country": "EUR",
+                "country_flag": "🇪🇺",
+                "title": "ECB Press Conference",
+                "impact": "High",
+                "forecast": "",
+                "previous": ""
+            },
+            {
+                "time": "09:00",
+                "country": "GBP",
+                "country_flag": "🇬🇧",
+                "title": "Manufacturing PMI",
+                "impact": "Medium",
+                "forecast": "49.5",
+                "previous": "49.2"
+            },
+            {
+                "time": "00:30",
+                "country": "JPY",
+                "country_flag": "🇯🇵",
+                "title": "Tokyo CPI",
+                "impact": "Medium",
+                "forecast": "2.6%",
+                "previous": "2.5%"
+            },
+            {
+                "time": "21:30",
+                "country": "AUD",
+                "country_flag": "🇦🇺",
+                "title": "Employment Change",
+                "impact": "High",
+                "forecast": "25.3K",
+                "previous": "20.2K"
+            },
+            {
+                "time": "13:30",
+                "country": "CAD",
+                "country_flag": "🇨🇦",
+                "title": "Trade Balance",
+                "impact": "Medium",
+                "forecast": "1.2B",
+                "previous": "0.9B"
+            }
+        ]
         
-        # Real world economic events based on the screenshot
-        real_events = {
-            "USD": [
-                {"time": "00:00", "event": "30-Year Bond Auction", "impact": "Low"},
-                {"time": "01:00", "event": "Monthly Budget Statement", "impact": "Low"},
-                {"time": "03:30", "event": "Fed Balance Sheet", "impact": "Low"},
-                {"time": "12:30", "event": "Core PPI MoM (Mar)", "impact": "Low"},
-                {"time": "12:30", "event": "Core PPI YoY (Mar)", "impact": "Low"},
-                {"time": "12:30", "event": "PPI (Mar)", "impact": "Low"},
-                {"time": "14:00", "event": "Treasury Bill Auction", "impact": "Low"}
-            ],
-            "EUR": [
-                {"time": "07:00", "event": "ECOFIN Meeting", "impact": "Low"},
-                {"time": "07:00", "event": "Eurogroup Meeting", "impact": "Low"},
-                {"time": "09:45", "event": "ECB President Lagarde Speech", "impact": "Medium"}
-            ],
-            "JPY": [
-                {"time": "10:35", "event": "3-Month Bill Auction", "impact": "Low"}
-            ],
-            "GBP": [
-                {"time": "06:00", "event": "Goods Trade Balance Non-EU (Feb)", "impact": "Medium"},
-                {"time": "06:00", "event": "GDP 3-Month Avg (Feb)", "impact": "High"},
-                {"time": "06:00", "event": "Manufacturing Production MoM (Feb)", "impact": "Medium"},
-                {"time": "06:00", "event": "GDP MoM (Feb)", "impact": "High"},
-                {"time": "06:00", "event": "Construction Output YoY (Feb)", "impact": "Medium"},
-                {"time": "06:00", "event": "Goods Trade Balance (Feb)", "impact": "Medium"},
-                {"time": "06:00", "event": "Industrial Production YoY (Feb)", "impact": "Medium"},
-                {"time": "06:00", "event": "Industrial Production MoM (Feb)", "impact": "Medium"},
-                {"time": "06:00", "event": "Manufacturing Production YoY (Feb)", "impact": "Medium"},
-                {"time": "06:00", "event": "Balance of Trade (Feb)", "impact": "Low"},
-                {"time": "06:00", "event": "GDP YoY (Feb)", "impact": "High"},
-                {"time": "11:25", "event": "NIESR Monthly GDP Tracker (Mar)", "impact": "High"},
-                {"time": "13:00", "event": "Balance of Trade", "impact": "Medium"},
-                {"time": "13:00", "event": "Construction Output YoY", "impact": "Medium"},
-                {"time": "13:00", "event": "GDP 3-Month Avg", "impact": "High"}
-            ],
-            "CHF": [
-                {"time": "07:00", "event": "Consumer Confidence (Mar)", "impact": "Medium"}
-            ],
-            "AUD": [],
-            "NZD": [],
-            "CAD": []
+        return mock_data
+    
+    def _filter_by_impact(self, events: List[Dict], min_impact: str) -> List[Dict]:
+        """Filter events by impact level"""
+        impact_levels = {
+            "Low": 1,
+            "Medium": 2,
+            "High": 3
         }
         
-        # Extra events voor valuta's die niet in het screenshot staan, 
-        # om wat variatie te hebben als die valuta's worden gevraagd
-        extra_events = {
-            "AUD": [
-                {"time": "01:30", "event": "Home Loans MoM", "impact": "Medium"},
-                {"time": "02:30", "event": "Consumer Inflation Expectations", "impact": "Medium"}
-            ],
-            "NZD": [
-                {"time": "22:45", "event": "Electronic Card Retail Sales MoM", "impact": "Medium"},
-                {"time": "23:00", "event": "Business NZ PMI", "impact": "Medium"}
-            ],
-            "CAD": [
-                {"time": "12:30", "event": "New Housing Price Index MoM", "impact": "Low"},
-                {"time": "14:30", "event": "BoC Senior Loan Officer Survey", "impact": "Medium"}
-            ]
-        }
+        min_level = impact_levels.get(min_impact, 1)
         
-        # Voeg de extra events toe aan de real_events dictionary
-        for currency, events in extra_events.items():
-            if currency in real_events:
-                real_events[currency].extend(events)
-            else:
-                real_events[currency] = events
-                
-        # Gebruik de echte events voor de kalender
-        for currency, events in real_events.items():
-            for event in events:
-                # Voeg toe aan de kalender data
-                calendar_data[currency].append({
-                    "time": event["time"],
-                    "event": event["event"],
-                    "impact": event["impact"]
-                })
+        filtered = [
+            event for event in events 
+            if impact_levels.get(event.get("impact", "Low"), 1) >= min_level
+        ]
         
-        # Log het aantal gegenereerde events
-        total_events = sum(len(events) for events in calendar_data.values())
-        self.logger.info(f"Generated {total_events} mock calendar events")
-        
-        return calendar_data
-            
-    def _get_fallback_calendar(self, instrument: str) -> str:
-        """Generate a fallback response if getting the calendar fails"""
-        response = "<b>📅 Economic Calendar</b>\n\n"
-        
-        currencies = INSTRUMENT_CURRENCY_MAP.get(instrument, ["USD"])
-        currencies = [c for c in currencies if c in MAJOR_CURRENCIES]
-        
-        # Generate some mock data based on the instrument
-        today = datetime.now()
-        
-        # Check if it's a weekend
-        if today.weekday() >= 5:  # 5 = Saturday, 6 = Sunday
-            return response + "No major economic events scheduled for today (weekend).\n\n<i>Check back on Monday for updates.</i>"
-            
-        # Simple simulation using day of week to determine which currencies have events
-        active_currencies = []
-        if today.weekday() == 0:  # Monday
-            active_currencies = ["USD", "EUR"]
-        elif today.weekday() == 1:  # Tuesday
-            active_currencies = ["GBP", "USD", "AUD"]
-        elif today.weekday() == 2:  # Wednesday
-            active_currencies = ["JPY", "EUR", "USD"]
-        elif today.weekday() == 3:  # Thursday
-            active_currencies = ["USD", "GBP", "CHF"]
-        elif today.weekday() == 4:  # Friday
-            active_currencies = ["USD", "CAD", "JPY"]
-            
-        # Collect all events
-        all_events = []
-            
-        for currency in MAJOR_CURRENCIES:
-            # Add mock events if this is an active currency
-            if currency in active_currencies:
-                if currency == "USD":
-                    all_events.append({
-                        "time": f"{(today.hour % 12 + 1):02d}:30 EST",
-                        "currency": currency,
-                        "event": "Retail Sales",
-                        "impact": "Medium"
-                    })
-                    all_events.append({
-                        "time": f"{(today.hour % 12 + 3):02d}:00 EST",
-                        "currency": currency,
-                        "event": "Fed Chair Speech",
-                        "impact": "High"
-                    })
-                elif currency == "EUR":
-                    all_events.append({
-                        "time": f"{(today.hour % 12):02d}:45 EST",
-                        "currency": currency,
-                        "event": "Inflation Data",
-                        "impact": "High"
-                    })
-                elif currency == "GBP":
-                    all_events.append({
-                        "time": f"{(today.hour % 12 + 2):02d}:00 EST",
-                        "currency": currency,
-                        "event": "Employment Change",
-                        "impact": "Medium"
-                    })
-                else:
-                    all_events.append({
-                        "time": f"{(today.hour % 12 + 1):02d}:15 EST",
-                        "currency": currency,
-                        "event": "GDP Data",
-                        "impact": "Medium"
-                    })
-        
-        # Sort events by time
-        all_events = sorted(all_events, key=lambda x: x.get("time", "00:00"))
-        
-        # Display events in chronological order
-        for event in all_events:
-            time = event.get("time", "")
-            currency = event.get("currency", "")
-            event_name = event.get("event", "")
-            impact = event.get("impact", "Low")
-            impact_emoji = IMPACT_EMOJI.get(impact, "🟢")
-            
-            # Haal de juiste vlag op uit CURRENCY_FLAG constante
-            flag = CURRENCY_FLAG.get(currency, "")
-            
-            # Format with currency flag - no extra newline after each event
-            response += f"{time} - {flag} {currency} - {event_name} {impact_emoji}\n"
-        
-        # Add empty line before legend
-        response += "\n-------------------\n"
-        response += "🔴 High Impact\n"
-        response += "🟠 Medium Impact\n"
-        response += "🟢 Low Impact"
-        
-        return response
+        self.logger.info(f"Filtered events by impact level {min_impact}: {len(filtered)} of {len(events)} events")
+        return filtered
 
-    # Nieuwe testfunctie om kalender voor een specifieke datum te genereren
-    async def generate_calendar_for_date(self, target_date_str: str) -> str:
-        """Generate calendar data for a specific date (format: YYYY-MM-DD)"""
-        try:
-            # Parse de datum
-            target_date = datetime.strptime(target_date_str, "%Y-%m-%d")
-            formatted_date = target_date.strftime("%B %d, %Y")
+async def format_calendar_for_telegram(events: List[Dict]) -> str:
+    """Format the calendar data for Telegram display"""
+    if not events:
+        return "<b>📅 Economic Calendar</b>\n\nNo economic events found for today."
+    
+    # Sort events by time if not already sorted
+    try:
+        # Verbeterde sortering met datetime objecten
+        def parse_time_for_sorting(event):
+            time_str = event.get("time", "00:00")
+            try:
+                if ":" in time_str:
+                    hours, minutes = time_str.split(":")
+                    # Strip any AM/PM/timezone indicators
+                    hours = hours.strip()
+                    if " " in minutes:
+                        minutes = minutes.split(" ")[0]
+                    return int(hours) * 60 + int(minutes)
+                return 0
+            except Exception as e:
+                logger.error(f"Error parsing time for sorting: {str(e)}")
+                return 0
+        
+        sorted_events = sorted(events, key=parse_time_for_sorting)
+    except Exception as e:
+        logger.error(f"Error sorting calendar events: {str(e)}")
+        sorted_events = events
+    
+    # Format the message
+    message = "<b>📅 Economic Calendar</b>\n\n"
+    
+    for event in sorted_events:
+        country = event.get("country", "")
+        country_flag = event.get("country_flag", "")
+        time = event.get("time", "")
+        title = event.get("title", "")
+        impact = event.get("impact", "Low")
+        impact_emoji = IMPACT_EMOJI.get(impact, "🟢")
+        
+        # Include forecast and previous data if available
+        forecast = event.get("forecast", "")
+        previous = event.get("previous", "")
+        actual = event.get("actual", "")
+        
+        details = ""
+        if forecast or previous or actual:
+            details_parts = []
+            if actual:
+                details_parts.append(f"A: {actual}")
+            if forecast:
+                details_parts.append(f"F: {forecast}")
+            if previous:
+                details_parts.append(f"P: {previous}")
             
-            # Tijdelijk de testdatum instellen in de omgevingsvariabele
-            os.environ["CALENDAR_TEST_DATE"] = target_date_str
-            
-            # Generate calendar data voor alle major currencies
-            calendar_data = self._generate_mock_calendar_data(MAJOR_CURRENCIES, formatted_date)
-            
-            # Formateer het resultaat
-            formatted_result = await self._format_calendar_response(calendar_data, "TEST")
-            
-            # Reset de omgevingsvariabele
-            if "CALENDAR_TEST_DATE" in os.environ:
-                del os.environ["CALENDAR_TEST_DATE"]
-                
-            return f"Economic Calendar for {formatted_date}:\n\n{formatted_result}"
-            
-        except Exception as e:
-            logger.error(f"Error generating test calendar: {str(e)}")
-            return f"Error generating calendar: {str(e)}"
+            if details_parts:
+                details = f" ({', '.join(details_parts)})"
+        
+        message += f"{time} {country_flag} <b>{country}</b> - {title}{details} {impact_emoji}\n"
+    
+    # Add legend
+    message += "\n-------------------\n"
+    message += "🔴 High Impact\n"
+    message += "🟠 Medium Impact\n"
+    message += "🟢 Low Impact\n"
+    message += "A: Actual, F: Forecast, P: Previous"
+    
+    return message
 
-# Telegram service class die de calendar service gebruikt
-class TelegramService:
-    def __init__(self, db: Database, stripe_service=None):
-        """Initialize telegram service"""
-        try:
-            # Sla de database op
-            self.db = db
-            
-            # Initialiseer de services
-            self.chart = ChartService()
-            self.sentiment = MarketSentimentService()
-            self.calendar = EconomicCalendarService()  # Direct instantiëren, geen import nodig
-            
-            # Rest van de initialisatie
-            # ...
-        except Exception as e:
-            # Voeg een except block toe
-            logging.error(f"Error initializing TelegramService: {str(e)}")
-            raise  # Optioneel: re-raise de exceptie na het loggen
+async def main():
+    """Test the TradingView calendar service"""
+    # Create the service
+    service = TradingViewCalendarService()
+    
+    # Get calendar data
+    calendar_data = await service.get_calendar(days_ahead=3)
+    
+    # Print the results
+    logger.info(f"Got {len(calendar_data)} events from TradingView")
+    print(json.dumps(calendar_data, indent=2))
+    
+    # Format the events for Telegram
+    telegram_message = await format_calendar_for_telegram(calendar_data)
+    print("\nTelegram Message Format:")
+    print(telegram_message)
+
+if __name__ == "__main__":
+    asyncio.run(main()) 
