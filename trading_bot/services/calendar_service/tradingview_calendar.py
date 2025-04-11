@@ -194,7 +194,7 @@ class TradingViewCalendarService:
     async def fetch_via_scrapingant(self, url: str, params: Dict) -> Dict:
         """Fetch data via ScrapingAnt proxy service"""
         self.logger.info(f"Fetching via ScrapingAnt: {url}")
-        print(f"�� ScrapingAnt: Fetching data from {url}")
+        print(f"🔑 ScrapingAnt: Fetching data from {url}")
         
         # Build the full URL with parameters
         query_string = "&".join([f"{k}={urllib.parse.quote(str(v))}" for k, v in params.items()])
@@ -750,6 +750,9 @@ class TradingViewCalendarService:
         # Create reverse mapping from country code to currency
         country_to_currency = {v: k for k, v in CURRENCY_COUNTRY_MAP.items()}
         
+        # Debug logging
+        self.logger.info(f"Country to currency mapping: {json.dumps({k: v for k, v in country_to_currency.items() if k in ('US', 'EU', 'GB', 'JP', 'CH', 'AU', 'NZ', 'CA')})}")
+        
         # Map TradingView impact levels to our format
         # Belangrijk: TradingView API gebruikt een andere waarde voor importance
         # In de API kan importance -1 zijn voor normale events
@@ -779,13 +782,32 @@ class TradingViewCalendarService:
         # Opslaan van event_time objecten voor betere sortering
         event_times = {}
         
+        # Handmatige correcties voor valuta/land mapping
+        currency_corrections = {
+            "EU": "EUR",  # EU landcode moet naar EUR valuta
+            "GB": "GBP",  # GB landcode moet naar GBP valuta
+            "US": "USD",  # US landcode moet naar USD valuta
+            "JP": "JPY",  # JP landcode moet naar JPY valuta
+            "CH": "CHF",  # CH landcode moet naar CHF valuta
+            "AU": "AUD",  # AU landcode moet naar AUD valuta
+            "NZ": "NZD",  # NZ landcode moet naar NZD valuta
+            "CA": "CAD"   # CA landcode moet naar CAD valuta
+        }
+        
         for event in events_data:
             try:
                 # Get country code
                 country_code = event.get('country')
                 
-                # Map country code to currency
-                currency = country_to_currency.get(country_code, "")
+                # Map country code to currency using direct corrections
+                if country_code in currency_corrections:
+                    currency = currency_corrections[country_code]
+                else:
+                    # Fallback naar de algemene mapping
+                    currency = country_to_currency.get(country_code, "")
+                
+                # Debug logging voor deze event
+                self.logger.debug(f"Processing event: country_code={country_code}, mapped to currency={currency}")
                 
                 # Skip events without a known currency or not in major currencies
                 if not currency or currency not in MAJOR_CURRENCIES:
@@ -857,7 +879,7 @@ class TradingViewCalendarService:
                 # Create formatted event
                 formatted_event = {
                     "time": time_str,
-                    "country": currency,
+                    "country": currency,  # Belangrijk: dit is nu de valutacode, niet de landcode
                     "country_flag": CURRENCY_FLAG.get(currency, ""),
                     "title": event_title,
                     "impact": impact_level,
@@ -884,7 +906,17 @@ class TradingViewCalendarService:
             # Fallback naar string-based sortering als datetime sortering faalt
             formatted_events = sorted(formatted_events, key=lambda x: x.get('time', '00:00'))
         
+        # Log aantal events per valuta voor debugging
+        events_by_currency = {}
+        for event in formatted_events:
+            currency = event.get('country', '')
+            if currency not in events_by_currency:
+                events_by_currency[currency] = 0
+            events_by_currency[currency] += 1
+        
+        self.logger.info(f"Events per currency: {json.dumps(events_by_currency)}")
         self.logger.info(f"Extracted {len(formatted_events)} formatted events")
+        
         return formatted_events
     
     def _generate_mock_calendar_data(self) -> List[Dict]:
