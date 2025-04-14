@@ -54,6 +54,12 @@ class InvestingCalendarServiceImpl():
             'Australia',
             'New Zealand'
         ]
+    
+    # Add compatibility method for existing bot interface
+    async def get_calendar(self, currency_pair=None):
+        """Compatibility method for the existing bot interface that calls get_calendar"""
+        logger.info("get_calendar called with currency_pair: %s", currency_pair)
+        return await self.get_calendar_events()
 
     async def get_calendar_events(self):
         """
