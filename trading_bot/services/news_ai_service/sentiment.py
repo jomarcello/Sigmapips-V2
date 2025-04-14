@@ -99,10 +99,12 @@ class MarketSentimentService:
             
             # Check if API keys are available
             if not self.tavily_api_key:
-                raise ValueError(f"Tavily API key not available for sentiment analysis")
+                logger.warning(f"Tavily API key not available for sentiment analysis of {instrument}, using mock data")
+                return self._get_mock_sentiment_data(instrument)
                 
             if not self.deepseek_api_key:
-                raise ValueError(f"DeepSeek API key not available for sentiment analysis")
+                logger.warning(f"DeepSeek API key not available for sentiment analysis of {instrument}, using mock data")
+                return self._get_mock_sentiment_data(instrument)
             
             # Build search query based on market type
             search_query = self._build_search_query(instrument, market_type)
@@ -443,210 +445,79 @@ Please try again later or choose a different instrument.
     async def _format_with_deepseek(self, instrument: str, market: str, market_data: str) -> str:
         """Use DeepSeek to format the news into a structured Telegram message"""
         if not self.deepseek_api_key:
-            logger.warning("No DeepSeek API key available, cannot format data")
-            raise ValueError("DeepSeek API key is required for sentiment analysis")
+            logger.warning("No DeepSeek API key available, using manual formatting")
+            return self._format_data_manually(market_data, instrument)
             
         logger.info(f"Formatting market data for {instrument} using DeepSeek API")
         
         try:
-            # Check DeepSeek API connectivity first using DNS resolution
-            deepseek_available = False
-            try:
-                # Get the actual IP addresses from DNS
-                import socket
-                deepseek_ips = socket.gethostbyname_ex('api.deepseek.com')[2]
-                logger.info(f"Resolved DeepSeek IPs: {deepseek_ips}")
-                
-                # Try each IP until we find one that works
-                for ip in deepseek_ips:
-                    try:
-                        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                        sock.settimeout(3)  # Quick 3-second timeout
-                        result = sock.connect_ex((ip, 443))
-                        sock.close()
-                        
-                        if result == 0:  # Connection successful
-                            logger.info(f"DeepSeek API connectivity test successful using IP: {ip}")
-                            deepseek_available = True
-                            break
-                        else:
-                            logger.warning(f"Failed to connect to DeepSeek IP {ip} with result: {result}")
-                    except socket.error as e:
-                        logger.warning(f"Socket error for IP {ip}: {str(e)}")
-                        continue
-                
-                if not deepseek_available:
-                    logger.warning("Could not connect to any DeepSeek IP address")
-            except socket.error as e:
-                logger.warning(f"DNS resolution failed for api.deepseek.com: {str(e)}")
-            
+            # Check DeepSeek API connectivity first
+            deepseek_available = await self._check_deepseek_connectivity()
             if not deepseek_available:
                 logger.warning("DeepSeek API is unreachable, using manual formatting")
                 return self._format_data_manually(market_data, instrument)
             
-            # Prepare headers with authentication - sanitize API key first
-            sanitized_api_key = self.deepseek_api_key.strip()
-            deepseek_headers = {
-                "Authorization": f"Bearer {sanitized_api_key}",
+            # Prepare the API call
+            headers = {
+                "Authorization": f"Bearer {self.deepseek_api_key.strip()}",
                 "Content-Type": "application/json"
             }
             
-            # Create SSL context that doesn't verify certificates
-            ssl_context = ssl.create_default_context()
-            ssl_context.check_hostname = False
-            ssl_context.verify_mode = ssl.CERT_NONE
-            
-            # Use the original domain name in URL to match certificate domain
-            deepseek_url = "https://api.deepseek.com/v1/chat/completions"
-            
-            # Configure longer timeouts
-            timeout = aiohttp.ClientTimeout(
-                total=60,          # Total timeout increased to 60 seconds
-                connect=10,        # Time to establish connection
-                sock_read=45,      # Time to read socket data increased to 45 seconds
-                sock_connect=10    # Time for socket connection
-            )
-            
-            connector = aiohttp.TCPConnector(ssl=ssl_context)
-            async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
-                try:
-                    logger.info("Making DeepSeek API call...")
-                    
-                    # Set up headers with API key
-                    headers = {
-                        "Authorization": f"Bearer {self.deepseek_api_key.strip()}",
-                        "Content-Type": "application/json",
-                        "Accept": "application/json"
-                    }
-                    
-                    # Prepare the payload with updated prompt
-                    prompt = f"""You are a professional market analyst creating a concise market analysis for {instrument}. 
-DO NOT include any introductory text like "Here's the analysis" or "Here's the market analysis formatted for Telegram".
-Start directly with the market analysis format below.
-
-Use the following market data to create your analysis:
+            # Create prompt for sentiment analysis
+            prompt = f"""Analyze the following market data for {instrument} and provide a structured sentiment analysis. Format your response exactly as shown:
 
 Market Data:
 {market_data}
 
-Format your response EXACTLY as follows, with no additional text before or after:
-
+Required format:
 <b>🎯 {instrument} Market Analysis</b>
 
-<b>Market Sentiment Breakdown:</b>
-🟢 Bullish: [percentage, must be a number between 0-100]%
-🔴 Bearish: [percentage, must be a number between 0-100]%
-⚪️ Neutral: [percentage, must be a number between 0-100]%
+<b>Market Sentiment:</b>
+Bullish: [X]%
+Bearish: [Y]%
+Neutral: [Z]%
 
 <b>📈 Market Direction:</b>
-[Current trend, momentum and price action analysis]
+[Current trend analysis]
 
 <b>📰 Latest News & Events:</b>
-• [Key market-moving news item 1 - remove any source references]
-• [Key market-moving news item 2 - remove any source references]
-• [Key market-moving news item 3 - remove any source references]
+• [Key point 1]
+• [Key point 2]
+• [Key point 3]
 
 <b>⚠️ Risk Factors:</b>
-• [Key risk factor 1]
-• [Key risk factor 2]
-• [Key risk factor 3]
+• [Risk 1]
+• [Risk 2]
+• [Risk 3]
 
 <b>💡 Conclusion:</b>
-[Trading recommendation based on analysis. Always include a specific recommendation for either <b>long positions</b> or <b>short positions</b> in bold. If uncertain, recommend <b>wait for clearer signals</b> in bold.]
+[Trading recommendation]"""
 
-Rules:
-1. Use HTML formatting for Telegram: <b>bold</b>, <i>italic</i>, etc.
-2. Percentages MUST add up to 100% (Bullish + Bearish + Neutral)
-3. Use only numbers for percentages, not words.
-4. Keep the analysis concise but informative, focusing on actionable insights.
-5. DO NOT include any references to data sources.
-6. DO NOT include any introductory or closing text.
-7. DO NOT include any notes or placeholder sections.
-8. IMPORTANT: Always include a clear trading recommendation in bold tags in the conclusion section.
-9. IMPORTANT: All section headers must be in bold HTML tags as shown in the format above."""
-                    
-                    payload = {
+            # Make the API call
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    self.deepseek_url,
+                    headers=headers,
+                    json={
                         "model": "deepseek-chat",
                         "messages": [
-                            {"role": "system", "content": "You are an expert financial analyst creating market analysis summaries for traders. Start your analysis directly with the market analysis format, without any introductory text."},
+                            {"role": "system", "content": "You are a professional market analyst."},
                             {"role": "user", "content": prompt}
                         ],
                         "temperature": 0.3,
                         "max_tokens": 1024
                     }
+                ) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        return data['choices'][0]['message']['content']
+                    else:
+                        logger.error(f"DeepSeek API error: {response.status}")
+                        return None
                     
-                    # Make the API call with explicit timeout
-                    async with session.post(
-                        deepseek_url,
-                        headers=headers,
-                        json=payload,
-                        timeout=timeout,
-                        ssl=ssl_context
-                    ) as response:
-                        logger.info(f"DeepSeek API response status: {response.status}")
-                        
-                        # Read response with timeout protection and chunking
-                        try:
-                            chunks = []
-                            async for chunk in response.content.iter_chunked(1024):
-                                chunks.append(chunk)
-                                
-                            response_text = b''.join(chunks).decode('utf-8')
-                            logger.info("Successfully read DeepSeek response")
-                            
-                            if response.status == 200:
-                                try:
-                                    data = json.loads(response_text)
-                                    content = data['choices'][0]['message']['content']
-                                    
-                                    # Clean up any markdown formatting
-                                    content = re.sub(r'^```html\s*', '', content)
-                                    content = re.sub(r'\s*```$', '', content)
-                                    
-                                    # Remove any remaining system messages or formatting
-                                    content = re.sub(r"Here(?:'s|\s+is)\s+(?:the\s+)?(?:structured\s+)?(?:market\s+)?analysis\s+for\s+[A-Z/]+(?:\s+formatted\s+for\s+(?:a\s+)?Telegram(?:\s+bot)?)?:?\s*", "", content)
-                                    content = re.sub(r"Let me know if you'd like any adjustments!.*$", "", content)
-                                    content = re.sub(r"Notes:.*?(?=\n\n|$)", "", content, flags=re.DOTALL)
-                                    content = re.sub(r"---\s*", "", content)
-                                    
-                                    # Ensure section headers are bold
-                                    content = re.sub(r"(🎯 [A-Z/]+ Market Analysis)", r"<b>\1</b>", content)
-                                    content = re.sub(r"(📈 Market Direction:)", r"<b>\1</b>", content)
-                                    content = re.sub(r"(📰 Latest News & Events:)", r"<b>\1</b>", content)
-                                    content = re.sub(r"(⚠️ Risk Factors:)", r"<b>\1</b>", content)
-                                    content = re.sub(r"(💡 Conclusion:)", r"<b>\1</b>", content)
-                                    
-                                    # Clean up any double newlines and trailing whitespace
-                                    content = re.sub(r'\n{3,}', '\n\n', content)
-                                    content = content.strip()
-                                    
-                                    logger.info(f"Successfully received and formatted DeepSeek response for {instrument}")
-                                    return content
-                                except (json.JSONDecodeError, KeyError) as e:
-                                    logger.error(f"Error parsing DeepSeek response: {str(e)}")
-                                    logger.error(f"Response text: {response_text[:200]}...")
-                            else:
-                                logger.error(f"DeepSeek API error status {response.status}: {response_text[:200]}...")
-                        except asyncio.TimeoutError:
-                            logger.error("Timeout while reading DeepSeek response")
-                        except Exception as e:
-                            logger.error(f"Error reading DeepSeek response: {str(e)}")
-                        
-                except aiohttp.ClientError as e:
-                    logger.error(f"DeepSeek API client error: {str(e)}")
-                except asyncio.TimeoutError:
-                    logger.error("DeepSeek API request timed out")
-                except Exception as e:
-                    logger.error(f"Unexpected error in DeepSeek API call: {str(e)}")
-                    logger.exception(e)
-                
-            # If we get here, something went wrong
-            return self._format_data_manually(market_data, instrument)
-            
         except Exception as e:
-            logger.error(f"Error calling DeepSeek API: {str(e)}")
-            logger.exception(e)
-            return self._format_data_manually(market_data, instrument)
+            logger.error(f"Error in DeepSeek formatting: {str(e)}")
+            return None
             
     def _guess_market_from_instrument(self, instrument: str) -> str:
         """Guess market type from instrument symbol"""
@@ -662,14 +533,107 @@ Rules:
             return 'forex'  # Default to forex
     
     def _get_mock_sentiment_data(self, instrument: str) -> Dict[str, Any]:
-        """This function is no longer used - mock data is not supported"""
-        logger.warning(f"_get_mock_sentiment_data called for {instrument} but mock data is not supported")
-        raise ValueError(f"Mock sentiment data is not supported. API keys are required for sentiment analysis.")
+        """Generate mock sentiment data for an instrument"""
+        logger.warning(f"Using mock sentiment data for {instrument} because API keys are not available or valid")
+        
+        # Determine sentiment randomly but biased by instrument type
+        if instrument.startswith(('BTC', 'ETH')):
+            is_bullish = random.random() > 0.3  # 70% chance of bullish for crypto
+        elif instrument.startswith(('XAU', 'GOLD')):
+            is_bullish = random.random() > 0.4  # 60% chance of bullish for gold
+        else:
+            is_bullish = random.random() > 0.5  # 50% chance for other instruments
+        
+        # Generate random percentage values
+        bullish_percentage = random.randint(60, 85) if is_bullish else random.randint(15, 40)
+        bearish_percentage = 100 - bullish_percentage
+        
+        # Generate mock analysis text
+        analysis_text = f"""<b>🎯 {instrument} Market Analysis</b>
+
+<b>Market Sentiment:</b>
+Bullish: {bullish_percentage}%
+Bearish: {bearish_percentage}%
+Neutral: 0%
+
+<b>📈 Market Direction:</b>
+The {instrument} is currently showing a {"bullish" if is_bullish else "bearish"} trend. Technical indicators suggest {"upward momentum" if is_bullish else "downward pressure"} in the near term.
+
+<b>📰 Latest News & Events:</b>
+• {"Positive economic data supporting price" if is_bullish else "Recent economic indicators adding pressure"}
+• {"Increased buying interest from institutional investors" if is_bullish else "Technical resistance levels limiting upside potential"}
+• Regular market fluctuations in line with broader market conditions
+
+<b>⚠️ Risk Factors:</b>
+• Market Volatility: {random.choice(['High', 'Moderate', 'Low'])}
+• Watch for unexpected news events
+• Monitor broader market conditions
+
+<b>💡 Conclusion:</b>
+Based on current market conditions, the outlook for {instrument} appears {"positive" if is_bullish else "cautious"}. Traders should consider {"buy opportunities on dips" if is_bullish else "sell positions on rallies"} while maintaining proper risk management.
+
+<i>Note: This is mock data for demonstration purposes only. Real trading decisions should be based on comprehensive analysis.</i>"""
+        
+        # Create dictionary result with all data
+        return {
+            'overall_sentiment': 'bullish' if is_bullish else 'bearish',
+            'sentiment_score': bullish_percentage / 100,
+            'bullish_percentage': bullish_percentage,
+            'bearish_percentage': bearish_percentage,
+            'trend_strength': 'Strong' if abs(bullish_percentage - 50) > 15 else 'Moderate' if abs(bullish_percentage - 50) > 5 else 'Weak',
+            'volatility': random.choice(['High', 'Moderate', 'Low']),
+            'support_level': 'Not available',
+            'resistance_level': 'Not available',
+            'recommendation': f"{'Consider long positions with appropriate risk management.' if is_bullish else 'Consider short positions with appropriate risk management.'}",
+            'analysis': analysis_text,
+            'source': 'mock_data'
+        }
     
     def _get_fallback_sentiment(self, instrument: str) -> Dict[str, Any]:
-        """This function is no longer used - fallback data is not supported"""
-        logger.warning(f"_get_fallback_sentiment called for {instrument} but fallback data is not supported")
-        raise ValueError(f"Fallback sentiment data is not supported. API keys are required for sentiment analysis.")
+        """Generate fallback sentiment data when APIs fail"""
+        logger.warning(f"Using fallback sentiment data for {instrument} due to API errors")
+        
+        # Create a neutral sentiment analysis
+        analysis_text = f"""<b>🎯 {instrument} Market Analysis</b>
+
+<b>Market Sentiment:</b>
+Bullish: 50%
+Bearish: 50%
+Neutral: 0%
+
+<b>📈 Market Direction:</b>
+The {instrument} is currently showing a neutral trend with balanced buy and sell interest.
+
+<b>📰 Latest News & Events:</b>
+• Standard market activity with no major developments
+• Technical factors are the primary drivers
+• Normal trading conditions observed
+
+<b>⚠️ Risk Factors:</b>
+• Market Volatility: Moderate
+• Standard market risks apply
+• Always use proper risk management
+
+<b>💡 Conclusion:</b>
+The market sentiment for {instrument} is currently neutral with balanced indicators.
+Monitor price action and wait for clearer signals before taking positions.
+
+<i>Note: This is fallback data due to API issues. Please try again later for updated analysis.</i>"""
+        
+        # Return a balanced neutral sentiment
+        return {
+            'overall_sentiment': 'neutral',
+            'sentiment_score': 0.5,
+            'bullish_percentage': 50,
+            'bearish_percentage': 50,
+            'trend_strength': 'Weak',
+            'volatility': 'Moderate',
+            'support_level': 'Not available',
+            'resistance_level': 'Not available',
+            'recommendation': 'Wait for clearer signals before taking positions.',
+            'analysis': analysis_text,
+            'source': 'fallback_data'
+        }
 
     async def _get_alternative_news(self, instrument: str, market: str) -> str:
         """Alternative news source when Tavily API fails"""
