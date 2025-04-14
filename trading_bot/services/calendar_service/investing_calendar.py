@@ -234,7 +234,8 @@ class InvestingCalendarServiceImpl():
     def _format_telegram_message(self, events):
         """Format events for Telegram message"""
         output = []
-        output.append(f"�� *Economic Calendar*")
+        # Use HTML formatting for the title and ensure correct emoji
+        output.append("<b>📅 Economic Calendar</b>")
         
         # Get the current date in different formats
         today = datetime.datetime.now()
@@ -306,9 +307,14 @@ class InvestingCalendarServiceImpl():
                 
                 # Simplify event name by removing parentheses details where possible
                 event_name = result['name']
-                # Try to remove the date part in parentheses
-                event_name = re.sub(r'\s*\([A-Za-z]+/\d+\)\s*', ' ', event_name)
-                event_name = re.sub(r'\s*\([A-Za-z]+\)\s*', ' ', event_name)
+                # Remove quarter indicators (Q1), (Q2) etc.
+                event_name = re.sub(r'\s*\(Q[1-4]\)\s*', ' ', event_name)
+                # Remove month/year indicators like (Mar), (Apr), etc.
+                event_name = re.sub(r'\s*\([A-Za-z]{3}\)\s*', ' ', event_name)
+                # Remove change period indicators like (MoM), (YoY), (QoQ)
+                event_name = re.sub(r'\s*\((?:MoM|YoY|QoQ)\)\s*', ' ', event_name)
+                # Remove date patterns like (Jan/2024)
+                event_name = re.sub(r'\s*\([A-Za-z]{3}/\d{4}\)\s*', ' ', event_name)
                 # Remove trailing spaces
                 event_name = event_name.strip()
                 
@@ -318,6 +324,7 @@ class InvestingCalendarServiceImpl():
             # Add empty line between currency groups
             output.append("")
         
+        # Only add the note once
         output.append("Note: Only showing events scheduled for today.")
         
         return "\n".join(output)
