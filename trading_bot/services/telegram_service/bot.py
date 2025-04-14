@@ -861,7 +861,7 @@ class TelegramService:
                 # Empty line between currencies
                 message += "\n"
             
-            # Only add the note once
+            # Always add the note once
             message += "Note: Only showing events scheduled for today."
             
             return message
@@ -4162,9 +4162,8 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 # Format the calendar data
                 message = await self._format_calendar_events(calendar_data)
                 
-                # Voeg notitie toe indien nodig
-                if show_today_only_note:
-                    message += "\n<i>Note: Only showing events scheduled for today.</i>"
+                # We voegen geen extra notitie meer toe, omdat _format_calendar_events deze al toevoegt
+                # Dit voorkomt dubbele notities
                 
                 # Create keyboard with back button
                 keyboard = None
