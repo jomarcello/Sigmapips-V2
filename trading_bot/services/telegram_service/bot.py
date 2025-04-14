@@ -3917,171 +3917,157 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             return False
 
     async def show_sentiment_analysis(self, update: Update, context=None, instrument=None) -> int:
-        """Show sentiment analysis for a selected instrument"""
+        """Show sentiment analysis for an instrument"""
         query = update.callback_query
-        await query.answer()
+        user_id = update.effective_user.id
+        
+        # Get the instrument from callback data or parameter
+        clean_instrument = instrument
+        is_from_signal = False  # Default value
+        
+        if query:
+            await query.answer()
+            callback_data = query.data
+            
+            # Extract instrument and flow info from callback data
+            if callback_data.startswith("sentiment_"):
+                parts = callback_data.split("_")
+                clean_instrument = parts[1] if len(parts) > 1 else None
+                # Check if this is coming from signal flow
+                is_from_signal = len(parts) > 2 and parts[2] == "signal"
+        
+        if not clean_instrument:
+            logger.warning("No instrument provided for sentiment analysis")
+            await query.edit_message_text(
+                "Please select an instrument first",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("⬅️ Back", callback_data="back_to_analysis")
+                ]])
+            )
+            return CHOOSE_ANALYSIS
+        
+        # Show loading message
+        loading_text = f"🧠 Loading market sentiment for {clean_instrument}... Please wait."
+        
+        # If we have a query, try to edit the message
+        if query:
+            try:
+                try:
+                    await query.edit_message_text(
+                        text=loading_text,
+                        reply_markup=InlineKeyboardMarkup([[
+                            InlineKeyboardButton("⬅️ Cancel", callback_data="back_to_analysis")
+                        ]])
+                    )
+                except Exception as e:
+                    # If that fails (e.g. if the message has an image), try editing caption
+                    logger.error(f"Error updating message text, trying caption: {str(e)}")
+                    try:
+                        await query.edit_message_caption(caption=loading_text)
+                    except Exception as inner_e2:
+                        logger.error(f"Could not update loading message: {str(inner_e2)}")
         
         try:
-            chat_id = update.effective_chat.id
-            
-            # Check if we're in the signal flow
-            is_from_signal = False
-            if context and hasattr(context, 'user_data'):
-                is_from_signal = context.user_data.get('from_signal', False)
-                # Add debug logging
-                logger.info(f"show_sentiment_analysis: from_signal = {is_from_signal}")
-                logger.info(f"Context user_data: {context.user_data}")
-            
-            # Get instrument from parameter or context
-            if not instrument and context and hasattr(context, 'user_data'):
-                instrument = context.user_data.get('instrument')
-            
-            # Check if we have a loading message from context
-            loading_message = None
-            if context and hasattr(context, 'user_data'):
-                loading_message = context.user_data.get('loading_message')
-                # Remove reference to avoid memory leaks
-                if 'loading_message' in context.user_data:
-                    del context.user_data['loading_message']
-            
-            if not instrument:
-                logger.error("No instrument provided for sentiment analysis")
-                
-                # Verwijder het loading bericht als het bestaat
-                if loading_message:
-                    try:
-                        await loading_message.delete()
-                    except Exception as e:
-                        logger.warning(f"Could not delete loading message: {str(e)}")
-                
-                # Stuur een nieuw bericht met de foutmelding
-                await context.bot.send_message(
-                    chat_id=chat_id,
-                    text="Please select an instrument first.",
-                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]])
-                )
-                return CHOOSE_MARKET
-            
-            logger.info(f"Showing sentiment analysis for {instrument}")
-            
             # Initialize sentiment service if needed
-            if not hasattr(self, 'sentiment_service') or not self.sentiment_service:
-                from trading_bot.services.sentiment_service.sentiment import MarketSentimentService
+            if not hasattr(self, 'sentiment_service') or self.sentiment_service is None:
                 self.sentiment_service = MarketSentimentService()
             
-            try:
-                # Get sentiment analysis
-                sentiment_data = await self.sentiment_service.get_sentiment(instrument)
-                
-                # Format the sentiment message
-                message = f"<b>🧠 Market Sentiment Analysis for {instrument}</b>\n\n"
-                
-                # Overall sentiment score
-                sentiment_score = sentiment_data.get('sentiment_score', 0)
-                sentiment_emoji = "📈" if sentiment_score > 0 else "📉" if sentiment_score < 0 else "➡️"
-                message += f"Overall Sentiment: {sentiment_emoji} "
-                
-                if sentiment_score > 0.5:
-                    message += "Strongly Bullish"
-                elif sentiment_score > 0:
-                    message += "Slightly Bullish"
-                elif sentiment_score < -0.5:
-                    message += "Strongly Bearish"
-                elif sentiment_score < 0:
-                    message += "Slightly Bearish"
-                else:
-                    message += "Neutral"
-                    
-                message += f" ({sentiment_score:.2f})\n\n"
-                
-                # Add sentiment breakdown
-                message += "<b>Sentiment Breakdown:</b>\n"
-                message += f"• Technical Indicators: {sentiment_data.get('technical_score', 'N/A')}\n"
-                message += f"• News Sentiment: {sentiment_data.get('news_score', 'N/A')}\n"
-                message += f"• Social Media: {sentiment_data.get('social_score', 'N/A')}\n\n"
-                
-                # Add recent news headlines if available
-                if 'news_headlines' in sentiment_data and sentiment_data['news_headlines']:
-                    message += "<b>Recent Market News:</b>\n"
-                    for headline in sentiment_data['news_headlines'][:3]:
-                        message += f"• {headline}\n"
-                    message += "\n"
-                
-                # Add market mood
-                message += "<b>Market Mood Indicators:</b>\n"
-                message += f"• Volatility: {sentiment_data.get('volatility', 'Normal')}\n"
-                message += f"• Volume: {sentiment_data.get('volume', 'Normal')}\n"
-                message += f"• Trend Strength: {sentiment_data.get('trend_strength', 'Moderate')}\n\n"
-                
-                # Add time of analysis
-                message += f"Analysis Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC\n"
-                
-                # Create keyboard with back button
-                keyboard = None
-                if is_from_signal:
-                    keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal_analysis")]]
-                else:
-                    keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]]
-                
-                # Verwijder het loading bericht als het bestaat
-                if loading_message:
-                    try:
-                        await loading_message.delete()
-                    except Exception as e:
-                        logger.warning(f"Could not delete loading message: {str(e)}")
-                        # Probeer het bericht te vervangen met een transparante GIF 
-                        if hasattr(loading_message, 'message'):
-                            try:
-                                await self.remove_message_with_animation(loading_message)
-                            except Exception as e2:
-                                logger.error(f"Failed to remove loading message with animation: {str(e2)}")
-                
-                # Stuur een nieuw bericht met de sentiment analyse
-                await context.bot.send_message(
-                    chat_id=chat_id,
-                    text=message,
-                    reply_markup=InlineKeyboardMarkup(keyboard),
-                    parse_mode=ParseMode.HTML
-                )
-                
-                return CHOOSE_ANALYSIS
-                
-            except Exception as e:
-                logger.error(f"Error getting sentiment analysis: {str(e)}")
-                
-                # Verwijder het loading bericht als het bestaat
-                if loading_message:
-                    try:
-                        await loading_message.delete()
-                    except Exception as del_e:
-                        logger.warning(f"Could not delete loading message: {str(del_e)}")
-                
-                # Show error message with back button
-                keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]]
-                
-                # Stuur een nieuw bericht met de foutmelding
-                await context.bot.send_message(
-                    chat_id=chat_id,
-                    text=f"Error analyzing sentiment for {instrument}. Please try again later.",
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
-                
-                return CHOOSE_ANALYSIS
-                
-        except Exception as e:
-            logger.error(f"Error in show_sentiment_analysis: {str(e)}")
-            logger.error(traceback.format_exc())
+            # Debug API keys if we're still getting mock data
+            debug_info = await self.sentiment_service.debug_api_keys()
+            logger.info(f"API Key Debug Info:\n{debug_info}")
             
-            # Try to recover by sending a simple error message
-            if context:
-                await context.bot.send_message(
-                    chat_id=update.effective_chat.id,
-                    text="An error occurred. Please try again later.",
-                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]])
-                )
+            # Get sentiment data using clean instrument name
+            sentiment_data = await self.sentiment_service.get_sentiment(clean_instrument)
+            
+            # Format the sentiment message
+            message = f"<b>🧠 Market Sentiment Analysis for {clean_instrument}</b>\n\n"
+            
+            # Overall sentiment score
+            sentiment_score = sentiment_data.get('sentiment_score', 0)
+            sentiment_emoji = "📈" if sentiment_score > 0 else "📉" if sentiment_score < 0 else "➡️"
+            message += f"Overall Sentiment: {sentiment_emoji} "
+            
+            if sentiment_score > 0.5:
+                message += "Strongly Bullish"
+            elif sentiment_score > 0:
+                message += "Slightly Bullish"
+            elif sentiment_score < -0.5:
+                message += "Strongly Bearish"
+            elif sentiment_score < 0:
+                message += "Slightly Bearish"
+            else:
+                message += "Neutral"
                 
+            message += f" ({sentiment_score:.2f})\n\n"
+            
+            # Add sentiment breakdown
+            message += "<b>Sentiment Breakdown:</b>\n"
+            message += f"• Technical Indicators: {sentiment_data.get('technical_score', 'N/A')}\n"
+            message += f"• News Sentiment: {sentiment_data.get('news_score', 'N/A')}\n"
+            message += f"• Social Media: {sentiment_data.get('social_score', 'N/A')}\n\n"
+            
+            # Add recent news headlines if available
+            if 'news_headlines' in sentiment_data and sentiment_data['news_headlines']:
+                message += "<b>Recent Market News:</b>\n"
+                for headline in sentiment_data['news_headlines'][:3]:
+                    message += f"• {headline}\n"
+                message += "\n"
+            
+            # Add market mood
+            message += "<b>Market Mood Indicators:</b>\n"
+            message += f"• Volatility: {sentiment_data.get('volatility', 'Normal')}\n"
+            message += f"• Volume: {sentiment_data.get('volume', 'Normal')}\n"
+            message += f"• Trend Strength: {sentiment_data.get('trend_strength', 'Moderate')}\n\n"
+            
+            # Add time of analysis
+            message += f"Analysis Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC\n"
+            
+            # Create keyboard with back button
+            keyboard = None
+            if is_from_signal:
+                keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal_analysis")]]
+            else:
+                keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]]
+            
+            # Verwijder het loading bericht als het bestaat
+            if context and hasattr(context, 'user_data') and context.user_data.get('loading_message'):
+                try:
+                    await context.user_data['loading_message'].delete()
+                except Exception as e:
+                    logger.warning(f"Could not delete loading message: {str(e)}")
+            
+            # Stuur een nieuw bericht met de sentiment analyse
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text=message,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode=ParseMode.HTML
+            )
+            
             return CHOOSE_ANALYSIS
-
+            
+        except Exception as e:
+            logger.error(f"Error getting sentiment analysis: {str(e)}")
+            
+            # Verwijder het loading bericht als het bestaat
+            if context and hasattr(context, 'user_data') and context.user_data.get('loading_message'):
+                try:
+                    await context.user_data['loading_message'].delete()
+                except Exception as del_e:
+                    logger.warning(f"Could not delete loading message: {str(del_e)}")
+            
+            # Show error message with back button
+            keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]]
+            
+            # Stuur een nieuw bericht met de foutmelding
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text=f"Error analyzing sentiment for {clean_instrument}. Please try again later.",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            
+            return CHOOSE_ANALYSIS
+            
     async def analysis_callback(self, update: Update, context=None) -> int:
         """Handle analysis menu callback"""
         query = update.callback_query
