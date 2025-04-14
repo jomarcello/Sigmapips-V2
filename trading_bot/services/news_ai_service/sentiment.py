@@ -1270,21 +1270,21 @@ Monitor price action and wait for clearer signals before taking positions.
 
     async def debug_api_keys(self):
         """
-        Debug function to check if API keys are loaded and working correctly.
-        Returns a string with debug information.
+        Debug functie om te controleren of API keys geladen zijn en correct werken.
+        Geeft een string terug met debug informatie.
         """
         logger.info("Debugging API keys")
         debug_info = []
         
-        # Check if API keys are set in environment variables
+        # Controleer of API keys zijn ingesteld in omgevingsvariabelen
         debug_info.append(f"Tavily API key in environment: {'Yes' if os.getenv('TAVILY_API_KEY') else 'No'}")
         debug_info.append(f"DeepSeek API key in environment: {'Yes' if os.getenv('DEEPSEEK_API_KEY') else 'No'}")
         
-        # Check if API keys are set in instance variables
+        # Controleer of API keys zijn ingesteld in class variabelen
         debug_info.append(f"Tavily API key in instance: {'Yes' if self.tavily_api_key else 'No'}")
         debug_info.append(f"DeepSeek API key in instance: {'Yes' if self.deepseek_api_key else 'No'}")
         
-        # Try to test connectivity to the APIs
+        # Probeer connectiviteit met de APIs te testen
         try:
             # Test Tavily API
             if self.tavily_api_key:
@@ -1295,15 +1295,20 @@ Monitor price action and wait for clearer signals before taking positions.
             
             # Test DeepSeek API
             if self.deepseek_api_key:
-                is_deepseek_reachable = await self._check_deepseek_connectivity()
-                debug_info.append(f"DeepSeek API reachable: {'Yes' if is_deepseek_reachable else 'No'}")
+                try:
+                    # Probeer een eenvoudige connectietest
+                    is_deepseek_reachable = await self._check_deepseek_connectivity()
+                    debug_info.append(f"DeepSeek API reachable: {'Yes' if is_deepseek_reachable else 'No'}")
+                except Exception as e:
+                    logger.error(f"Error testing DeepSeek API: {str(e)}")
+                    debug_info.append(f"DeepSeek API reachable: No (error: {str(e)})")
             else:
                 debug_info.append("DeepSeek API not tested (no API key)")
         except Exception as e:
             debug_info.append(f"Error testing API connectivity: {str(e)}")
         
         return "\n".join(debug_info)
-
+        
     async def _test_tavily_connectivity(self) -> bool:
         """Test if Tavily API is reachable and working"""
         try:
