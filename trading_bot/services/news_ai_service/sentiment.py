@@ -38,6 +38,53 @@ class MarketSentimentService:
         else:
             logger.warning("No DeepSeek API key found")
             
+    def _build_search_query(self, instrument: str, market_type: str) -> str:
+        """
+        Build a search query for the given instrument and market type.
+        
+        Args:
+            instrument: The instrument to analyze (e.g., 'EURUSD')
+            market_type: Market type (e.g., 'forex', 'crypto')
+            
+        Returns:
+            str: A formatted search query for news and market data
+        """
+        logger.info(f"Building search query for {instrument} ({market_type})")
+        
+        base_query = f"{instrument} {market_type} market analysis"
+        
+        # Add additional context based on market type
+        if market_type == 'forex':
+            currency_pair = instrument[:3] + "/" + instrument[3:] if len(instrument) == 6 else instrument
+            base_query = f"{currency_pair} forex market analysis current trend technical news"
+        elif market_type == 'crypto':
+            # For crypto, use common naming conventions
+            crypto_name = instrument.replace('USD', '') if instrument.endswith('USD') else instrument
+            base_query = f"{crypto_name} cryptocurrency price analysis market sentiment current trend"
+        elif market_type == 'commodities':
+            commodity_name = {
+                'XAUUSD': 'gold',
+                'XAGUSD': 'silver',
+                'USOIL': 'crude oil',
+                'BRENT': 'brent oil'
+            }.get(instrument, instrument)
+            base_query = f"{commodity_name} commodity market analysis price trend current news"
+        elif market_type == 'indices':
+            index_name = {
+                'US30': 'Dow Jones',
+                'US500': 'S&P 500',
+                'US100': 'Nasdaq',
+                'GER30': 'DAX',
+                'UK100': 'FTSE 100'
+            }.get(instrument, instrument)
+            base_query = f"{index_name} stock index market analysis current trend technical indicators"
+            
+        # Add current date to get latest info
+        base_query += " latest analysis today"
+        
+        logger.info(f"Search query built: {base_query}")
+        return base_query
+            
     async def get_sentiment(self, instrument: str, market_type: Optional[str] = None) -> Dict[str, Any]:
         """
         Get sentiment for a given instrument. This function is used by the TelegramService.
