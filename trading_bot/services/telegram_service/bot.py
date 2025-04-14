@@ -757,7 +757,7 @@ class TelegramService:
             today = datetime.now()
             today_formatted = today.strftime("%B %d, %Y")
             
-            # Build the message header
+            # Build the message header with HTML formatting for the emoji
             message = "<b>📅 Economic Calendar</b>\n\n"
             message += f"Date: {today_formatted}\n\n"
             message += "Impact: 🔴 High   🟠 Medium   🟢 Low\n\n"
@@ -843,11 +843,25 @@ class TelegramService:
                 
                 # Show events for this currency
                 for event in sorted(events, key=lambda x: x['sort_time']):
-                    message += f"{event['time']} - {event['impact_emoji']} {event['title']}\n"
+                    # Simplify event name by removing date references
+                    title = event['title']
+                    # Remove quarter indicators (Q1), (Q2) etc.
+                    title = re.sub(r'\s*\(Q[1-4]\)\s*', ' ', title)
+                    # Remove month/year indicators like (Mar), (Apr), etc.
+                    title = re.sub(r'\s*\([A-Za-z]{3}\)\s*', ' ', title)
+                    # Remove change period indicators like (MoM), (YoY), (QoQ)
+                    title = re.sub(r'\s*\((?:MoM|YoY|QoQ)\)\s*', ' ', title)
+                    # Remove date patterns like (Jan/2024)
+                    title = re.sub(r'\s*\([A-Za-z]{3}/\d{4}\)\s*', ' ', title)
+                    # Remove trailing spaces
+                    title = title.strip()
+                    
+                    message += f"{event['time']} - {event['impact_emoji']} {title}\n"
                 
                 # Empty line between currencies
                 message += "\n"
             
+            # Only add the note once
             message += "Note: Only showing events scheduled for today."
             
             return message
