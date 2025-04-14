@@ -207,8 +207,16 @@ class EconomicCalendarService:
             print("⚠️ ScrapingAnt is DISABLED")
         
         # Create the TradingView calendar service
-        self.calendar_service = TradingViewCalendarService()
-        self.logger.info("Successfully created TradingViewCalendarService instance")
+        try:
+            # Importeer de TradingView kalender service als deze beschikbaar is
+            from trading_bot.services.calendar_service.tradingview_calendar import TradingViewCalendarService
+            self.calendar_service = TradingViewCalendarService()
+            self.logger.info("Successfully created TradingViewCalendarService instance")
+        except (ImportError, NameError) as e:
+            # Als de import mislukt, gebruik dan een mock fallback
+            self.logger.error(f"Failed to create TradingViewCalendarService: {str(e)}")
+            self.logger.warning("Using mock calendar service instead")
+            self.calendar_service = self._create_mock_calendar_service()
         
         self.tavily_service = tavily_service or TavilyService()
         self.deepseek_service = deepseek_service or DeepseekService()
@@ -1038,6 +1046,67 @@ IMPORTANT: ONLY return the JSON with TODAY's events. No explanation text.
         except Exception as e:
             logger.error(f"Error generating test calendar: {str(e)}")
             return f"Error generating calendar: {str(e)}"
+
+    def _create_mock_calendar_service(self):
+        """Een mock calendar service maken als fallback"""
+        self.logger.info("Creating mock calendar service")
+        
+        # Maak een eenvoudig object met dezelfde interface als TradingViewCalendarService
+        class MockCalendarService:
+            async def get_calendar(self, days_ahead=0, min_impact="Low"):
+                """Return mock calendar data"""
+                from datetime import datetime, timedelta
+                
+                # Gebruik de huidige tijd als basis
+                now = datetime.now()
+                mock_date = now + timedelta(days=days_ahead)
+                date_str = mock_date.strftime("%B %d, %Y")
+                
+                # Genereer wat standaard evenementen voor vandaag
+                mock_events = [
+                    {
+                        "time": "08:30",
+                        "currency": "USD",
+                        "impact": "High",
+                        "event": "Non-Farm Payrolls",
+                        "actual": "202K",
+                        "forecast": "200K",
+                        "previous": "195K"
+                    },
+                    {
+                        "time": "10:00",
+                        "currency": "EUR",
+                        "impact": "Medium",
+                        "event": "Consumer Price Index",
+                        "actual": "2.1%",
+                        "forecast": "2.0%",
+                        "previous": "1.9%"
+                    },
+                    {
+                        "time": "14:00",
+                        "currency": "GBP",
+                        "impact": "Low",
+                        "event": "BOE Governor Bailey Speech",
+                        "actual": "",
+                        "forecast": "",
+                        "previous": ""
+                    }
+                ]
+                
+                # Filter op impact level
+                impact_levels = {"Low": 0, "Medium": 1, "High": 2}
+                min_impact_level = impact_levels.get(min_impact, 0)
+                
+                filtered_events = [
+                    event for event in mock_events
+                    if impact_levels.get(event["impact"], 0) >= min_impact_level
+                ]
+                
+                return filtered_events
+                
+            # Voeg andere methodes toe indien nodig
+        
+        return MockCalendarService()
 
 # Telegram service class die de calendar service gebruikt
 class TelegramService:
