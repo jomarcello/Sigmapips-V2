@@ -34,6 +34,8 @@ google-cloud-vision==3.4.4  # For Google Cloud Vision API
 
 # Data fetching
 lxml==4.9.3
+beautifulsoup4==4.12.2  # Voor Investing Calendar
+arrow==1.3.0  # Voor Investing Calendar
 
 # Vector database
 pinecone-client
