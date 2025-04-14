@@ -741,43 +741,55 @@ class TelegramService:
         try:
             # Check if calendar_data is a CalendarResult object
             if hasattr(calendar_data, 'get'):
-                # Als calendar_data een CalendarResult object is, haal de message op
+                # If calendar_data is a CalendarResult object, get the message
                 if calendar_data.get('message'):
                     return calendar_data.get('message')
-                # Als er een error is, geef een foutmelding terug
+                # If there is an error, return an error message
                 if calendar_data.get('error'):
                     return f"<b>📅 Economic Calendar</b>\n\nError: {calendar_data.get('message', 'Unknown error')}"
-                # Haal events op als array
+                # Get events as array
                 events = calendar_data.get('events', [])
             else:
-                # Fallback voor het geval calendar_data een lijst is (zoals eerder verwacht)
+                # Fallback for the case calendar_data is a list (as previously expected)
                 events = calendar_data or []
             
-            # Haal de huidige datum in verschillende formaten
+            # Get the current date in different formats
             today = datetime.now()
             today_date = today.strftime("%Y-%m-%d")
             today_formatted = today.strftime("%B %d, %Y")
             
-            # Configuratie voor filtering op huidige maand/dag
+            # Configuration for filtering on current month/day
             current_month = today.strftime("%b").lower()
             current_month_full = today.strftime("%B").lower()
-            current_day = today.strftime("%d").lstrip("0")  # dag zonder voorloopnullen
+            current_day = today.strftime("%d").lstrip("0")  # day without leading zeros
             current_year = today.strftime("%Y")
             
-            # Begin bericht opbouwen
+            # Build the message header
             message = "<b>📅 Economic Calendar</b>\n\n"
             message += f"Date: {today_formatted}\n\n"
             message += "Impact: 🔴 High   🟠 Medium   🟢 Low\n\n"
             
-            # Leeg resultaat als er geen data is
+            # Empty result if there is no data
             if not events or len(events) == 0:
                 return message + "No economic events scheduled for today."
-                
-            # Lijsten voor filteren op niet-huidige dag/maand
+            
+            # Currency code mapping (country to currency code)
+            COUNTRY_TO_CURRENCY = {
+                'UNITED STATES': 'USD',
+                'EURO ZONE': 'EUR',
+                'UNITED KINGDOM': 'GBP',
+                'JAPAN': 'JPY',
+                'SWITZERLAND': 'CHF',
+                'CANADA': 'CAD',
+                'AUSTRALIA': 'AUD',
+                'NEW ZEALAND': 'NZD'
+            }
+            
+            # Lists for filtering on non-current day/month
             months_abbr = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"]
             months_full = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"]
             
-            # Helper functie om tijd te parsen voor sorteren
+            # Helper function to parse time for sorting
             def parse_time_for_sorting(event):
                 time_str = event.get('time', '00:00')
                 try:
@@ -791,33 +803,33 @@ class TelegramService:
                 except (ValueError, IndexError):
                     return 0
             
-            # Verzamel alle events die voldoen aan de filtering
+            # Collect all events that meet the filtering
             filtered_events = []
             
-            # Process en filter events
+            # Process and filter events
             for event in events:
-                # Basis event info
+                # Basic event info
                 country = event.get('country', 'unknown').upper()
                 title = event.get('title', 'Unknown Event')
                 time = event.get('time', 'TBD')
                 impact = event.get('impact', 'low').lower()
                 
-                # Zet de title om naar kleine letters voor het vergelijken
+                # Convert title to lowercase for comparison
                 title_lower = title.lower()
                 
-                # FILTER: Controleer op alle datum referenties
+                # FILTER: Check for all date references
                 should_exclude = False
                 
-                # FILTER 1: Check op datums in naam tussen haakjes - (Apr/05), (Mar/29), (Feb)
+                # FILTER 1: Check for dates in name between brackets - (Apr/05), (Mar/29), (Feb)
                 if "(" in title_lower and ")" in title_lower:
                     bracket_parts = re.findall(r'\((.*?)\)', title_lower)
                     for part in bracket_parts:
-                        # Controleer op maandverwijzingen en kwartalen
+                        # Check for month references and quarters
                         for month in months_abbr:
                             if month in part and month != current_month:
                                 should_exclude = True
                         
-                        # Controleer specifiek op datum notaties (Apr/05)
+                        # Check specifically for date notations (Apr/05)
                         month_day_match = re.search(r'([a-z]{3})/(\d{1,2})', part)
                         if month_day_match:
                             month_found = month_day_match.group(1)
@@ -825,88 +837,91 @@ class TelegramService:
                             if month_found != current_month or day_found != current_day:
                                 should_exclude = True
                         
-                        # Controleer op maandverwijzingen zonder dag (Mar), (Q1), (2023)
+                        # Check for month references without day (Mar), (Q1), (2023)
                         if re.search(r'\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b', part) or \
                            re.search(r'q[1-4]', part) or \
                            re.search(r'\b\d{4}\b', part):
                             should_exclude = True
                 
-                # FILTER 2: Directe verwijzingen naar maanden (buiten haakjes)
+                # FILTER 2: Direct references to months (outside brackets)
                 for month in months_abbr:
-                    # Skip als het de huidige maand is
+                    # Skip if it's the current month
                     if month == current_month:
                         continue
-                    # Check op maandnaam in titel
+                    # Check for month name in title
                     if month in title_lower and f"({month}" not in title_lower:
                         should_exclude = True
                 
-                # FILTER 3: Check op MoM en YoY met maand-indicaties
+                # FILTER 3: Check for MoM and YoY with month indications
                 if "mom" in title_lower or "yoy" in title_lower:
                     for month in months_abbr:
                         if month != current_month and month in title_lower:
                             should_exclude = True
                 
-                # FILTER 4: Check op CPI, GDP etc. met datumreferenties
+                # FILTER 4: Check for CPI, GDP etc. with date references
                 indicators = ["cpi", "inflation", "gdp", "interest rate", "employment", "jobless", "permits"]
                 if any(indicator in title_lower for indicator in indicators):
-                    # Als er een indicator is én een datum tussen haakjes, controleer extra streng
+                    # If there is an indicator and a date in brackets, check extra strictly
                     if "(" in title_lower and ")" in title_lower:
                         for month in months_abbr:
                             if month != current_month and month in title_lower:
                                 should_exclude = True
                 
-                # Sla het event over als het niet door de filter komt
+                # Skip the event if it doesn't pass the filter
                 if should_exclude:
                     continue
                 
-                # Voor events die door de filter komen
+                # For events that pass the filter
                 impact_emoji = "🟢"  # Default Low
                 if impact == "high":
                     impact_emoji = "🔴"
                 elif impact == "medium":
                     impact_emoji = "🟠"
                 
-                # Voeg vlag toe aan de landcode
-                country_with_flag = country
-                if country in CURRENCY_FLAG:
-                    country_with_flag = f"{CURRENCY_FLAG[country]} {country}"
+                # Get currency code from country
+                currency_code = COUNTRY_TO_CURRENCY.get(country, country)
                 
-                # Voeg het event toe aan de gefilterde lijst
+                # Add flag to the currency code
+                flag = CURRENCY_FLAG.get(country, '')
+                currency_with_flag = f"{flag} {currency_code}"
+                
+                # Add the event to the filtered list
                 filtered_events.append({
                     'country': country,
-                    'country_with_flag': country_with_flag,
+                    'currency_code': currency_code,
+                    'currency_with_flag': currency_with_flag,
                     'time': time,
                     'title': title,
                     'impact_emoji': impact_emoji,
                     'sort_time': parse_time_for_sorting(event)
                 })
             
-            # Controleer of we events hebben na filtering
+            # Check if we have events after filtering
             if not filtered_events:
                 return message + "No major economic events scheduled for today."
             
-            # Sorteer events op valuta en tijd
-            filtered_events.sort(key=lambda x: (x['country'], x['sort_time']))
+            # Sort events by currency and time
+            filtered_events.sort(key=lambda x: (x['currency_code'], x['sort_time']))
             
-            # Groepeer events per valuta
+            # Group events by currency
             events_by_currency = {}
             for event in filtered_events:
-                country = event['country']
-                if country not in events_by_currency:
-                    events_by_currency[country] = []
-                events_by_currency[country].append(event)
+                currency_code = event['currency_code']
+                if currency_code not in events_by_currency:
+                    events_by_currency[currency_code] = []
+                events_by_currency[currency_code].append(event)
             
-            # Voeg events toe aan het bericht, gegroepeerd per valuta
-            for currency, events in events_by_currency.items():
-                # Toon valuta header met vlag
-                flag = CURRENCY_FLAG.get(currency, '')
-                message += f"{flag} {currency}\n"
+            # Add events to the message, grouped by currency
+            for currency_code, events in events_by_currency.items():
+                # Show currency header with flag
+                flag = CURRENCY_FLAG.get(next((country for country, code in COUNTRY_TO_CURRENCY.items() if code == currency_code), currency_code), '')
+                message += f"{flag} {currency_code}\n"
                 
-                # Toon events voor deze valuta
+                # Show events for this currency
                 for event in sorted(events, key=lambda x: x['sort_time']):
                     message += f"{event['time']} - {event['impact_emoji']} {event['title']}\n"
                 
-                # Lege regel tussen valuta's
+                # Empty line between currencies
                 message += "\n"
             
             return message
@@ -915,7 +930,7 @@ class TelegramService:
             self.logger.error(f"Error formatting calendar events: {str(e)}")
             self.logger.exception(e)
             
-            # Super eenvoudige fallback bij een error
+            # Super simple fallback in case of an error
             return "<b>📅 Economic Calendar</b>\n\nUnable to format calendar data correctly. Please try again later."
 
     async def update_message(self, query, text, keyboard=None, parse_mode=ParseMode.HTML):
