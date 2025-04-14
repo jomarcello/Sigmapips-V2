@@ -38,58 +38,65 @@ if os.environ.get("SCRAPINGANT_API_KEY") is None:
     logger.info("Setting default ScrapingAnt API key")
 
 # Flag om te bepalen welke implementatie we moeten gebruiken
-# Check of er iets expliciets in de omgeving is ingesteld
-USE_FALLBACK = os.environ.get("USE_CALENDAR_FALLBACK", "").lower() in ("true", "1", "yes")
+USE_INVESTING = os.environ.get("USE_INVESTING_CALENDAR", "").lower() in ("true", "1", "yes")
 
-# Log duidelijk naar de console of we fallback gebruiken of niet
-if USE_FALLBACK:
-    logger.info("⚠️ USE_CALENDAR_FALLBACK is set to True, using fallback implementation")
-    print("⚠️ Calendar fallback mode is ENABLED via environment variable")
-    print(f"⚠️ Check environment value: '{os.environ.get('USE_CALENDAR_FALLBACK', '')}'")
-    from trading_bot.services.calendar_service.calendar_fix import EconomicCalendarService
-    logger.info("Successfully imported fallback EconomicCalendarService from calendar_fix.py")
+if USE_INVESTING:
+    logger.info("✅ Using Investing.com calendar implementation")
+    from trading_bot.services.calendar_service.investing_calendar import InvestingCalendarService as EconomicCalendarService
+    logger.info("Successfully imported InvestingCalendarService")
 else:
-    # Probeer eerst de volledige implementatie
-    logger.info("✅ USE_CALENDAR_FALLBACK is set to False, will use real implementation")
-    print("✅ Calendar fallback mode is DISABLED")
-    print(f"✅ Environment value: '{os.environ.get('USE_CALENDAR_FALLBACK', '')}'")
-    
-    try:
-        logger.info("Attempting to import EconomicCalendarService from calendar.py...")
-        from trading_bot.services.calendar_service.calendar import EconomicCalendarService
-        logger.info("Successfully imported EconomicCalendarService from calendar.py")
-        
-        # Test importeren van TradingView kalender
-        try:
-            from trading_bot.services.calendar_service.tradingview_calendar import TradingViewCalendarService
-            logger.info("Successfully imported TradingViewCalendarService")
-            
-            # Check if using ScrapingAnt
-            use_scrapingant = os.environ.get("USE_SCRAPINGANT", "").lower() in ("true", "1", "yes")
-            logger.info(f"Using ScrapingAnt for calendar API: {use_scrapingant}")
-            
-            if use_scrapingant:
-                print("✅ Using ScrapingAnt proxy for TradingView calendar API")
-            else:
-                print("✅ Using direct connection for TradingView calendar API")
-            
-        except Exception as e:
-            logger.warning(f"TradingViewCalendarService import failed: {e}")
-            logger.debug(traceback.format_exc())
-            print("⚠️ TradingView calendar service could not be imported")
+    # Check of er iets expliciets in de omgeving is ingesteld voor fallback
+    USE_FALLBACK = os.environ.get("USE_CALENDAR_FALLBACK", "").lower() in ("true", "1", "yes")
 
-    except Exception as e:
-        # Als de import faalt, gebruiken we onze fallback implementatie
-        logger.error(f"Could not import EconomicCalendarService from calendar.py: {str(e)}")
-        logger.debug(traceback.format_exc())
-        logger.warning("Using fallback implementation from calendar_fix.py")
-        print("⚠️ Could not import real calendar service, using fallback")
-        
-        # Importeer de fallback implementatie
+    # Log duidelijk naar de console of we fallback gebruiken of niet
+    if USE_FALLBACK:
+        logger.info("⚠️ USE_CALENDAR_FALLBACK is set to True, using fallback implementation")
+        print("⚠️ Calendar fallback mode is ENABLED via environment variable")
+        print(f"⚠️ Check environment value: '{os.environ.get('USE_CALENDAR_FALLBACK', '')}'")
         from trading_bot.services.calendar_service.calendar_fix import EconomicCalendarService
-        
-        # Log dat we de fallback gebruiken
         logger.info("Successfully imported fallback EconomicCalendarService from calendar_fix.py")
+    else:
+        # Probeer eerst de volledige implementatie
+        logger.info("✅ USE_CALENDAR_FALLBACK is set to False, will use real implementation")
+        print("✅ Calendar fallback mode is DISABLED")
+        print(f"✅ Environment value: '{os.environ.get('USE_CALENDAR_FALLBACK', '')}'")
+        
+        try:
+            logger.info("Attempting to import EconomicCalendarService from calendar.py...")
+            from trading_bot.services.calendar_service.calendar import EconomicCalendarService
+            logger.info("Successfully imported EconomicCalendarService from calendar.py")
+            
+            # Test importeren van TradingView kalender
+            try:
+                from trading_bot.services.calendar_service.tradingview_calendar import TradingViewCalendarService
+                logger.info("Successfully imported TradingViewCalendarService")
+                
+                # Check if using ScrapingAnt
+                use_scrapingant = os.environ.get("USE_SCRAPINGANT", "").lower() in ("true", "1", "yes")
+                logger.info(f"Using ScrapingAnt for calendar API: {use_scrapingant}")
+                
+                if use_scrapingant:
+                    print("✅ Using ScrapingAnt proxy for TradingView calendar API")
+                else:
+                    print("✅ Using direct connection for TradingView calendar API")
+                
+            except Exception as e:
+                logger.warning(f"TradingViewCalendarService import failed: {e}")
+                logger.debug(traceback.format_exc())
+                print("⚠️ TradingView calendar service could not be imported")
+
+        except Exception as e:
+            # Als de import faalt, gebruiken we onze fallback implementatie
+            logger.error(f"Could not import EconomicCalendarService from calendar.py: {str(e)}")
+            logger.debug(traceback.format_exc())
+            logger.warning("Using fallback implementation from calendar_fix.py")
+            print("⚠️ Could not import real calendar service, using fallback")
+            
+            # Importeer de fallback implementatie
+            from trading_bot.services.calendar_service.calendar_fix import EconomicCalendarService
+            
+            # Log dat we de fallback gebruiken
+            logger.info("Successfully imported fallback EconomicCalendarService from calendar_fix.py")
 
 # Exporteer TradingView debug functie als die beschikbaar is
 try:
