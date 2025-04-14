@@ -85,7 +85,7 @@ class TradingViewCalendarService:
     """Service for retrieving calendar data directly from TradingView"""
     
     def __init__(self):
-        self.base_url = "https://economic-calendar.tradingview.com/events"
+        self.base_url = "https://www.tradingview.com/economic-calendar/events"
         self.session = None
         
     async def _ensure_session(self):
@@ -115,6 +115,7 @@ class TradingViewCalendarService:
             List of calendar events
         """
         try:
+            logger.info("Starting calendar fetch from TradingView")
             await self._ensure_session()
             
             # Calculate date range
@@ -125,65 +126,126 @@ class TradingViewCalendarService:
             params = {
                 "from": self._format_date(start_date),
                 "to": self._format_date(end_date),
-                "countries": ["US", "EU", "GB", "JP", "CH", "AU", "NZ", "CA"],  # Major currency countries
-                "importance": ["high", "medium", "low"],
+                "countries": ["US", "EU", "GB", "JP", "CH", "AU", "NZ", "CA"],  # Array van landen
+                "importance": ["high", "medium", "low"],  # Array van impact levels
                 "limit": 1000
             }
             
+            logger.info(f"Requesting calendar with params: {params}")
+            
+            # Add headers for better API compatibility
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.114 Safari/537.36",
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+                "Origin": "https://www.tradingview.com",
+                "Referer": "https://www.tradingview.com/economic-calendar/",
+                "X-Requested-With": "XMLHttpRequest"
+            }
+            
             # Make request to TradingView
-            async with self.session.get(self.base_url, params=params) as response:
+            full_url = f"{self.base_url}"
+            logger.info(f"Making request to: {full_url}")
+            
+            async with self.session.get(full_url, params=params, headers=headers) as response:
+                logger.info(f"Got response with status: {response.status}")
+                
                 if response.status != 200:
-                    logger.error(f"Error fetching calendar data: {response.status}")
+                    response_text = await response.text()
+                    logger.error(f"Error response from TradingView: {response_text}")
+                    
+                    # Fallback naar mock data als de API faalt
+                    if HAS_CUSTOM_MOCK_DATA:
+                        logger.info("Falling back to mock calendar data")
+                        return generate_mock_calendar_data(days_ahead, min_impact)
                     return []
                     
-                data = await response.json()
-                
-                # Transform TradingView data to our format
-                events = []
-                for event in data:
-                    # Map country codes to currency codes
-                    country_to_currency = {
-                        "US": "USD",
-                        "EU": "EUR",
-                        "GB": "GBP",
-                        "JP": "JPY",
-                        "CH": "CHF",
-                        "AU": "AUD",
-                        "NZ": "NZD",
-                        "CA": "CAD"
-                    }
-                    
-                    # Map impact levels
-                    impact_map = {
-                        "high": "High",
-                        "medium": "Medium",
-                        "low": "Low"
-                    }
-                    
-                    currency = country_to_currency.get(event.get("country", ""), "")
-                    if not currency:
-                        continue
+                try:
+                    data = await response.json()
+                    if not isinstance(data, list):
+                        logger.error(f"Invalid response format from TradingView: {type(data)}")
+                        if HAS_CUSTOM_MOCK_DATA:
+                            logger.info("Falling back to mock calendar data")
+                            return generate_mock_calendar_data(days_ahead, min_impact)
+                        return []
                         
-                    # Convert event time to local time
-                    event_time = datetime.fromisoformat(event.get("date", "")).strftime("%H:%M")
+                    logger.info(f"Received {len(data)} items from API")
                     
-                    events.append({
-                        "country": currency,  # Use currency code instead of country
-                        "time": event_time,
-                        "event": event.get("title", ""),
-                        "impact": impact_map.get(event.get("importance", "low"), "Low")
-                    })
-                
-                # Filter by minimum impact if specified
-                if min_impact != "Low":
-                    impact_levels = ["High", "Medium", "Low"]
-                    min_impact_idx = impact_levels.index(min_impact)
-                    events = [e for e in events if impact_levels.index(e["impact"]) <= min_impact_idx]
-                
-                return events
+                    # Transform TradingView data to our format
+                    events = []
+                    for event in data:
+                        try:
+                            # Map country codes to currency codes
+                            country_to_currency = {
+                                "US": "USD",
+                                "EU": "EUR",
+                                "GB": "GBP",
+                                "JP": "JPY",
+                                "CH": "CHF",
+                                "AU": "AUD",
+                                "NZ": "NZD",
+                                "CA": "CAD"
+                            }
+                            
+                            # Map impact levels
+                            impact_map = {
+                                "high": "High",
+                                "medium": "Medium",
+                                "low": "Low"
+                            }
+                            
+                            country = event.get("country", "")
+                            currency = country_to_currency.get(country, "")
+                            if not currency:
+                                logger.debug(f"Skipping event with unknown country: {country}")
+                                continue
+                                
+                            # Convert event time to local time
+                            date_str = event.get("date", "")
+                            if not date_str:
+                                logger.debug(f"Skipping event without date: {event.get('title', 'Unknown')}")
+                                continue
+                                
+                            event_time = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
+                            time_str = event_time.strftime("%H:%M")
+                            
+                            # Create event object
+                            event_obj = {
+                                "country": currency,
+                                "time": time_str,
+                                "event": event.get("title", ""),
+                                "impact": impact_map.get(event.get("importance", "low"), "Low")
+                            }
+                            
+                            events.append(event_obj)
+                            logger.debug(f"Added event: {event_obj}")
+                            
+                        except Exception as e:
+                            logger.error(f"Error processing event {event}: {str(e)}")
+                            continue
+                    
+                    logger.info(f"Processed {len(events)} valid events")
+                    
+                    # Filter by minimum impact if specified
+                    if min_impact != "Low":
+                        impact_levels = ["High", "Medium", "Low"]
+                        min_impact_idx = impact_levels.index(min_impact)
+                        events = [e for e in events if impact_levels.index(e["impact"]) <= min_impact_idx]
+                        logger.info(f"After impact filtering: {len(events)} events")
+                    
+                    # Sort events by time
+                    events.sort(key=lambda x: x["time"])
+                    
+                    return events
+                    
+                except Exception as e:
+                    logger.error(f"Error processing response: {str(e)}")
+                    return []
                 
         except Exception as e:
             logger.error(f"Error fetching calendar data: {str(e)}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
             return []
             
         finally:
