@@ -196,61 +196,103 @@ class MarketSentimentService:
             if bullish_match:
                 # Normal path - extract directly from regex match
                 bullish_percentage = int(bullish_match.group(1))
-                bearish_percentage = 100 - bullish_percentage
-                logger.info(f"Extracted sentiment values for {instrument}: Bullish {bullish_percentage}%, Bearish {bearish_percentage}%")
+                
+                # Try to extract bearish and neutral directly
+                bearish_match = re.search(r'(?:Bearish:|🔴\s*Bearish:)\s*(\d+)\s*%', final_analysis)
+                neutral_match = re.search(r'(?:Neutral:|⚪️\s*Neutral:)\s*(\d+)\s*%', final_analysis)
+                
+                if bearish_match:
+                    bearish_percentage = int(bearish_match.group(1))
+                    logger.info(f"Found bearish percentage for {instrument}: {bearish_percentage}%")
+                else:
+                    bearish_percentage = 100 - bullish_percentage
+                    logger.warning(f"Could not find bearish percentage, using complement: {bearish_percentage}%")
+                
+                if neutral_match:
+                    neutral_percentage = int(neutral_match.group(1))
+                    logger.info(f"Found neutral percentage for {instrument}: {neutral_percentage}%")
+                    
+                    # Adjust percentages to ensure they sum to 100%
+                    total = bullish_percentage + bearish_percentage + neutral_percentage
+                    if total != 100:
+                        logger.warning(f"Sentiment percentages sum to {total}, adjusting...")
+                        # Scale proportionally
+                        bullish_percentage = int((bullish_percentage / total) * 100)
+                        bearish_percentage = int((bearish_percentage / total) * 100)
+                        neutral_percentage = 100 - bullish_percentage - bearish_percentage
+                else:
+                    neutral_percentage = 0
+                    logger.warning(f"Could not find neutral percentage, using default: {neutral_percentage}%")
+                
+                logger.info(f"Extracted sentiment values for {instrument}: Bullish {bullish_percentage}%, Bearish {bearish_percentage}%, Neutral {neutral_percentage}%")
+                
+                # Determine sentiment
+                overall_sentiment = 'bullish' if bullish_percentage > bearish_percentage else 'bearish' if bearish_percentage > bullish_percentage else 'neutral'
+                
+                # Calculate the sentiment score (-1.0 to 1.0)
+                sentiment_score = (bullish_percentage - bearish_percentage) / 100
+                
+                # Determine trend strength based on how far from neutral
+                trend_strength = 'Strong' if abs(bullish_percentage - 50) > 15 else 'Moderate' if abs(bullish_percentage - 50) > 5 else 'Weak'
+                
+                logger.info(f"Returning complete sentiment data for {instrument}: {overall_sentiment} (score: {sentiment_score:.2f})")
+                
+                return {
+                    'bullish': bullish_percentage,
+                    'bearish': bearish_percentage,
+                    'neutral': neutral_percentage,
+                    'sentiment_score': sentiment_score,
+                    'technical_score': 'Based on market analysis',
+                    'news_score': f"{bullish_percentage}% positive",
+                    'social_score': f"{bearish_percentage}% negative",
+                    'trend_strength': trend_strength,
+                    'volatility': 'Moderate',
+                    'volume': 'Normal',
+                    'news_headlines': [],
+                    'overall_sentiment': overall_sentiment,
+                    'analysis': final_analysis
+                }
             else:
                 logger.warning(f"Could not find bullish percentage in DeepSeek response for {instrument}. Using keyword analysis.")
+                # Fallback: Calculate sentiment through keyword analysis
+                bullish_keywords = ['bullish', 'optimistic', 'uptrend', 'positive', 'strong', 'upside', 'buy', 'growth']
+                bearish_keywords = ['bearish', 'pessimistic', 'downtrend', 'negative', 'weak', 'downside', 'sell', 'decline']
                 
-                # Count sentiment-related keywords to determine bullish/bearish bias
-                bullish_keywords = ['bullish', 'upward', 'positive', 'increase', 'higher', 'rise', 'growth', 'gain']
-                bearish_keywords = ['bearish', 'downward', 'negative', 'decrease', 'lower', 'fall', 'decline', 'drop']
-                
-                # Count occurrences (case-insensitive)
                 bullish_count = sum(final_analysis.lower().count(keyword) for keyword in bullish_keywords)
                 bearish_count = sum(final_analysis.lower().count(keyword) for keyword in bearish_keywords)
                 
-                logger.info(f"Keyword analysis for {instrument}: Bullish terms {bullish_count}, Bearish terms {bearish_count}")
-                
-                # Determine sentiment based on keyword frequency
-                if bullish_count > bearish_count:
-                    # More bullish than bearish mentions
-                    ratio = min(3, max(1.2, bullish_count / max(1, bearish_count)))
-                    bullish_percentage = min(85, int(50 * ratio))
-                elif bearish_count > bullish_count:
-                    # More bearish than bullish mentions
-                    ratio = min(3, max(1.2, bearish_count / max(1, bearish_count)))
-                    bullish_percentage = max(15, int(50 / ratio))
+                total_count = bullish_count + bearish_count
+                if total_count > 0:
+                    bullish_percentage = int((bullish_count / total_count) * 100)
+                    bearish_percentage = 100 - bullish_percentage
+                    neutral_percentage = 0
                 else:
-                    # Neutral if equal counts or no mentions
                     bullish_percentage = 50
+                    bearish_percentage = 50
+                    neutral_percentage = 0
                 
-                bearish_percentage = 100 - bullish_percentage
+                # Calculate sentiment score same as above
+                sentiment_score = (bullish_percentage - bearish_percentage) / 100
+                overall_sentiment = 'bullish' if bullish_percentage > bearish_percentage else 'bearish' if bearish_percentage > bullish_percentage else 'neutral'
+                trend_strength = 'Strong' if abs(bullish_percentage - 50) > 15 else 'Moderate' if abs(bullish_percentage - 50) > 5 else 'Weak'
                 
-                logger.info(f"Calculated sentiment from keywords for {instrument}: Bullish {bullish_percentage}%, Bearish {bearish_percentage}%")
+                logger.warning(f"Using keyword analysis for {instrument}: Bullish {bullish_percentage}%, Bearish {bearish_percentage}%, Sentiment: {overall_sentiment}")
                 
-                # Add the percentages to the analysis text for future reference
-                final_analysis = final_analysis.replace("<b>Market Sentiment Breakdown:</b>", 
-                    f"<b>Market Sentiment Breakdown:</b>\n🟢 Bullish: {bullish_percentage}%\n🔴 Bearish: {bearish_percentage}%\n⚪️ Neutral: 0%")
-                
-                # If we can't find the Market Sentiment Breakdown section, add it
-                if "<b>Market Sentiment Breakdown:</b>" not in final_analysis:
-                    logger.info(f"Adding Market Sentiment Breakdown section to response for {instrument}")
-                    sentiment_section = f"""
-
-<b>Market Sentiment Breakdown:</b>
-🟢 Bullish: {bullish_percentage}%
-🔴 Bearish: {bearish_percentage}%
-⚪️ Neutral: 0%
-
-"""
-                    # Insert after Market Direction section if it exists
-                    if "<b>📈 Market Direction:</b>" in final_analysis:
-                        parts = final_analysis.split("<b>📈 Market Direction:</b>", 1)
-                        direction_section = parts[1].split("<b>", 1)
-                        final_analysis = f"{parts[0]}<b>📈 Market Direction:</b>{direction_section[0]}{sentiment_section}<b>{direction_section[1]}"
-                    else:
-                        # Or add after the title
-                        final_analysis += sentiment_section
+                return {
+                    'bullish': bullish_percentage,
+                    'bearish': bearish_percentage,
+                    'neutral': neutral_percentage,
+                    'sentiment_score': sentiment_score,
+                    'technical_score': 'Based on keyword analysis',
+                    'news_score': f"{bullish_percentage}% positive",
+                    'social_score': f"{bearish_percentage}% negative",
+                    'trend_strength': trend_strength,
+                    'volatility': 'Moderate',
+                    'volume': 'Normal',
+                    'news_headlines': [],
+                    'overall_sentiment': overall_sentiment,
+                    'analysis': final_analysis
+                }
             
             sentiment = 'bullish' if bullish_percentage > 50 else 'bearish' if bullish_percentage < 50 else 'neutral'
             
@@ -542,7 +584,7 @@ Please try again later or choose a different instrument.
             # Create prompt for sentiment analysis
             prompt = f"""Analyze the following market data for {instrument} and provide a structured sentiment analysis. 
 
-**IMPORTANT**: You MUST include explicit percentages for bullish and bearish sentiment in EXACTLY the format shown below. The percentages MUST be integers that sum to 100. This format is required for further processing.
+**IMPORTANT**: You MUST include explicit percentages for bullish, bearish, and neutral sentiment in EXACTLY the format shown below. The percentages MUST be integers that sum to 100%. This format is required for further processing.
 
 Market Data:
 {market_data}
@@ -551,13 +593,15 @@ Your response MUST follow this EXACT format (keep the exact formatting with the 
 
 <b>🎯 {instrument} Market Analysis</b>
 
+<b>Overall Sentiment:</b> Bullish 📈
+
 <b>Market Sentiment Breakdown:</b>
 🟢 Bullish: XX%
 🔴 Bearish: YY%
-⚪️ Neutral: 0%
+⚪️ Neutral: ZZ%
 
 <b>📈 Market Direction:</b>
-[Current trend analysis and momentum]
+[Detailed trend analysis with specific price levels and momentum]
 
 <b>📰 Latest News & Events:</b>
 • [Key point 1]
@@ -570,9 +614,9 @@ Your response MUST follow this EXACT format (keep the exact formatting with the 
 • [Risk 3]
 
 <b>💡 Conclusion:</b>
-[Trading recommendation]
+[Clear trading recommendation with specific entry points, targets, and stop levels]
 
-DO NOT omit any sections, especially the Market Sentiment Breakdown section with the percentage values. The bullish and bearish percentages MUST be clearly indicated as integers."""
+DO NOT omit any sections. The sentiment values (Overall Sentiment, Bullish, Bearish, Neutral percentages) MUST be clearly indicated as shown in the format."""
 
             # Make the API call
             async with aiohttp.ClientSession() as session:
