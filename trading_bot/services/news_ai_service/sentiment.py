@@ -59,16 +59,42 @@ class MarketSentimentService:
                 neutral = 100 - (bullish + bearish)
                 neutral = max(0, neutral)  # Ensure it's not negative
                 
+                # Calculate the sentiment score (-1.0 to 1.0)
+                sentiment_score = (bullish - bearish) / 100
+                
+                # Determine trend strength based on how far from neutral
+                trend_strength = 'Strong' if abs(bullish - 50) > 15 else 'Moderate' if abs(bullish - 50) > 5 else 'Weak'
+                
+                # Determine sentiment
+                overall_sentiment = 'bullish' if bullish > bearish else 'bearish' if bearish > bullish else 'neutral'
+                
                 return {
                     'bullish': bullish,
                     'bearish': bearish,
                     'neutral': neutral,
+                    'sentiment_score': sentiment_score,
+                    'technical_score': 'Based on market analysis',
+                    'news_score': f"{bullish}% positive",
+                    'social_score': f"{bearish}% negative",
+                    'trend_strength': trend_strength,
+                    'volatility': 'Moderate',
+                    'volume': 'Normal',
+                    'news_headlines': [],
+                    'overall_sentiment': overall_sentiment,
                     'analysis': sentiment_text
                 }
             else:
-                # If we can't extract percentages, just return the text
+                # If we can't extract percentages, just return the text with default values
                 return {
-                    'analysis': sentiment_text
+                    'analysis': sentiment_text,
+                    'sentiment_score': 0,
+                    'technical_score': 'N/A',
+                    'news_score': 'N/A',
+                    'social_score': 'N/A',
+                    'trend_strength': 'Moderate',
+                    'volatility': 'Normal',
+                    'volume': 'Normal',
+                    'news_headlines': []
                 }
             
         except Exception as e:
@@ -76,7 +102,15 @@ class MarketSentimentService:
             logger.exception(e)
             # Return a basic analysis message
             return {
-                'analysis': f"<b>🎯 {instrument} Market Analysis</b>\n\nSorry, there was an error analyzing the market sentiment. Please try again later."
+                'analysis': f"<b>🎯 {instrument} Market Analysis</b>\n\nSorry, there was an error analyzing the market sentiment. Please try again later.",
+                'sentiment_score': 0,
+                'technical_score': 'N/A',
+                'news_score': 'N/A',
+                'social_score': 'N/A',
+                'trend_strength': 'Moderate',
+                'volatility': 'Normal',
+                'volume': 'Normal',
+                'news_headlines': []
             }
     
     async def get_market_sentiment(self, instrument: str, market_type: Optional[str] = None) -> Optional[dict]:
@@ -189,14 +223,22 @@ class MarketSentimentService:
             result = {
                 'overall_sentiment': sentiment,
                 'sentiment_score': bullish_percentage / 100,
+                'bullish': bullish_percentage,
+                'bearish': bearish_percentage,
+                'neutral': 0,
                 'bullish_percentage': bullish_percentage,
                 'bearish_percentage': bearish_percentage,
+                'technical_score': 'Based on market analysis',
+                'news_score': f"{bullish_percentage}% positive",
+                'social_score': f"{bearish_percentage}% negative",
                 'trend_strength': 'Strong' if abs(bullish_percentage - 50) > 15 else 'Moderate' if abs(bullish_percentage - 50) > 5 else 'Weak',
                 'volatility': 'Moderate',  # Default value as this is hard to extract reliably
+                'volume': 'Normal',
                 'support_level': 'Not available',  # Would need more sophisticated analysis
                 'resistance_level': 'Not available',  # Would need more sophisticated analysis
                 'recommendation': 'See analysis for details',
-                'analysis': final_analysis
+                'analysis': final_analysis,
+                'news_headlines': []  # We don't have actual headlines from the API
             }
             
             return result
@@ -547,6 +589,25 @@ Neutral: [Z]%
         # Generate random percentage values
         bullish_percentage = random.randint(60, 85) if is_bullish else random.randint(15, 40)
         bearish_percentage = 100 - bullish_percentage
+        neutral_percentage = 0  # We don't use neutral in this mockup
+        
+        # Calculate sentiment score from -1.0 to 1.0
+        sentiment_score = (bullish_percentage - bearish_percentage) / 100
+        
+        # Generate random news headlines
+        headlines = []
+        if is_bullish:
+            headlines = [
+                f"Positive economic outlook boosts {instrument}",
+                f"Institutional investors increase {instrument} positions",
+                f"Technical indicators suggest upward momentum for {instrument}"
+            ]
+        else:
+            headlines = [
+                f"Economic concerns weigh on {instrument}",
+                f"Profit taking leads to {instrument} pressure",
+                f"Technical resistance level limits {instrument} upside"
+            ]
         
         # Generate mock analysis text
         analysis_text = f"""<b>🎯 {instrument} Market Analysis</b>
@@ -574,24 +635,42 @@ Based on current market conditions, the outlook for {instrument} appears {"posit
 
 <i>Note: This is mock data for demonstration purposes only. Real trading decisions should be based on comprehensive analysis.</i>"""
         
+        # Determine strength based on how far from neutral (50%)
+        trend_strength = 'Strong' if abs(bullish_percentage - 50) > 15 else 'Moderate' if abs(bullish_percentage - 50) > 5 else 'Weak'
+        
         # Create dictionary result with all data
         return {
             'overall_sentiment': 'bullish' if is_bullish else 'bearish',
-            'sentiment_score': bullish_percentage / 100,
+            'sentiment_score': sentiment_score,
+            'bullish': bullish_percentage,
+            'bearish': bearish_percentage,
+            'neutral': neutral_percentage,
             'bullish_percentage': bullish_percentage,
             'bearish_percentage': bearish_percentage,
-            'trend_strength': 'Strong' if abs(bullish_percentage - 50) > 15 else 'Moderate' if abs(bullish_percentage - 50) > 5 else 'Weak',
+            'technical_score': f"{random.randint(60, 80)}% {'bullish' if is_bullish else 'bearish'}",
+            'news_score': f"{random.randint(55, 75)}% {'positive' if is_bullish else 'negative'}",
+            'social_score': f"{random.randint(50, 70)}% {'bullish' if is_bullish else 'bearish'}",
+            'trend_strength': trend_strength,
             'volatility': random.choice(['High', 'Moderate', 'Low']),
+            'volume': random.choice(['Above Average', 'Normal', 'Below Average']),
             'support_level': 'Not available',
             'resistance_level': 'Not available',
             'recommendation': f"{'Consider long positions with appropriate risk management.' if is_bullish else 'Consider short positions with appropriate risk management.'}",
             'analysis': analysis_text,
+            'news_headlines': headlines,
             'source': 'mock_data'
         }
     
     def _get_fallback_sentiment(self, instrument: str) -> Dict[str, Any]:
         """Generate fallback sentiment data when APIs fail"""
         logger.warning(f"Using fallback sentiment data for {instrument} due to API errors")
+        
+        # Default neutral headlines
+        headlines = [
+            f"Market awaits clear direction for {instrument}",
+            "Economic data shows mixed signals",
+            "Traders taking cautious approach"
+        ]
         
         # Create a neutral sentiment analysis
         analysis_text = f"""<b>🎯 {instrument} Market Analysis</b>
@@ -623,15 +702,23 @@ Monitor price action and wait for clearer signals before taking positions.
         # Return a balanced neutral sentiment
         return {
             'overall_sentiment': 'neutral',
-            'sentiment_score': 0.5,
+            'sentiment_score': 0,
+            'bullish': 50,
+            'bearish': 50,
+            'neutral': 0,
             'bullish_percentage': 50,
             'bearish_percentage': 50,
+            'technical_score': 'N/A',
+            'news_score': 'N/A',
+            'social_score': 'N/A',
             'trend_strength': 'Weak',
             'volatility': 'Moderate',
+            'volume': 'Normal',
             'support_level': 'Not available',
             'resistance_level': 'Not available',
             'recommendation': 'Wait for clearer signals before taking positions.',
             'analysis': analysis_text,
+            'news_headlines': headlines,
             'source': 'fallback_data'
         }
 
