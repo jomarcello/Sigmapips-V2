@@ -826,45 +826,35 @@ IMPORTANT: ONLY return the JSON with TODAY's events. No explanation text.
         # Real world economic events based on the screenshot
         real_events = {
             "USD": [
-                {"time": "00:00", "event": "30-Year Bond Auction", "impact": "Low"},
-                {"time": "01:00", "event": "Monthly Budget Statement", "impact": "Low"},
-                {"time": "03:30", "event": "Fed Balance Sheet", "impact": "Low"},
-                {"time": "12:30", "event": "Core PPI MoM (Mar)", "impact": "Low"},
-                {"time": "12:30", "event": "Core PPI YoY (Mar)", "impact": "Low"},
-                {"time": "12:30", "event": "PPI (Mar)", "impact": "Low"},
-                {"time": "14:00", "event": "Treasury Bill Auction", "impact": "Low"}
+                {"time": "15:00", "event": "Consumer Inflation Expectations (Mar)", "impact": "High"},
+                {"time": "15:30", "event": "3-Month Bill Auction", "impact": "Low"},
+                {"time": "15:30", "event": "6-Month Bill Auction", "impact": "Low"},
+                {"time": "16:00", "event": "Fed Barkin Speech", "impact": "High"},
+                {"time": "17:00", "event": "Fed Waller Speech", "impact": "High"},
+                {"time": "22:00", "event": "Fed Harker Speech", "impact": "High"},
+                {"time": "23:40", "event": "Fed Bostic Speech", "impact": "High"}
             ],
-            "EUR": [
-                {"time": "07:00", "event": "ECOFIN Meeting", "impact": "Low"},
-                {"time": "07:00", "event": "Eurogroup Meeting", "impact": "Low"},
-                {"time": "09:45", "event": "ECB President Lagarde Speech", "impact": "Medium"}
-            ],
-            "JPY": [
-                {"time": "10:35", "event": "3-Month Bill Auction", "impact": "Low"}
-            ],
-            "GBP": [
-                {"time": "06:00", "event": "Goods Trade Balance Non-EU (Feb)", "impact": "Medium"},
-                {"time": "06:00", "event": "GDP 3-Month Avg (Feb)", "impact": "High"},
-                {"time": "06:00", "event": "Manufacturing Production MoM (Feb)", "impact": "Medium"},
-                {"time": "06:00", "event": "GDP MoM (Feb)", "impact": "High"},
-                {"time": "06:00", "event": "Construction Output YoY (Feb)", "impact": "Medium"},
-                {"time": "06:00", "event": "Goods Trade Balance (Feb)", "impact": "Medium"},
-                {"time": "06:00", "event": "Industrial Production YoY (Feb)", "impact": "Medium"},
-                {"time": "06:00", "event": "Industrial Production MoM (Feb)", "impact": "Medium"},
-                {"time": "06:00", "event": "Manufacturing Production YoY (Feb)", "impact": "Medium"},
-                {"time": "06:00", "event": "Balance of Trade (Feb)", "impact": "Low"},
-                {"time": "06:00", "event": "GDP YoY (Feb)", "impact": "High"},
-                {"time": "11:25", "event": "NIESR Monthly GDP Tracker (Mar)", "impact": "High"},
-                {"time": "13:00", "event": "Balance of Trade", "impact": "Medium"},
-                {"time": "13:00", "event": "Construction Output YoY", "impact": "Medium"},
-                {"time": "13:00", "event": "GDP 3-Month Avg", "impact": "High"}
+            "CAD": [
+                {"time": "12:30", "event": "Wholesale Sales MoM Final (Feb)", "impact": "Low"},
+                {"time": "12:30", "event": "New Motor Vehicle Sales (Feb)", "impact": "Low"}
             ],
             "CHF": [
-                {"time": "07:00", "event": "Consumer Confidence (Mar)", "impact": "Medium"}
+                {"time": "06:30", "event": "Producer & Import Prices MoM (Mar)", "impact": "Low"},
+                {"time": "06:30", "event": "Producer & Import Prices YoY (Mar)", "impact": "Low"}
             ],
-            "AUD": [],
-            "NZD": [],
-            "CAD": []
+            "GBP": [
+                {"time": "23:01", "event": "BRC Retail Sales Monitor YoY (Mar)", "impact": "Medium"}
+            ],
+            "JPY": [
+                {"time": "04:30", "event": "Industrial Production MoM Final (Feb)", "impact": "Medium"},
+                {"time": "04:30", "event": "Industrial Production YoY Final (Feb)", "impact": "Medium"},
+                {"time": "04:30", "event": "Capacity Utilization MoM (Feb)", "impact": "Low"}
+            ],
+            "NZD": [
+                {"time": "22:45", "event": "Food Inflation YoY (Mar)", "impact": "High"}
+            ],
+            "EUR": [],
+            "AUD": []
         }
         
         # Extra events voor valuta's die niet in het screenshot staan, 
@@ -1063,7 +1053,14 @@ class TelegramService:
             # Initialiseer de services
             self.chart = ChartService()
             self.sentiment = MarketSentimentService()
-            self.calendar = EconomicCalendarService()  # Direct instantiëren, geen import nodig
+            
+            # Initialiseer de TradingView kalender service
+            if HAS_TRADINGVIEW_SERVICE:
+                self.calendar = TradingViewCalendarService()
+                logger.info("Successfully initialized TradingView Calendar Service")
+            else:
+                logger.warning("TradingView Calendar Service not available, using fallback")
+                self.calendar = EconomicCalendarService()
             
             # Rest van de initialisatie
             # ...
