@@ -37,6 +37,29 @@ class Unknow():
         return "<Unknow(value='%s')>" % (self.value)        
 
 
+# Calendar data result class to ensure compatibility with bot
+class CalendarResult:
+    def __init__(self, events=None, message=None, error=False):
+        self.events = events or []
+        self.message = message
+        self.error = error
+    
+    def get(self, key, default=None):
+        """Compatibility with dictionary-like interface"""
+        if key == 'events':
+            return self.events
+        elif key == 'message':
+            return self.message
+        elif key == 'error':
+            return self.error
+        return default
+    
+    def __str__(self):
+        if self.error:
+            return f"Error: {self.message}"
+        return f"Calendar with {len(self.events)} events"
+
+
 # Rename class to be very explicit
 class InvestingCalendarServiceImpl():
     def __init__(self, uri='https://www.investing.com/economic-calendar/'):
@@ -59,7 +82,23 @@ class InvestingCalendarServiceImpl():
     async def get_calendar(self, currency_pair=None):
         """Compatibility method for the existing bot interface that calls get_calendar"""
         logger.info("get_calendar called with currency_pair: %s", currency_pair)
-        return await self.get_calendar_events()
+        try:
+            # Get raw formatted message
+            formatted_message = await self.get_calendar_events()
+            
+            # Return in expected format with events and message
+            return CalendarResult(
+                events=[],  # Bot might not use actual events if we provide a formatted message
+                message=formatted_message,
+                error=False
+            )
+        except Exception as e:
+            logger.error(f"Error in get_calendar: {str(e)}")
+            return CalendarResult(
+                events=[],
+                message=f"❌ Fout bij ophalen economische kalender: {str(e)}",
+                error=True
+            )
 
     async def get_calendar_events(self):
         """
@@ -89,7 +128,7 @@ class InvestingCalendarServiceImpl():
             
         except Exception as e:
             logger.error(f"Error fetching calendar events: {str(e)}")
-            return "❌ Error fetching economic calendar events"
+            raise
 
     def _fetch_news(self):
         """Internal method to fetch news from Investing.com"""
@@ -196,6 +235,10 @@ class InvestingCalendarServiceImpl():
         output = []
         output.append(f"📅 *Economische Kalender - {datetime.datetime.now().strftime('%d-%m-%Y')}*")
         output.append("=" * 30)
+        
+        if not events:
+            output.append("\n*Geen economische events gevonden voor vandaag*")
+            return "\n".join(output)
         
         for result in events:
             # Convert to Malaysian time (UTC+8)
