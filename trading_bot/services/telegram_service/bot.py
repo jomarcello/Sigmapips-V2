@@ -3966,6 +3966,8 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                         await query.edit_message_caption(caption=loading_text)
                     except Exception as inner_e2:
                         logger.error(f"Could not update loading message: {str(inner_e2)}")
+            except Exception as outer_e:
+                logger.error(f"Could not update message in any way: {str(outer_e)}")
         
         try:
             # Initialize sentiment service if needed
