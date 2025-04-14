@@ -50,21 +50,24 @@ class MarketSentimentService:
             sentiment_text = await self.get_market_sentiment_text(instrument, market_type)
             
             # Extract sentiment values from the text if possible
-            # Updated regex to also match the new emoji format
-            bullish_match = re.search(r'(?:Bullish:|🟢 Bullish:)\s*(\d+)%', sentiment_text)
-            bearish_match = re.search(r'(?:Bearish:|🔴 Bearish:)\s*(\d+)%', sentiment_text)
+            # Updated regex to better match the emoji format with more flexible whitespace handling
+            bullish_match = re.search(r'(?:Bullish:|🟢\s*Bullish:)\s*(\d+)\s*%', sentiment_text)
+            bearish_match = re.search(r'(?:Bearish:|🔴\s*Bearish:)\s*(\d+)\s*%', sentiment_text)
             
             # Log regex matches for debugging
             if bullish_match:
                 logger.info(f"get_sentiment found bullish percentage for {instrument}: {bullish_match.group(1)}%")
             else:
                 logger.warning(f"get_sentiment could not find bullish percentage in text for {instrument}")
+                # Log a small snippet of the text for debugging
+                text_snippet = sentiment_text[:200] + "..." if len(sentiment_text) > 200 else sentiment_text
+                logger.warning(f"Text snippet: {text_snippet}")
                 
             if bearish_match:
                 logger.info(f"get_sentiment found bearish percentage for {instrument}: {bearish_match.group(1)}%")
             else:
                 logger.warning(f"get_sentiment could not find bearish percentage in text for {instrument}")
-            
+                
             if bullish_match and bearish_match:
                 bullish = int(bullish_match.group(1))
                 bearish = int(bearish_match.group(1))
@@ -175,7 +178,8 @@ class MarketSentimentService:
             logger.info(f"Looking for bullish percentage in response for {instrument}")
             
             # Try to extract sentiment values from the text
-            bullish_match = re.search(r'Bullish:\s*(\d+)%', final_analysis)
+            # Updated regex to better match the emoji format with more flexible whitespace handling
+            bullish_match = re.search(r'(?:Bullish:|🟢\s*Bullish:)\s*(\d+)\s*%', final_analysis)
             
             # Log the bullish match result for debugging
             if bullish_match:
@@ -390,7 +394,7 @@ Monitor price action and manage risk appropriately.
             
             logger.info(f"Returning sentiment text for {instrument} (length: {len(result) if result else 0})")
             # Check if the result contains bullish/bearish percentages
-            bullish_check = re.search(r'Bullish:\s*(\d+)%', result)
+            bullish_check = re.search(r'(?:Bullish:|🟢\s*Bullish:)\s*(\d+)\s*%', result)
             if bullish_check:
                 logger.info(f"Final text contains bullish percentage: {bullish_check.group(1)}%")
             else:
