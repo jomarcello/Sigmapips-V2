@@ -6,6 +6,7 @@ fastapi==0.105.0
 uvicorn==0.24.0.post1
 httpx==0.24.1
 stripe==7.5.0
+tenacity==8.2.3  # Voor retry mechanisme in API calls
 
 # Database
 supabase==1.1.1
