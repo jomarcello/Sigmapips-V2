@@ -3,6 +3,7 @@ import urllib.request
 from urllib.error import HTTPError
 import logging
 import asyncio
+import re
 
 from bs4 import BeautifulSoup
 import datetime
@@ -233,19 +234,47 @@ class InvestingCalendarServiceImpl():
     def _format_telegram_message(self, events):
         """Format events for Telegram message"""
         output = []
-        output.append(f"📅 *Economische Kalender - {datetime.datetime.now().strftime('%d-%m-%Y')}*")
-        output.append("=" * 30)
+        output.append(f"�� *Economic Calendar*")
+        
+        # Get the current date in different formats
+        today = datetime.datetime.now()
+        today_formatted = today.strftime("%B %d, %Y")
+        
+        output.append(f"\nDate: {today_formatted}")
+        output.append("\nImpact: 🔴 High   🟠 Medium   🟢 Low")
+        output.append("")
         
         if not events:
-            output.append("\n*Geen economische events gevonden voor vandaag*")
+            output.append("No economic events scheduled for today.")
             return "\n".join(output)
         
+        # Map countries to currency codes
+        country_to_currency = {
+            'United States': 'USD',
+            'Euro Zone': 'EUR',
+            'United Kingdom': 'GBP',
+            'Japan': 'JPY',
+            'Switzerland': 'CHF',
+            'Canada': 'CAD',
+            'Australia': 'AUD',
+            'New Zealand': 'NZD'
+        }
+        
+        # Group events by currency
+        events_by_currency = {}
         for result in events:
-            # Convert to Malaysian time (UTC+8)
-            event_time = datetime.datetime.fromtimestamp(result['timestamp'])
-            malaysian_time = event_time + datetime.timedelta(hours=8)
+            country = result['country']
+            currency_code = country_to_currency.get(country, country)
             
-            impact_stars = "⭐" * result['impact']
+            if currency_code not in events_by_currency:
+                events_by_currency[currency_code] = []
+            
+            events_by_currency[currency_code].append(result)
+        
+        # Process each currency group
+        for currency_code, currency_events in sorted(events_by_currency.items()):
+            # Get the flag emoji
+            country = next((c for c, code in country_to_currency.items() if code == currency_code), None)
             country_emoji = {
                 'United States': '🇺🇸',
                 'Euro Zone': '🇪🇺',
@@ -255,21 +284,41 @@ class InvestingCalendarServiceImpl():
                 'Canada': '🇨🇦',
                 'Australia': '🇦🇺',
                 'New Zealand': '🇳🇿'
-            }.get(result['country'], '🌍')
+            }.get(country, '🌍')
             
-            output.append(f"\n*{malaysian_time.strftime('%H:%M')}* {country_emoji} {result['country']}")
-            output.append(f"📊 {result['name']}")
-            output.append(f"Impact: {impact_stars}")
+            # Add currency header
+            output.append(f"{country_emoji} {currency_code}")
             
-            if result['fore']:
-                output.append(f"Voorspelling: {result['fore']}")
-            if result['prev']:
-                output.append(f"Vorige: {result['prev']}")
-            if result['bold']:
-                output.append(f"Actueel: {result['bold']}")
+            # Sort events by time
+            currency_events.sort(key=lambda x: x['timestamp'])
             
-            output.append(f"Signaal: {result['signal'].value}")
-            output.append("-" * 20)
+            # Add each event
+            for result in currency_events:
+                # Convert to local time
+                event_time = datetime.datetime.fromtimestamp(result['timestamp'])
+                
+                # Format impact level
+                impact_emoji = "🟢"  # Default Low
+                if result['impact'] == 3:
+                    impact_emoji = "🔴"
+                elif result['impact'] == 2:
+                    impact_emoji = "🟠"
+                
+                # Simplify event name by removing parentheses details where possible
+                event_name = result['name']
+                # Try to remove the date part in parentheses
+                event_name = re.sub(r'\s*\([A-Za-z]+/\d+\)\s*', ' ', event_name)
+                event_name = re.sub(r'\s*\([A-Za-z]+\)\s*', ' ', event_name)
+                # Remove trailing spaces
+                event_name = event_name.strip()
+                
+                # Format time and event name
+                output.append(f"{event_time.strftime('%H:%M')} - {impact_emoji} {event_name}")
+            
+            # Add empty line between currency groups
+            output.append("")
+        
+        output.append("Note: Only showing events scheduled for today.")
         
         return "\n".join(output)
 
