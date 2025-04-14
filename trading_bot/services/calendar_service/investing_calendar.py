@@ -325,7 +325,8 @@ class InvestingCalendarServiceImpl():
             output.append("")
         
         # Only add the note once
-        output.append("Note: Only showing events scheduled for today.")
+        # Note: Verwijder deze notitie omdat het anders dubbel kan verschijnen als bot.py dit ook toevoegt
+        # output.append("Note: Only showing events scheduled for today.")
         
         return "\n".join(output)
 
