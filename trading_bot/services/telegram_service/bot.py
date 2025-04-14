@@ -889,6 +889,10 @@ class TelegramService:
 
     async def update_message(self, query, text, keyboard=None, parse_mode=ParseMode.HTML):
         """Update a message, properly handling media removal if necessary"""
+        if query is None or query.message is None:
+            logger.error("Cannot update message: query or message is None")
+            return
+            
         try:
             # Check if the message contains media (photo or animation)
             has_media = bool(query.message.photo) or query.message.animation is not None
@@ -896,9 +900,10 @@ class TelegramService:
             if has_media:
                 try:
                     # Step 1: Try to delete the message and send a new one
+                    chat_id = query.message.chat_id
                     await query.message.delete()
                     await self.bot.send_message(
-                        chat_id=query.message.chat_id,
+                        chat_id=chat_id,
                         text=text,
                         reply_markup=keyboard,
                         parse_mode=parse_mode
@@ -908,50 +913,98 @@ class TelegramService:
                     logger.warning(f"Could not delete message: {str(e)}, trying alternative approach")
                     
                     try:
-                        # Step 2: Replace with transparent GIF as document to avoid Telegram's animation
-                        transparent_gif_url = "https://upload.wikimedia.org/wikipedia/commons/thumb/0/00/Transparent.gif/1px-Transparent.gif"
-                        await query.edit_message_media(
-                            media=InputMediaDocument(
-                                media=transparent_gif_url,
-                                caption=text,
-                                parse_mode=parse_mode
-                            ),
-                            reply_markup=keyboard
+                        # Step 2: Try to edit caption first (most reliable for media messages)
+                        await query.edit_message_caption(
+                            caption=text,
+                            reply_markup=keyboard,
+                            parse_mode=parse_mode
                         )
                         return
-                    except Exception as e:
-                        logger.warning(f"Could not replace with transparent GIF: {str(e)}, falling back to caption edit")
+                    except Exception as caption_e:
+                        logger.warning(f"Could not update caption: {str(caption_e)}, trying media replacement")
                         
-                        # Step 3: Just update the caption as last resort
                         try:
-                            await query.edit_message_caption(
-                                caption=text,
-                                reply_markup=keyboard,
-                                parse_mode=parse_mode
+                            # Step 3: Replace with transparent GIF as document to avoid Telegram's animation
+                            transparent_gif_url = "https://upload.wikimedia.org/wikipedia/commons/thumb/0/00/Transparent.gif/1px-Transparent.gif"
+                            await query.edit_message_media(
+                                media=InputMediaDocument(
+                                    media=transparent_gif_url,
+                                    caption=text,
+                                    parse_mode=parse_mode
+                                ),
+                                reply_markup=keyboard
                             )
                             return
-                        except Exception as e:
-                            logger.error(f"Could not update caption: {str(e)}")
+                        except Exception as media_e:
+                            logger.warning(f"Could not replace media: {str(media_e)}, sending new message")
+                            
+                            # Step 4: Send a completely new message as last resort
+                            try:
+                                chat_id = query.message.chat_id
+                                await self.bot.send_message(
+                                    chat_id=chat_id,
+                                    text=text,
+                                    reply_markup=keyboard,
+                                    parse_mode=parse_mode
+                                )
+                                return
+                            except Exception as new_e:
+                                logger.error(f"Could not send new message: {str(new_e)}")
             
             # Normal text message update
-            await query.edit_message_text(
-                text=text,
-                reply_markup=keyboard,
-                parse_mode=parse_mode
-            )
-            
-        except Exception as e:
-            logger.error(f"Error updating message: {str(e)}")
-            # Try to send a completely new message if all else fails
             try:
-                await self.bot.send_message(
-                    chat_id=query.message.chat_id,
-                    text=f"Error updating previous message. {text}",
+                await query.edit_message_text(
+                    text=text,
                     reply_markup=keyboard,
                     parse_mode=parse_mode
                 )
-            except Exception as e2:
-                logger.error(f"Could not send new message: {str(e2)}")
+            except telegram.error.BadRequest as br_error:
+                if "Message is not modified" in str(br_error):
+                    # Just ignore this error, it's fine
+                    pass
+                elif "Message to edit not found" in str(br_error):
+                    logger.warning("Message to edit not found, trying to send a new message")
+                    # Try to send a new message
+                    try:
+                        chat_id = query.message.chat_id
+                        await self.bot.send_message(
+                            chat_id=chat_id,
+                            text=text,
+                            reply_markup=keyboard,
+                            parse_mode=parse_mode
+                        )
+                    except Exception as new_msg_error:
+                        logger.error(f"Could not send new message: {str(new_msg_error)}")
+                else:
+                    logger.error(f"BadRequest error updating message: {str(br_error)}")
+            except Exception as edit_error:
+                logger.error(f"Error updating message text: {str(edit_error)}")
+                # Try one last approach - send a new message
+                try:
+                    chat_id = query.message.chat_id
+                    await self.bot.send_message(
+                        chat_id=chat_id,
+                        text=text,
+                        reply_markup=keyboard,
+                        parse_mode=parse_mode
+                    )
+                except Exception as last_error:
+                    logger.error(f"Failed to update or send message: {str(last_error)}")
+            
+        except Exception as outer_e:
+            logger.error(f"Outer error in update_message: {str(outer_e)}")
+            # Last resort - if we have access to the bot and chat_id directly
+            try:
+                if hasattr(self, 'bot') and query and hasattr(query, 'message') and query.message:
+                    chat_id = query.message.chat_id
+                    await self.bot.send_message(
+                        chat_id=chat_id,
+                        text=f"Error updating previous message. {text[:100]}...",
+                        reply_markup=keyboard,
+                        parse_mode=parse_mode
+                    )
+            except Exception as final_e:
+                logger.error(f"Final attempt to send message failed: {str(final_e)}")
     
     # Missing handler implementations
     async def back_signals_callback(self, update: Update, context=None) -> int:
@@ -3974,12 +4027,55 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             if not hasattr(self, 'sentiment_service') or self.sentiment_service is None:
                 self.sentiment_service = MarketSentimentService()
             
-            # Debug API keys if we're still getting mock data
-            debug_info = await self.sentiment_service.debug_api_keys()
-            logger.info(f"API Key Debug Info:\n{debug_info}")
+            # Debug API keys - controleer eerst of de methode bestaat
+            try:
+                if hasattr(self.sentiment_service, 'debug_api_keys'):
+                    debug_info = await self.sentiment_service.debug_api_keys()
+                    logger.info(f"API Key Debug Info:\n{debug_info}")
+                else:
+                    # Als de methode niet bestaat, log dat dan en ga gewoon verder
+                    logger.warning("debug_api_keys methode niet gevonden in MarketSentimentService")
+            except Exception as debug_e:
+                logger.warning(f"Error calling debug_api_keys: {str(debug_e)}")
             
             # Get sentiment data using clean instrument name
-            sentiment_data = await self.sentiment_service.get_sentiment(clean_instrument)
+            try:
+                if hasattr(self.sentiment_service, 'get_sentiment'):
+                    sentiment_data = await self.sentiment_service.get_sentiment(clean_instrument)
+                else:
+                    logger.warning("get_sentiment methode niet gevonden in MarketSentimentService, fallback naar mock data")
+                    # Fallback naar basis sentiment data
+                    sentiment_data = {
+                        'analysis': f"<b>🎯 {clean_instrument} Market Analysis</b>\n\nSorry, sentiment analysis is currently unavailable.",
+                        'sentiment_score': 0,
+                        'bullish': 50,
+                        'bearish': 50,
+                        'neutral': 0,
+                        'technical_score': 'N/A',
+                        'news_score': 'N/A',
+                        'social_score': 'N/A',
+                        'trend_strength': 'Moderate',
+                        'volatility': 'Normal',
+                        'volume': 'Normal',
+                        'news_headlines': []
+                    }
+            except Exception as sent_e:
+                logger.error(f"Error calling get_sentiment: {str(sent_e)}")
+                # Fallback naar basis sentiment data bij fouten
+                sentiment_data = {
+                    'analysis': f"<b>🎯 {clean_instrument} Market Analysis</b>\n\nSorry, there was an error analyzing the market sentiment: {str(sent_e)}",
+                    'sentiment_score': 0,
+                    'bullish': 50,
+                    'bearish': 50,
+                    'neutral': 0,
+                    'technical_score': 'N/A',
+                    'news_score': 'N/A',
+                    'social_score': 'N/A',
+                    'trend_strength': 'Moderate',
+                    'volatility': 'Normal',
+                    'volume': 'Normal',
+                    'news_headlines': []
+                }
             
             # Format the sentiment message
             message = f"<b>🧠 Market Sentiment Analysis for {clean_instrument}</b>\n\n"
