@@ -50,8 +50,20 @@ class MarketSentimentService:
             sentiment_text = await self.get_market_sentiment_text(instrument, market_type)
             
             # Extract sentiment values from the text if possible
-            bullish_match = re.search(r'Bullish:\s*(\d+)%', sentiment_text)
-            bearish_match = re.search(r'Bearish:\s*(\d+)%', sentiment_text)
+            # Updated regex to also match the new emoji format
+            bullish_match = re.search(r'(?:Bullish:|🟢 Bullish:)\s*(\d+)%', sentiment_text)
+            bearish_match = re.search(r'(?:Bearish:|🔴 Bearish:)\s*(\d+)%', sentiment_text)
+            
+            # Log regex matches for debugging
+            if bullish_match:
+                logger.info(f"get_sentiment found bullish percentage for {instrument}: {bullish_match.group(1)}%")
+            else:
+                logger.warning(f"get_sentiment could not find bullish percentage in text for {instrument}")
+                
+            if bearish_match:
+                logger.info(f"get_sentiment found bearish percentage for {instrument}: {bearish_match.group(1)}%")
+            else:
+                logger.warning(f"get_sentiment could not find bearish percentage in text for {instrument}")
             
             if bullish_match and bearish_match:
                 bullish = int(bullish_match.group(1))
@@ -67,6 +79,8 @@ class MarketSentimentService:
                 
                 # Determine sentiment
                 overall_sentiment = 'bullish' if bullish > bearish else 'bearish' if bearish > bullish else 'neutral'
+                
+                logger.info(f"Returning complete sentiment data for {instrument}: {overall_sentiment} (score: {sentiment_score:.2f})")
                 
                 return {
                     'bullish': bullish,
@@ -85,6 +99,8 @@ class MarketSentimentService:
                 }
             else:
                 # If we can't extract percentages, just return the text with default values
+                logger.warning(f"Returning sentiment data without percentages for {instrument}")
+                
                 return {
                     'analysis': sentiment_text,
                     'sentiment_score': 0,
@@ -156,8 +172,17 @@ class MarketSentimentService:
             if not final_analysis:
                 raise ValueError(f"Failed to format DeepSeek analysis for {instrument}")
             
+            logger.info(f"Looking for bullish percentage in response for {instrument}")
+            
             # Try to extract sentiment values from the text
             bullish_match = re.search(r'Bullish:\s*(\d+)%', final_analysis)
+            
+            # Log the bullish match result for debugging
+            if bullish_match:
+                logger.info(f"Found bullish percentage for {instrument}: {bullish_match.group(1)}%")
+            else:
+                logger.warning(f"Could not find bullish percentage in response for {instrument}")
+                logger.debug(f"Response snippet: {final_analysis[:300]}...")
             
             # If we couldn't find bullish percentage in the DeepSeek response, look for keywords
             # to determine sentiment direction and assign reasonable default values
@@ -168,6 +193,7 @@ class MarketSentimentService:
                 # Normal path - extract directly from regex match
                 bullish_percentage = int(bullish_match.group(1))
                 bearish_percentage = 100 - bullish_percentage
+                logger.info(f"Extracted sentiment values for {instrument}: Bullish {bullish_percentage}%, Bearish {bearish_percentage}%")
             else:
                 logger.warning(f"Could not find bullish percentage in DeepSeek response for {instrument}. Using keyword analysis.")
                 
@@ -179,6 +205,8 @@ class MarketSentimentService:
                 bullish_count = sum(final_analysis.lower().count(keyword) for keyword in bullish_keywords)
                 bearish_count = sum(final_analysis.lower().count(keyword) for keyword in bearish_keywords)
                 
+                logger.info(f"Keyword analysis for {instrument}: Bullish terms {bullish_count}, Bearish terms {bearish_count}")
+                
                 # Determine sentiment based on keyword frequency
                 if bullish_count > bearish_count:
                     # More bullish than bearish mentions
@@ -186,7 +214,7 @@ class MarketSentimentService:
                     bullish_percentage = min(85, int(50 * ratio))
                 elif bearish_count > bullish_count:
                     # More bearish than bullish mentions
-                    ratio = min(3, max(1.2, bearish_count / max(1, bullish_count)))
+                    ratio = min(3, max(1.2, bearish_count / max(1, bearish_count)))
                     bullish_percentage = max(15, int(50 / ratio))
                 else:
                     # Neutral if equal counts or no mentions
@@ -194,12 +222,15 @@ class MarketSentimentService:
                 
                 bearish_percentage = 100 - bullish_percentage
                 
+                logger.info(f"Calculated sentiment from keywords for {instrument}: Bullish {bullish_percentage}%, Bearish {bearish_percentage}%")
+                
                 # Add the percentages to the analysis text for future reference
                 final_analysis = final_analysis.replace("<b>Market Sentiment Breakdown:</b>", 
                     f"<b>Market Sentiment Breakdown:</b>\n🟢 Bullish: {bullish_percentage}%\n🔴 Bearish: {bearish_percentage}%\n⚪️ Neutral: 0%")
                 
                 # If we can't find the Market Sentiment Breakdown section, add it
                 if "<b>Market Sentiment Breakdown:</b>" not in final_analysis:
+                    logger.info(f"Adding Market Sentiment Breakdown section to response for {instrument}")
                     sentiment_section = f"""
 
 <b>Market Sentiment Breakdown:</b>
@@ -241,29 +272,13 @@ class MarketSentimentService:
                 'news_headlines': []  # We don't have actual headlines from the API
             }
             
+            logger.info(f"Returning sentiment data for {instrument}: {sentiment} (score: {bullish_percentage/100:.2f})")
             return result
                 
         except Exception as e:
             logger.error(f"Error in market sentiment analysis: {str(e)}")
             logger.exception(e)
             raise ValueError(f"Failed to analyze market sentiment for {instrument}: {str(e)}")
-    
-    def _build_search_query(self, instrument: str, market_type: str) -> str:
-        """Build a search query based on instrument and market type"""
-        base_query = f"{instrument} market sentiment analysis"
-        
-        if market_type == "forex":
-            return f"{base_query} forex currency pair latest news technical analysis"
-        elif market_type == "crypto":
-            return f"{base_query} cryptocurrency bitcoin ethereum latest price prediction"
-        elif market_type == "stocks":
-            return f"{base_query} stock market latest analysis price target"
-        elif market_type == "commodities":
-            return f"{base_query} commodity price forecast supply demand"
-        elif market_type == "indices":
-            return f"{base_query} index market outlook economic indicators"
-        else:
-            return base_query
     
     async def get_market_sentiment_text(self, instrument: str, market_type: Optional[str] = None) -> str:
         """
@@ -293,6 +308,14 @@ class MarketSentimentService:
                 logger.info(f"Calling get_market_sentiment for {instrument} ({market_type})")
                 sentiment_data = await self.get_market_sentiment(instrument, market_type)
                 logger.info(f"Got sentiment data: {type(sentiment_data)}")
+                
+                # Log part of the analysis text for debugging
+                if isinstance(sentiment_data, dict) and 'analysis' in sentiment_data:
+                    analysis_snippet = sentiment_data['analysis'][:300] + "..." if len(sentiment_data['analysis']) > 300 else sentiment_data['analysis']
+                    logger.info(f"Analysis snippet for {instrument}: {analysis_snippet}")
+                else:
+                    logger.warning(f"No 'analysis' field in sentiment data for {instrument}")
+                
             except Exception as e:
                 logger.error(f"Error in get_market_sentiment call: {str(e)}")
                 logger.exception(e)
@@ -366,6 +389,13 @@ Monitor price action and manage risk appropriately.
 """
             
             logger.info(f"Returning sentiment text for {instrument} (length: {len(result) if result else 0})")
+            # Check if the result contains bullish/bearish percentages
+            bullish_check = re.search(r'Bullish:\s*(\d+)%', result)
+            if bullish_check:
+                logger.info(f"Final text contains bullish percentage: {bullish_check.group(1)}%")
+            else:
+                logger.warning(f"Final text does NOT contain bullish percentage pattern")
+                
             return result if result else f"Sentiment analysis for {instrument}: Currently neutral"
             
         except Exception as e:
@@ -506,21 +536,24 @@ Please try again later or choose a different instrument.
             }
             
             # Create prompt for sentiment analysis
-            prompt = f"""Analyze the following market data for {instrument} and provide a structured sentiment analysis. Format your response exactly as shown:
+            prompt = f"""Analyze the following market data for {instrument} and provide a structured sentiment analysis. 
+
+**IMPORTANT**: You MUST include explicit percentages for bullish and bearish sentiment in EXACTLY the format shown below. The percentages MUST be integers that sum to 100. This format is required for further processing.
 
 Market Data:
 {market_data}
 
-Required format:
+Your response MUST follow this EXACT format (keep the exact formatting with the <b> tags):
+
 <b>🎯 {instrument} Market Analysis</b>
 
-<b>Market Sentiment:</b>
-Bullish: [X]%
-Bearish: [Y]%
-Neutral: [Z]%
+<b>Market Sentiment Breakdown:</b>
+🟢 Bullish: XX%
+🔴 Bearish: YY%
+⚪️ Neutral: 0%
 
 <b>📈 Market Direction:</b>
-[Current trend analysis]
+[Current trend analysis and momentum]
 
 <b>📰 Latest News & Events:</b>
 • [Key point 1]
@@ -533,7 +566,9 @@ Neutral: [Z]%
 • [Risk 3]
 
 <b>💡 Conclusion:</b>
-[Trading recommendation]"""
+[Trading recommendation]
+
+DO NOT omit any sections, especially the Market Sentiment Breakdown section with the percentage values. The bullish and bearish percentages MUST be clearly indicated as integers."""
 
             # Make the API call
             async with aiohttp.ClientSession() as session:
@@ -543,7 +578,7 @@ Neutral: [Z]%
                     json={
                         "model": "deepseek-chat",
                         "messages": [
-                            {"role": "system", "content": "You are a professional market analyst."},
+                            {"role": "system", "content": "You are a professional market analyst specializing in quantitative sentiment analysis."},
                             {"role": "user", "content": prompt}
                         ],
                         "temperature": 0.3,
@@ -552,7 +587,29 @@ Neutral: [Z]%
                 ) as response:
                     if response.status == 200:
                         data = await response.json()
-                        return data['choices'][0]['message']['content']
+                        response_content = data['choices'][0]['message']['content']
+                        logger.info(f"DeepSeek raw response for {instrument}: {response_content[:200]}...")
+                        
+                        # Check if the response contains the expected Market Sentiment section
+                        if "Market Sentiment" in response_content and "Bullish:" in response_content:
+                            logger.info(f"DeepSeek response contains Market Sentiment section")
+                        else:
+                            logger.warning(f"DeepSeek response does not contain expected Market Sentiment section")
+                            logger.info(f"Let's add default sentiment section")
+                            
+                            # Add a default sentiment section if missing
+                            if "<b>🎯" in response_content:
+                                parts = response_content.split("<b>🎯", 1)
+                                sentiment_section = f"""<b>🎯{parts[1].split("<b>", 1)[0]}
+<b>Market Sentiment Breakdown:</b>
+🟢 Bullish: 50%
+🔴 Bearish: 50%
+⚪️ Neutral: 0%
+
+"""
+                                response_content = f"{parts[0]}{sentiment_section}<b>{parts[1].split('<b>', 1)[1]}"
+                            
+                        return response_content
                     else:
                         logger.error(f"DeepSeek API error: {response.status}")
                         return None
