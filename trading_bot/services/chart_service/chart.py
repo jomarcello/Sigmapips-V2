@@ -695,7 +695,27 @@ class ChartService:
                     # Return fallback if available
                     if fallback_result:
                         logger.info(f"Using fallback chart for {instrument}")
-                        return fallback_result
+                        # Zorg ervoor dat we een tuple van (path, text) teruggeven
+                        if isinstance(fallback_result, tuple) and len(fallback_result) == 2:
+                            return fallback_result
+                        else:
+                            # Als fallback_result niet het juiste formaat heeft, 
+                            # genereer dan een fallback chart
+                            logger.warning(f"Fallback result for {instrument} is not in correct format")
+                    
+                    # Genereer een basischart voor fallback wanneer geen cached chart beschikbaar is
+                    logger.info(f"Generating basic fallback chart for {instrument}")
+                    try:
+                        fallback_chart = await self._generate_random_chart(instrument, timeframe)
+                        # Create a simple path for the fallback chart
+                        timestamp = int(datetime.now().timestamp())
+                        fallback_path = f"data/charts/{instrument.lower()}_{timeframe}_fallback_{timestamp}.png"
+                        os.makedirs('data/charts', exist_ok=True)
+                        with open(fallback_path, 'wb') as f:
+                            f.write(fallback_chart)
+                        return fallback_path, f"Fallback analysis for {instrument} - {timeframe}"
+                    except Exception as fallback_error:
+                        logger.error(f"Failed to generate fallback chart: {str(fallback_error)}")
                     return None, f"Timeout bij ophalen van chart voor {instrument}"
                 
                 # Check if chart_data is in bytes format and save it to a file first
