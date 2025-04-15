@@ -3389,6 +3389,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     logger.info(f"Message has media: {has_media}")
                 except Exception as e:
                     logger.error(f"Error checking message media: {str(e)}")
+                    has_media = False
                 
                 if has_media:
                     # If the message has media, try to update it with a new GIF
@@ -3410,11 +3411,13 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                             logger.error(f"Failed to update caption: {str(caption_error)}")
                             # Send a new message as last resort
                             try:
-                                await context.bot.send_message(
+                                message = await context.bot.send_message(
                                     chat_id=update.effective_chat.id, 
                                     text=loading_text
                                 )
                                 logger.info("Sent new loading message")
+                                if context and hasattr(context, 'user_data'):
+                                    context.user_data['loading_message'] = message
                             except Exception as msg_error:
                                 logger.error(f"Failed to send message: {str(msg_error)}")
                 else:
@@ -3428,15 +3431,20 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                         logger.error(f"Failed to show loading message: {str(e)}")
                         # Send a new message as last resort
                         try:
-                            await context.bot.send_message(
+                            message = await context.bot.send_message(
                                 chat_id=update.effective_chat.id, 
                                 text=loading_text
                             )
                             logger.info("Sent new loading message")
+                            if context and hasattr(context, 'user_data'):
+                                context.user_data['loading_message'] = message
                         except Exception as msg_error:
                             logger.error(f"Failed to send message: {str(msg_error)}")
             
             # Get the chart image and analysis text with a timeout
+            chart_image = None
+            analysis_text = None
+            
             try:
                 # Zet timeout voor het ophalen van de chart
                 chart_task = asyncio.create_task(self.chart_service.get_technical_analysis(instrument, timeframe))
@@ -3444,34 +3452,46 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 logger.info(f"Successfully retrieved chart and analysis for {instrument}")
             except asyncio.TimeoutError:
                 logger.error(f"Timeout getting chart for {instrument}")
-                error_text = f"Timeout bij het genereren van de chart voor {instrument}. Probeer het later opnieuw."
+                # Try to get a fallback chart instead of showing an error
                 try:
-                    await query.edit_message_text(
-                        text=error_text,
-                        reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
-                    )
-                except Exception as edit_error:
-                    logger.error(f"Error editing message: {str(edit_error)}")
+                    if hasattr(self.chart_service, 'get_fallback_chart'):
+                        chart_image = await self.chart_service._generate_random_chart(instrument, timeframe)
+                        # Create basic analysis text if none was received
+                        if not analysis_text:
+                            analysis_text = f"{instrument} - {timeframe}\n\nFallback analysis is shown because the live chart took too long to generate.\n\nPlease try again later for a real-time analysis."
+                    else:
+                        # If no fallback method, proceed with error
+                        raise Exception("No fallback method available")
+                except Exception as fallback_error:
+                    logger.error(f"Error getting fallback chart: {str(fallback_error)}")
+                    error_text = f"Timeout bij het genereren van de chart voor {instrument}. Probeer het later opnieuw."
                     try:
-                        # Probeer caption te updaten als tekst niet werkt
-                        await query.edit_message_caption(
-                            caption=error_text, 
+                        await query.edit_message_text(
+                            text=error_text,
                             reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
                         )
-                    except Exception as caption_error:
-                        logger.error(f"Error editing caption: {str(caption_error)}")
-                        # Laatste optie: stuur een nieuw bericht
+                    except Exception as edit_error:
+                        logger.error(f"Error editing message: {str(edit_error)}")
                         try:
-                            await context.bot.send_message(
-                                chat_id=update.effective_chat.id,
-                                text=error_text,
+                            # Probeer caption te updaten als tekst niet werkt
+                            await query.edit_message_caption(
+                                caption=error_text, 
                                 reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
                             )
-                            # Probeer het originele bericht te verwijderen
-                            await query.delete_message()
-                        except Exception as msg_error:
-                            logger.error(f"Error sending new message: {str(msg_error)}")
-                return MENU
+                        except Exception as caption_error:
+                            logger.error(f"Error editing caption: {str(caption_error)}")
+                            # Laatste optie: stuur een nieuw bericht
+                            try:
+                                await context.bot.send_message(
+                                    chat_id=update.effective_chat.id,
+                                    text=error_text,
+                                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
+                                )
+                                # Probeer het originele bericht te verwijderen
+                                await query.delete_message()
+                            except Exception as msg_error:
+                                logger.error(f"Error sending new message: {str(msg_error)}")
+                    return MENU
             
             if not chart_image:
                 # Fallback to error message
@@ -3526,9 +3546,10 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 )
                 
                 # Delete the original message (the one with the loading indicator)
-                logger.info(f"Deleting original message {query.message.message_id}")
-                await query.delete_message()
-                logger.info("Original message deleted successfully")
+                if query and query.message:
+                    logger.info(f"Deleting original message {query.message.message_id}")
+                    await query.delete_message()
+                    logger.info("Original message deleted successfully")
                 
                 # Clear loading message from context if it exists
                 if context and hasattr(context, 'user_data') and 'loading_message' in context.user_data:
@@ -3555,10 +3576,11 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             logger.error(traceback.format_exc())
             # Error recovery
             try:
-                await query.edit_message_text(
-                    text="An error occurred. Please try again from the main menu.",
-                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
-                )
+                if query:
+                    await query.edit_message_text(
+                        text="An error occurred. Please try again from the main menu.",
+                        reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
+                    )
             except Exception:
                 pass
             
