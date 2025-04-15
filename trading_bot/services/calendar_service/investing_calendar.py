@@ -114,29 +114,43 @@ class InvestingCalendarServiceImpl():
             # DEBUG: Log the number of events found before filtering
             logger.info(f"Found {len(results)} total events before date filtering")
             
-            # Get today's date
-            today = datetime.datetime.now().date()
-            logger.info(f"Current date for filtering: {today}")
+            # Get today's date - GEBRUIK ECHTE HUIDIGE DATUM NIET SYSTEEMKLOK
+            real_today = datetime.datetime.now()
+            logger.info(f"System date for reference: {real_today}")
             
-            # TIJDELIJKE WIJZIGING: Schakel datumfiltering uit
-            today_events = results  # Gebruik alle resultaten zonder datumfiltering
-            logger.info(f"BELANGRIJK: Datumfiltering is uitgeschakeld voor debugging")
+            # Bepaal welke datum we als "vandaag" beschouwen
+            # Gebruik de huidige datum uit de events in plaats van systeemklok
+            if results and len(results) > 0:
+                # Sorteer op timestamp en pak de meest recente
+                results.sort(key=lambda x: x['timestamp'])
+                # Eerste en laatste tijdstempel (voor debugging)
+                first_date = datetime.datetime.fromtimestamp(results[0]['timestamp']).date()
+                last_date = datetime.datetime.fromtimestamp(results[-1]['timestamp']).date()
+                logger.info(f"Events range from {first_date} to {last_date}")
+                
+                # Gebruik de datum van het eerste event als "vandaag"
+                today = first_date
+                logger.info(f"Using {today} as 'today' for filtering instead of system date")
+            else:
+                # Fallback naar systeemklok als er geen events zijn
+                today = real_today.date()
+                logger.info(f"No events found, falling back to system date: {today}")
             
-            # Filter and sort events - UITGESCHAKELD VOOR DEBUGGING
-            # today_events = []
-            # for result in results:
-            #     event_date = datetime.datetime.fromtimestamp(result['timestamp']).date()
-            #     if event_date == today:
-            #         today_events.append(result)
+            # Filter and sort events op basis van de vastgestelde "vandaag" datum
+            today_events = []
+            for result in results:
+                event_date = datetime.datetime.fromtimestamp(result['timestamp']).date()
+                if event_date == today:
+                    today_events.append(result)
             
             # Log events after filtering
-            logger.info(f"Using {len(today_events)} events after filtering")
+            logger.info(f"Found {len(today_events)} events for date {today}")
             
             # Sort by timestamp
             today_events.sort(key=lambda x: x['timestamp'])
             
             # Format for Telegram
-            return self._format_telegram_message(today_events)
+            return self._format_telegram_message(today_events, today)
             
         except Exception as e:
             logger.error(f"Error fetching calendar events: {str(e)}")
@@ -242,14 +256,19 @@ class InvestingCalendarServiceImpl():
 
         return self.result
 
-    def _format_telegram_message(self, events):
+    def _format_telegram_message(self, events, date_to_display=None):
         """Format events for Telegram message"""
         output = []
         # Use HTML formatting for the title and ensure correct emoji
         output.append("<b>📅 Economic Calendar</b>")
         
         # Get the current date in different formats
-        today = datetime.datetime.now()
+        # Als een specifieke datum is opgegeven, gebruik die
+        if date_to_display:
+            today = datetime.datetime.combine(date_to_display, datetime.datetime.min.time())
+        else:
+            today = datetime.datetime.now()
+            
         today_formatted = today.strftime("%B %d, %Y")
         
         output.append(f"\nDate: {today_formatted}")
