@@ -137,7 +137,8 @@ async def startup_event():
         telegram_service.application.add_handler(CommandHandler("help", telegram_service.help_command))
         telegram_service.application.add_handler(CommandHandler("set_subscription", telegram_service.set_subscription_command))
         telegram_service.application.add_handler(CommandHandler("set_payment_failed", telegram_service.set_payment_failed_command))
-        telegram_service.application.add_handler(CommandHandler("debug_sentiment", telegram_service.debug_sentiment_command))
+        # Deze command bestaat niet, daarom commentarieer ik het uit
+        # telegram_service.application.add_handler(CommandHandler("debug_sentiment", telegram_service.debug_sentiment_command))
         telegram_service.application.add_handler(CallbackQueryHandler(telegram_service.button_callback))
         
         # Load signals
