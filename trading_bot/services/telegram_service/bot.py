@@ -628,7 +628,11 @@ os.environ["TAVILY_API_KEY"] = TAVILY_API_KEY
 class TelegramService:
     def __init__(self, db: Database, stripe_service=None, bot_token: Optional[str] = None, proxy_url: Optional[str] = None):
         """Initialize the bot with given database and config."""
-        # Database connection
+        
+        # Validate callback constants to ensure consistency
+        self._validate_callback_constants()
+        
+        # Store database reference
         self.db = db
         
         # Setup configuration 
@@ -718,6 +722,37 @@ class TelegramService:
         except Exception as e:
             logger.error(f"Error initializing Telegram service: {str(e)}")
             raise
+
+    def _validate_callback_constants(self):
+        """Validate that callback constants are consistent across the module"""
+        # Log all callback constants for debugging
+        logger.info("Validating callback constants...")
+        
+        # Important callback constants to check
+        crucial_constants = {
+            "CALLBACK_MENU_ANALYSE": CALLBACK_MENU_ANALYSE,
+            "CALLBACK_MENU_SIGNALS": CALLBACK_MENU_SIGNALS,
+            "CALLBACK_ANALYSIS_TECHNICAL": CALLBACK_ANALYSIS_TECHNICAL,
+            "CALLBACK_ANALYSIS_SENTIMENT": CALLBACK_ANALYSIS_SENTIMENT,
+            "CALLBACK_ANALYSIS_CALENDAR": CALLBACK_ANALYSIS_CALENDAR,
+            "CALLBACK_SIGNALS_ADD": CALLBACK_SIGNALS_ADD,
+            "CALLBACK_SIGNALS_MANAGE": CALLBACK_SIGNALS_MANAGE,
+            "CALLBACK_BACK_MENU": CALLBACK_BACK_MENU
+        }
+        
+        # Log all constants
+        for name, value in crucial_constants.items():
+            logger.info(f"  {name} = \"{value}\"")
+            
+        # Verify keyboard constants match the global constants
+        if hasattr(self, 'START_KEYBOARD'):
+            for row in START_KEYBOARD:
+                for button in row:
+                    if button.callback_data in crucial_constants.values():
+                        logger.info(f"  Button with text \"{button.text}\" has callback_data \"{button.callback_data}\"")
+        
+        # Show a confirmation
+        logger.info("Callback constants validation complete")
 
     async def initialize_services(self):
         """Initialize services like chart service"""
@@ -1221,6 +1256,18 @@ class TelegramService:
         application.add_handler(CommandHandler("set_subscription", self.set_subscription_command))
         application.add_handler(CommandHandler("set_payment_failed", self.set_payment_failed_command))
         
+        # Log callback constanten voor debugging
+        logger.info(f"DEBUG CONSTANTS: CALLBACK_MENU_ANALYSE={CALLBACK_MENU_ANALYSE}, CALLBACK_ANALYSIS_TECHNICAL={CALLBACK_ANALYSIS_TECHNICAL}, CALLBACK_SIGNALS_ADD={CALLBACK_SIGNALS_ADD}")
+        
+        # Add explicit handlers for common callbacks - gebruik exacte string patronen met ^ en $
+        logger.info("Registering explicit handlers for common patterns")
+        application.add_handler(CallbackQueryHandler(self.menu_analyse_callback, pattern=f"^{CALLBACK_MENU_ANALYSE}$"))
+        application.add_handler(CallbackQueryHandler(self.menu_signals_callback, pattern=f"^{CALLBACK_MENU_SIGNALS}$"))
+        application.add_handler(CallbackQueryHandler(self.signals_add_callback, pattern=f"^{CALLBACK_SIGNALS_ADD}$"))
+        application.add_handler(CallbackQueryHandler(self.analysis_technical_callback, pattern=f"^{CALLBACK_ANALYSIS_TECHNICAL}$"))
+        application.add_handler(CallbackQueryHandler(self.analysis_sentiment_callback, pattern=f"^{CALLBACK_ANALYSIS_SENTIMENT}$"))
+        application.add_handler(CallbackQueryHandler(self.analysis_calendar_callback, pattern=f"^{CALLBACK_ANALYSIS_CALENDAR}$"))
+        
         # Add specific handlers for back buttons
         logger.info("Registering callback handlers for back navigation buttons")
         
@@ -1524,6 +1571,11 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         query = update.callback_query
         await query.answer()
         
+        # Debug logging
+        logger.info(f"DEBUG: menu_analyse_callback called with data: {query.data}")
+        logger.info(f"DEBUG: Is CALLBACK_MENU_ANALYSE? {query.data == CALLBACK_MENU_ANALYSE}")
+        logger.info(f"DEBUG: CALLBACK_MENU_ANALYSE value: {CALLBACK_MENU_ANALYSE}")
+        
         # Gebruik de juiste analyse GIF URL
         gif_url = "https://media.giphy.com/media/gSzIKNrqtotEYrZv7i/giphy.gif"
         
@@ -1708,6 +1760,12 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         """Handle analysis_technical button press"""
         query = update.callback_query
         await query.answer()
+        
+        # Debug logging
+        logger.info(f"DEBUG: analysis_technical_callback called with data: {query.data}")
+        logger.info(f"DEBUG: Context user_data before: {context.user_data if (context and hasattr(context, 'user_data')) else 'No context data'}")
+        logger.info(f"DEBUG: Is CALLBACK_ANALYSIS_TECHNICAL? {query.data == CALLBACK_ANALYSIS_TECHNICAL}")
+        logger.info(f"DEBUG: CALLBACK_ANALYSIS_TECHNICAL value: {CALLBACK_ANALYSIS_TECHNICAL}")
         
         # Check if signal-specific data is present in callback data
         if context and hasattr(context, 'user_data'):
@@ -2675,48 +2733,67 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Log the callback data
             logger.info(f"Button callback opgeroepen met data: {callback_data}")
             
+            # Debug logging
+            logger.info(f"DEBUG: Button callback data: {callback_data}, type: {type(callback_data)}")
+            
             # Answer the callback query to stop the loading indicator
             await query.answer()
             
+            # Log voor debugging
+            logger.info("DEBUG: Evaluating callback conditions...")
+            
             # Handle analyze from signal button
             if callback_data.startswith("analyze_from_signal_"):
+                logger.info("DEBUG: Matched analyze_from_signal_ pattern")
                 return await self.analyze_from_signal_callback(update, context)
                 
             # Help button
             if callback_data == "help":
+                logger.info("DEBUG: Matched help pattern")
                 await self.help_command(update, context)
                 return MENU
                 
             # Menu navigation
             if callback_data == CALLBACK_MENU_ANALYSE:
+                logger.info(f"DEBUG: Matched CALLBACK_MENU_ANALYSE pattern: {CALLBACK_MENU_ANALYSE}")
                 return await self.menu_analyse_callback(update, context)
             elif callback_data == CALLBACK_MENU_SIGNALS:
+                logger.info(f"DEBUG: Matched CALLBACK_MENU_SIGNALS pattern: {CALLBACK_MENU_SIGNALS}")
                 return await self.menu_signals_callback(update, context)
             
             # Analysis type selection
             elif callback_data == CALLBACK_ANALYSIS_TECHNICAL or callback_data == "analysis_technical":
+                logger.info(f"DEBUG: Matched CALLBACK_ANALYSIS_TECHNICAL pattern: {CALLBACK_ANALYSIS_TECHNICAL}")
                 return await self.analysis_technical_callback(update, context)
             elif callback_data == CALLBACK_ANALYSIS_SENTIMENT or callback_data == "analysis_sentiment":
+                logger.info(f"DEBUG: Matched CALLBACK_ANALYSIS_SENTIMENT pattern: {CALLBACK_ANALYSIS_SENTIMENT}")
                 return await self.analysis_sentiment_callback(update, context)
             elif callback_data == CALLBACK_ANALYSIS_CALENDAR or callback_data == "analysis_calendar":
+                logger.info(f"DEBUG: Matched CALLBACK_ANALYSIS_CALENDAR pattern: {CALLBACK_ANALYSIS_CALENDAR}")
                 return await self.analysis_calendar_callback(update, context)
                 
             # Signal type selection
             elif callback_data == "signal_technical":
+                logger.info("DEBUG: Matched signal_technical pattern")
                 return await self.signal_technical_callback(update, context)
             elif callback_data == "signal_sentiment":
+                logger.info("DEBUG: Matched signal_sentiment pattern")
                 return await self.signal_sentiment_callback(update, context)
             elif callback_data == "signal_calendar":
+                logger.info("DEBUG: Matched signal_calendar pattern")
                 return await self.signal_calendar_callback(update, context)
             
             # Back to signal handler
             elif callback_data == "back_to_signal":
+                logger.info("DEBUG: Matched back_to_signal pattern")
                 return await self.back_to_signal_callback(update, context)
             elif callback_data == "back_to_signal_analysis":
+                logger.info("DEBUG: Matched back_to_signal_analysis pattern")
                 return await self.back_to_signal_analysis_callback(update, context)
                 
             # Direct instrument_timeframe callbacks  
-            if "_timeframe_" in callback_data:
+            elif "_timeframe_" in callback_data:
+                logger.info("DEBUG: Matched _timeframe_ pattern")
                 # Format: instrument_EURUSD_timeframe_H1
                 parts = callback_data.split("_")
                 instrument = parts[1]
@@ -2724,37 +2801,47 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 return await self.show_technical_analysis(update, context, instrument=instrument, timeframe=timeframe)
             
             # Verwerk instrument keuzes met specifiek type (chart, sentiment, calendar)
-            if "_chart" in callback_data or "_sentiment" in callback_data or "_calendar" in callback_data:
+            elif "_chart" in callback_data or "_sentiment" in callback_data or "_calendar" in callback_data:
                 # Direct doorsturen naar de instrument_callback methode
-                logger.info(f"Specifiek instrument type gedetecteerd in: {callback_data}")
+                logger.info(f"DEBUG: Matched specific instrument type in: {callback_data}")
                 return await self.instrument_callback(update, context)
             
             # Handle instrument signal choices
-            if "_signals" in callback_data and callback_data.startswith("instrument_"):
-                logger.info(f"Signal instrument selection detected: {callback_data}")
+            elif "_signals" in callback_data and callback_data.startswith("instrument_"):
+                logger.info(f"DEBUG: Matched signal instrument selection: {callback_data}")
                 return await self.instrument_signals_callback(update, context)
             
             # Speciale afhandeling voor markt keuzes
-            if callback_data.startswith("market_"):
+            elif callback_data.startswith("market_"):
+                logger.info(f"DEBUG: Matched market pattern: {callback_data}")
                 return await self.market_callback(update, context)
             
             # Signals handlers
-            if callback_data == "signals_add" or callback_data == CALLBACK_SIGNALS_ADD:
+            elif callback_data == "signals_add" or callback_data == CALLBACK_SIGNALS_ADD:
+                logger.info(f"DEBUG: Matched signals_add pattern: {callback_data}")
                 return await self.signals_add_callback(update, context)
                 
             # Manage signals handler
-            if callback_data == "signals_manage" or callback_data == CALLBACK_SIGNALS_MANAGE:
+            elif callback_data == "signals_manage" or callback_data == CALLBACK_SIGNALS_MANAGE:
+                logger.info(f"DEBUG: Matched signals_manage pattern: {callback_data}")
                 return await self.signals_manage_callback(update, context)
             
             # Back navigation handlers
-            if callback_data == "back_menu" or callback_data == CALLBACK_BACK_MENU:
+            elif callback_data == "back_menu" or callback_data == CALLBACK_BACK_MENU:
+                logger.info(f"DEBUG: Matched back_menu pattern: {callback_data}")
                 return await self.back_menu_callback(update, context)
             elif callback_data == "back_analysis" or callback_data == CALLBACK_BACK_ANALYSIS:
+                logger.info(f"DEBUG: Matched back_analysis pattern: {callback_data}")
                 return await self.analysis_callback(update, context)
             elif callback_data == "back_signals" or callback_data == CALLBACK_BACK_SIGNALS:
+                logger.info(f"DEBUG: Matched back_signals pattern: {callback_data}")
                 return await self.back_signals_callback(update, context)
             elif callback_data == "back_market" or callback_data == CALLBACK_BACK_MARKET:
+                logger.info(f"DEBUG: Matched back_market pattern: {callback_data}")
                 return await self.back_market_callback(update, context)
+            elif callback_data == "back_instrument":
+                logger.info(f"DEBUG: Matched back_instrument pattern: {callback_data}")
+                return await self.back_instrument_callback(update, context)
                 
             # Handle delete signal
             if callback_data.startswith("delete_signal_"):
@@ -5075,6 +5162,10 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         """Handle signals_add button press to add new signal subscriptions"""
         query = update.callback_query
         await query.answer()
+        
+        # Debug logging
+        logger.info(f"DEBUG: signals_add_callback called with data: {query.data}")
+        logger.info(f"DEBUG: Context user_data before: {context.user_data if (context and hasattr(context, 'user_data')) else 'No context data'}")
         
         logger.info("signals_add_callback called")
         
