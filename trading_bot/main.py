@@ -141,8 +141,8 @@ async def startup_event():
         # telegram_service.application.add_handler(CommandHandler("debug_sentiment", telegram_service.debug_sentiment_command))
         telegram_service.application.add_handler(CallbackQueryHandler(telegram_service.button_callback))
         
-        # Load signals
-        telegram_service._load_signals()
+        # Load signals properly with await
+        await telegram_service._load_signals()
         
         # Set bot commands
         commands = [
