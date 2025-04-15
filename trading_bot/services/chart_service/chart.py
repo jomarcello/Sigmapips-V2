@@ -36,6 +36,8 @@ class AnalysisCache:
         self.cache = {}
         self.max_size = max_size
         self.expiry_seconds = expiry_seconds
+        # Toevoegen van een fallback cache voor als een normale API call faalt
+        self.fallback_cache = {}
     
     def get(self, key):
         """Haal een item op uit de cache als het niet verlopen is"""
@@ -47,8 +49,17 @@ class AnalysisCache:
             else:
                 # Verwijder verlopen items
                 logger.info(f"⏰ Cache EXPIRED voor key: {key}")
+                # Verplaats verlopen item naar fallback cache voordat we het verwijderen
+                self.fallback_cache[key] = self.cache[key]
                 del self.cache[key]
         logger.info(f"❌ Cache MISS voor key: {key}")
+        return None
+    
+    def get_fallback(self, key):
+        """Haal een item uit de fallback cache, zelfs als het verlopen is"""
+        if key in self.fallback_cache:
+            logger.info(f"🔶 Fallback cache hit voor key: {key}")
+            return self.fallback_cache[key][1]  # Retourneer alleen de waarde
         return None
     
     def set(self, key, value):
@@ -57,6 +68,8 @@ class AnalysisCache:
         if len(self.cache) >= self.max_size:
             # Verwijder het oudste item
             oldest_key = min(self.cache.keys(), key=lambda k: self.cache[k][0])
+            # Verplaats het naar de fallback cache voordat we het verwijderen
+            self.fallback_cache[oldest_key] = self.cache[oldest_key]
             del self.cache[oldest_key]
             logger.info(f"🧹 Verwijderd oud cache item: {oldest_key} (cache vol)")
         
@@ -649,27 +662,41 @@ class ChartService:
                 logger.info(f"Using cached technical analysis for {instrument} {timeframe}")
                 return cached_result
 
+            # Check for a fallback cached result (expired but still usable in case of API failure)
+            fallback_result = self.chart_cache.get_fallback(cache_key)
+
             # Beperk parallelle requests
             sem = asyncio.Semaphore(3)  # Maximaal 3 parallelle requests
             
             async with sem:
                 # Start beide taken tegelijkertijd om tijd te besparen
-                # 1. Haal de chart image op
-                # 2. Haal market data op
                 chart_task = asyncio.create_task(self.get_chart(instrument, timeframe))
                 
                 # Start de market data task tegelijkertijd
                 market_data_cache_key = f"{instrument}_{timeframe}_marketdata"
                 market_data_dict = self.market_data_cache.get(market_data_cache_key)
+                market_data_fallback = None
                 
                 # Als we geen gecachete marktdata hebben, haal het dan parallel op
                 if not market_data_dict:
+                    # Check fallback cache eerst
+                    market_data_fallback = self.market_data_cache.get_fallback(market_data_cache_key)
+                    # Nog steeds ophalen in de achtergrond, fallback gebruiken als dit faalt
                     market_data_task = asyncio.create_task(self.get_real_market_data(instrument, timeframe))
                 else:
                     logger.info(f"Using cached market data for {instrument} {timeframe}")
                 
                 # Wacht op chart_task en verwerk het resultaat
-                chart_data = await chart_task
+                try:
+                    # Wacht met een timeout
+                    chart_data = await asyncio.wait_for(chart_task, timeout=20)
+                except asyncio.TimeoutError:
+                    logger.error(f"Timeout waiting for chart for {instrument}")
+                    # Return fallback if available
+                    if fallback_result:
+                        logger.info(f"Using fallback chart for {instrument}")
+                        return fallback_result
+                    return None, f"Timeout bij ophalen van chart voor {instrument}"
                 
                 # Check if chart_data is in bytes format and save it to a file first
                 img_path = None
@@ -684,6 +711,9 @@ class ChartService:
                         logger.info(f"Saved chart image to file: {img_path}, size: {len(chart_data)} bytes")
                     except Exception as save_error:
                         logger.error(f"Failed to save chart image to file: {str(save_error)}")
+                        # Return fallback if available
+                        if fallback_result:
+                            return fallback_result
                         return None, "Error saving chart image."
                 else:
                     img_path = chart_data  # Already a path
@@ -699,47 +729,52 @@ class ChartService:
                 if not market_data_dict:
                     try:
                         # Wacht op de market data task met een timeout
-                        market_data_dict = await asyncio.wait_for(market_data_task, timeout=15)
+                        market_data_dict = await asyncio.wait_for(market_data_task, timeout=10)
                         # Cache the market data
                         self.market_data_cache.set(market_data_cache_key, market_data_dict)
                     except Exception as tv_error:
                         logger.error(f"Error getting TradingView data: {str(tv_error)}")
                         logger.error(traceback.format_exc())
                         
-                        # Gebruik fallback data
-                        if instrument.upper() == "EURUSD":
-                            logger.warning("TradingView data retrieval failed, applying EURUSD fallback data")
-                            market_data_dict = {
-                                "instrument": instrument,
-                                "timeframe": timeframe,
-                                "timestamp": datetime.now().isoformat(),
-                                "current_price": 1.08,
-                                "daily_high": 1.08323,
-                                "daily_low": 1.07611,
-                                "weekly_high": 1.0935,
-                                "weekly_low": 1.07123,
-                                "monthly_high": 1.10235,
-                                "monthly_low": 1.06788,
-                                "rsi": 32.3,
-                                "price_levels": {
-                                    "daily high": 1.08323,
-                                    "daily low": 1.07611,
-                                    "weekly high": 1.0935,
-                                    "weekly low": 1.07123,
-                                    "monthly high": 1.10235,
-                                    "monthly low": 1.06788
-                                },
-                                "support_levels": [1.06788, 1.07123, 1.07611],
-                                "resistance_levels": [1.08323, 1.0935, 1.10235]
-                            }
+                        # Gebruik fallback data uit de fallback cache indien beschikbaar
+                        if market_data_fallback:
+                            logger.warning(f"Using fallback market data for {instrument}")
+                            market_data_dict = market_data_fallback
                         else:
-                            # Use base price if TradingView fails for non-EURUSD
-                            logger.warning("Using base price data due to TradingView error")
-                            base_price = self._get_base_price_for_instrument(instrument)
-                            volatility = self._get_volatility_for_instrument(instrument)
-                            
-                            # Create basic market data with realistic values
-                            market_data_dict = self._calculate_synthetic_support_resistance(base_price, instrument)
+                            # Gebruik hardcoded fallback data als laatste redmiddel
+                            if instrument.upper() == "EURUSD":
+                                logger.warning("TradingView data retrieval failed, applying EURUSD fallback data")
+                                market_data_dict = {
+                                    "instrument": instrument,
+                                    "timeframe": timeframe,
+                                    "timestamp": datetime.now().isoformat(),
+                                    "current_price": 1.08,
+                                    "daily_high": 1.08323,
+                                    "daily_low": 1.07611,
+                                    "weekly_high": 1.0935,
+                                    "weekly_low": 1.07123,
+                                    "monthly_high": 1.10235,
+                                    "monthly_low": 1.06788,
+                                    "rsi": 32.3,
+                                    "price_levels": {
+                                        "daily high": 1.08323,
+                                        "daily low": 1.07611,
+                                        "weekly high": 1.0935,
+                                        "weekly low": 1.07123,
+                                        "monthly high": 1.10235,
+                                        "monthly low": 1.06788
+                                    },
+                                    "support_levels": [1.06788, 1.07123, 1.07611],
+                                    "resistance_levels": [1.08323, 1.0935, 1.10235]
+                                }
+                            else:
+                                # Use base price if TradingView fails for non-EURUSD
+                                logger.warning("Using base price data due to TradingView error")
+                                base_price = self._get_base_price_for_instrument(instrument)
+                                volatility = self._get_volatility_for_instrument(instrument)
+                                
+                                # Create basic market data with realistic values
+                                market_data_dict = self._calculate_synthetic_support_resistance(base_price, instrument)
                 
                 # Convert data to JSON for DeepSeek
                 market_data_json = json.dumps(market_data_dict, indent=2, cls=NumpyJSONEncoder)
@@ -824,6 +859,13 @@ The market shows {'strong buying' if is_bullish else 'strong selling'} pressure.
         except Exception as e:
             logger.error(f"Error in get_technical_analysis: {str(e)}")
             logger.error(traceback.format_exc())
+            
+            # In geval van een fout, gebruik de fallback als die beschikbaar is
+            fallback_result = self.chart_cache.get_fallback(f"{instrument}_{timeframe}_technical")
+            if fallback_result:
+                logger.info(f"Using fallback technical analysis after error for {instrument}")
+                return fallback_result
+            
             return None, "Error generating technical analysis."
 
     async def get_real_market_data(self, instrument: str, timeframe: str = "1h") -> Dict[str, Any]:
