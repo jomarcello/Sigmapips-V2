@@ -771,6 +771,16 @@ class TelegramService:
 
     async def _format_calendar_events(self, calendar_data):
         """Format the calendar data into a readable HTML message"""
+        # Check if calendar_data is a CalendarResult object
+        if hasattr(calendar_data, 'get') and callable(calendar_data.get):
+            # It's a CalendarResult object, check if it has a message
+            message = calendar_data.get('message')
+            if message:
+                self.logger.info(f"Using pre-formatted message from CalendarResult")
+                return message
+            # Extract events from CalendarResult if needed
+            calendar_data = calendar_data.get('events', [])
+            
         self.logger.info(f"Formatting calendar data with {len(calendar_data)} events")
         if not calendar_data:
             return "<b>📅 Economic Calendar</b>\n\nNo economic events found for today."
