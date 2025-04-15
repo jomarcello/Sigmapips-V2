@@ -649,12 +649,27 @@ class ChartService:
                 logger.info(f"Using cached technical analysis for {instrument} {timeframe}")
                 return cached_result
 
-            # Beperk parallelle requests (parallel_limit implementeren)
+            # Beperk parallelle requests
             sem = asyncio.Semaphore(3)  # Maximaal 3 parallelle requests
             
             async with sem:
-                # First get the chart image
-                chart_data = await self.get_chart(instrument, timeframe)
+                # Start beide taken tegelijkertijd om tijd te besparen
+                # 1. Haal de chart image op
+                # 2. Haal market data op
+                chart_task = asyncio.create_task(self.get_chart(instrument, timeframe))
+                
+                # Start de market data task tegelijkertijd
+                market_data_cache_key = f"{instrument}_{timeframe}_marketdata"
+                market_data_dict = self.market_data_cache.get(market_data_cache_key)
+                
+                # Als we geen gecachete marktdata hebben, haal het dan parallel op
+                if not market_data_dict:
+                    market_data_task = asyncio.create_task(self.get_real_market_data(instrument, timeframe))
+                else:
+                    logger.info(f"Using cached market data for {instrument} {timeframe}")
+                
+                # Wacht op chart_task en verwerk het resultaat
+                chart_data = await chart_task
                 
                 # Check if chart_data is in bytes format and save it to a file first
                 img_path = None
@@ -680,20 +695,13 @@ class ChartService:
                 if not deepseek_api_key:
                     logger.warning("DeepSeek API key missing, analysis may be limited")
                 
-                # Get market data (with caching)
-                market_data_cache_key = f"{instrument}_{timeframe}_marketdata"
-                market_data_dict = self.market_data_cache.get(market_data_cache_key)
-                
+                # Als we geen gecachete marktdata hebben, wacht dan op het resultaat van de task
                 if not market_data_dict:
                     try:
-                        # Get real market data from TradingView instead of using OCR
-                        logger.info(f"Getting real market data for {instrument} from TradingView")
-                        market_data_dict = await self.get_real_market_data(instrument, timeframe)
-                        logger.info(f"TradingView data retrieved: {market_data_dict}")
-                        
+                        # Wacht op de market data task met een timeout
+                        market_data_dict = await asyncio.wait_for(market_data_task, timeout=15)
                         # Cache the market data
                         self.market_data_cache.set(market_data_cache_key, market_data_dict)
-                        
                     except Exception as tv_error:
                         logger.error(f"Error getting TradingView data: {str(tv_error)}")
                         logger.error(traceback.format_exc())
@@ -732,8 +740,6 @@ class ChartService:
                             
                             # Create basic market data with realistic values
                             market_data_dict = self._calculate_synthetic_support_resistance(base_price, instrument)
-                else:
-                    logger.info(f"Using cached market data for {instrument} {timeframe}")
                 
                 # Convert data to JSON for DeepSeek
                 market_data_json = json.dumps(market_data_dict, indent=2, cls=NumpyJSONEncoder)
@@ -750,7 +756,7 @@ class ChartService:
                         decimals = 3
                     elif any(x in instrument for x in ["XAU", "GOLD", "SILVER", "XAGUSD"]):
                         decimals = 2
-                    elif any(index in instrument for index in ["US30", "US500", "US100", "UK100", "DE40"]):
+                    elif any(x in instrument for x in ["US30", "US500", "US100", "UK100", "DE40"]):
                         decimals = 0
                     else:
                         decimals = 5  # Default for most forex pairs
@@ -1145,7 +1151,7 @@ The market shows {'strong buying' if is_bullish else 'strong selling'} pressure.
             decimal_places = 2
         elif "BTC" in instrument:
             decimal_places = 1
-        elif any(index in instrument for index in ["US30", "US500", "US100", "UK100", "DE40"]):
+        elif any(x in instrument for x in ["US30", "US500", "US100", "UK100", "DE40"]):
             decimal_places = 0
         else:
             decimal_places = 5
@@ -1259,7 +1265,7 @@ The bias remains bullish but watch for resistance near 148.143. A break above co
                 decimals = 3
             elif any(x in instrument for x in ["XAU", "GOLD", "SILVER", "XAGUSD"]):
                 decimals = 2
-            elif any(index in instrument for x in ["US30", "US500", "US100", "UK100", "DE40"]):
+            elif any(x in instrument for x in ["US30", "US500", "US100", "UK100", "DE40"]):
                 decimals = 0
             else:
                 decimals = 5  # Default for most forex pairs
