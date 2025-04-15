@@ -101,6 +101,12 @@ RUN chmod -R 777 /tmp
 # Kopieer de rest van de code
 COPY . .
 
+# Repareer de syntaxfout in bot.py door de zwevende docstring te verwijderen
+RUN grep -n "Create and return a logger instance with the given name" /app/trading_bot/services/telegram_service/bot.py | while read -r line ; do \
+    line_num=$(echo "$line" | cut -d':' -f1); \
+    sed -i "${line_num}d" /app/trading_bot/services/telegram_service/bot.py; \
+done
+
 # Stel environment variables in
 ENV PYTHONPATH=/app
 ENV PORT=8080
