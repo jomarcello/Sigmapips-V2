@@ -30,6 +30,39 @@ logger = logging.getLogger(__name__)
 # Verwijder alle Yahoo Finance gerelateerde constanten
 OCR_CACHE_DIR = os.path.join('data', 'cache', 'ocr')
 
+# Cache implementatie voor technische analyse resultaten
+class AnalysisCache:
+    def __init__(self, max_size=100, expiry_seconds=300):  # 5 minuten cache expiry
+        self.cache = {}
+        self.max_size = max_size
+        self.expiry_seconds = expiry_seconds
+    
+    def get(self, key):
+        """Haal een item op uit de cache als het niet verlopen is"""
+        if key in self.cache:
+            timestamp, value = self.cache[key]
+            if (datetime.now() - timestamp).total_seconds() < self.expiry_seconds:
+                logger.info(f"🔄 Cache HIT voor key: {key}")
+                return value
+            else:
+                # Verwijder verlopen items
+                logger.info(f"⏰ Cache EXPIRED voor key: {key}")
+                del self.cache[key]
+        logger.info(f"❌ Cache MISS voor key: {key}")
+        return None
+    
+    def set(self, key, value):
+        """Sla een item op in de cache met timestamp"""
+        # Verwijder oude items als de cache vol is
+        if len(self.cache) >= self.max_size:
+            # Verwijder het oudste item
+            oldest_key = min(self.cache.keys(), key=lambda k: self.cache[k][0])
+            del self.cache[oldest_key]
+            logger.info(f"🧹 Verwijderd oud cache item: {oldest_key} (cache vol)")
+        
+        self.cache[key] = (datetime.now(), value)
+        logger.info(f"✅ Cache SET voor key: {key} (totaal items: {len(self.cache)})")
+
 # JSON Encoder voor NumPy types
 class NumpyJSONEncoder(json.JSONEncoder):
     def default(self, obj):
@@ -123,7 +156,11 @@ class ChartService:
             self.tradingview = None
             self.tradingview_selenium = None
             
-            logging.info("Chart service initialized")
+            # Cache voor snellere resultaten
+            self.chart_cache = AnalysisCache(max_size=50, expiry_seconds=300)  # 5 minuten cache
+            self.market_data_cache = AnalysisCache(max_size=100, expiry_seconds=180)  # 3 minuten cache
+            
+            logging.info("Chart service initialized with caching")
             
         except Exception as e:
             logging.error(f"Error initializing chart service: {str(e)}")
@@ -605,129 +642,150 @@ class ChartService:
         Get technical analysis for an instrument with timeframe using TradingView data and DeepSeek APIs.
         """
         try:
-            # First get the chart image
-            chart_data = await self.get_chart(instrument, timeframe)
+            # Check cache eerst
+            cache_key = f"{instrument}_{timeframe}_technical"
+            cached_result = self.chart_cache.get(cache_key)
+            if cached_result:
+                logger.info(f"Using cached technical analysis for {instrument} {timeframe}")
+                return cached_result
+
+            # Beperk parallelle requests (parallel_limit implementeren)
+            sem = asyncio.Semaphore(3)  # Maximaal 3 parallelle requests
             
-            # Check if chart_data is in bytes format and save it to a file first
-            img_path = None
-            if isinstance(chart_data, bytes):
-                timestamp = int(datetime.now().timestamp())
-                os.makedirs('data/charts', exist_ok=True)
-                img_path = f"data/charts/{instrument.lower()}_{timeframe}_{timestamp}.png"
+            async with sem:
+                # First get the chart image
+                chart_data = await self.get_chart(instrument, timeframe)
                 
-                try:
-                    with open(img_path, 'wb') as f:
-                        f.write(chart_data)
-                    logger.info(f"Saved chart image to file: {img_path}, size: {len(chart_data)} bytes")
-                except Exception as save_error:
-                    logger.error(f"Failed to save chart image to file: {str(save_error)}")
-                    return None, "Error saving chart image."
-            else:
-                img_path = chart_data  # Already a path
-                logger.info(f"Using existing chart image path: {img_path}")
-            
-            # Get the DeepSeek API key
-            deepseek_api_key = os.getenv("DEEPSEEK_API_KEY")
-            
-            if not deepseek_api_key:
-                logger.warning("DeepSeek API key missing, analysis may be limited")
-            
-            try:
-                # Get real market data from TradingView instead of using OCR
-                logger.info(f"Getting real market data for {instrument} from TradingView")
-                market_data_dict = await self.get_real_market_data(instrument, timeframe)
-                logger.info(f"TradingView data retrieved: {market_data_dict}")
-                
-            except Exception as tv_error:
-                logger.error(f"Error getting TradingView data: {str(tv_error)}")
-                logger.error(traceback.format_exc())
-                
-                # EURUSD fallback if TradingView fails
-                if instrument.upper() == "EURUSD":
-                    logger.warning("TradingView data retrieval failed, applying EURUSD fallback data")
-                    market_data_dict = {
-                        "instrument": instrument,
-                        "timeframe": timeframe,
-                        "timestamp": datetime.now().isoformat(),
-                        "current_price": 1.08,
-                        "daily_high": 1.08323,
-                        "daily_low": 1.07611,
-                        "weekly_high": 1.0935,
-                        "weekly_low": 1.07123,
-                        "monthly_high": 1.10235,
-                        "monthly_low": 1.06788,
-                        "rsi": 32.3,
-                        "price_levels": {
-                            "daily high": 1.08323,
-                            "daily low": 1.07611,
-                            "weekly high": 1.0935,
-                            "weekly low": 1.07123,
-                            "monthly high": 1.10235,
-                            "monthly low": 1.06788
-                        },
-                        "support_levels": [1.06788, 1.07123, 1.07611],
-                        "resistance_levels": [1.08323, 1.0935, 1.10235]
-                    }
-                else:
-                    # Use base price if TradingView fails for non-EURUSD
-                    logger.warning("Using base price data due to TradingView error")
-                    base_price = self._get_base_price_for_instrument(instrument)
-                    volatility = self._get_volatility_for_instrument(instrument)
+                # Check if chart_data is in bytes format and save it to a file first
+                img_path = None
+                if isinstance(chart_data, bytes):
+                    timestamp = int(datetime.now().timestamp())
+                    os.makedirs('data/charts', exist_ok=True)
+                    img_path = f"data/charts/{instrument.lower()}_{timeframe}_{timestamp}.png"
                     
-                    # Create basic market data with realistic values
-                    market_data_dict = self._calculate_synthetic_support_resistance(base_price, instrument)
-            
-            # Convert data to JSON for DeepSeek
-            market_data_json = json.dumps(market_data_dict, indent=2, cls=NumpyJSONEncoder)
-            
-            # Format data using DeepSeek API
-            logger.info(f"Formatting data with DeepSeek for {instrument}")
-            analysis = await self._format_with_deepseek(deepseek_api_key, instrument, timeframe, market_data_json)
-            
-            if not analysis:
-                logger.warning(f"Failed to format with DeepSeek for {instrument}, using fallback formatting")
-                
-                # Determine the correct decimal places based on the instrument
-                if instrument.endswith("JPY"):
-                    decimals = 3
-                elif any(x in instrument for x in ["XAU", "GOLD", "SILVER", "XAGUSD"]):
-                    decimals = 2
-                elif any(index in instrument for index in ["US30", "US500", "US100", "UK100", "DE40"]):
-                    decimals = 0
+                    try:
+                        with open(img_path, 'wb') as f:
+                            f.write(chart_data)
+                        logger.info(f"Saved chart image to file: {img_path}, size: {len(chart_data)} bytes")
+                    except Exception as save_error:
+                        logger.error(f"Failed to save chart image to file: {str(save_error)}")
+                        return None, "Error saving chart image."
                 else:
-                    decimals = 5  # Default for most forex pairs
+                    img_path = chart_data  # Already a path
+                    logger.info(f"Using existing chart image path: {img_path}")
                 
-                # Extract necessary values for formatting
-                current_price = market_data_dict.get('current_price', 0)
-                daily_high = market_data_dict.get('daily_high', 0)
-                daily_low = market_data_dict.get('daily_low', 0)
-                rsi = market_data_dict.get('rsi', 50)
+                # Get the DeepSeek API key
+                deepseek_api_key = os.getenv("DEEPSEEK_API_KEY")
                 
-                # Format prices with correct decimal places
-                formatted_price = f"{current_price:.{decimals}f}"
-                formatted_daily_high = f"{daily_high:.{decimals}f}"
-                formatted_daily_low = f"{daily_low:.{decimals}f}"
+                if not deepseek_api_key:
+                    logger.warning("DeepSeek API key missing, analysis may be limited")
                 
-                # Determine trend based on RSI
-                is_bullish = rsi > 50
-                action = "BUY" if is_bullish else "SELL"
+                # Get market data (with caching)
+                market_data_cache_key = f"{instrument}_{timeframe}_marketdata"
+                market_data_dict = self.market_data_cache.get(market_data_cache_key)
                 
-                # Get support and resistance levels
-                resistance_levels = market_data_dict.get('resistance_levels', [])
-                support_levels = market_data_dict.get('support_levels', [])
-                
-                resistance = resistance_levels[0] if resistance_levels else daily_high
-                formatted_resistance = f"{resistance:.{decimals}f}"
-                
-                if is_bullish:
-                    # For bullish scenarios, always display "0.000" as support
-                    formatted_support = "0.000"
+                if not market_data_dict:
+                    try:
+                        # Get real market data from TradingView instead of using OCR
+                        logger.info(f"Getting real market data for {instrument} from TradingView")
+                        market_data_dict = await self.get_real_market_data(instrument, timeframe)
+                        logger.info(f"TradingView data retrieved: {market_data_dict}")
+                        
+                        # Cache the market data
+                        self.market_data_cache.set(market_data_cache_key, market_data_dict)
+                        
+                    except Exception as tv_error:
+                        logger.error(f"Error getting TradingView data: {str(tv_error)}")
+                        logger.error(traceback.format_exc())
+                        
+                        # Gebruik fallback data
+                        if instrument.upper() == "EURUSD":
+                            logger.warning("TradingView data retrieval failed, applying EURUSD fallback data")
+                            market_data_dict = {
+                                "instrument": instrument,
+                                "timeframe": timeframe,
+                                "timestamp": datetime.now().isoformat(),
+                                "current_price": 1.08,
+                                "daily_high": 1.08323,
+                                "daily_low": 1.07611,
+                                "weekly_high": 1.0935,
+                                "weekly_low": 1.07123,
+                                "monthly_high": 1.10235,
+                                "monthly_low": 1.06788,
+                                "rsi": 32.3,
+                                "price_levels": {
+                                    "daily high": 1.08323,
+                                    "daily low": 1.07611,
+                                    "weekly high": 1.0935,
+                                    "weekly low": 1.07123,
+                                    "monthly high": 1.10235,
+                                    "monthly low": 1.06788
+                                },
+                                "support_levels": [1.06788, 1.07123, 1.07611],
+                                "resistance_levels": [1.08323, 1.0935, 1.10235]
+                            }
+                        else:
+                            # Use base price if TradingView fails for non-EURUSD
+                            logger.warning("Using base price data due to TradingView error")
+                            base_price = self._get_base_price_for_instrument(instrument)
+                            volatility = self._get_volatility_for_instrument(instrument)
+                            
+                            # Create basic market data with realistic values
+                            market_data_dict = self._calculate_synthetic_support_resistance(base_price, instrument)
                 else:
-                    support = support_levels[0] if support_levels else daily_low
-                    formatted_support = f"{support:.{decimals}f}"
+                    logger.info(f"Using cached market data for {instrument} {timeframe}")
                 
-                # Create a fallback analysis text in the exact format we need
-                fallback_analysis = f"""{instrument} - {timeframe}
+                # Convert data to JSON for DeepSeek
+                market_data_json = json.dumps(market_data_dict, indent=2, cls=NumpyJSONEncoder)
+                
+                # Format data using DeepSeek API
+                logger.info(f"Formatting data with DeepSeek for {instrument}")
+                analysis = await self._format_with_deepseek(deepseek_api_key, instrument, timeframe, market_data_json)
+                
+                if not analysis:
+                    logger.warning(f"Failed to format with DeepSeek for {instrument}, using fallback formatting")
+                    
+                    # Determine the correct decimal places based on the instrument
+                    if instrument.endswith("JPY"):
+                        decimals = 3
+                    elif any(x in instrument for x in ["XAU", "GOLD", "SILVER", "XAGUSD"]):
+                        decimals = 2
+                    elif any(index in instrument for index in ["US30", "US500", "US100", "UK100", "DE40"]):
+                        decimals = 0
+                    else:
+                        decimals = 5  # Default for most forex pairs
+                    
+                    # Extract necessary values for formatting
+                    current_price = market_data_dict.get('current_price', 0)
+                    daily_high = market_data_dict.get('daily_high', 0)
+                    daily_low = market_data_dict.get('daily_low', 0)
+                    rsi = market_data_dict.get('rsi', 50)
+                    
+                    # Format prices with correct decimal places
+                    formatted_price = f"{current_price:.{decimals}f}"
+                    formatted_daily_high = f"{daily_high:.{decimals}f}"
+                    formatted_daily_low = f"{daily_low:.{decimals}f}"
+                    
+                    # Determine trend based on RSI
+                    is_bullish = rsi > 50
+                    action = "BUY" if is_bullish else "SELL"
+                    
+                    # Get support and resistance levels
+                    resistance_levels = market_data_dict.get('resistance_levels', [])
+                    support_levels = market_data_dict.get('support_levels', [])
+                    
+                    resistance = resistance_levels[0] if resistance_levels else daily_high
+                    formatted_resistance = f"{resistance:.{decimals}f}"
+                    
+                    if is_bullish:
+                        # For bullish scenarios, always display "0.000" as support
+                        formatted_support = "0.000"
+                    else:
+                        support = support_levels[0] if support_levels else daily_low
+                        formatted_support = f"{support:.{decimals}f}"
+                    
+                    # Create a fallback analysis text in the exact format we need
+                    fallback_analysis = f"""{instrument} - {timeframe}
 
 <b>Trend - {action}</b>
 
@@ -749,10 +807,13 @@ Moving Averages: Price {'above' if is_bullish else 'below'} EMA 50, reinforcing 
 The market shows {'strong buying' if is_bullish else 'strong selling'} pressure. Traders should watch the {formatted_resistance} {'resistance' if is_bullish else 'support'} level carefully. {'A break above could lead to further upside momentum.' if is_bullish else 'A break below could accelerate the downward trend.'}
 
 ⚠️ Disclaimer: Please note that the information/analysis provided is strictly for study and educational purposes only. It should not be constructed as financial advice and always do your own analysis."""
+                    
+                    analysis = fallback_analysis
                 
-                return img_path, fallback_analysis
-            
-            return img_path, analysis
+                # Cache het resultaat voordat het wordt teruggegeven
+                self.chart_cache.set(cache_key, (img_path, analysis))
+                
+                return img_path, analysis
                 
         except Exception as e:
             logger.error(f"Error in get_technical_analysis: {str(e)}")
@@ -762,6 +823,13 @@ The market shows {'strong buying' if is_bullish else 'strong selling'} pressure.
     async def get_real_market_data(self, instrument: str, timeframe: str = "1h") -> Dict[str, Any]:
         """Get real market data from TradingView"""
         try:
+            # Check cache first
+            cache_key = f"{instrument}_{timeframe}_marketdata"
+            cached_data = self.market_data_cache.get(cache_key)
+            if cached_data:
+                logger.info(f"Using cached market data for {instrument} {timeframe}")
+                return cached_data
+            
             # Map timeframe to TradingView interval
             interval_map = {
                 "1m": Interval.INTERVAL_1_MINUTE,
@@ -783,17 +851,24 @@ The market shows {'strong buying' if is_bullish else 'strong selling'} pressure.
             
             logger.info(f"Getting data from TradingView: {exchange}:{symbol} on {screener}")
             
-            # Initialize handler
+            # Initialize handler with shorter timeout
             handler = TA_Handler(
                 symbol=symbol,
                 exchange=exchange,
                 screener=screener,
                 interval=interval,
-                timeout=10
+                timeout=5  # Verkort de timeout van 10 naar 5 seconden
             )
             
-            # Get analysis
-            analysis = handler.get_analysis()
+            # Get analysis with timeout handling
+            try:
+                analysis = await asyncio.wait_for(
+                    asyncio.to_thread(handler.get_analysis),
+                    timeout=10  # Overall timeout van 10 seconden
+                )
+            except asyncio.TimeoutError:
+                logger.warning(f"TradingView analysis timed out for {instrument}")
+                raise ValueError("TradingView analysis timeout")
             
             if not analysis or not hasattr(analysis, 'indicators') or 'close' not in analysis.indicators:
                 logger.warning(f"No valid analysis data returned for {instrument}")
@@ -818,7 +893,7 @@ The market shows {'strong buying' if is_bullish else 'strong selling'} pressure.
                 "ema_200": analysis.indicators.get("EMA200", 0),
             }
             
-            # Support and resistance from pivot points (weekly)
+            # Get support and resistance from pivot points (weekly)
             weekly_support = [
                 analysis.indicators.get("Pivot.M.Classic.S1", None),
                 analysis.indicators.get("Pivot.M.Classic.S2", None),
@@ -865,16 +940,16 @@ The market shows {'strong buying' if is_bullish else 'strong selling'} pressure.
             market_data["neutral_signals"] = analysis.summary.get("NEUTRAL", 0)
             
             logger.info(f"Retrieved real market data for {instrument} from TradingView")
+            
+            # Cache het resultaat voor toekomstig gebruik
+            self.market_data_cache.set(cache_key, market_data)
+            
             return market_data
             
         except Exception as e:
-            logger.error(f"Error getting real market data from TradingView: {str(e)}")
+            logger.error(f"Error getting TradingView data for {instrument}: {str(e)}")
             logger.error(traceback.format_exc())
-            
-            # Fall back to synthetic data only if TradingView fails
-            logger.warning(f"Falling back to synthetic data for {instrument}")
-            base_price = self._get_base_price_for_instrument(instrument)
-            return self._calculate_synthetic_support_resistance(base_price, instrument)
+            raise ValueError(f"Failed to retrieve TradingView data: {str(e)}")
 
     def _map_instrument_to_tradingview(self, instrument: str) -> Tuple[str, str, str]:
         """Map instrument to TradingView exchange, symbol and screener"""
@@ -1140,10 +1215,17 @@ The market shows {'strong buying' if is_bullish else 'strong selling'} pressure.
             logger.warning("No DeepSeek API key provided, skipping formatting")
             return None
         
+        # Caching toevoegen - check eerst of er een cache resultaat is
+        cache_key = f"{instrument}_{timeframe}_deepseek"
+        cached_result = self.chart_cache.get(cache_key)
+        if cached_result:
+            logger.info(f"Using cached DeepSeek analysis for {instrument} {timeframe}")
+            return cached_result
+        
         try:
-            # For USDJPY, we'll use a fixed template
+            # Voor USDJPY, we'll use a fixed template (blijft hetzelfde)
             if instrument == "USDJPY":
-                return """USDJPY - 15
+                analysis = """USDJPY - 15
 
 <b>Trend - BUY</b>
 
@@ -1165,10 +1247,10 @@ Moving Averages: Price above EMA 50 (150.354) and EMA 200 (153.302), reinforcing
 The bias remains bullish but watch for resistance near 148.143. A break above could target higher levels, while failure may test 0.000 support.
 
 ⚠️ Disclaimer: Please note that the information/analysis provided is strictly for study and educational purposes only. It should not be constructed as financial advice and always do your own analysis."""
+                # Cache dit resultaat
+                self.chart_cache.set(cache_key, analysis)
+                return analysis
             
-            # Prepare the system prompt
-            system_prompt = """You are an expert financial analyst specializing in technical analysis for forex, commodities, cryptocurrencies, and indices. Your task is to analyze market data and provide a concise technical analysis with a clear market bias (BUY or SELL) and actionable insight."""
-
             # Extract data from the market_data_json
             market_data = json.loads(market_data_json)
             
@@ -1177,7 +1259,7 @@ The bias remains bullish but watch for resistance near 148.143. A break above co
                 decimals = 3
             elif any(x in instrument for x in ["XAU", "GOLD", "SILVER", "XAGUSD"]):
                 decimals = 2
-            elif any(index in instrument for index in ["US30", "US500", "US100", "UK100", "DE40"]):
+            elif any(index in instrument for x in ["US30", "US500", "US100", "UK100", "DE40"]):
                 decimals = 0
             else:
                 decimals = 5  # Default for most forex pairs
@@ -1220,14 +1302,12 @@ The bias remains bullish but watch for resistance near 148.143. A break above co
             ema200 = 153.302 if instrument == "USDJPY" else market_data.get('ema_200', current_price * 1.01 if is_bullish else current_price * 0.99)
             formatted_ema200 = f"{ema200:.{decimals}f}"
             
-            # Prepare the user prompt with market data and EXACT format requirements
-            user_prompt = f"""Analyze the following market data for {instrument} on the {timeframe} timeframe and provide a technical analysis in the EXACT format I specify. The format must match precisely character for character:
+            # Verkort het system prompt voor snellere verwerking
+            system_prompt = "You are an expert financial analyst providing technical analysis for currency pairs and other financial instruments."
 
-{market_data_json}
+            # Verkort het user prompt om tijd te besparen
+            user_prompt = f"""Analyze {instrument} on the {timeframe} timeframe. Provide a technical analysis in EXACTLY this format:
 
-Based on this data, you must determine if the trend is {action}, and identify key levels.
-
-YOUR RESPONSE MUST BE IN THIS EXACT FORMAT:
 {instrument} - {timeframe}
 
 <b>Trend - {action}</b>
@@ -1247,23 +1327,13 @@ MACD: {action} (0.00244 > signal 0.00070)
 Moving Averages: Price {'above' if is_bullish else 'below'} EMA 50 ({formatted_ema50}) and EMA 200 ({formatted_ema200}), reinforcing {action.lower()} bias.
 
 <b>🤖 Sigmapips AI Recommendation</b>
-[2-3 sentences with market advice based on the analysis. Focus on key levels to watch and overall market bias.]
+[2-3 sentences with market advice, focusing on key levels and overall bias]
 
 ⚠️ Disclaimer: Please note that the information/analysis provided is strictly for study and educational purposes only. It should not be constructed as financial advice and always do your own analysis.
 
-CRITICAL REQUIREMENTS:
-1. The format above must be followed EXACTLY including line breaks
-2. The 'Trend' MUST ALWAYS BE '{action}' not 'BULLISH' or 'BEARISH'
-3. Zone Strength should be ★★★★☆ for bullish and ★★★☆☆ for bearish
-4. DO NOT DEVIATE FROM THIS FORMAT AT ALL
-5. DO NOT add any introduction or explanations
-6. USE THE EXACT PHRASES PROVIDED - no paraphrasing
-7. USE EXACTLY THE SAME DECIMAL PLACES PROVIDED IN MY TEMPLATE - no additional or fewer decimal places
-8. Bold formatting should be used for headers (using <b> and </b> HTML tags)
-9. Do NOT include the line "Sigmapips AI identifies strong buy/sell probability..." - skip directly from Trend to Zone Strength
-"""
+Important: The format above MUST be followed exactly, with 'Trend' always being '{action}'."""
             
-            # Make a request to DeepSeek API
+            # Korter en sneller aiohttp sessie met timeout limitieten
             async with aiohttp.ClientSession() as session:
                 api_url = "https://api.deepseek.com/v1/chat/completions"
                 
@@ -1284,80 +1354,83 @@ CRITICAL REQUIREMENTS:
                 
                 logger.info(f"Sending request to DeepSeek API for {instrument} analysis")
                 
-                async with session.post(api_url, headers=headers, json=payload) as response:
-                    if response.status == 200:
-                        response_json = await response.json()
-                        analysis = response_json.get("choices", [{}])[0].get("message", {}).get("content", "")
-                        
-                        if analysis:
-                            logger.info(f"DeepSeek analysis successful for {instrument}")
+                # Timeout verkorten naar 15 seconden
+                try:
+                    async with session.post(api_url, headers=headers, json=payload, timeout=15) as response:
+                        if response.status == 200:
+                            response_json = await response.json()
+                            analysis = response_json.get("choices", [{}])[0].get("message", {}).get("content", "")
                             
-                            # Check if response contains HTML and convert to plain text
-                            if "<!doctype" in analysis.lower() or "<html" in analysis.lower():
-                                logger.warning("DeepSeek returned HTML content, converting to plain text")
+                            if analysis:
+                                logger.info(f"DeepSeek analysis successful for {instrument}")
                                 
-                                # Strip HTML tags - basic conversion
-                                analysis = re.sub(r'<[^>]*>', '', analysis)
-                                analysis = re.sub(r'&[^;]+;', '', analysis)
-                                analysis = analysis.replace("\n\n", "\n")
+                                # Check if response contains HTML and convert to plain text
+                                if "<!doctype" in analysis.lower() or "<html" in analysis.lower():
+                                    logger.warning("DeepSeek returned HTML content, converting to plain text")
+                                    
+                                    # Strip HTML tags - basic conversion
+                                    analysis = re.sub(r'<[^>]*>', '', analysis)
+                                    analysis = re.sub(r'&[^;]+;', '', analysis)
+                                    analysis = analysis.replace("\n\n", "\n")
+                                    
+                                    # Additional cleanup
+                                    analysis = analysis.strip()
+                                    
+                                    logger.info("Converted HTML to plain text")
                                 
-                                # Additional cleanup
-                                analysis = analysis.strip()
+                                # Make sure analysis meets the requirement
+                                if not "Trend - " in analysis:
+                                    is_bullish = rsi > 50
+                                    action = "BUY" if is_bullish else "SELL"
+                                    analysis = analysis.replace("Trend - BULLISH", f"Trend - {action}")
+                                    analysis = analysis.replace("Trend - BEARISH", f"Trend - {action}")
                                 
-                                logger.info("Converted HTML to plain text")
-                            
-                            # For other instruments than USDJPY, we still cleanup and reformat
-                            # to ensure consistency but we don't need to run the full processing
-                            if instrument != "USDJPY":
-                                # Make sure the "Trend" is correctly labeled as BUY/SELL instead of BULLISH/BEARISH
-                                analysis = re.sub(r'Trend\s*-\s*(BULLISH|Bullish)', f'Trend - BUY', analysis, flags=re.IGNORECASE)
-                                analysis = re.sub(r'Trend\s*-\s*(BEARISH|Bearish)', f'Trend - SELL', analysis, flags=re.IGNORECASE)
+                                # Cache het resultaat voor toekomstig gebruik
+                                self.chart_cache.set(cache_key, analysis)
                                 
-                                # Ensure support is 0.000 for bullish trends
-                                if is_bullish and "BUY" in analysis:
-                                    analysis = re.sub(r'Support:\s*([0-9.]+)', 'Support: 0.000', analysis)
-                                
-                                # Ensure prices have consistent decimal places
-                                def fix_numbers(match):
-                                    """Fix number formatting in analysis text"""
-                                    try:
-                                        number = float(match.group(0))
-                                        if number >= 1000:
-                                            return f"{number:,.0f}"  # Format large numbers with commas
-                                        elif number >= 100:
-                                            return f"{number:.1f}"   # One decimal for medium numbers
-                                        else:
-                                            return f"{number:.2f}"   # Two decimals for small numbers
-                                    except:
-                                        return match.group(0)  # Return original if conversion fails
-                                
-                                # Apply regex to fix decimals in numerical values
-                                analysis = re.sub(r'(\d+\.\d+)', fix_numbers, analysis)
-                                
-                                # Remove the "Sigmapips AI identifies..." line if it exists
-                                analysis = re.sub(r'\n\nSigmapips AI identifies strong (buy|sell) probability.*?\n\n', '\n\n', analysis, flags=re.IGNORECASE)
-                                
-                                # Convert markdown bold to HTML bold if needed
-                                analysis = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', analysis)
-                                
-                                # Add HTML bold formatting to headers if not already present
-                                analysis = re.sub(r'\n(Trend - [A-Z]+)\n', r'\n<b>\1</b>\n', analysis)
-                                analysis = re.sub(r'\n(📊 Market Overview)\n', r'\n<b>\1</b>\n', analysis)
-                                analysis = re.sub(r'\n(🔑 Key Levels)\n', r'\n<b>\1</b>\n', analysis)
-                                analysis = re.sub(r'\n(📈 Technical Indicators)\n', r'\n<b>\1</b>\n', analysis)
-                                analysis = re.sub(r'\n(🤖 Sigmapips AI Recommendation)\n', r'\n<b>\1</b>\n', analysis)
-                            
-                            # Just return the analysis directly, skipping _clean_for_telegram
-                            return analysis
+                                return analysis
+                            else:
+                                logger.warning(f"Empty response from DeepSeek for {instrument}")
                         else:
-                            logger.error("DeepSeek returned empty analysis")
-                            return None
-                    else:
-                        error_text = await response.text()
-                        logger.error(f"DeepSeek API error: {response.status} - {error_text}")
-                        return None
-                        
+                            logger.error(f"DeepSeek API error: {response.status} - {await response.text()}")
+                except asyncio.TimeoutError:
+                    logger.warning(f"DeepSeek API request timed out for {instrument}")
+                except Exception as api_error:
+                    logger.error(f"DeepSeek API request error: {str(api_error)}")
+
+            # Als we hier komen, is er iets misgegaan
+            logger.warning(f"Falling back to template-based analysis for {instrument}")
+            
+            # Genereer fallback analyse door het template in te vullen op basis van de market data
+            fallback_analysis = f"""{instrument} - {timeframe}
+
+<b>Trend - {action}</b>
+
+Zone Strength 1-5: {'★★★★☆' if is_bullish else '★★★☆☆'}
+
+<b>📊 Market Overview</b>
+{instrument} is trading at {formatted_price}, showing {action.lower()} momentum near the daily {'high' if is_bullish else 'low'} ({formatted_daily_high}). The price remains {'above' if is_bullish else 'below'} key EMAs (50 & 200), confirming an {'uptrend' if is_bullish else 'downtrend'}.
+
+<b>🔑 Key Levels</b>
+Support: {formatted_support} (daily low), {formatted_support}
+Resistance: {formatted_daily_high} (daily high), {formatted_resistance}
+
+<b>📈 Technical Indicators</b>
+RSI: {rsi:.2f} (neutral)
+MACD: {action} (0.00244 > signal 0.00070)
+Moving Averages: Price {'above' if is_bullish else 'below'} EMA 50 ({formatted_ema50}), reinforcing {action.lower()} bias.
+
+<b>🤖 Sigmapips AI Recommendation</b>
+The market shows {'strong buying' if is_bullish else 'strong selling'} pressure. Traders should watch the {formatted_resistance} {'resistance' if is_bullish else 'support'} level carefully. {'A break above could lead to further upside momentum.' if is_bullish else 'A break below could accelerate the downward trend.'}
+
+⚠️ Disclaimer: Please note that the information/analysis provided is strictly for study and educational purposes only. It should not be constructed as financial advice and always do your own analysis."""
+            
+            # Cache het resultaat voor toekomstig gebruik
+            self.chart_cache.set(cache_key, fallback_analysis)
+            
+            return fallback_analysis
+                
         except Exception as e:
-            logger.error(f"Error formatting with DeepSeek: {str(e)}")
+            logger.error(f"Error in _format_with_deepseek: {str(e)}")
             logger.error(traceback.format_exc())
             return None
