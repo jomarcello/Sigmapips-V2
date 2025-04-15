@@ -3288,27 +3288,35 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 logger.error(f"Error checking cache: {str(cache_check_error)}")
                 is_cached = False
             
-            # Show loading message with text indicating if it's from cache
+            # If no loading message in context or not in signal flow, create one
             if not loading_message:
-                # Toon een loading message om de gebruiker te laten weten dat we bezig zijn
-                if is_cached:
-                    loading_text = f"Bezig met laden van {instrument} chart... (uit cache, dit duurt ongeveer 5-10 seconden)"
-                else:
-                    loading_text = f"Bezig met laden van {instrument} chart... Dit duurt ongeveer 20-30 seconden."
+                # Show loading message with GIF - similar to sentiment analysis
+                loading_text = f"Loading {instrument} chart..."
+                loading_gif = "https://media.giphy.com/media/dpjUltnOPye7azvAhH/giphy.gif"
                 
                 try:
-                    # Probeer een statische tekst te tonen
-                    await query.edit_message_text(
-                        text=loading_text
+                    # Try to show animated GIF for loading
+                    await query.edit_message_media(
+                        media=InputMediaAnimation(
+                            media=loading_gif,
+                            caption=loading_text
+                        )
                     )
-                    logger.info(f"Successfully showed loading text for {instrument} technical analysis")
-                except Exception as e:
-                    logger.warning(f"Could not show loading text: {str(e)}")
+                    logger.info(f"Successfully showed loading GIF for {instrument} technical analysis")
+                except Exception as gif_error:
+                    logger.warning(f"Could not show loading GIF: {str(gif_error)}")
+                    # Fallback to text loading message
                     try:
-                        # Fallback naar caption als laatste redmiddel
-                        await query.edit_message_caption(caption=loading_text)
-                    except Exception as caption_error:
-                        logger.error(f"Failed to update caption: {str(caption_error)}")
+                        loading_message = await query.edit_message_text(
+                            text=loading_text
+                        )
+                    except Exception as e:
+                        logger.error(f"Failed to show loading message: {str(e)}")
+                        # Try to edit caption as last resort
+                        try:
+                            await query.edit_message_caption(caption=loading_text)
+                        except Exception as caption_error:
+                            logger.error(f"Failed to update caption: {str(caption_error)}")
             
             # Get the chart image and analysis text with a timeout
             try:
