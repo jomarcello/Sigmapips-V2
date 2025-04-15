@@ -1211,6 +1211,16 @@ class TelegramService:
         application.add_handler(CommandHandler("set_subscription", self.set_subscription_command))
         application.add_handler(CommandHandler("set_payment_failed", self.set_payment_failed_command))
         
+        # Add specific handlers for back buttons
+        application.add_handler(CallbackQueryHandler(self.back_instrument_callback, pattern="^back_instrument$"))
+        application.add_handler(CallbackQueryHandler(self.back_to_signal_analysis_callback, pattern="^back_to_signal_analysis$"))
+        application.add_handler(CallbackQueryHandler(self.analysis_callback, pattern="^back_to_analysis$"))
+        application.add_handler(CallbackQueryHandler(self.back_signals_callback, pattern="^back_signals$"))
+        application.add_handler(CallbackQueryHandler(self.back_menu_callback, pattern="^back_menu$"))
+        application.add_handler(CallbackQueryHandler(self.back_market_callback, pattern="^back_market$"))
+        application.add_handler(CallbackQueryHandler(self.analysis_callback, pattern="^back_analysis$"))
+        application.add_handler(CallbackQueryHandler(self.back_to_signal_callback, pattern="^back_to_signal$"))
+        
         # Generic button callback handler - needs to be last
         application.add_handler(CallbackQueryHandler(self.button_callback))
         
