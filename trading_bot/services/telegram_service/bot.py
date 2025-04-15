@@ -3265,51 +3265,65 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             if not timeframe:
                 timeframe = "1h"
             
-            # Get chart URL
-            logger.info(f"Getting technical analysis chart for {instrument} on {timeframe} timeframe")
-            
-            # Check if we have a loading message in context.user_data
+            # Check if user has existing loading message or we need to create new
             loading_message = None
-            if context and hasattr(context, 'user_data'):
+            if context and hasattr(context, 'user_data') and 'loading_message' in context.user_data:
                 loading_message = context.user_data.get('loading_message')
-            
-            # If no loading message in context or not in signal flow, create one
-            if not loading_message:
-                # Show loading message with GIF - similar to sentiment analysis
-                loading_text = f"Loading {instrument} chart..."
-                loading_gif = "https://media.giphy.com/media/dpjUltnOPye7azvAhH/giphy.gif"
-                
-                try:
-                    # Try to show animated GIF for loading
-                    await query.edit_message_media(
-                        media=InputMediaAnimation(
-                            media=loading_gif,
-                            caption=loading_text
-                        )
-                    )
-                    logger.info(f"Successfully showed loading GIF for {instrument} technical analysis")
-                except Exception as gif_error:
-                    logger.warning(f"Could not show loading GIF: {str(gif_error)}")
-                    # Fallback to text loading message
-                    try:
-                        loading_message = await query.edit_message_text(
-                            text=loading_text
-                        )
-                    except Exception as e:
-                        logger.error(f"Failed to show loading message: {str(e)}")
-                        # Try to edit caption as last resort
-                        try:
-                            await query.edit_message_caption(caption=loading_text)
-                        except Exception as caption_error:
-                            logger.error(f"Failed to update caption: {str(caption_error)}")
+                logger.info(f"Retrieved existing loading message from context: {loading_message.message_id if loading_message else None}")
             
             # Initialize the chart service if needed
             if not hasattr(self, 'chart_service') or not self.chart_service:
                 from trading_bot.services.chart_service.chart import ChartService
                 self.chart_service = ChartService()
+                logger.info("Initialized ChartService")
             
-            # Get the chart image and analysis text
-            chart_image, analysis_text = await self.chart_service.get_technical_analysis(instrument, timeframe)
+            # Check snel of er een cache hit is voordat we de loading message tonen
+            cache_key = f"{instrument}_{timeframe}_technical"
+            is_cached = False
+            try:
+                if hasattr(self.chart_service, 'chart_cache') and self.chart_service.chart_cache:
+                    is_cached = cache_key in self.chart_service.chart_cache.cache
+                    logger.info(f"Cache status voor {instrument} {timeframe}: {'HIT' if is_cached else 'MISS'}")
+            except Exception as cache_check_error:
+                logger.error(f"Error checking cache: {str(cache_check_error)}")
+                is_cached = False
+            
+            # Show loading message with text indicating if it's from cache
+            if not loading_message:
+                # Toon een loading message om de gebruiker te laten weten dat we bezig zijn
+                if is_cached:
+                    loading_text = f"Bezig met laden van {instrument} chart... (uit cache, dit duurt ongeveer 5-10 seconden)"
+                else:
+                    loading_text = f"Bezig met laden van {instrument} chart... Dit duurt ongeveer 20-30 seconden."
+                
+                try:
+                    # Probeer een statische tekst te tonen
+                    await query.edit_message_text(
+                        text=loading_text
+                    )
+                    logger.info(f"Successfully showed loading text for {instrument} technical analysis")
+                except Exception as e:
+                    logger.warning(f"Could not show loading text: {str(e)}")
+                    try:
+                        # Fallback naar caption als laatste redmiddel
+                        await query.edit_message_caption(caption=loading_text)
+                    except Exception as caption_error:
+                        logger.error(f"Failed to update caption: {str(caption_error)}")
+            
+            # Get the chart image and analysis text with a timeout
+            try:
+                # Zet timeout voor het ophalen van de chart
+                chart_task = asyncio.create_task(self.chart_service.get_technical_analysis(instrument, timeframe))
+                chart_image, analysis_text = await asyncio.wait_for(chart_task, timeout=60.0)  # 60 seconden timeout
+                logger.info(f"Successfully retrieved chart and analysis for {instrument}")
+            except asyncio.TimeoutError:
+                logger.error(f"Timeout getting chart for {instrument}")
+                error_text = f"Timeout bij het genereren van de chart voor {instrument}. Probeer het later opnieuw."
+                await query.edit_message_text(
+                    text=error_text,
+                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
+                )
+                return MENU
             
             if not chart_image:
                 # Fallback to error message
@@ -3346,6 +3360,10 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 await query.delete_message()
                 logger.info("Original message deleted successfully")
                 
+                # Clear loading message from context if it exists
+                if context and hasattr(context, 'user_data') and 'loading_message' in context.user_data:
+                    del context.user_data['loading_message']
+                
                 return SHOW_RESULT
                 
             except Exception as e:
@@ -3353,23 +3371,18 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 
                 # Fallback error handling
                 try:
-                    if loading_message:
-                        await loading_message.edit_text(
-                            text=f"Error sending chart for {instrument}. Please try again later.",
-                            reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
-                        )
-                    else:
-                        await query.edit_message_text(
-                            text=f"Error sending chart for {instrument}. Please try again later.",
-                            reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
-                        )
-                except Exception:
-                    pass
+                    await query.edit_message_text(
+                        text=f"Error sending chart for {instrument}. Please try again later.",
+                        reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
+                    )
+                except Exception as edit_error:
+                    logger.error(f"Failed to edit message: {str(edit_error)}")
                 
                 return MENU
         
         except Exception as e:
             logger.error(f"Error in show_technical_analysis: {str(e)}")
+            logger.error(traceback.format_exc())
             # Error recovery
             try:
                 await query.edit_message_text(
@@ -4517,6 +4530,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             
             logger.info(f"Successfully sent signal {signal_id} to {sent_count}/{len(subscribers)} subscribers")
             return True
+            
             
         except Exception as e:
             logger.error(f"Error processing signal: {str(e)}")
