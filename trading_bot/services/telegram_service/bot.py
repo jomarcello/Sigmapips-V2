@@ -3358,170 +3358,60 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 loading_message = context.user_data.get('loading_message')
                 logger.info(f"Retrieved existing loading message from context: {loading_message.message_id if loading_message else None}")
             
+            # Show loading message with GIF or text
+            if not loading_message:
+                # Toon een loading message om de gebruiker te laten weten dat we bezig zijn
+                loading_text = f"Loading {instrument} chart..."
+                loading_gif = "https://media.giphy.com/media/dpjUltnOPye7azvAhH/giphy.gif"
+                
+                try:
+                    # Try to show animated GIF for loading
+                    await query.edit_message_media(
+                        media=InputMediaAnimation(
+                            media=loading_gif,
+                            caption=loading_text
+                        )
+                    )
+                    logger.info(f"Successfully showed loading GIF for {instrument} technical analysis")
+                except Exception as gif_error:
+                    logger.warning(f"Could not show loading GIF: {str(gif_error)}")
+                    # Fallback to text loading message
+                    try:
+                        loading_message = await query.edit_message_text(
+                            text=loading_text
+                        )
+                    except Exception as e:
+                        logger.error(f"Failed to show loading message: {str(e)}")
+                        # Try to edit caption as last resort
+                        try:
+                            await query.edit_message_caption(caption=loading_text)
+                        except Exception as caption_error:
+                            logger.error(f"Failed to update caption: {str(caption_error)}")
+            
             # Initialize the chart service if needed
             if not hasattr(self, 'chart_service') or not self.chart_service:
                 from trading_bot.services.chart_service.chart import ChartService
                 self.chart_service = ChartService()
                 logger.info("Initialized ChartService")
             
-            # Check snel of er een cache hit is voordat we de loading message tonen
-            cache_key = f"{instrument}_{timeframe}_technical"
-            is_cached = False
+            # Get the chart image and analysis text
             try:
-                if hasattr(self.chart_service, 'chart_cache') and self.chart_service.chart_cache:
-                    is_cached = cache_key in self.chart_service.chart_cache.cache
-                    logger.info(f"Cache status voor {instrument} {timeframe}: {'HIT' if is_cached else 'MISS'}")
-            except Exception as cache_check_error:
-                logger.error(f"Error checking cache: {str(cache_check_error)}")
-                is_cached = False
-            
-            # If no loading message in context or not in signal flow, create one
-            if not loading_message:
-                # Show loading message with GIF - similar to sentiment analysis
-                loading_text = f"Loading {instrument} chart..."
-                loading_gif = "https://media.giphy.com/media/dpjUltnOPye7azvAhH/giphy.gif"
-                
-                # Check if the message has media
-                has_media = False
-                try:
-                    if query.message:
-                        has_media = bool(query.message.photo or query.message.animation)
-                    logger.info(f"Message has media: {has_media}")
-                except Exception as e:
-                    logger.error(f"Error checking message media: {str(e)}")
-                    has_media = False
-                
-                if has_media:
-                    # If the message has media, try to update it with a new GIF
-                    try:
-                        await query.edit_message_media(
-                            media=InputMediaAnimation(
-                                media=loading_gif,
-                                caption=loading_text
-                            )
-                        )
-                        logger.info(f"Successfully showed loading GIF for {instrument} technical analysis")
-                    except Exception as gif_error:
-                        logger.warning(f"Could not show loading GIF: {str(gif_error)}")
-                        try:
-                            # Try to edit caption only
-                            await query.edit_message_caption(caption=loading_text)
-                            logger.info("Updated caption instead of media")
-                        except Exception as caption_error:
-                            logger.error(f"Failed to update caption: {str(caption_error)}")
-                            # Send a new message as last resort
-                            try:
-                                message = await context.bot.send_message(
-                                    chat_id=update.effective_chat.id, 
-                                    text=loading_text
-                                )
-                                logger.info("Sent new loading message")
-                                if context and hasattr(context, 'user_data'):
-                                    context.user_data['loading_message'] = message
-                            except Exception as msg_error:
-                                logger.error(f"Failed to send message: {str(msg_error)}")
-                else:
-                    # If no media, just update the text
-                    try:
-                        await query.edit_message_text(
-                            text=loading_text
-                        )
-                        logger.info(f"Successfully showed loading text for {instrument} technical analysis")
-                    except Exception as e:
-                        logger.error(f"Failed to show loading message: {str(e)}")
-                        # Send a new message as last resort
-                        try:
-                            message = await context.bot.send_message(
-                                chat_id=update.effective_chat.id, 
-                                text=loading_text
-                            )
-                            logger.info("Sent new loading message")
-                            if context and hasattr(context, 'user_data'):
-                                context.user_data['loading_message'] = message
-                        except Exception as msg_error:
-                            logger.error(f"Failed to send message: {str(msg_error)}")
-            
-            # Get the chart image and analysis text with a timeout
-            chart_image = None
-            analysis_text = None
-            
-            try:
-                # Zet timeout voor het ophalen van de chart
-                chart_task = asyncio.create_task(self.chart_service.get_technical_analysis(instrument, timeframe))
-                chart_image, analysis_text = await asyncio.wait_for(chart_task, timeout=60.0)  # 60 seconden timeout
+                chart_image, analysis_text = await self.chart_service.get_technical_analysis(instrument, timeframe)
                 logger.info(f"Successfully retrieved chart and analysis for {instrument}")
-            except asyncio.TimeoutError:
-                logger.error(f"Timeout getting chart for {instrument}")
-                # Try to get a fallback chart instead of showing an error
-                try:
-                    if hasattr(self.chart_service, 'get_fallback_chart'):
-                        chart_image = await self.chart_service._generate_random_chart(instrument, timeframe)
-                        # Create basic analysis text if none was received
-                        if not analysis_text:
-                            analysis_text = f"{instrument} - {timeframe}\n\nFallback analysis is shown because the live chart took too long to generate.\n\nPlease try again later for a real-time analysis."
-                    else:
-                        # If no fallback method, proceed with error
-                        raise Exception("No fallback method available")
-                except Exception as fallback_error:
-                    logger.error(f"Error getting fallback chart: {str(fallback_error)}")
-                    error_text = f"Timeout bij het genereren van de chart voor {instrument}. Probeer het later opnieuw."
-                    try:
-                        await query.edit_message_text(
-                            text=error_text,
-                            reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
-                        )
-                    except Exception as edit_error:
-                        logger.error(f"Error editing message: {str(edit_error)}")
-                        try:
-                            # Probeer caption te updaten als tekst niet werkt
-                            await query.edit_message_caption(
-                                caption=error_text, 
-                                reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
-                            )
-                        except Exception as caption_error:
-                            logger.error(f"Error editing caption: {str(caption_error)}")
-                            # Laatste optie: stuur een nieuw bericht
-                            try:
-                                await context.bot.send_message(
-                                    chat_id=update.effective_chat.id,
-                                    text=error_text,
-                                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
-                                )
-                                # Probeer het originele bericht te verwijderen
-                                await query.delete_message()
-                            except Exception as msg_error:
-                                logger.error(f"Error sending new message: {str(msg_error)}")
-                    return MENU
+            except Exception as e:
+                logger.error(f"Error retrieving chart and analysis: {str(e)}")
+                await query.edit_message_text(
+                    text=f"Error retrieving chart for {instrument}. Please try again later.",
+                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
+                )
+                return MENU
             
             if not chart_image:
                 # Fallback to error message
-                error_text = f"Failed to generate chart for {instrument}. Please try again later."
-                try:
-                    await query.edit_message_text(
-                        text=error_text,
-                        reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
-                    )
-                except Exception as edit_error:
-                    logger.error(f"Error editing message: {str(edit_error)}")
-                    try:
-                        # Try caption if text fails
-                        await query.edit_message_caption(
-                            caption=error_text,
-                            reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
-                        )
-                    except Exception as caption_error:
-                        logger.error(f"Error editing caption: {str(caption_error)}")
-                        # Last option: send a new message
-                        try:
-                            await context.bot.send_message(
-                                chat_id=update.effective_chat.id,
-                                text=error_text,
-                                reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
-                            )
-                            # Try to delete the original message
-                            await query.delete_message()
-                        except Exception as msg_error:
-                            logger.error(f"Error sending new message: {str(msg_error)}")
+                await query.edit_message_text(
+                    text=f"Failed to generate chart for {instrument}. Please try again later.",
+                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
+                )
                 return MENU
             
             # Create the keyboard with appropriate back button based on flow
@@ -3546,10 +3436,9 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 )
                 
                 # Delete the original message (the one with the loading indicator)
-                if query and query.message:
-                    logger.info(f"Deleting original message {query.message.message_id}")
-                    await query.delete_message()
-                    logger.info("Original message deleted successfully")
+                logger.info(f"Deleting original message {query.message.message_id}")
+                await query.delete_message()
+                logger.info("Original message deleted successfully")
                 
                 # Clear loading message from context if it exists
                 if context and hasattr(context, 'user_data') and 'loading_message' in context.user_data:
@@ -3576,11 +3465,10 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             logger.error(traceback.format_exc())
             # Error recovery
             try:
-                if query:
-                    await query.edit_message_text(
-                        text="An error occurred. Please try again from the main menu.",
-                        reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
-                    )
+                await query.edit_message_text(
+                    text="An error occurred. Please try again from the main menu.",
+                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
+                )
             except Exception:
                 pass
             
