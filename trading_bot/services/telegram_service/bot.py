@@ -1335,88 +1335,17 @@ class TelegramService:
             return f"New {signal_data.get('instrument', 'Unknown')} {signal_data.get('direction', 'Unknown')} Signal"
 
     def _register_handlers(self, application):
-        """Register event handlers for bot commands and callback queries"""
-        try:
-            logger.info("Registering command handlers")
-            
-            # Initialize the application without using run_until_complete
-            try:
-                # Instead of using loop.run_until_complete, directly call initialize 
-                # which will be properly awaited by the caller
-                self.init_task = application.initialize()
-                logger.info("Telegram application initialization ready to be awaited")
-            except Exception as init_e:
-                logger.error(f"Error during application initialization: {str(init_e)}")
-                logger.exception(init_e)
-                
-            # Set bot commands for menu
-            commands = [
-                BotCommand("start", "Start the bot and get the welcome message"),
-                BotCommand("menu", "Show the main menu"),
-                BotCommand("help", "Show available commands and how to use the bot")
-            ]
-            
-            # Store the set_commands task to be awaited later
-            try:
-                # Instead of asyncio.create_task, we will await this in the startup event
-                self.set_commands_task = self.bot.set_my_commands(commands)
-                logger.info("Bot commands ready to be set")
-            except Exception as cmd_e:
-                logger.error(f"Error preparing bot commands: {str(cmd_e)}")
-            
-            # Register command handlers
-            application.add_handler(CommandHandler("start", self.start_command))
-            application.add_handler(CommandHandler("menu", self.menu_command))
-            application.add_handler(CommandHandler("help", self.help_command))
-            
-            # Register callback handlers
-            application.add_handler(CallbackQueryHandler(self.menu_analyse_callback, pattern="^menu_analyse$"))
-            application.add_handler(CallbackQueryHandler(self.menu_signals_callback, pattern="^menu_signals$"))
-            application.add_handler(CallbackQueryHandler(self.signals_add_callback, pattern="^signals_add$"))
-            application.add_handler(CallbackQueryHandler(self.signals_manage_callback, pattern="^signals_manage$"))
-            application.add_handler(CallbackQueryHandler(self.market_callback, pattern="^market_"))
-            application.add_handler(CallbackQueryHandler(self.instrument_callback, pattern="^instrument_(?!.*_signals)"))
-            application.add_handler(CallbackQueryHandler(self.instrument_signals_callback, pattern="^instrument_.*_signals$"))
-            
-            # Add handler for back buttons
-            application.add_handler(CallbackQueryHandler(self.back_market_callback, pattern="^back_market$"))
-            application.add_handler(CallbackQueryHandler(self.back_instrument_callback, pattern="^back_instrument$"))
-            application.add_handler(CallbackQueryHandler(self.back_signals_callback, pattern="^back_signals$"))
-            application.add_handler(CallbackQueryHandler(self.back_menu_callback, pattern="^back_menu$"))
-            application.add_handler(CallbackQueryHandler(self.back_analysis_callback, pattern="^back_analysis$"))
-            
-            # Analysis handlers for regular flow
-            application.add_handler(CallbackQueryHandler(self.analysis_technical_callback, pattern="^analysis_technical$"))
-            application.add_handler(CallbackQueryHandler(self.analysis_sentiment_callback, pattern="^analysis_sentiment$"))
-            application.add_handler(CallbackQueryHandler(self.analysis_calendar_callback, pattern="^analysis_calendar$"))
-            
-            # Analysis handlers for signal flow - with instrument embedded in callback
-            application.add_handler(CallbackQueryHandler(self.analysis_technical_callback, pattern="^analysis_technical_signal_.*$"))
-            application.add_handler(CallbackQueryHandler(self.analysis_sentiment_callback, pattern="^analysis_sentiment_signal_.*$"))
-            application.add_handler(CallbackQueryHandler(self.analysis_calendar_callback, pattern="^analysis_calendar_signal_.*$"))
-            
-            # Signal analysis flow handlers
-            application.add_handler(CallbackQueryHandler(self.signal_technical_callback, pattern="^signal_technical$"))
-            application.add_handler(CallbackQueryHandler(self.signal_sentiment_callback, pattern="^signal_sentiment$"))
-            application.add_handler(CallbackQueryHandler(self.signal_calendar_callback, pattern="^signal_calendar$"))
-            application.add_handler(CallbackQueryHandler(self.signal_calendar_callback, pattern="^signal_flow_calendar_.*$"))
-            application.add_handler(CallbackQueryHandler(self.back_to_signal_callback, pattern="^back_to_signal$"))
-            application.add_handler(CallbackQueryHandler(self.back_to_signal_analysis_callback, pattern="^back_to_signal_analysis$"))
-            
-            # Signal from analysis
-            application.add_handler(CallbackQueryHandler(self.analyze_from_signal_callback, pattern="^analyze_from_signal_.*$"))
-            
-            # Catch-all handler for any other callbacks
-            application.add_handler(CallbackQueryHandler(self.button_callback))
-            
-            # Load signals
-            self._load_signals()
-            
-            logger.info("Bot setup completed successfully")
-            
-        except Exception as e:
-            logger.error(f"Error setting up bot handlers: {str(e)}")
-            logger.exception(e)
+        """Register command handlers"""
+        application.add_handler(CommandHandler("start", self.start_command))
+        application.add_handler(CommandHandler("menu", self.show_main_menu))
+        application.add_handler(CommandHandler("help", self.help_command))
+        application.add_handler(CommandHandler("set_subscription", self.set_subscription_command))
+        application.add_handler(CommandHandler("set_payment_failed", self.set_payment_failed_command))
+        # Add the debug_sentiment command
+        application.add_handler(CommandHandler("debug_sentiment", self.debug_sentiment_command))
+        
+        # Add callback handlers
+        application.add_handler(CallbackQueryHandler(self.button_callback))
 
     @property
     def signals_enabled(self):
@@ -4041,7 +3970,23 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Get sentiment data using clean instrument name
             try:
                 if hasattr(self.sentiment_service, 'get_sentiment'):
+                    logger.info(f"Calling get_sentiment for {clean_instrument}...")
                     sentiment_data = await self.sentiment_service.get_sentiment(clean_instrument)
+                    
+                    # NIEUWE DEBUG LOGGING: Log alle keys en waarden in sentiment_data
+                    logger.info(f"SENTIMENT_DATA RECEIVED FOR {clean_instrument}:")
+                    logger.info(f"Type: {type(sentiment_data)}")
+                    
+                    if isinstance(sentiment_data, dict):
+                        for key, value in sentiment_data.items():
+                            if key == 'analysis' and isinstance(value, str) and len(value) > 100:
+                                # Voor lange analyses, laat alleen een snippet zien
+                                logger.info(f"Key: {key}, Value (truncated): {value[:100]}...")
+                            else:
+                                logger.info(f"Key: {key}, Value: {value}")
+                    else:
+                        logger.warning(f"sentiment_data is not a dictionary: {sentiment_data}")
+                    
                 else:
                     logger.warning("get_sentiment methode niet gevonden in MarketSentimentService, fallback naar mock data")
                     # Fallback naar basis sentiment data
@@ -4120,6 +4065,9 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Add time of analysis
             message += f"Analysis Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC\n"
             
+            # Log final message for debugging
+            logger.info(f"Final formatted sentiment message for {clean_instrument}:\n{message}")
+            
             # Create keyboard with back button
             keyboard = None
             if is_from_signal:
@@ -4165,6 +4113,118 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             )
             
             return CHOOSE_ANALYSIS
+            
+    async def debug_sentiment_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> None:
+        """Debug command to test sentiment API keys and connections"""
+        logger.info("Debug sentiment command called")
+        
+        # Send initial message
+        message = await update.message.reply_text(
+            "🧪 <b>Testing Market Sentiment Service...</b>\n\nChecking API keys and connectivity...",
+            parse_mode=ParseMode.HTML
+        )
+        
+        try:
+            # Initialize sentiment service if needed
+            if not hasattr(self, 'sentiment_service') or self.sentiment_service is None:
+                self.sentiment_service = MarketSentimentService()
+                
+            # Check if the debug_api_keys method exists
+            debug_results = []
+            
+            if hasattr(self.sentiment_service, 'debug_api_keys'):
+                logger.info("Calling debug_api_keys method")
+                api_debug_info = await self.sentiment_service.debug_api_keys()
+                debug_results.append(f"API Keys Debug:\n{api_debug_info}")
+            else:
+                logger.warning("debug_api_keys method not found")
+                debug_results.append("API Keys Debug: Method not available")
+            
+            # Test DeepSeek connectivity
+            if hasattr(self.sentiment_service, '_check_deepseek_connectivity'):
+                logger.info("Testing DeepSeek connectivity")
+                deepseek_available = await self.sentiment_service._check_deepseek_connectivity()
+                debug_results.append(f"DeepSeek API Connectivity: {'✅ Available' if deepseek_available else '❌ Not Available'}")
+            else:
+                debug_results.append("DeepSeek API Connectivity: Test method not available")
+            
+            # Test Tavily connectivity
+            if hasattr(self.sentiment_service, '_test_tavily_connectivity'):
+                logger.info("Testing Tavily connectivity")
+                tavily_available = await self.sentiment_service._test_tavily_connectivity()
+                debug_results.append(f"Tavily API Connectivity: {'✅ Available' if tavily_available else '❌ Not Available'}")
+            else:
+                debug_results.append("Tavily API Connectivity: Test method not available")
+            
+            # Try a simple sentiment test
+            test_instrument = "EURUSD"
+            logger.info(f"Testing sentiment analysis with {test_instrument}")
+            debug_results.append(f"\nTesting sentiment analysis with {test_instrument}...")
+            
+            try:
+                # Use a timeout to prevent hanging if there's an issue
+                sentiment_task = asyncio.create_task(
+                    self.sentiment_service.get_sentiment(test_instrument)
+                )
+                
+                # Set a timeout of 10 seconds
+                try:
+                    sentiment_data = await asyncio.wait_for(sentiment_task, timeout=10.0)
+                    
+                    if isinstance(sentiment_data, dict):
+                        # Extract key information
+                        sentiment_score = sentiment_data.get('sentiment_score', 'N/A')
+                        bullish = sentiment_data.get('bullish', 'N/A')
+                        bearish = sentiment_data.get('bearish', 'N/A')
+                        
+                        debug_results.append(f"✅ Sentiment test successful!")
+                        debug_results.append(f"  Score: {sentiment_score}")
+                        debug_results.append(f"  Bullish: {bullish}%")
+                        debug_results.append(f"  Bearish: {bearish}%")
+                        
+                        # Check if bullish/bearish percentages were found
+                        if bullish == 'N/A' or bearish == 'N/A':
+                            debug_results.append("⚠️ Warning: Could not extract sentiment percentages")
+                        
+                        # Check if analysis text is present and has the right format
+                        if 'analysis' in sentiment_data:
+                            analysis_snippet = sentiment_data['analysis'][:100] + "..." if len(sentiment_data['analysis']) > 100 else sentiment_data['analysis']
+                            debug_results.append(f"  Analysis snippet: {analysis_snippet}")
+                            
+                            # Check for proper format in the analysis text
+                            bullish_match = re.search(r'(?:Bullish:|🟢\s*Bullish:)\s*(\d+)\s*%', sentiment_data['analysis'])
+                            if bullish_match:
+                                debug_results.append(f"  ✅ Bullish percentage found in analysis text: {bullish_match.group(1)}%")
+                            else:
+                                debug_results.append(f"  ❌ Bullish percentage NOT found in analysis text")
+                        else:
+                            debug_results.append("  ❌ No analysis text in response")
+                    else:
+                        debug_results.append(f"❌ Sentiment test failed: Invalid response type: {type(sentiment_data)}")
+                        
+                except asyncio.TimeoutError:
+                    debug_results.append(f"❌ Sentiment test timed out after 10 seconds")
+                    
+            except Exception as e:
+                debug_results.append(f"❌ Sentiment test error: {str(e)}")
+                logger.error(f"Error in sentiment test: {str(e)}")
+                
+            # Update the message with all results
+            debug_text = "🧪 <b>Market Sentiment Service Diagnostics</b>\n\n" + "\n\n".join(debug_results)
+            
+            await message.edit_text(
+                debug_text,
+                parse_mode=ParseMode.HTML
+            )
+            
+        except Exception as e:
+            logger.error(f"Error in debug_sentiment_command: {str(e)}")
+            logger.exception(e)
+            
+            await message.edit_text(
+                f"❌ <b>Error in sentiment debugging</b>\n\n{str(e)}",
+                parse_mode=ParseMode.HTML
+            )
             
     async def analysis_callback(self, update: Update, context=None) -> int:
         """Handle analysis menu callback"""
