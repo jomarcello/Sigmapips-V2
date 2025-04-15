@@ -1226,33 +1226,38 @@ class TelegramService:
         
         # Dictionary of patterns and their corresponding handlers for better readability
         back_button_handlers = {
-            "^back_to_signal_analysis$": self.back_to_signal_analysis_callback,
-            "^back_to_analysis$": self.analysis_callback,
-            "^back_signals$": self.back_signals_callback,
-            "^back_menu$": self.back_menu_callback,
-            "^back_market$": self.back_market_callback,
-            "^back_analysis$": self.analysis_callback,
-            "^back_to_signal$": self.back_to_signal_callback,
-            "^back_instrument$": self.back_instrument_callback
+            "back_to_signal_analysis": self.back_to_signal_analysis_callback,
+            "back_to_analysis": self.analysis_callback,
+            "back_signals": self.back_signals_callback,
+            "back_menu": self.back_menu_callback,
+            "back_market": self.back_market_callback,
+            "back_analysis": self.analysis_callback,
+            "back_to_signal": self.back_to_signal_callback,
+            "back_instrument": self.back_instrument_callback
         }
         
         # Register each handler
+        logger.info("Registering back button handlers")
         for pattern, handler in back_button_handlers.items():
-            logger.info(f"Registering handler for pattern: {pattern}")
-            application.add_handler(CallbackQueryHandler(handler, pattern=pattern))
+            # Make the pattern less strict - match anywhere in the string
+            pattern_regex = f"{pattern}"
+            logger.info(f"Registering handler for pattern: {pattern_regex}")
+            application.add_handler(CallbackQueryHandler(handler, pattern=pattern_regex))
             
         # Add signal callback handlers - needed for the signal flow
         logger.info("Registering signal-specific callback handlers")
         signal_handlers = {
-            "^signal_technical$": self.signal_technical_callback,
-            "^signal_sentiment$": self.signal_sentiment_callback,
-            "^signal_calendar$": self.signal_calendar_callback
+            "signal_technical": self.signal_technical_callback,
+            "signal_sentiment": self.signal_sentiment_callback,
+            "signal_calendar": self.signal_calendar_callback
         }
         
         # Register each signal handler
         for pattern, handler in signal_handlers.items():
-            logger.info(f"Registering signal handler for pattern: {pattern}")
-            application.add_handler(CallbackQueryHandler(handler, pattern=pattern))
+            # Make the pattern less strict - match anywhere in the string
+            pattern_regex = f"{pattern}"
+            logger.info(f"Registering signal handler for pattern: {pattern_regex}")
+            application.add_handler(CallbackQueryHandler(handler, pattern=pattern_regex))
         
         # Generic button callback handler - needs to be last
         logger.info("Registering generic button callback handler")
@@ -2323,6 +2328,12 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         query = update.callback_query
         await query.answer()
         
+        # Improved logging
+        logger.info("back_to_signal_callback called")
+        logger.info(f"Query data: {query.data}")
+        if context and hasattr(context, 'user_data'):
+            logger.info(f"Context user_data: {context.user_data}")
+        
         try:
             # Get the current signal being viewed
             user_id = update.effective_user.id
@@ -2331,62 +2342,69 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             signal_instrument = None
             signal_direction = None
             signal_timeframe = None
+            signal_id = None
             
             if context and hasattr(context, 'user_data'):
                 # Try to get from backup fields first (these are more reliable after navigation)
-                signal_instrument = context.user_data.get('signal_instrument_backup') or context.user_data.get('signal_instrument')
+                signal_instrument = context.user_data.get('signal_instrument_backup') or context.user_data.get('instrument')
                 signal_direction = context.user_data.get('signal_direction_backup') or context.user_data.get('signal_direction')
                 signal_timeframe = context.user_data.get('signal_timeframe_backup') or context.user_data.get('signal_timeframe')
+                signal_id = context.user_data.get('signal_id_backup') or context.user_data.get('signal_id')
                 
                 # Reset signal flow flags but keep the signal info
                 context.user_data['from_signal'] = True
                 
                 # Log retrieved values for debugging
-                logger.info(f"Retrieved signal data from context: instrument={signal_instrument}, direction={signal_direction}, timeframe={signal_timeframe}")
+                logger.info(f"Retrieved signal data from context: instrument={signal_instrument}, signal_id={signal_id}, direction={signal_direction}, timeframe={signal_timeframe}")
             
             # Find the most recent signal for this user based on context data
             signal_data = None
-            signal_id = None
             
-            # Find matching signal based on instrument and direction
-            if str(user_id) in self.user_signals:
-                user_signal_dict = self.user_signals[str(user_id)]
-                # Find signals matching instrument, direction and timeframe
-                matching_signals = []
-                
-                for sig_id, sig in user_signal_dict.items():
-                    instrument_match = sig.get('instrument') == signal_instrument
-                    direction_match = True  # Default to true if we don't have direction data
-                    timeframe_match = True  # Default to true if we don't have timeframe data
-                    
-                    if signal_direction:
-                        direction_match = sig.get('direction') == signal_direction
-                    if signal_timeframe:
-                        timeframe_match = sig.get('interval') == signal_timeframe
-                    
-                    if instrument_match and direction_match and timeframe_match:
-                        matching_signals.append((sig_id, sig))
-                
-                # Sort by timestamp, newest first
-                if matching_signals:
-                    matching_signals.sort(key=lambda x: x[1].get('timestamp', ''), reverse=True)
-                    signal_id, signal_data = matching_signals[0]
-                    logger.info(f"Found matching signal with ID: {signal_id}")
-                else:
-                    logger.warning(f"No matching signals found for instrument={signal_instrument}, direction={signal_direction}, timeframe={signal_timeframe}")
-                    # If no exact match, try with just the instrument
+            # If we have a specific signal ID, try to get that first
+            if signal_id and str(user_id) in self.user_signals and signal_id in self.user_signals[str(user_id)]:
+                signal_data = self.user_signals[str(user_id)][signal_id]
+                logger.info(f"Found signal with ID: {signal_id}")
+            else:
+                # Otherwise, find matching signals based on instrument and other properties
+                if str(user_id) in self.user_signals:
+                    user_signal_dict = self.user_signals[str(user_id)]
+                    # Find signals matching instrument, direction and timeframe
                     matching_signals = []
+                    
                     for sig_id, sig in user_signal_dict.items():
-                        if sig.get('instrument') == signal_instrument:
+                        instrument_match = sig.get('instrument') == signal_instrument
+                        direction_match = True  # Default to true if we don't have direction data
+                        timeframe_match = True  # Default to true if we don't have timeframe data
+                        
+                        if signal_direction:
+                            direction_match = sig.get('direction') == signal_direction
+                        if signal_timeframe:
+                            timeframe_match = sig.get('interval') == signal_timeframe
+                        
+                        if instrument_match and direction_match and timeframe_match:
                             matching_signals.append((sig_id, sig))
                     
+                    # Sort by timestamp, newest first
                     if matching_signals:
                         matching_signals.sort(key=lambda x: x[1].get('timestamp', ''), reverse=True)
                         signal_id, signal_data = matching_signals[0]
-                        logger.info(f"Found signal with just instrument match, ID: {signal_id}")
+                        logger.info(f"Found matching signal with ID: {signal_id}")
+                    else:
+                        logger.warning(f"No matching signals found for instrument={signal_instrument}, direction={signal_direction}, timeframe={signal_timeframe}")
+                        # If no exact match, try with just the instrument
+                        matching_signals = []
+                        for sig_id, sig in user_signal_dict.items():
+                            if sig.get('instrument') == signal_instrument:
+                                matching_signals.append((sig_id, sig))
+                            
+                        if matching_signals:
+                            matching_signals.sort(key=lambda x: x[1].get('timestamp', ''), reverse=True)
+                            signal_id, signal_data = matching_signals[0]
+                            logger.info(f"Found signal with just instrument match, ID: {signal_id}")
             
             if not signal_data:
                 # Fallback message if signal not found
+                logger.warning("No signal data found, going back to menu")
                 await query.edit_message_text(
                     text="Signal not found. Please use the main menu to continue.",
                     reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
@@ -2402,22 +2420,79 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Get the formatted message from the signal
             signal_message = signal_data.get('message', "Signal details not available.")
             
-            # Edit current message to show signal
-            await query.edit_message_text(
-                text=signal_message,
-                reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode=ParseMode.HTML
-            )
+            # Check if the message has photo/media
+            has_photo = False
+            if query and query.message:
+                has_photo = bool(query.message.photo) or query.message.animation is not None
+                logger.info(f"Message has photo: {has_photo}")
+            
+            if has_photo:
+                # For photo/media messages, try to delete and create new
+                try:
+                    # Store message info before deletion
+                    chat_id = update.effective_chat.id
+                    message_id = query.message.message_id
+                    
+                    # Try to delete current message
+                    logger.info(f"Attempting to delete message {message_id}")
+                    await query.message.delete()
+                    
+                    # Send new message
+                    logger.info("Sending new message with signal details")
+                    await context.bot.send_message(
+                        chat_id=chat_id,
+                        text=signal_message,
+                        reply_markup=InlineKeyboardMarkup(keyboard),
+                        parse_mode=ParseMode.HTML
+                    )
+                except Exception as e:
+                    logger.error(f"Error deleting/sending message: {str(e)}")
+                    # Try to edit as fallback
+                    try:
+                        await query.edit_message_caption(
+                            caption=signal_message,
+                            reply_markup=InlineKeyboardMarkup(keyboard),
+                            parse_mode=ParseMode.HTML
+                        )
+                    except Exception as caption_e:
+                        logger.error(f"Error editing caption: {str(caption_e)}")
+                        # Last resort - send new message
+                        await context.bot.send_message(
+                            chat_id=update.effective_chat.id,
+                            text=signal_message,
+                            reply_markup=InlineKeyboardMarkup(keyboard),
+                            parse_mode=ParseMode.HTML
+                        )
+            else:
+                # No photo, just edit the text
+                try:
+                    # Edit current message to show signal
+                    await query.edit_message_text(
+                        text=signal_message,
+                        reply_markup=InlineKeyboardMarkup(keyboard),
+                        parse_mode=ParseMode.HTML
+                    )
+                except Exception as e:
+                    logger.error(f"Error editing message: {str(e)}")
+                    # Last resort - send new message
+                    await context.bot.send_message(
+                        chat_id=update.effective_chat.id,
+                        text=signal_message,
+                        reply_markup=InlineKeyboardMarkup(keyboard),
+                        parse_mode=ParseMode.HTML
+                    )
             
             return SIGNAL_DETAILS
             
         except Exception as e:
             logger.error(f"Error in back_to_signal_callback: {str(e)}")
+            logger.exception(e)  # Log full traceback
             
             # Error recovery
             try:
-                await query.edit_message_text(
-                    text="An error occurred. Please try again from the main menu.",
+                await context.bot.send_message(
+                    chat_id=update.effective_chat.id,
+                    text="An error occurred returning to signal. Please use /menu to restart.",
                     reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
                 )
             except Exception:
@@ -2560,6 +2635,8 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Back to signal handler
             elif callback_data == "back_to_signal":
                 return await self.back_to_signal_callback(update, context)
+            elif callback_data == "back_to_signal_analysis":
+                return await self.back_to_signal_analysis_callback(update, context)
                 
             # Direct instrument_timeframe callbacks  
             if "_timeframe_" in callback_data:
@@ -3944,80 +4021,123 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             instrument = None
             if context and hasattr(context, 'user_data'):
                 instrument = context.user_data.get('instrument')
+                logger.info(f"Instrument from context: {instrument}")
             
             # Check if message has photo or animation
-            has_photo = bool(query.message.photo) or query.message.animation is not None
+            has_photo = False
+            if query and query.message:
+                has_photo = bool(query.message.photo) or query.message.animation is not None
+                logger.info(f"Message has photo or animation: {has_photo}")
             
             # Use the standard SIGNAL_ANALYSIS_KEYBOARD
             keyboard = SIGNAL_ANALYSIS_KEYBOARD
             
-            # Format the message text
-            text = f"Select your analysis type:"
+            # Format the message text with instrument name if available
+            text = f"<b>📊 Signal Analysis</b>\n\nSelect your analysis type:"
+            if instrument:
+                text = f"<b>📊 Signal Analysis for {instrument}</b>\n\nSelect your analysis type:"
             
-            if has_photo:
-                # Try to delete the message first (if possible)
-                try:
-                    await query.message.delete()
-                    await context.bot.send_message(
-                        chat_id=update.effective_chat.id,
-                        text=text,
-                        reply_markup=InlineKeyboardMarkup(keyboard),
-                        parse_mode=ParseMode.HTML
-                    )
-                    return SIGNAL_DETAILS
-                except Exception as delete_error:
-                    logger.error(f"Could not delete message: {str(delete_error)}")
-                    
-                    # Try to replace the photo with a transparent GIF
+            # First try to delete message and send new one (most reliable)
+            try:
+                # Store message info before deletion
+                chat_id = update.effective_chat.id
+                message_id = query.message.message_id
+                
+                # Try to delete current message
+                logger.info(f"Attempting to delete message {message_id}")
+                await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
+                
+                # Send new message
+                logger.info("Sending new message with signal analysis menu")
+                sent_message = await context.bot.send_message(
+                    chat_id=chat_id,
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.HTML
+                )
+                logger.info(f"New message sent successfully with id: {sent_message.message_id}")
+                return SIGNAL_DETAILS
+            except Exception as delete_error:
+                logger.warning(f"Could not delete message: {str(delete_error)}")
+                
+                # If deletion fails, try updating based on message type
+                if has_photo:
+                    # If message has media, try to replace with a GIF
                     try:
+                        # Use transparent GIF
                         transparent_gif_url = "https://upload.wikimedia.org/wikipedia/commons/c/ca/1x1.png"
-                        await query.message.edit_media(
+                        logger.info("Attempting to replace media with transparent GIF")
+                        await query.edit_message_media(
                             media=InputMediaAnimation(
                                 media=transparent_gif_url,
                                 caption=text
                             ),
                             reply_markup=InlineKeyboardMarkup(keyboard)
                         )
+                        logger.info("Successfully replaced media")
                         return SIGNAL_DETAILS
-                    except Exception as e:
-                        logger.error(f"Could not replace photo: {str(e)}")
+                    except Exception as media_error:
+                        logger.error(f"Could not replace media: {str(media_error)}")
                         
-                        # Final fallback - try to edit the caption
+                        # Try to just edit the caption
                         try:
-                            await query.message.edit_caption(
+                            logger.info("Attempting to edit caption")
+                            await query.edit_message_caption(
                                 caption=text,
                                 reply_markup=InlineKeyboardMarkup(keyboard),
                                 parse_mode=ParseMode.HTML
                             )
+                            logger.info("Successfully edited caption")
+                            return SIGNAL_DETAILS
                         except Exception as caption_error:
                             logger.error(f"Could not edit caption: {str(caption_error)}")
-                            # Just log the error, will try to edit the message text next
-            else:
-                # No photo, just edit the message text
+                else:
+                    # No photo, try to edit message text
+                    try:
+                        logger.info("Attempting to edit message text")
+                        await query.edit_message_text(
+                            text=text,
+                            reply_markup=InlineKeyboardMarkup(keyboard),
+                            parse_mode=ParseMode.HTML
+                        )
+                        logger.info("Successfully edited message text")
+                        return SIGNAL_DETAILS
+                    except Exception as text_error:
+                        logger.error(f"Could not edit message text: {str(text_error)}")
+                
+                # Last resort - send a completely new message without deleting old one
                 try:
-                    await query.edit_message_text(
+                    logger.info("Last resort: sending new message without deleting old one")
+                    await context.bot.send_message(
+                        chat_id=update.effective_chat.id,
                         text=text,
                         reply_markup=InlineKeyboardMarkup(keyboard),
                         parse_mode=ParseMode.HTML
                     )
-                except Exception as e:
-                    logger.error(f"Error updating message: {str(e)}")
+                    logger.info("Successfully sent new message")
+                    return SIGNAL_DETAILS
+                except Exception as send_error:
+                    logger.error(f"Could not send new message: {str(send_error)}")
             
+            # If we get here, all attempts failed
+            logger.error("All attempts to update/send message failed")
             return SIGNAL_DETAILS
             
         except Exception as e:
             logger.error(f"Error in back_to_signal_analysis_callback: {str(e)}")
+            logger.exception(e)  # Log full traceback
             
-            # Error recovery - return to signal menu
+            # Error recovery - try to send error message
             try:
-                await query.edit_message_text(
-                    text="An error occurred. Please try again from the signals menu.",
-                    reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD)
+                await context.bot.send_message(
+                    chat_id=update.effective_chat.id,
+                    text="An error occurred. Please use /menu to restart.",
+                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
                 )
             except Exception:
                 pass
             
-            return CHOOSE_SIGNALS
+            return MENU
 
     async def handle_subscription_callback(self, update: Update, context=None) -> int:
         """Handle subscription button press"""
