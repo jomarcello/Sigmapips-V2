@@ -2344,127 +2344,95 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 logger.info("Loading signals because user_signals not initialized")
                 await self._load_signals()
             
-            # First try to get signal data from backup in context
+            # First try to get the original signal message from context
+            original_signal_message = None
             signal_instrument = None
-            signal_direction = None
-            signal_timeframe = None
             signal_id = None
             
             if context and hasattr(context, 'user_data'):
-                # Try to get from backup fields first (these are more reliable after navigation)
+                # Check if we have saved the original message
+                original_signal_message = context.user_data.get('original_signal_message')
+                if original_signal_message:
+                    logger.info(f"Found original signal message in context: {original_signal_message[:50]}...")
+                
+                # If not, check if we have a signal message stored in the signal data
+                if not original_signal_message:
+                    original_signal_message = context.user_data.get('signal_message')
+                    if original_signal_message:
+                        logger.info(f"Found signal message from signal data: {original_signal_message[:50]}...")
+                
+                # Get other signal info from context
                 signal_instrument = context.user_data.get('signal_instrument_backup') or context.user_data.get('instrument')
-                signal_direction = context.user_data.get('signal_direction_backup') or context.user_data.get('signal_direction')
-                signal_timeframe = context.user_data.get('signal_timeframe_backup') or context.user_data.get('signal_timeframe')
                 signal_id = context.user_data.get('signal_id_backup') or context.user_data.get('signal_id')
                 
                 # Reset signal flow flags but keep the signal info
                 context.user_data['from_signal'] = True
                 
-                # Log retrieved values for debugging
-                logger.info(f"Retrieved signal data from context: instrument={signal_instrument}, signal_id={signal_id}, direction={signal_direction}, timeframe={signal_timeframe}")
+                logger.info(f"Retrieved signal data from context: instrument={signal_instrument}, signal_id={signal_id}")
             
-            # Find the most recent signal for this user based on context data
-            signal_data = None
-            
-            # If we have a specific signal ID, try to get that first
-            if signal_id and hasattr(self, 'user_signals') and user_id_str in self.user_signals and signal_id in self.user_signals[user_id_str]:
+            # If we don't have the original message, try to get it from user_signals
+            if not original_signal_message and signal_id and hasattr(self, 'user_signals') and user_id_str in self.user_signals and signal_id in self.user_signals[user_id_str]:
                 signal_data = self.user_signals[user_id_str][signal_id]
-                logger.info(f"Found signal with ID: {signal_id}")
-            elif signal_instrument:
-                # Otherwise, find matching signals based on instrument and other properties
+                if 'message' in signal_data:
+                    original_signal_message = signal_data['message']
+                    logger.info(f"Found signal message from user_signals: {original_signal_message[:50]}...")
+            
+            # Fallback if we still don't have a message but we have instrument
+            if not original_signal_message and signal_instrument:
+                # Try to find any signal with this instrument
                 if hasattr(self, 'user_signals') and user_id_str in self.user_signals:
                     user_signal_dict = self.user_signals[user_id_str]
-                    # Find signals matching instrument, direction and timeframe
+                    # Find signals matching instrument
                     matching_signals = []
                     
                     for sig_id, sig in user_signal_dict.items():
-                        instrument_match = sig.get('instrument') == signal_instrument
-                        direction_match = True  # Default to true if we don't have direction data
-                        timeframe_match = True  # Default to true if we don't have timeframe data
-                        
-                        if signal_direction:
-                            direction_match = sig.get('direction') == signal_direction
-                        if signal_timeframe:
-                            timeframe_match = sig.get('timeframe') == signal_timeframe
-                        
-                        if instrument_match and direction_match and timeframe_match:
+                        if sig.get('instrument') == signal_instrument:
                             matching_signals.append((sig_id, sig))
                     
                     # Sort by timestamp, newest first
                     if matching_signals:
                         matching_signals.sort(key=lambda x: x[1].get('timestamp', ''), reverse=True)
                         signal_id, signal_data = matching_signals[0]
-                        logger.info(f"Found matching signal with ID: {signal_id}")
-                    else:
-                        logger.warning(f"No matching signals found for instrument={signal_instrument}, direction={signal_direction}, timeframe={signal_timeframe}")
-                        # If no exact match, try with just the instrument
-                        matching_signals = []
-                        for sig_id, sig in user_signal_dict.items():
-                            if sig.get('instrument') == signal_instrument:
-                                matching_signals.append((sig_id, sig))
-                        
-                        if matching_signals:
-                            matching_signals.sort(key=lambda x: x[1].get('timestamp', ''), reverse=True)
-                            signal_id, signal_data = matching_signals[0]
-                            logger.info(f"Found signal with just instrument match, ID: {signal_id}")
+                        if 'message' in signal_data:
+                            original_signal_message = signal_data['message']
+                            logger.info(f"Found signal message from matching signal: {original_signal_message[:50]}...")
             
-            # If we still don't have a signal, create a mock one for testing
-            if not signal_data and signal_instrument:
-                logger.warning(f"No signal found, creating mock signal for {signal_instrument}")
+            # If we still don't have a message, create a minimal one using available info
+            if not original_signal_message and signal_instrument:
+                logger.warning(f"No original message found, creating basic message for {signal_instrument}")
+                signal_direction = ""
+                signal_timeframe = ""
                 
-                # Create a basic mock signal
-                signal_id = f"{signal_instrument}_MOCK_{int(time.time())}"
-                mock_direction = signal_direction or "BUY"
-                mock_timeframe = signal_timeframe or "1h"
-                
-                signal_data = {
-                    'id': signal_id,
-                    'instrument': signal_instrument,
-                    'direction': mock_direction,
-                    'timeframe': mock_timeframe,
-                    'entry': '1.2345',
-                    'stop_loss': '1.2300',
-                    'take_profit': '1.2400',
-                    'timestamp': datetime.now().isoformat(),
-                    'message': f"<b>🎯 Trading Signal 🎯</b>\n\n<b>Instrument:</b> {signal_instrument}\n<b>Action:</b> {mock_direction}\n\n<b>Timeframe:</b> {mock_timeframe}"
-                }
-                
-                # Store it in user_signals
-                if not hasattr(self, 'user_signals'):
-                    self.user_signals = {}
-                if user_id_str not in self.user_signals:
-                    self.user_signals[user_id_str] = {}
-                
-                self.user_signals[user_id_str][signal_id] = signal_data
-                
-                # Add signal data to context for future use
                 if context and hasattr(context, 'user_data'):
-                    context.user_data['signal_id'] = signal_id
-                    context.user_data['signal_id_backup'] = signal_id
-                    context.user_data['signal_direction'] = mock_direction
-                    context.user_data['signal_direction_backup'] = mock_direction
-                    context.user_data['signal_timeframe'] = mock_timeframe
-                    context.user_data['signal_timeframe_backup'] = mock_timeframe
+                    signal_direction = context.user_data.get('signal_direction_backup') or context.user_data.get('signal_direction') or ""
+                    signal_timeframe = context.user_data.get('signal_timeframe_backup') or context.user_data.get('signal_timeframe') or ""
                 
-                logger.info(f"Created mock signal with ID: {signal_id}")
+                # Create a simple message with the info we have
+                original_signal_message = f"<b>🎯 Trading Signal 🎯</b>\n\n<b>Instrument:</b> {signal_instrument}"
+                
+                if signal_direction:
+                    original_signal_message += f"\n<b>Action:</b> {signal_direction}"
+                
+                if signal_timeframe:
+                    original_signal_message += f"\n\n<b>Timeframe:</b> {signal_timeframe}"
             
-            if not signal_data and not signal_instrument:
-                # Fallback message if signal not found and we have no instrument
-                logger.warning("No signal data found and no instrument specified, going back to menu")
+            # If we still don't have a message and instrument, show error
+            if not original_signal_message and not signal_instrument:
+                logger.warning("No signal information found, going back to menu")
                 await query.edit_message_text(
-                    text="Signal not found. Please use the main menu to continue.",
+                    text="Signal information not found. Please use the main menu to continue.",
                     reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
                 )
                 return MENU
             
-            # Show the signal details with analyze button
             # Prepare analyze button with signal info embedded
-            keyboard = [
-                [InlineKeyboardButton("🔍 Analyze Market", callback_data=f"analyze_from_signal_{signal_instrument}_{signal_id}")]
-            ]
+            callback_data = f"analyze_from_signal_{signal_instrument}"
+            if signal_id:
+                callback_data = f"analyze_from_signal_{signal_instrument}_{signal_id}"
             
-            # Get the formatted message from the signal
-            signal_message = signal_data.get('message', f"<b>🎯 Trading Signal for {signal_instrument}</b>")
+            keyboard = [
+                [InlineKeyboardButton("🔍 Analyze Market", callback_data=callback_data)]
+            ]
             
             # Check if the message has photo/media
             has_photo = False
@@ -2487,7 +2455,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     logger.info("Sending new message with signal details")
                     await context.bot.send_message(
                         chat_id=chat_id,
-                        text=signal_message,
+                        text=original_signal_message,
                         reply_markup=InlineKeyboardMarkup(keyboard),
                         parse_mode=ParseMode.HTML
                     )
@@ -2496,7 +2464,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     # Try to edit as fallback
                     try:
                         await query.edit_message_caption(
-                            caption=signal_message,
+                            caption=original_signal_message,
                             reply_markup=InlineKeyboardMarkup(keyboard),
                             parse_mode=ParseMode.HTML
                         )
@@ -2505,7 +2473,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                         # Last resort - send new message
                         await context.bot.send_message(
                             chat_id=update.effective_chat.id,
-                            text=signal_message,
+                            text=original_signal_message,
                             reply_markup=InlineKeyboardMarkup(keyboard),
                             parse_mode=ParseMode.HTML
                         )
@@ -2514,7 +2482,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 try:
                     # Edit current message to show signal
                     await query.edit_message_text(
-                        text=signal_message,
+                        text=original_signal_message,
                         reply_markup=InlineKeyboardMarkup(keyboard),
                         parse_mode=ParseMode.HTML
                     )
@@ -2523,7 +2491,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     # Last resort - send new message
                     await context.bot.send_message(
                         chat_id=update.effective_chat.id,
-                        text=signal_message,
+                        text=original_signal_message,
                         reply_markup=InlineKeyboardMarkup(keyboard),
                         parse_mode=ParseMode.HTML
                     )
@@ -2564,6 +2532,13 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 # the remaining parts to get the full signal ID
                 signal_id = '_'.join(parts[4:]) if len(parts) >= 5 else None
                 
+                # Save the original signal message if available
+                if query and query.message:
+                    original_message = query.message.text or query.message.caption
+                    if original_message and context and hasattr(context, 'user_data'):
+                        context.user_data['original_signal_message'] = original_message
+                        logger.info(f"Saved original signal message: {original_message[:50]}...")
+                
                 # Improved logging
                 logger.info(f"Extracted instrument: {instrument}, signal_id: {signal_id}")
                 
@@ -2600,6 +2575,11 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                             context.user_data['signal_stop_loss'] = signal.get('stop_loss')
                             context.user_data['signal_take_profit'] = signal.get('take_profit')
                             
+                            # Store the complete signal message
+                            if 'message' in signal:
+                                context.user_data['signal_message'] = signal.get('message')
+                                logger.info(f"Stored signal message from signal data")
+                            
                             # Backup copies
                             context.user_data['signal_direction_backup'] = signal.get('direction')
                             context.user_data['signal_timeframe_backup'] = signal.get('timeframe')
@@ -2629,6 +2609,11 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                                 context.user_data['signal_timeframe'] = recovered_signal.get('timeframe')
                                 context.user_data['signal_direction_backup'] = recovered_signal.get('direction')
                                 context.user_data['signal_timeframe_backup'] = recovered_signal.get('timeframe')
+                                
+                                # Store the complete signal message
+                                if 'message' in recovered_signal:
+                                    context.user_data['signal_message'] = recovered_signal.get('message')
+                                    logger.info(f"Stored signal message from recovered signal")
                                 
                                 logger.info(f"Recovered signal with ID: {recovered_id}")
             else:
