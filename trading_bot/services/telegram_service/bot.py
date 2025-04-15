@@ -720,14 +720,48 @@ class TelegramService:
             raise
 
     async def initialize_services(self):
-        """Initialize services that require an asyncio event loop"""
+        """Initialize services like chart service"""
+        # Initialize chart_service connection if not initialized yet
+        if not hasattr(self, 'chart_service') or self.chart_service is None:
+            try:
+                # Log more detailed info on what we're trying to do
+                logger.info("Initializing chart service...")
+                
+                from trading_bot.services.chart_service.chart import ChartService
+                self.chart_service = ChartService()
+                
+                logger.info("Chart service initialized")
+            except Exception as e:
+                logger.error(f"Failed to initialize chart service: {str(e)}")
+                logger.error(traceback.format_exc())
+                
+        # Initialize calendar service
+        if not hasattr(self, 'calendar_service') or self.calendar_service is None:
+            try:
+                logger.info("Initializing calendar service...")
+                self.calendar_service = self._get_calendar_service()
+                logger.info("Calendar service initialized")
+            except Exception as e:
+                logger.error(f"Failed to initialize calendar service: {str(e)}")
+                
+        # Initialize sentiment service
+        if not hasattr(self, 'sentiment_service') or self.sentiment_service is None:
+            try:
+                logger.info("Initializing sentiment service...")
+                from trading_bot.services.sentiment_service.sentiment import MarketSentimentService
+                self.sentiment_service = MarketSentimentService()
+                logger.info("Sentiment service initialized")
+            except Exception as e:
+                logger.error(f"Failed to initialize sentiment service: {str(e)}")
+                
+        # Load signals
         try:
-            # Initialize chart service
-            await self.chart_service.initialize()
-            logger.info("Chart service initialized")
+            logger.info("Loading signals...")
+            await self._load_signals()
+            logger.info("Signals loaded successfully")
         except Exception as e:
-            logger.error(f"Error initializing services: {str(e)}")
-            raise
+            logger.error(f"Error loading signals: {str(e)}")
+            logger.error(traceback.format_exc())
             
     # Calendar service helpers
     def _get_calendar_service(self):
@@ -1167,87 +1201,21 @@ class TelegramService:
             return f"New {signal_data.get('instrument', 'Unknown')} {signal_data.get('direction', 'Unknown')} Signal"
 
     def _register_handlers(self, application):
-        """Register event handlers for bot commands and callback queries"""
-        try:
-            logger.info("Registering command handlers")
-            
-            # Initialize the application without using run_until_complete
-            try:
-                # Instead of using loop.run_until_complete, directly call initialize 
-                # which will be properly awaited by the caller
-                self.init_task = application.initialize()
-                logger.info("Telegram application initialization ready to be awaited")
-            except Exception as init_e:
-                logger.error(f"Error during application initialization: {str(init_e)}")
-                logger.exception(init_e)
-                
-            # Set bot commands for menu
-            commands = [
-                BotCommand("start", "Start the bot and get the welcome message"),
-                BotCommand("menu", "Show the main menu"),
-                BotCommand("help", "Show available commands and how to use the bot")
-            ]
-            
-            # Store the set_commands task to be awaited later
-            try:
-                # Instead of asyncio.create_task, we will await this in the startup event
-                self.set_commands_task = self.bot.set_my_commands(commands)
-                logger.info("Bot commands ready to be set")
-            except Exception as cmd_e:
-                logger.error(f"Error preparing bot commands: {str(cmd_e)}")
-            
-            # Register command handlers
-            application.add_handler(CommandHandler("start", self.start_command))
-            application.add_handler(CommandHandler("menu", self.menu_command))
-            application.add_handler(CommandHandler("help", self.help_command))
-            
-            # Register callback handlers
-            application.add_handler(CallbackQueryHandler(self.menu_analyse_callback, pattern="^menu_analyse$"))
-            application.add_handler(CallbackQueryHandler(self.menu_signals_callback, pattern="^menu_signals$"))
-            application.add_handler(CallbackQueryHandler(self.signals_add_callback, pattern="^signals_add$"))
-            application.add_handler(CallbackQueryHandler(self.signals_manage_callback, pattern="^signals_manage$"))
-            application.add_handler(CallbackQueryHandler(self.market_callback, pattern="^market_"))
-            application.add_handler(CallbackQueryHandler(self.instrument_callback, pattern="^instrument_(?!.*_signals)"))
-            application.add_handler(CallbackQueryHandler(self.instrument_signals_callback, pattern="^instrument_.*_signals$"))
-            
-            # Add handler for back buttons
-            application.add_handler(CallbackQueryHandler(self.back_market_callback, pattern="^back_market$"))
-            application.add_handler(CallbackQueryHandler(self.back_instrument_callback, pattern="^back_instrument$"))
-            application.add_handler(CallbackQueryHandler(self.back_signals_callback, pattern="^back_signals$"))
-            application.add_handler(CallbackQueryHandler(self.back_menu_callback, pattern="^back_menu$"))
-            
-            # Analysis handlers for regular flow
-            application.add_handler(CallbackQueryHandler(self.analysis_technical_callback, pattern="^analysis_technical$"))
-            application.add_handler(CallbackQueryHandler(self.analysis_sentiment_callback, pattern="^analysis_sentiment$"))
-            application.add_handler(CallbackQueryHandler(self.analysis_calendar_callback, pattern="^analysis_calendar$"))
-            
-            # Analysis handlers for signal flow - with instrument embedded in callback
-            application.add_handler(CallbackQueryHandler(self.analysis_technical_callback, pattern="^analysis_technical_signal_.*$"))
-            application.add_handler(CallbackQueryHandler(self.analysis_sentiment_callback, pattern="^analysis_sentiment_signal_.*$"))
-            application.add_handler(CallbackQueryHandler(self.analysis_calendar_callback, pattern="^analysis_calendar_signal_.*$"))
-            
-            # Signal analysis flow handlers
-            application.add_handler(CallbackQueryHandler(self.signal_technical_callback, pattern="^signal_technical$"))
-            application.add_handler(CallbackQueryHandler(self.signal_sentiment_callback, pattern="^signal_sentiment$"))
-            application.add_handler(CallbackQueryHandler(self.signal_calendar_callback, pattern="^signal_calendar$"))
-            application.add_handler(CallbackQueryHandler(self.signal_calendar_callback, pattern="^signal_flow_calendar_.*$"))
-            application.add_handler(CallbackQueryHandler(self.back_to_signal_callback, pattern="^back_to_signal$"))
-            application.add_handler(CallbackQueryHandler(self.back_to_signal_analysis_callback, pattern="^back_to_signal_analysis$"))
-            
-            # Signal from analysis
-            application.add_handler(CallbackQueryHandler(self.analyze_from_signal_callback, pattern="^analyze_from_signal_.*$"))
-            
-            # Catch-all handler for any other callbacks
-            application.add_handler(CallbackQueryHandler(self.button_callback))
-            
-            # Load signals
-            self._load_signals()
-            
-            logger.info("Bot setup completed successfully")
-            
-        except Exception as e:
-            logger.error(f"Error setting up bot handlers: {str(e)}")
-            logger.exception(e)
+        """Register all handlers for this bot"""
+        logger.info("Registering command handlers")
+        
+        # Command handlers
+        application.add_handler(CommandHandler("start", self.start_command))
+        application.add_handler(CommandHandler("menu", self.menu_command))
+        application.add_handler(CommandHandler("help", self.help_command))
+        application.add_handler(CommandHandler("set_subscription", self.set_subscription_command))
+        application.add_handler(CommandHandler("set_payment_failed", self.set_payment_failed_command))
+        
+        # Generic button callback handler - needs to be last
+        application.add_handler(CallbackQueryHandler(self.button_callback))
+        
+        # Instead of loading signals directly, we'll do it at startup or when needed
+        # Don't call self._load_signals() here as it's async and needs to be awaited
 
     @property
     def signals_enabled(self):
@@ -3118,8 +3086,8 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 from trading_bot.services.chart_service.chart import ChartService
                 self.chart_service = ChartService()
             
-            # Get the chart image
-            chart_image = await self.chart_service.get_chart(instrument, timeframe)
+            # Get the chart image and analysis text
+            chart_image, analysis_text = await self.chart_service.get_technical_analysis(instrument, timeframe)
             
             if not chart_image:
                 # Fallback to error message
@@ -3146,8 +3114,9 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 await context.bot.send_photo(
                     chat_id=update.effective_chat.id,
                     photo=chart_image,
-                    caption=f"{instrument} Technical Analysis",
-                    reply_markup=InlineKeyboardMarkup(keyboard)
+                    caption=analysis_text,
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.HTML
                 )
                 
                 # Delete the original message (the one with the loading indicator)
