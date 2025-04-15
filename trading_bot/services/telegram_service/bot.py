@@ -1212,16 +1212,27 @@ class TelegramService:
         application.add_handler(CommandHandler("set_payment_failed", self.set_payment_failed_command))
         
         # Add specific handlers for back buttons
-        application.add_handler(CallbackQueryHandler(self.back_instrument_callback, pattern="^back_instrument$"))
-        application.add_handler(CallbackQueryHandler(self.back_to_signal_analysis_callback, pattern="^back_to_signal_analysis$"))
-        application.add_handler(CallbackQueryHandler(self.analysis_callback, pattern="^back_to_analysis$"))
-        application.add_handler(CallbackQueryHandler(self.back_signals_callback, pattern="^back_signals$"))
-        application.add_handler(CallbackQueryHandler(self.back_menu_callback, pattern="^back_menu$"))
-        application.add_handler(CallbackQueryHandler(self.back_market_callback, pattern="^back_market$"))
-        application.add_handler(CallbackQueryHandler(self.analysis_callback, pattern="^back_analysis$"))
-        application.add_handler(CallbackQueryHandler(self.back_to_signal_callback, pattern="^back_to_signal$"))
+        logger.info("Registering callback handlers for back navigation buttons")
+        
+        # Dictionary of patterns and their corresponding handlers for better readability
+        back_button_handlers = {
+            "^back_to_signal_analysis$": self.back_to_signal_analysis_callback,
+            "^back_to_analysis$": self.analysis_callback,
+            "^back_signals$": self.back_signals_callback,
+            "^back_menu$": self.back_menu_callback,
+            "^back_market$": self.back_market_callback,
+            "^back_analysis$": self.analysis_callback,
+            "^back_to_signal$": self.back_to_signal_callback,
+            "^back_instrument$": self.back_instrument_callback
+        }
+        
+        # Register each handler
+        for pattern, handler in back_button_handlers.items():
+            logger.info(f"Registering handler for pattern: {pattern}")
+            application.add_handler(CallbackQueryHandler(handler, pattern=pattern))
         
         # Generic button callback handler - needs to be last
+        logger.info("Registering generic button callback handler")
         application.add_handler(CallbackQueryHandler(self.button_callback))
         
         # Instead of loading signals directly, we'll do it at startup or when needed
@@ -2593,7 +2604,10 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     logger.error(f"Error deleting all signal subscriptions: {str(e)}")
                     await query.answer("Error removing signal subscriptions")
                     return await self.signals_manage_callback(update, context)
-                    
+            
+            # Handle back_instrument specifically        
+            elif callback_data == "back_instrument":
+                return await self.back_instrument_callback(update, context)
                     
             # Default handling if no specific callback found, go back to menu
             logger.warning(f"Unhandled callback_data: {callback_data}")
@@ -4801,6 +4815,11 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         """Handle back button to return to instrument selection"""
         query = update.callback_query
         await query.answer()
+        
+        # Debug logging
+        logger.info("back_instrument_callback aangeroepen")
+        if context and hasattr(context, 'user_data'):
+            logger.info(f"Context user_data: {context.user_data}")
         
         try:
             # Clear style/timeframe data but keep instrument
