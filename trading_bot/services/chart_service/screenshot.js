@@ -183,7 +183,7 @@ const { chromium } = require('playwright');
             console.log(`Navigating to ${url}...`);
             await page.goto(url, {
                 waitUntil: 'domcontentloaded', // Gebruik 'domcontentloaded' in plaats van 'load' of 'networkidle'
-                timeout: 15000 // 15 seconden timeout voor navigatie (in plaats van 30 seconden)
+                timeout: 30000 // 30 seconden timeout voor navigatie (in plaats van 60 seconden)
             });
             
             // Stel localStorage waarden in om meldingen uit te schakelen
@@ -415,8 +415,7 @@ const { chromium } = require('playwright');
                 'button:has(svg path[d="m.58 15.58 15-15 .82.82-15 15z"])'
             ];
             
-            // Voer alle selector checks parallel uit om tijd te besparen
-            await Promise.all(closeSelectors.map(async (selector) => {
+            for (const selector of closeSelectors) {
                 try {
                     const buttons = await page.$$(selector);
                     console.log(`Found ${buttons.length} buttons with selector ${selector}`);
@@ -424,10 +423,12 @@ const { chromium } = require('playwright');
                     for (const button of buttons) {
                         try {
                             await button.click({ force: true }).catch(() => {});
+                            console.log(`Clicked button with selector ${selector}`);
+                            await page.waitForTimeout(100); // Kort wachten na elke klik
                         } catch (e) {}
                     }
                 } catch (e) {}
-            }));
+            }
             
             // Controleer of we zijn ingelogd
             const isLoggedIn = await page.evaluate(() => {
@@ -441,24 +442,23 @@ const { chromium } = require('playwright');
             // Als fullscreen is ingeschakeld, verberg UI-elementen
             if (fullscreen) {
                 console.log('Removing UI elements for fullscreen...');
-                // Combineer alles in één evaluate aanroep voor snelheid
                 await page.evaluate(() => {
-                    // Verberg alle irrelevante UI-elementen
-                    const hideElements = [
-                        '.tv-header',
-                        '.tv-main-panel__toolbar',
-                        '.tv-side-toolbar',
-                        '.layout__area--left',
-                        '.layout__area--right',
-                        'footer',
-                        '.tv-main-panel__statuses'
-                    ];
+                    // Verberg de header
+                    const header = document.querySelector('.tv-header');
+                    if (header) header.style.display = 'none';
                     
-                    hideElements.forEach(selector => {
-                        const elements = document.querySelectorAll(selector);
-                        elements.forEach(el => {
-                            if (el) el.style.display = 'none';
-                        });
+                    // Verberg de toolbar
+                    const toolbar = document.querySelector('.tv-main-panel__toolbar');
+                    if (toolbar) toolbar.style.display = 'none';
+                    
+                    // Verberg de zijbalk
+                    const sidebar = document.querySelector('.tv-side-toolbar');
+                    if (sidebar) sidebar.style.display = 'none';
+                    
+                    // Verberg andere UI-elementen
+                    const panels = document.querySelectorAll('.layout__area--left, .layout__area--right');
+                    panels.forEach(panel => {
+                        if (panel) panel.style.display = 'none';
                     });
                     
                     // Maximaliseer de chart
@@ -467,56 +467,29 @@ const { chromium } = require('playwright');
                         chart.style.width = '100vw';
                         chart.style.height = '100vh';
                     }
+                    
+                    // Verberg de footer
+                    const footer = document.querySelector('footer');
+                    if (footer) footer.style.display = 'none';
+                    
+                    // Verberg de statusbalk
+                    const statusBar = document.querySelector('.tv-main-panel__statuses');
+                    if (statusBar) statusBar.style.display = 'none';
                 });
                 
-                // Verkort wachttijd na UI aanpassingen
-                await page.waitForTimeout(500);
-            }
-            
-            // Eenvoudige en betrouwbare methode voor fullscreen
-            console.log('Applying simple fullscreen method...');
-            
-            // Methode 1: Shift+F toetsencombinatie (meest betrouwbaar)
-            await page.keyboard.down('Shift');
-            await page.keyboard.press('F');
-            await page.keyboard.up('Shift');
-            await page.waitForTimeout(2000); // Wacht kort zodat fullscreen kan worden toegepast
-            
-            // Methode 2: Maak de chart groter met CSS (werkt altijd)
-            await page.addStyleTag({
-                content: `
-                    /* Verberg header en toolbar */
-                    .tv-header, .tv-main-panel__toolbar, .tv-side-toolbar {
-                        display: none !important;
-                    }
-                    
-                    /* Maximaliseer chart container */
-                    .chart-container, .chart-markup-table, .layout__area--center {
-                        width: 100vw !important;
-                        height: 100vh !important;
-                        position: fixed !important;
-                        top: 0 !important;
-                        left: 0 !important;
-                    }
-                `
-            });
-            
-            // Wacht nog wat langer als we zijn ingelogd om custom indicators te laden
-            if (isLoggedIn) {
-                console.log('Waiting for custom indicators to load...');
-                await page.waitForTimeout(5000); // 5 seconden voor custom indicators
+                // Wacht even om de wijzigingen toe te passen
+                await page.waitForTimeout(1000);
             }
             
             // Wacht op de chart om volledig te laden
             console.log('Waiting for chart to be fully loaded...');
             
-            // Verkort de wachttijd voor indicator rendering
             try {
                 // Wacht tot de basis chart elementen beschikbaar zijn (i.p.v. wachten op alle indicators)
                 await Promise.race([
-                    page.waitForSelector('.chart-container', { timeout: 5000 }),
-                    page.waitForSelector('.pane-legend-line.main', { timeout: 5000 }),
-                    new Promise(resolve => setTimeout(resolve, 5000)) // Absolute max timeout van 5 seconden
+                    page.waitForSelector('.chart-container', { timeout: 10000 }),
+                    page.waitForSelector('.pane-legend-line.main', { timeout: 10000 }),
+                    new Promise(resolve => setTimeout(resolve, 10000)) // Absolute max timeout van 10 seconden
                 ]);
             } catch (e) {
                 console.log('Chart load timeout or error, attempting screenshot anyway');
@@ -524,8 +497,8 @@ const { chromium } = require('playwright');
             
             console.log('Chart loaded or timeout reached');
             
-            // Verkort extra wachttijd
-            await page.waitForTimeout(500);
+            // Geef nog 1 seconde extra om te renderen voordat we screenshot nemen
+            await page.waitForTimeout(1000);
             
             // Laatste kans om alle popups te sluiten
             await page.evaluate(() => {
@@ -549,7 +522,7 @@ const { chromium } = require('playwright');
             });
             
             // Wacht nog een laatste moment voor stabiliteit
-            await page.waitForTimeout(500); // Verkort van 2000 naar 500ms
+            await page.waitForTimeout(2000); // 2 seconden voor volledige stabiliteit
             
             // Neem screenshot
             console.log('Taking screenshot...');
