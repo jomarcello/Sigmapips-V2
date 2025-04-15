@@ -111,15 +111,26 @@ class InvestingCalendarServiceImpl():
             loop = asyncio.get_event_loop()
             results = await loop.run_in_executor(None, self._fetch_news)
             
+            # DEBUG: Log the number of events found before filtering
+            logger.info(f"Found {len(results)} total events before date filtering")
+            
             # Get today's date
             today = datetime.datetime.now().date()
+            logger.info(f"Current date for filtering: {today}")
             
-            # Filter and sort events
-            today_events = []
-            for result in results:
-                event_date = datetime.datetime.fromtimestamp(result['timestamp']).date()
-                if event_date == today:
-                    today_events.append(result)
+            # TIJDELIJKE WIJZIGING: Schakel datumfiltering uit
+            today_events = results  # Gebruik alle resultaten zonder datumfiltering
+            logger.info(f"BELANGRIJK: Datumfiltering is uitgeschakeld voor debugging")
+            
+            # Filter and sort events - UITGESCHAKELD VOOR DEBUGGING
+            # today_events = []
+            # for result in results:
+            #     event_date = datetime.datetime.fromtimestamp(result['timestamp']).date()
+            #     if event_date == today:
+            #         today_events.append(result)
+            
+            # Log events after filtering
+            logger.info(f"Using {len(today_events)} events after filtering")
             
             # Sort by timestamp
             today_events.sort(key=lambda x: x['timestamp'])
@@ -247,6 +258,7 @@ class InvestingCalendarServiceImpl():
         
         if not events:
             output.append("No economic events scheduled for today.")
+            output.append("\n[DEBUG] Er werden geen evenementen gevonden, zelfs zonder datumfiltering.")
             return "\n".join(output)
         
         # Map countries to currency codes
