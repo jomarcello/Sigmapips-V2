@@ -1240,6 +1240,19 @@ class TelegramService:
         for pattern, handler in back_button_handlers.items():
             logger.info(f"Registering handler for pattern: {pattern}")
             application.add_handler(CallbackQueryHandler(handler, pattern=pattern))
+            
+        # Add signal callback handlers - needed for the signal flow
+        logger.info("Registering signal-specific callback handlers")
+        signal_handlers = {
+            "^signal_technical$": self.signal_technical_callback,
+            "^signal_sentiment$": self.signal_sentiment_callback,
+            "^signal_calendar$": self.signal_calendar_callback
+        }
+        
+        # Register each signal handler
+        for pattern, handler in signal_handlers.items():
+            logger.info(f"Registering signal handler for pattern: {pattern}")
+            application.add_handler(CallbackQueryHandler(handler, pattern=pattern))
         
         # Generic button callback handler - needs to be last
         logger.info("Registering generic button callback handler")
@@ -2437,6 +2450,10 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     if signal_id:
                         context.user_data['signal_id_backup'] = signal_id
                     
+                    # Mark explicitly that we're in signal flow
+                    context.user_data['from_signal'] = True
+                    context.user_data['is_signals_context'] = True
+                    
                     # Also store info from the actual signal if available
                     if str(update.effective_user.id) in self.user_signals and signal_id in self.user_signals[str(update.effective_user.id)]:
                         signal = self.user_signals[str(update.effective_user.id)][signal_id]
@@ -2454,16 +2471,21 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 if instrument and context and hasattr(context, 'user_data'):
                     context.user_data['instrument'] = instrument
                     context.user_data['signal_instrument_backup'] = instrument
+                    # Mark explicitly that we're in signal flow
+                    context.user_data['from_signal'] = True
+                    context.user_data['is_signals_context'] = True
             
             # Show analysis options for this instrument
-            # Format message
             # Use the SIGNAL_ANALYSIS_KEYBOARD for consistency
             keyboard = SIGNAL_ANALYSIS_KEYBOARD
+            
+            # Log for debugging
+            logger.info(f"Using signal analysis keyboard: {keyboard}")
             
             # Try to edit the message text
             try:
                 await query.edit_message_text(
-                    text=f"Select your analysis type:",
+                    text=f"<b>📊 Signal Analysis for {instrument}</b>\n\nSelect your analysis type:",
                     reply_markup=InlineKeyboardMarkup(keyboard),
                     parse_mode=ParseMode.HTML
                 )
@@ -2471,7 +2493,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 logger.error(f"Error in analyze_from_signal_callback: {str(e)}")
                 # Fall back to sending a new message
                 await query.message.reply_text(
-                    text=f"Select your analysis type:",
+                    text=f"<b>📊 Signal Analysis for {instrument}</b>\n\nSelect your analysis type:",
                     reply_markup=InlineKeyboardMarkup(keyboard),
                     parse_mode=ParseMode.HTML
                 )
@@ -2526,6 +2548,18 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 return await self.analysis_sentiment_callback(update, context)
             elif callback_data == CALLBACK_ANALYSIS_CALENDAR or callback_data == "analysis_calendar":
                 return await self.analysis_calendar_callback(update, context)
+                
+            # Signal type selection
+            elif callback_data == "signal_technical":
+                return await self.signal_technical_callback(update, context)
+            elif callback_data == "signal_sentiment":
+                return await self.signal_sentiment_callback(update, context)
+            elif callback_data == "signal_calendar":
+                return await self.signal_calendar_callback(update, context)
+            
+            # Back to signal handler
+            elif callback_data == "back_to_signal":
+                return await self.back_to_signal_callback(update, context)
                 
             # Direct instrument_timeframe callbacks  
             if "_timeframe_" in callback_data:
