@@ -1,0 +1,65 @@
+version: '3.8'
+
+services:
+  tradingbot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: tradingbot
+    restart: unless-stopped
+    environment:
+      - TZ=UTC
+      - USE_FAST_MODE=true  # Gebruik snelle analyse zonder DeepSeek API
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TRADINGVIEW_SESSION_ID=${TRADINGVIEW_SESSION_ID}
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
+      - NODE_OPTIONS=--max-old-space-size=2048  # Voorkom Node.js geheugenproblemen
+    volumes:
+      - ./data:/app/data  # Persistente data opslag
+      - ./logs:/app/logs  # Logs bewaren
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 3G
+        reservations:
+          cpus: '1'
+          memory: 1G
+    # GPU-versnelling indien beschikbaar
+    # Indien je een NVIDIA GPU hebt, ontcommentaar de volgende regels:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+    # environment:
+    #   - PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+    #   - PUPPETEER_EXECUTABLE_PATH=/usr/bin/google-chrome
+
+  # Optioneel: Redis cache service toevoegen voor snellere caching
+  redis:
+    image: redis:alpine
+    container_name: tradingbot-redis
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+    command: redis-server --save 60 1 --loglevel warning
+
+  # Optioneel: Monitoring met Grafana
+  # grafana:
+  #   image: grafana/grafana:latest
+  #   container_name: tradingbot-grafana
+  #   restart: unless-stopped
+  #   ports:
+  #     - "3000:3000"
+  #   volumes:
+  #     - grafana-data:/var/lib/grafana
+  #   environment:
+  #     - GF_AUTH_ANONYMOUS_ENABLED=true
+  #     - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+
+volumes:
+  redis-data:
+  # grafana-data:
