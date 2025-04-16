@@ -290,6 +290,25 @@ class TradingViewNodeService(TradingViewService):
         logger.info(f"Taking screenshot with Node.js: {url[:80]}...")
         
         try:
+            # Debug: Controleer of het script bestaat
+            if not os.path.exists(self.script_path):
+                logger.error(f"CRITICAL ERROR: Script not found at path: {self.script_path}")
+                return None
+            else:
+                logger.info(f"Using script at: {self.script_path} (file exists)")
+            
+            # Debug: Controleer cache directory
+            if not os.path.exists(self.cache_dir):
+                logger.error(f"CRITICAL ERROR: Cache directory does not exist: {self.cache_dir}")
+                try:
+                    os.makedirs(self.cache_dir, exist_ok=True)
+                    logger.info(f"Created cache directory: {self.cache_dir}")
+                except Exception as e:
+                    logger.error(f"Failed to create cache directory: {str(e)}")
+                    return None
+            else:
+                logger.info(f"Cache directory exists: {self.cache_dir}")
+            
             # Voeg force-refresh parameter toe voor frisse charts
             if '?' in url:
                 url += '&forceRefresh=' + str(int(time.time()))
@@ -302,6 +321,7 @@ class TradingViewNodeService(TradingViewService):
             
             # Zorg ervoor dat de cache directory absoluut is
             cache_path = os.path.join(self.cache_dir, f"cached_{url_hash}.png")
+            logger.info(f"Cache path: {cache_path}")
             
             # Bepaal cache TTL afhankelijk van het instrument
             cache_ttl = CACHE_TTL  # Default 5 minuten
@@ -334,6 +354,7 @@ class TradingViewNodeService(TradingViewService):
                     # Genereer een unieke bestandsnaam in de temp directory
                     fd, screenshot_path = tempfile.mkstemp(suffix='.png')
                     os.close(fd)  # We need only the path
+                    logger.info(f"Temporary screenshot path: {screenshot_path}")
                     
                     # Voorbereid URL, verwijder aanhalingstekens
                     url = url.strip('"\'')
@@ -361,6 +382,9 @@ class TradingViewNodeService(TradingViewService):
                             # URL heeft nog geen parameters
                             url += "?" + "&".join(query_params)
                     
+                    # Debug: Toon de volledige URL
+                    logger.info(f"Final URL for screenshot: {url}")
+                    
                     # Kill eerder browser proces als het te lang inactief is geweest
                     if BROWSER_PROCESS and USE_BROWSER_REUSE:
                         if (time.time() - BROWSER_LAST_USED) > BROWSER_LIFETIME:
@@ -378,7 +402,7 @@ class TradingViewNodeService(TradingViewService):
                     if fullscreen:
                         cmd += " fullscreen"
                     
-                    logger.info(f"Running screenshot command (attempt {retry_count + 1}/{max_retries})")
+                    logger.info(f"Running command: {cmd}")
                     
                     # Spawn het Node.js proces met timeout
                     process = await asyncio.create_subprocess_shell(
@@ -399,9 +423,22 @@ class TradingViewNodeService(TradingViewService):
                             timeout=SCREENSHOT_TIMEOUT
                         )
                         
+                        # Debug: Log stdout en stderr
+                        if stdout:
+                            logger.info(f"Process stdout: {stdout.decode()[:500]}")
+                        if stderr:
+                            logger.error(f"Process stderr: {stderr.decode()[:500]}")
+                        
                         # Update last usage time
                         if USE_BROWSER_REUSE:
                             BROWSER_LAST_USED = time.time()
+                        
+                        # Debug: Controleer bestandsgrootte
+                        if os.path.exists(screenshot_path):
+                            file_size = os.path.getsize(screenshot_path)
+                            logger.info(f"Screenshot file size: {file_size} bytes")
+                        else:
+                            logger.error(f"Screenshot file does not exist: {screenshot_path}")
                         
                         # Als het bestand bestaat en niet leeg is, gebruik het
                         if os.path.exists(screenshot_path) and os.path.getsize(screenshot_path) > 100:
@@ -412,6 +449,7 @@ class TradingViewNodeService(TradingViewService):
                             try:
                                 with open(cache_path, 'wb') as f:
                                     f.write(screenshot_bytes)
+                                logger.info(f"Saved screenshot to cache: {cache_path}")
                             except Exception as cache_error:
                                 logger.warning(f"Error caching screenshot: {str(cache_error)}")
                             
