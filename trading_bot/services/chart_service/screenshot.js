@@ -7,8 +7,9 @@ const os = require('os');
 
 // Configuratie
 const VIEWPORT_WIDTH = 1280;
-const VIEWPORT_HEIGHT = 720;
-const DEFAULT_TIMEOUT = 40000; // Verhoogd van 30 naar 40 seconden
+const VIEWPORT_HEIGHT = 800;
+const DEFAULT_TIMEOUT = 30000;
+const CHART_WAIT_TIMEOUT = 20000;
 const ELEMENT_TIMEOUT = 20000; // Verhoogd van 15 naar 20 seconden
 const MAX_WAIT_FOR_CHART = 45000; // Verhoogd van 30 naar 45 seconden
 const BROWSER_ARGS = [
