@@ -49,9 +49,35 @@ class TradingViewNodeService(TradingViewService):
         self.base_url = "https://www.tradingview.com"
         self.chart_url = "https://www.tradingview.com/chart"
         
-        # Get the project root directory and set the correct script path
-        project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
-        self.script_path = os.path.join(project_root, "tradingview_screenshot.js")
+        # Gebruik het absolute pad naar het script in de hoofdmap
+        root_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+        self.script_path = os.path.join(root_dir, "tradingview_screenshot.js")
+        
+        # Log het pad voor debugging
+        logger.info(f"Using script path: {self.script_path}")
+        
+        # Controleer of het script bestaat
+        if not os.path.exists(self.script_path):
+            logger.error(f"Script niet gevonden op {self.script_path}")
+            # Zoek het script in de huidige directory als fallback
+            current_dir = os.getcwd()
+            fallback_path = os.path.join(current_dir, "tradingview_screenshot.js")
+            if os.path.exists(fallback_path):
+                logger.info(f"Script gevonden op fallback locatie: {fallback_path}")
+                self.script_path = fallback_path
+            else:
+                logger.error(f"Script ook niet gevonden op fallback locatie: {fallback_path}")
+                # Laatste poging - zoek in alle subdirectories
+                possible_paths = []
+                for root, dirs, files in os.walk(current_dir):
+                    if "tradingview_screenshot.js" in files:
+                        possible_path = os.path.join(root, "tradingview_screenshot.js")
+                        possible_paths.append(possible_path)
+                        logger.info(f"Script gevonden in: {possible_path}")
+                
+                if possible_paths:
+                    self.script_path = possible_paths[0]
+                    logger.info(f"Using script at: {self.script_path}")
         
         # Chart links met specifieke chart IDs om sneller te laden
         self.chart_links = {
