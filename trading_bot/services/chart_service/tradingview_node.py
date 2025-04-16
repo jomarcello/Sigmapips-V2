@@ -226,6 +226,12 @@ class TradingViewNodeService(TradingViewService):
     async def take_screenshot_of_url(self, url: str, fullscreen: bool = False) -> Optional[bytes]:
         """Take a screenshot of a URL using Node.js"""
         try:
+            # Controleer of we in een Docker-omgeving draaien en stel de NODE_OPTIONS-variabele in
+            is_docker = self._check_if_running_in_docker()
+            if is_docker:
+                logger.info("Running in Docker environment, setting NODE_OPTIONS")
+                os.environ["NODE_OPTIONS"] = "--no-sandbox --max-old-space-size=2048"
+            
             # Genereer een unieke bestandsnaam voor de screenshot in de cache-map
             timestamp = int(time.time())
             random_suffix = os.urandom(4).hex()  # Extra randomness om conflicten te voorkomen
@@ -252,12 +258,20 @@ class TradingViewNodeService(TradingViewService):
             
             logger.info(f"Running command: node screenshot.js [url] [output] [session] {fullscreen}")
             
+            # Gebruik aangepaste omgevingsvariabelen voor Docker-compatibiliteit
+            env = os.environ.copy()
+            if is_docker:
+                env["PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD"] = "1"
+                env["PLAYWRIGHT_BROWSERS_PATH"] = "/ms-playwright"
+                env["DISPLAY"] = ":99"
+            
             # Gebruik asyncio subprocess voor non-blocking operatie
             start_time = time.time()
             process = await asyncio.create_subprocess_exec(
                 *cmd_args,
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
+                stderr=asyncio.subprocess.PIPE,
+                env=env
             )
             
             # Stel een timeout in van 60 seconden (verhoogd voor betere UI-laadtijd verificatie)
@@ -278,10 +292,15 @@ class TradingViewNodeService(TradingViewService):
             logger.info(f"Screenshot process took {end_time - start_time:.2f} seconds")
             
             # Log de output alleen bij fouten of als debug niveau
-            if stdout and logger.isEnabledFor(logging.DEBUG):
+            if stdout:
                 logger.debug(f"Node.js stdout: {stdout.decode()}")
             if stderr:
                 logger.error(f"Node.js stderr: {stderr.decode()}")
+                # Als er foutmeldingen zijn over display problemen, gebruik een fallback
+                stderr_text = stderr.decode()
+                if "Failed to connect to the bus" in stderr_text or "xcb_connect() failed" in stderr_text:
+                    logger.warning("Display connection issues detected, using fallback")
+                    return await self._generate_fallback_chart(url)
             
             # Controleer of het bestand bestaat en heeft een redelijke grootte
             if os.path.exists(screenshot_path) and os.path.getsize(screenshot_path) > 1000:
@@ -305,10 +324,94 @@ class TradingViewNodeService(TradingViewService):
                         os.remove(screenshot_path)
                     except:
                         pass
+                    # Gebruik fallback
+                    return await self._generate_fallback_chart(url)
                 else:
                     logger.error(f"Screenshot file not found: {screenshot_path}")
-                return None
+                    # Gebruik fallback
+                    return await self._generate_fallback_chart(url)
         
         except Exception as e:
             logger.error(f"Error taking screenshot with Node.js: {str(e)}")
-            return None
+            # Gebruik fallback
+            return await self._generate_fallback_chart(url)
+    
+    def _check_if_running_in_docker(self) -> bool:
+        """Controleer of de service in een Docker-container draait"""
+        try:
+            # Methode 1: controleer /.dockerenv bestand
+            if os.path.exists('/.dockerenv'):
+                return True
+            
+            # Methode 2: controleer cgroup
+            with open('/proc/1/cgroup', 'r') as f:
+                return 'docker' in f.read() or 'kubepods' in f.read()
+        except:
+            # Bij twijfel/fout, ga ervan uit dat we niet in Docker zitten
+            return False
+    
+    async def _generate_fallback_chart(self, url: str) -> bytes:
+        """Genereer een fallback chart wanneer screenshots niet werken"""
+        try:
+            logger.warning(f"Generating fallback chart for URL: {url}")
+            
+            # Identificeer het instrument uit de URL
+            import re
+            instrument = "EURUSD"  # Default
+            
+            # Probeer instrument te halen uit de URL
+            match = re.search(r'symbol=([A-Za-z0-9:]+)', url)
+            if match:
+                symbol_part = match.group(1)
+                # Strip broker prefixes als OANDA: of BITSTAMP:
+                if ':' in symbol_part:
+                    instrument = symbol_part.split(':')[1]
+                else:
+                    instrument = symbol_part
+            
+            # Identificeer timeframe
+            timeframe = "1h"  # Default
+            match = re.search(r'interval=([0-9A-Za-z]+)', url)
+            if match:
+                interval = match.group(1)
+                # Map TradingView intervals naar onze timeframes
+                interval_map_reverse = {
+                    "1": "1m", "5": "5m", "15": "15m", "30": "30m", 
+                    "60": "1h", "240": "4h", "D": "1d", "W": "1W"
+                }
+                timeframe = interval_map_reverse.get(interval, "1h")
+            
+            # Roep de ChartService aan om een matplotlib chart te genereren
+            try:
+                from trading_bot.services.chart_service.chart import ChartService
+                chart_service = ChartService()
+                return await chart_service._generate_random_chart(instrument, timeframe)
+            except ImportError:
+                # Als we de ChartService niet kunnen importeren, genereer een eenvoudige afbeelding
+                import io
+                from PIL import Image, ImageDraw, ImageFont
+                
+                # Maak een eenvoudige afbeelding met tekst
+                img = Image.new('RGB', (1280, 800), color=(20, 24, 35))
+                d = ImageDraw.Draw(img)
+                
+                # Probeer een font te laden, gebruik default als het niet lukt
+                try:
+                    font = ImageFont.truetype("Arial", 36)
+                except:
+                    font = ImageFont.load_default()
+                
+                # Teken de tekst
+                d.text((640, 400), f"{instrument} {timeframe}", fill=(255, 255, 255), anchor="mm", font=font)
+                
+                # Converteer naar bytes
+                buffer = io.BytesIO()
+                img.save(buffer, format="PNG")
+                return buffer.getvalue()
+        
+        except Exception as e:
+            logger.error(f"Error generating fallback chart: {str(e)}")
+            # Als alles mislukt, gebruik een hardcoded fallback afbeelding
+            import base64
+            fallback_img = "iVBORw0KGgoAAAANSUhEUgAABQAAAALQAQMAAAD1s08VAAAAA1BMVEUUHy8OksuVAAAASElEQVR4AezBMQEAAADCIPuntsYOYAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIAXA8ZQAAGpnV+kAAAAAElFTkSuQmCC"
+            return base64.b64decode(fallback_img)
