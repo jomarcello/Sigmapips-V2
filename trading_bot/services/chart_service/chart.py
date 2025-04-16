@@ -25,6 +25,9 @@ from tradingview_ta import TA_Handler, Interval
 # Importeer alleen de base class
 from trading_bot.services.chart_service.base import TradingViewService
 
+# Globale configuratie voor snelheid
+USE_FAST_MODE = os.getenv("USE_FAST_MODE", "true").lower() == "true"
+
 logger = logging.getLogger(__name__)
 
 # Verwijder alle Yahoo Finance gerelateerde constanten
@@ -639,11 +642,11 @@ class ChartService:
 
     async def get_technical_analysis(self, instrument: str, timeframe: str = "1h") -> Union[bytes, str]:
         """
-        Get technical analysis for an instrument with timeframe using TradingView data and DeepSeek APIs.
-        Optimized with parallel execution and improved caching.
+        Get technical analysis for an instrument with timeframe using TradingView data.
+        In fast mode, skips DeepSeek API completely and uses template analysis.
         """
         try:
-            # Check cache eerst
+            # Check cache eerst - zeer belangrijke optimalisatie
             cache_key = f"{instrument}_{timeframe}_technical"
             cached_result = self.chart_cache.get(cache_key)
             if cached_result:
@@ -662,13 +665,18 @@ class ChartService:
             market_data_dict = self.market_data_cache.get(market_data_cache_key)
             
             # Start taak 2: marktdata ophalen (als niet in cache)
+            market_data_task = None
             if not market_data_dict:
                 market_data_task = asyncio.create_task(self.get_real_market_data(instrument, timeframe))
                 tasks.append(market_data_task)
             
-            # Wacht op BEIDE taken tegelijk met timeout beveiliging
+            # Wacht op BEIDE taken tegelijk met timeout beveiliging (max 20s)
             try:
-                results = await asyncio.gather(*tasks, return_exceptions=True)
+                # Gebruik een kortere overall timeout
+                results = await asyncio.wait_for(
+                    asyncio.gather(*tasks, return_exceptions=True),
+                    timeout=20.0  # Maximum 20 seconden totaal
+                )
                 
                 # Verwerk chart resultaat
                 chart_data = results[0]
@@ -694,13 +702,13 @@ class ChartService:
                     img_path = chart_data  # Already a path
                     logger.info(f"Using existing chart image path: {img_path}")
                 
-                # Verwerk market data resultaat
-                if not market_data_dict:  # Als het niet in cache was, haal het uit de resultaten
-                    if len(results) > 1:
+                # Verwerk market data resultaat of gebruik cache
+                if not market_data_dict:  # Als niet in cache, kijk naar taken resultaat
+                    if market_data_task and len(results) > 1:
                         market_data_result = results[1]
                         if isinstance(market_data_result, Exception):
                             logger.error(f"Error getting market data: {str(market_data_result)}")
-                            # Genereer synthetische data bij fouten
+                            # Gebruik snel synthetische data bij fouten
                             base_price = self._get_base_price_for_instrument(instrument)
                             market_data_dict = self._calculate_synthetic_support_resistance(base_price, instrument)
                         else:
@@ -709,30 +717,34 @@ class ChartService:
                             self.market_data_cache.set(market_data_cache_key, market_data_dict)
                             logger.info(f"TradingView data retrieved and cached")
                     else:
-                        # Genereer synthetische data als fallback
+                        # Gebruik snel synthetische data als fallback
                         base_price = self._get_base_price_for_instrument(instrument)
                         market_data_dict = self._calculate_synthetic_support_resistance(base_price, instrument)
 
-                # SKIP DeepSeek als de API key ontbreekt (gebruikt direct template format)
+                # FAST MODE of Als USE_FAST_MODE true is, gebruik direct lokale template
+                if USE_FAST_MODE:
+                    logger.info(f"Using FAST MODE for {instrument} - skipping API calls")
+                    analysis = self._create_template_analysis(instrument, timeframe, market_data_dict)
+                    
+                    # Sla resultaat op in cache en return
+                    self.chart_cache.set(cache_key, (img_path, analysis))
+                    return img_path, analysis
+                
+                # Alleen DeepSeek gebruiken als expliciet ingeschakeld en niet in FAST MODE
                 deepseek_api_key = os.getenv("DEEPSEEK_API_KEY")
-                
-                # Als er geen API key is OF we willen snelheid prioriteren, gebruik direct het template format
-                use_fast_template = os.getenv("USE_FAST_TEMPLATE", "false").lower() == "true"
-                
-                analysis = None
-                if not deepseek_api_key or use_fast_template:
-                    logger.info(f"Using fast template generation for {instrument}")
+                if not deepseek_api_key:
+                    # Geen API key, geen vertraging - direct template gebruiken
                     analysis = self._create_template_analysis(instrument, timeframe, market_data_dict)
                 else:
-                    # Convert data to JSON for DeepSeek
-                    market_data_json = json.dumps(market_data_dict, indent=2, cls=NumpyJSONEncoder)
-                    
-                    # Format data using DeepSeek API met korte timeout (5s)
-                    logger.info(f"Formatting data with DeepSeek for {instrument}")
+                    # Probeer DeepSeek met zeer korte timeout (3 seconden max)
                     try:
+                        # Maak market data json en start DeepSeek call met timeout
+                        market_data_json = json.dumps(market_data_dict, indent=2, cls=NumpyJSONEncoder)
+                        logger.info(f"Formatting data with DeepSeek for {instrument}")
+                        
                         analysis = await asyncio.wait_for(
                             self._format_with_deepseek(deepseek_api_key, instrument, timeframe, market_data_json),
-                            timeout=5.0  # Kortere timeout van 5 seconden
+                            timeout=3.0  # Slechts 3 seconden wachten
                         )
                     except asyncio.TimeoutError:
                         logger.warning(f"DeepSeek API timed out, using fallback template for {instrument}")
@@ -745,16 +757,14 @@ class ChartService:
                 if not analysis:
                     analysis = self._create_template_analysis(instrument, timeframe, market_data_dict)
                 
-                # Cache het resultaat voordat het wordt teruggegeven
+                # Cache het resultaat voor toekomstig gebruik (langere TTL mogelijk)
                 self.chart_cache.set(cache_key, (img_path, analysis))
                 
                 return img_path, analysis
-                
-            except Exception as e:
-                logger.error(f"Error in get_technical_analysis: {str(e)}")
-                logger.error(traceback.format_exc())
-                
-                # Fallback naar synthetische data en template bij fouten
+            
+            except asyncio.TimeoutError:
+                logger.error(f"Timeout getting technical analysis for {instrument}")
+                # Bij timeout, gebruik fallbacks voor alles
                 img_path = await self._generate_random_chart(instrument, timeframe)
                 timestamp = int(datetime.now().timestamp())
                 file_path = f"data/charts/{instrument.lower()}_{timeframe}_{timestamp}.png"
@@ -763,19 +773,33 @@ class ChartService:
                     os.makedirs('data/charts', exist_ok=True)
                     with open(file_path, 'wb') as f:
                         f.write(img_path)
-                except:
-                    pass
-                    
+                except Exception as e:
+                    logger.error(f"Error saving fallback chart: {str(e)}")
+                    return None, "Error generating analysis."
+                
                 base_price = self._get_base_price_for_instrument(instrument)
                 market_data_dict = self._calculate_synthetic_support_resistance(base_price, instrument)
                 analysis = self._create_template_analysis(instrument, timeframe, market_data_dict)
                 
                 return file_path, analysis
-                
+            
         except Exception as e:
-            logger.error(f"Fatal error in get_technical_analysis: {str(e)}")
+            logger.error(f"Error in get_technical_analysis: {str(e)}")
             logger.error(traceback.format_exc())
-            return None, "Error generating technical analysis."
+            
+            # Altijd een antwoord geven, zelfs in foutgevallen
+            try:
+                img_path = await self._generate_random_chart(instrument, timeframe)
+                timestamp = int(datetime.now().timestamp()) 
+                file_path = f"data/charts/{instrument.lower()}_{timeframe}_{timestamp}.png"
+                
+                os.makedirs('data/charts', exist_ok=True)
+                with open(file_path, 'wb') as f:
+                    f.write(img_path)
+                
+                return file_path, f"{instrument} - {timeframe}\n\n<b>Trend - BUY</b>\n\nMarket Analysis Currently Unavailable."
+            except:
+                return None, "Error generating technical analysis."
 
     def _create_template_analysis(self, instrument: str, timeframe: str, market_data: Dict[str, Any]) -> str:
         """Snel een geformateerde analyse maken zonder API calls"""
