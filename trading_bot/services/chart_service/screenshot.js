@@ -45,6 +45,7 @@ const { chromium } = playwrightInstalled ? require('playwright') : require('play
     // Start een browser met minimale opties voor betere prestaties
     browser = await chromium.launch({
       headless: true,
+      executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || undefined,
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
@@ -60,8 +61,24 @@ const { chromium } = playwrightInstalled ? require('playwright') : require('play
         '--disable-breakpad',
         '--disable-component-extensions-with-background-pages',
         '--disable-ipc-flooding-protection',
-        '--single-process', // Versnellen door single-process modus
-      ]
+        '--disable-renderer-backgrounding',
+        '--no-first-run',
+        '--no-startup-window',
+        '--no-zygote',
+        '--mute-audio',
+        '--ignore-gpu-blocklist',
+        '--use-gl=swiftshader',
+        '--disable-software-rasterizer',
+        '--font-render-hinting=none'
+      ],
+      handleSIGINT: false,
+      handleSIGTERM: false,
+      handleSIGHUP: false,
+      env: {
+        ...process.env,
+        DISPLAY: process.env.DISPLAY || ':99',
+        XAUTHORITY: process.env.XAUTHORITY || ''
+      }
     });
     
     // Optimaliseer context-instellingen voor snelheid
