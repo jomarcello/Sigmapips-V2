@@ -92,6 +92,9 @@ class TradingViewNodeService(TradingViewService):
         os.makedirs('data/charts', exist_ok=True)
         os.makedirs('data/cache', exist_ok=True)
         
+        # Zorg ervoor dat de cache directories absoluut zijn
+        self.cache_dir = os.path.join(os.getcwd(), 'data/charts')
+        
         # Voorkom onnodige Node.js checks
         self._node_checked = False
         
@@ -297,7 +300,8 @@ class TradingViewNodeService(TradingViewService):
             cache_key = f"{url}_{fullscreen}"
             url_hash = hashlib.md5(cache_key.encode()).hexdigest()
             
-            cache_path = os.path.join('data/charts', f"cached_{url_hash}.png")
+            # Zorg ervoor dat de cache directory absoluut is
+            cache_path = os.path.join(self.cache_dir, f"cached_{url_hash}.png")
             
             # Bepaal cache TTL afhankelijk van het instrument
             cache_ttl = CACHE_TTL  # Default 5 minuten
