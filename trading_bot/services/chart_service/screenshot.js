@@ -8,9 +8,9 @@ const os = require('os');
 // Configuratie
 const VIEWPORT_WIDTH = 1280;
 const VIEWPORT_HEIGHT = 720;
-const DEFAULT_TIMEOUT = 30000;
-const ELEMENT_TIMEOUT = 15000;
-const MAX_WAIT_FOR_CHART = 30000;
+const DEFAULT_TIMEOUT = 40000; // Verhoogd van 30 naar 40 seconden
+const ELEMENT_TIMEOUT = 20000; // Verhoogd van 15 naar 20 seconden
+const MAX_WAIT_FOR_CHART = 45000; // Verhoogd van 30 naar 45 seconden
 const BROWSER_ARGS = [
   '--disable-dev-shm-usage',
   '--disable-setuid-sandbox',
@@ -28,7 +28,7 @@ const BROWSER_ARGS = [
 // Globale browser instance voor hergebruik
 let globalBrowser = null;
 let browserLastUsed = Date.now();
-const BROWSER_MAX_LIFETIME = 15 * 60 * 1000; // 15 minuten
+const BROWSER_MAX_LIFETIME = 10 * 60 * 1000; // Verlaagd van 15 naar 10 minuten voor regelmatiger vernieuwen
 
 // Haal de argumenten op
 const url = process.argv[2];
@@ -50,11 +50,14 @@ const CHART_SELECTORS = [
   '.chart-container-border',
   '.js-chart-container',
   '.chart-gui-wrapper',
-  '.chart-markup-table.pane'
+  '.chart-markup-table.pane',
+  // Extra selectors voor nieuwere TradingView versies
+  '.js-rootresizer__contents',
+  '.layout__area--center canvas'
 ];
 
 // Helper functie: wacht tot een van de selectors zichtbaar is
-async function waitForAnySelector(page, selectors, timeout = 15000) {
+async function waitForAnySelector(page, selectors, timeout = 20000) { // Verhoogd van 15 naar 20 seconden
   console.log(`👀 Waiting for chart elements (max ${timeout}ms)...`);
   const startWaitTime = Date.now();
   
@@ -85,7 +88,7 @@ async function waitForAnySelector(page, selectors, timeout = 15000) {
 }
 
 // Functie om meerdere Escape-toetsen te simuleren voor hardnekkige popups
-async function dismissPopups(page, count = 5) {
+async function dismissPopups(page, count = 8) { // Verhoogd van 5 naar 8 pogingen
   for (let i = 0; i < count; i++) {
     await page.keyboard.press('Escape');
     await page.waitForTimeout(100);
@@ -143,7 +146,13 @@ async function takeScreenshot() {
     
     // Ga naar de URL met timeout
     console.log(`Navigeren naar ${url}...`);
-    await page.goto(url, { 
+    
+    // Voeg cache-busting parameter toe om verse data te krijgen
+    const urlWithParams = url.includes('?') 
+      ? `${url}&timestamp=${Date.now()}` 
+      : `${url}?timestamp=${Date.now()}`;
+    
+    await page.goto(urlWithParams, { 
       timeout: DEFAULT_TIMEOUT,
       waitUntil: 'networkidle'
     });
@@ -154,17 +163,17 @@ async function takeScreenshot() {
     // Wacht tot de chart geladen is
     await waitForChart(page);
     
-    // Wacht extra tijd voor TradingView chart om data te laden
+    // Wacht extra tijd voor TradingView chart om data te laden - verhoogd van 5 naar 8 seconden
     console.log('Wachten op dataverwerking...');
-    await page.waitForTimeout(5000);
+    await page.waitForTimeout(8000);
     
     // Pas mogelijk fullscreen toe
     if (fullscreen) {
       await enterFullscreenMode(page);
     }
     
-    // Wacht kort voor stabilisatie
-    await page.waitForTimeout(2000);
+    // Wacht kort voor stabilisatie - verhoogd van 2 naar 3 seconden
+    await page.waitForTimeout(3000);
     
     // Controleer of chart daadwerkelijk data bevat
     const hasChartData = await page.evaluate(() => {
@@ -172,20 +181,38 @@ async function takeScreenshot() {
       const priceElements = document.querySelectorAll('.price-axis');
       const chartLines = document.querySelectorAll('path[stroke]');
       const candlesticks = document.querySelectorAll('.chart-markup-table rect');
+      const canvases = document.querySelectorAll('.chart-container canvas, .layout__area--center canvas');
       
-      return priceElements.length > 0 && (chartLines.length > 10 || candlesticks.length > 10);
+      return (priceElements.length > 0 && (chartLines.length > 10 || candlesticks.length > 10)) || 
+             (canvases.length > 0); // Extra check voor canvas elementen
     });
     
     if (!hasChartData) {
       console.log('⚠️ Chart lijkt geen data te bevatten, wacht langer...');
+      await page.waitForTimeout(15000); // Verhoogd van 10 naar 15 seconden
+      
+      // Voer een refresh uit als laatste redmiddel
+      console.log('Proberen de pagina te verversen...');
+      await page.reload({ timeout: DEFAULT_TIMEOUT, waitUntil: 'networkidle' });
+      await closePopups(page);
+      await waitForChart(page);
       await page.waitForTimeout(10000);
     }
     
     // Verwijder overlays die de chart kunnen blokkeren
     await page.evaluate(() => {
       // Verwijder alle popups, dialogen en advertisements die de chart kunnen bedekken
-      const elementsToRemove = document.querySelectorAll('.tv-dialog, .tv-alert, .tv-notification, .banner-container');
+      const elementsToRemove = document.querySelectorAll('.tv-dialog, .tv-alert, .tv-notification, .banner-container, .toast-wrapper');
       elementsToRemove.forEach(el => el.remove());
+      
+      // Verifieer dat grafiek elementen zichtbaar zijn
+      const chartContainers = document.querySelectorAll('.chart-container, .chart-markup-table, .layout__area--center');
+      chartContainers.forEach(container => {
+        if (container) {
+          container.style.visibility = 'visible';
+          container.style.display = 'block';
+        }
+      });
     });
     
     // Neem de screenshot
@@ -196,7 +223,19 @@ async function takeScreenshot() {
       timeout: DEFAULT_TIMEOUT
     });
     
-    console.log(`Screenshot gemaakt: ${outputPath}`);
+    // Controleer of bestand is aangemaakt en grootte heeft
+    if (fs.existsSync(outputPath)) {
+      const stats = fs.statSync(outputPath);
+      if (stats.size > 1000) { // Minimaal 1KB om als geldig te beschouwen
+        console.log(`Screenshot gemaakt: ${outputPath} (${stats.size} bytes)`);
+      } else {
+        console.error(`Screenshot te klein: ${stats.size} bytes. Mogelijk onjuist.`);
+        process.exitCode = 1;
+      }
+    } else {
+      console.error(`Screenshot bestand niet aangemaakt: ${outputPath}`);
+      process.exitCode = 1;
+    }
     
   } catch (error) {
     console.error(`Error bij maken screenshot: ${error.message}`);
@@ -254,17 +293,36 @@ async function getBrowserInstance() {
   console.log('Nieuwe browser starten...');
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pw-chrome-'));
   
-  globalBrowser = await chromium.launch({
-    headless: true,
-    args: BROWSER_ARGS,
-    userDataDir: tmpDir,
-    downloadsPath: tmpDir,
-    timeout: DEFAULT_TIMEOUT,
-    ignoreDefaultArgs: ['--enable-automation'],
-    ignoreHTTPSErrors: true
-  });
+  // Probeer browser meerdere keren te starten indien nodig
+  let retryCount = 0;
+  let error = null;
   
-  return globalBrowser;
+  while (retryCount < 3) {
+    try {
+      globalBrowser = await chromium.launch({
+        headless: true,
+        args: BROWSER_ARGS,
+        userDataDir: tmpDir,
+        downloadsPath: tmpDir,
+        timeout: DEFAULT_TIMEOUT,
+        ignoreDefaultArgs: ['--enable-automation'],
+        ignoreHTTPSErrors: true
+      });
+      
+      // Browser succesvol gestart
+      return globalBrowser;
+    } catch (err) {
+      error = err;
+      console.error(`Fout bij starten browser (poging ${retryCount + 1}): ${err.message}`);
+      retryCount++;
+      
+      // Wacht tussen pogingen
+      await new Promise(resolve => setTimeout(resolve, 2000));
+    }
+  }
+  
+  // Als alle pogingen falen, gooi error
+  throw new Error(`Kon browser niet starten na ${retryCount} pogingen: ${error.message}`);
 }
 
 /**
@@ -273,7 +331,7 @@ async function getBrowserInstance() {
 async function createBrowserContext(browser, sessionId) {
   return await browser.newContext({
     viewport: { width: VIEWPORT_WIDTH, height: VIEWPORT_HEIGHT },
-    userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/94.0.4606.71 Safari/537.36',
+    userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
     locale: 'en-US',
     timezoneId: 'Europe/Amsterdam',
     acceptDownloads: false,
@@ -320,13 +378,17 @@ async function setupTradingViewSession(page, sessionId) {
         value: sessionId,
         domain: '.tradingview.com',
         path: '/',
-      }
-    ]);
-    // Voeg extra cookie toe voor TradingView authenticatie
-    await page.context().addCookies([
+      },
       {
         name: 'tv_authed',
         value: '1',
+        domain: '.tradingview.com',
+        path: '/',
+      },
+      // Extra cookies voor betere authenticatie
+      {
+        name: 'device_t',
+        value: sessionId.substring(0, 10),
         domain: '.tradingview.com',
         path: '/',
       }
@@ -346,14 +408,14 @@ function setupNetworkLogging(page) {
     }
   });
   
-  // Blokkeer niet-essentiële requests voor snellere laadtijd
-  page.route('**/*.{png,jpg,jpeg,gif,svg,woff,woff2,mp4,webm,mp3,pdf}', route => {
-    // Sta afbeeldingen toe maar blokkeer andere grote media bestanden
-    if (route.request().resourceType() === 'image') {
-      route.continue();
-    } else {
-      route.abort();
-    }
+  // Gewijzigde route-blocking: Alleen heel grote bestanden blokkeren
+  page.route('**/*.{mp4,webm,mp3,pdf}', route => {
+    route.abort();
+  });
+  
+  // Belangrijk: Sta alle afbeeldingen door om ervoor te zorgen dat chart elementen geladen worden
+  page.route('**/*.{png,jpg,jpeg,gif,svg,woff,woff2}', route => {
+    route.continue();
   });
   
   // Log succesvolle data requests
@@ -379,9 +441,9 @@ function setupNetworkLogging(page) {
 async function closePopups(page) {
   try {
     // Gebruik eerst keyboard methode
-    await dismissPopups(page, 5);
+    await dismissPopups(page, 8); // Verhoogd van 5 naar 8 pogingen
     
-    // Lijst met mogelijke popups
+    // Lijst met mogelijke popups - uitgebreid met nieuwe selectors
     const popupSelectors = [
       'div[data-role="toast-container"] button',
       'div[data-name="popup-dialog"] button[data-name="dialog-close"]',
@@ -391,19 +453,29 @@ async function closePopups(page) {
       'button[data-dialog-action="cancel"]',
       'button[data-dialog-action="close"]',
       'button.js-dialog__close',
-      // Extra selectors voor nieuwere TradingView popups
       '[data-name="header-toolbar-close"]',
       '[data-name="close-button"]',
       '.close-button',
       '.tv-dialog__close-button',
-      '.tv-alert__close-button'
+      '.tv-alert__close-button',
+      // Nieuwe selectors
+      'button[data-name*="close"]',
+      'button[data-name*="cancel"]',
+      'button.close-icon',
+      '[class*="closeButton"]',
+      'button.close'
     ];
     
-    for (const selector of popupSelectors) {
-      // Zoek en klik op alle matching popup knoppen
-      await page.$$eval(selector, buttons => {
-        buttons.forEach(button => button.click());
-      }).catch(() => {});
+    // Probeer 2 keer om popup knoppen te vinden en te klikken (meer grondig)
+    for (let attempt = 0; attempt < 2; attempt++) {
+      for (const selector of popupSelectors) {
+        // Zoek en klik op alle matching popup knoppen
+        await page.$$eval(selector, buttons => {
+          buttons.forEach(button => button.click());
+        }).catch(() => {});
+      }
+      // Korte pauze tussen pogingen
+      await page.waitForTimeout(500);
     }
     
     // Accept cookies popup (TradingView specifiek)
@@ -415,12 +487,22 @@ async function closePopups(page) {
     await page.locator('button:has-text("Accept all cookies")')
       .click({ timeout: 2000 })
       .catch(() => {});
+    
+    // Zoek naar tekst "Got it" of "I Understand" knoppen
+    await page.locator('button:has-text("Got it"), button:has-text("I Understand"), button:has-text("Continue")')
+      .click({ timeout: 2000 })
+      .catch(() => {});
       
     // Sluit ads en marketing popups
     await page.evaluate(() => {
       // Verwijder banner containers
       document.querySelectorAll('.banner-container').forEach(el => el.remove());
-      document.querySelectorAll('[class*="popup"], [class*="modal"], [class*="toast"]').forEach(el => {
+      document.querySelectorAll('[class*="popup"], [class*="modal"], [class*="toast"], [class*="dialog"]').forEach(el => {
+        if (el.style) el.style.display = 'none';
+      });
+      
+      // Extra: verberg alerts en notificaties
+      document.querySelectorAll('[class*="alert"], [class*="notification"], [class*="banner"]').forEach(el => {
         if (el.style) el.style.display = 'none';
       });
     });
@@ -443,9 +525,19 @@ async function waitForChart(page) {
     
     if (!chartSelector) {
       console.log('Geen specifieke chart-element gevonden, doorgaan...');
+      
+      // Extra stap: Probeer canvas elementen te vinden wanneer normale selectors falen
+      const hasCanvas = await page.evaluate(() => {
+        const canvases = document.querySelectorAll('canvas');
+        return canvases.length > 0;
+      });
+      
+      if (hasCanvas) {
+        console.log('Canvas elementen gevonden, mogelijk is de chart toch aanwezig');
+      }
     }
     
-    // Wacht tot prijsdata zichtbaar is
+    // Wacht tot prijsdata zichtbaar is - meerdere mogelijke elementen in parallel
     await Promise.race([
       page.waitForSelector('.price-axis', { 
         state: 'visible',
@@ -454,14 +546,18 @@ async function waitForChart(page) {
       page.waitForSelector('path[stroke]', {
         state: 'visible',
         timeout: ELEMENT_TIMEOUT
+      }),
+      page.waitForSelector('canvas', {  // Nieuwe check voor canvas elementen
+        state: 'visible',
+        timeout: ELEMENT_TIMEOUT
       })
     ]).catch(() => console.log('Geen prijsdata gevonden, doorgaan...'));
     
-    // Wacht extra tijd voor data om te laden
-    await page.waitForTimeout(5000);
+    // Wacht extra tijd voor data om te laden - verhoogd van 5 naar 7 seconden
+    await page.waitForTimeout(7000);
     
     // Controleer of er een laadspinner is en wacht tot deze verdwijnt
-    const loadingSpinner = await page.$('div.loading-indicator, .tv-spinner');
+    const loadingSpinner = await page.$('div.loading-indicator, .tv-spinner, [class*="loadingSpinner"]');
     if (loadingSpinner) {
       console.log('Wachten tot spinner verdwijnt...');
       await loadingSpinner.waitForElementState('hidden', { timeout: ELEMENT_TIMEOUT });
@@ -469,12 +565,26 @@ async function waitForChart(page) {
     
     // Uitvoeren van extra acties om ervoor te zorgen dat grafieken correct worden weergegeven
     await page.evaluate(() => {
-      // Dispatchen van een resize event kan helpen bij het laden van grafiek-elementen
+      // Dispatchen van resize events kan helpen bij het laden van grafiek-elementen
       window.dispatchEvent(new Event('resize'));
+      setTimeout(() => window.dispatchEvent(new Event('resize')), 1000);
       
       // Schakel automatisch bijwerken in
       const autoUpdateButton = document.querySelector('button[data-name="toggle-auto-update"]');
       if (autoUpdateButton) autoUpdateButton.click();
+      
+      // TradingView-specifieke optimalisaties
+      if (window.TradingView && window.TradingView.ChartManager) {
+        try {
+          const chartManager = window.TradingView.ChartManager.instance;
+          if (chartManager && chartManager.activeChart) {
+            chartManager.activeChart.refreshChart();
+            chartManager.activeChart.fullUpdate();
+          }
+        } catch (e) {
+          console.error('Error bij refreshen chart via TradingView API');
+        }
+      }
     });
     
     console.log('Chart geladen!');
@@ -496,12 +606,20 @@ async function enterFullscreenMode(page) {
       // Verberg dialogen, toolbars, etc.
       const style = document.createElement('style');
       style.textContent = `
-        .header-chart-panel, .tv-side-toolbar, .bottom-widgetbar-content.backtesting {
+        .header-chart-panel, .tv-side-toolbar, .bottom-widgetbar-content.backtesting,
+        .layout__area--top, .layout__area--left, .layout__area--right,
+        [class*="toolbar"], [class*="header"], [class*="legend"] {
           display: none !important;
         }
-        .chart-container, .chart-markup-table, .chart-container-border {
+        .chart-container, .chart-markup-table, .chart-container-border, 
+        .layout__area--center, .js-rootresizer__contents {
           height: 100% !important;
           width: 100% !important;
+          position: absolute !important;
+          top: 0 !important;
+          left: 0 !important;
+          right: 0 !important;
+          bottom: 0 !important;
         }
       `;
       document.head.appendChild(style);
@@ -518,10 +636,14 @@ async function enterFullscreenMode(page) {
       }
       
       // Zorg ervoor dat de grafiek op maximale grootte wordt weergegeven
-      const chartContainer = document.querySelector('.chart-container, .chart-markup-table');
+      const chartContainer = document.querySelector('.chart-container, .chart-markup-table, .layout__area--center');
       if (chartContainer) {
         chartContainer.style.width = '100vw';
         chartContainer.style.height = '100vh';
+        chartContainer.style.position = 'absolute';
+        chartContainer.style.top = '0';
+        chartContainer.style.left = '0';
+        chartContainer.style.zIndex = '999';
       }
     });
     
