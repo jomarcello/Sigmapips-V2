@@ -1,0 +1,47 @@
+# Core packages
+python-telegram-bot==20.3
+aiohttp==3.8.5
+python-dotenv==1.0.0
+fastapi==0.105.0
+uvicorn==0.24.0.post1
+httpx==0.24.1
+stripe==7.5.0
+tenacity==8.2.3  # Voor retry mechanisme in API calls
+
+# Database
+supabase==1.1.1
+redis==5.0.1
+
+# Chart generation
+matplotlib==3.8.2
+pandas==2.1.3
+mplfinance==0.12.10b0
+numpy==1.26.2
+tradingview_ta==3.3.0
+
+# For logging and debugging
+python-json-logger==2.0.7
+
+# Browser automation
+selenium==4.10.0
+pillow==9.5.0
+webdriver-manager==3.8.6
+playwright==1.40.0
+
+# OCR processing
+# Using OCR.space API instead of local Tesseract
+# pytesseract>=0.3.13
+google-cloud-vision==3.4.4  # For Google Cloud Vision API
+
+# Data fetching
+lxml==4.9.3
+beautifulsoup4==4.12.2  # Voor Investing Calendar
+arrow==1.3.0  # Voor Investing Calendar
+
+# Vector database
+pinecone-client
+requests
+
+# AI Services
+# Uncomment and provide API keys in .env file to use these services
+# tavily-python==0.2.2  # for web search via Tavily API

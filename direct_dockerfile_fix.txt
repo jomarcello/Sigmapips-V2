@@ -1,0 +1,4 @@
+# Voeg deze regel toe aan je Dockerfile net na de COPY . . regel
+
+# Repareer de syntaxfout in bot.py door de zwevende docstring te verwijderen
+RUN sed -i '/"""Create and return a logger instance with the given name."""/d' /app/trading_bot/services/telegram_service/bot.py 

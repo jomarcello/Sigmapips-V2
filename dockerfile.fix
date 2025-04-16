@@ -1,0 +1,19 @@
+FROM determined_antonelli
+
+# Installeer Node.js en npm
+RUN apt-get update && apt-get install -y \
+    nodejs \
+    npm
+
+# Ga naar de chart_service directory
+WORKDIR /app/trading_bot/services/chart_service
+
+# Initialiseer een npm project
+RUN npm init -y
+
+# Installeer Playwright en benodigde browsers
+RUN npm install -g playwright @playwright/test playwright-core
+RUN npx playwright install chromium
+
+# Ga terug naar de app directory
+WORKDIR /app 

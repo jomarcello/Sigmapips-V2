@@ -1,0 +1,38 @@
+{
+  "$schema": "https://railway.app/railway.schema.json",
+  "build": {
+    "builder": "DOCKERFILE",
+    "dockerfilePath": "Dockerfile"
+  },
+  "deploy": {
+    "startCommand": "Xvfb :99 -screen 0 1920x1080x24 > /dev/null 2>&1 & uvicorn trading_bot.main:app --host 0.0.0.0 --port ${PORT:-8080}",
+    "healthcheckPath": "/health",
+    "healthcheckTimeout": 300,
+    "startupProbe": {
+      "path": "/health",
+      "initialDelaySeconds": 30,
+      "periodSeconds": 10,
+      "timeoutSeconds": 5,
+      "successThreshold": 1,
+      "failureThreshold": 30
+    },
+    "readinessProbe": {
+      "path": "/health",
+      "initialDelaySeconds": 60,
+      "periodSeconds": 10,
+      "timeoutSeconds": 5,
+      "successThreshold": 1,
+      "failureThreshold": 3
+    },
+    "livenessProbe": {
+      "path": "/health",
+      "initialDelaySeconds": 90,
+      "periodSeconds": 30,
+      "timeoutSeconds": 5,
+      "successThreshold": 1,
+      "failureThreshold": 3
+    },
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 10
+  }
+}

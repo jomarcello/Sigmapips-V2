@@ -1,0 +1,11 @@
+[build]
+builder = "dockerfile"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+restartPolicyType = "on_failure"
+healthcheckPath = "/health"
+healthcheckTimeout = 300
+
+[service]
+internal_port = "8080"
