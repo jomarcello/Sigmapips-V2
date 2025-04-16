@@ -8,9 +8,9 @@ const os = require('os');
 // Configuratie
 const VIEWPORT_WIDTH = 1280;
 const VIEWPORT_HEIGHT = 720;
-const DEFAULT_TIMEOUT = 25000;
-const ELEMENT_TIMEOUT = 10000;
-const MAX_WAIT_FOR_CHART = 20000;
+const DEFAULT_TIMEOUT = 30000;
+const ELEMENT_TIMEOUT = 15000;
+const MAX_WAIT_FOR_CHART = 30000;
 const BROWSER_ARGS = [
   '--disable-dev-shm-usage',
   '--disable-setuid-sandbox',
@@ -41,17 +41,20 @@ const startTime = Date.now();
 console.log(`🚀 Starting screenshot process for ${url}`);
 if (sessionId) console.log(`🔑 Session ID: ${sessionId.substring(0, 5)}...`);
 
-// Lijst van mogelijke chart selectors, in volgorde van prioriteit
+// Verbeterde lijst van mogelijke chart selectors, in volgorde van prioriteit
 const CHART_SELECTORS = [
   '.chart-container',
   '.chart-markup-table',
   '.tv-chart-container',
   '.layout__area--center',
-  '.chart-container-border'
+  '.chart-container-border',
+  '.js-chart-container',
+  '.chart-gui-wrapper',
+  '.chart-markup-table.pane'
 ];
 
 // Helper functie: wacht tot een van de selectors zichtbaar is
-async function waitForAnySelector(page, selectors, timeout = 8000) {
+async function waitForAnySelector(page, selectors, timeout = 15000) {
   console.log(`👀 Waiting for chart elements (max ${timeout}ms)...`);
   const startWaitTime = Date.now();
   
@@ -82,10 +85,10 @@ async function waitForAnySelector(page, selectors, timeout = 8000) {
 }
 
 // Functie om meerdere Escape-toetsen te simuleren voor hardnekkige popups
-async function dismissPopups(page, count = 3) {
+async function dismissPopups(page, count = 5) {
   for (let i = 0; i < count; i++) {
     await page.keyboard.press('Escape');
-    await page.waitForTimeout(50);
+    await page.waitForTimeout(100);
   }
 }
 
@@ -151,13 +154,39 @@ async function takeScreenshot() {
     // Wacht tot de chart geladen is
     await waitForChart(page);
     
+    // Wacht extra tijd voor TradingView chart om data te laden
+    console.log('Wachten op dataverwerking...');
+    await page.waitForTimeout(5000);
+    
     // Pas mogelijk fullscreen toe
     if (fullscreen) {
       await enterFullscreenMode(page);
     }
     
     // Wacht kort voor stabilisatie
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(2000);
+    
+    // Controleer of chart daadwerkelijk data bevat
+    const hasChartData = await page.evaluate(() => {
+      // Controleer aanwezigheid van prijsbalken of andere grafiek-elementen
+      const priceElements = document.querySelectorAll('.price-axis');
+      const chartLines = document.querySelectorAll('path[stroke]');
+      const candlesticks = document.querySelectorAll('.chart-markup-table rect');
+      
+      return priceElements.length > 0 && (chartLines.length > 10 || candlesticks.length > 10);
+    });
+    
+    if (!hasChartData) {
+      console.log('⚠️ Chart lijkt geen data te bevatten, wacht langer...');
+      await page.waitForTimeout(10000);
+    }
+    
+    // Verwijder overlays die de chart kunnen blokkeren
+    await page.evaluate(() => {
+      // Verwijder alle popups, dialogen en advertisements die de chart kunnen bedekken
+      const elementsToRemove = document.querySelectorAll('.tv-dialog, .tv-alert, .tv-notification, .banner-container');
+      elementsToRemove.forEach(el => el.remove());
+    });
     
     // Neem de screenshot
     console.log('Screenshot nemen...');
@@ -293,6 +322,15 @@ async function setupTradingViewSession(page, sessionId) {
         path: '/',
       }
     ]);
+    // Voeg extra cookie toe voor TradingView authenticatie
+    await page.context().addCookies([
+      {
+        name: 'tv_authed',
+        value: '1',
+        domain: '.tradingview.com',
+        path: '/',
+      }
+    ]);
   }
 }
 
@@ -305,6 +343,24 @@ function setupNetworkLogging(page) {
     const url = request.url();
     if (url.includes('tradingview.com') && !url.includes('.css') && !url.includes('.png')) {
       console.error(`Request mislukt: ${url} - ${request.failure().errorText}`);
+    }
+  });
+  
+  // Blokkeer niet-essentiële requests voor snellere laadtijd
+  page.route('**/*.{png,jpg,jpeg,gif,svg,woff,woff2,mp4,webm,mp3,pdf}', route => {
+    // Sta afbeeldingen toe maar blokkeer andere grote media bestanden
+    if (route.request().resourceType() === 'image') {
+      route.continue();
+    } else {
+      route.abort();
+    }
+  });
+  
+  // Log succesvolle data requests
+  page.on('response', response => {
+    const url = response.url();
+    if (url.includes('tradingview.com/tradingview/') && url.includes('data')) {
+      console.log(`✓ Data request: ${url.substring(0, 100)}...`);
     }
   });
   
@@ -322,6 +378,9 @@ function setupNetworkLogging(page) {
  */
 async function closePopups(page) {
   try {
+    // Gebruik eerst keyboard methode
+    await dismissPopups(page, 5);
+    
     // Lijst met mogelijke popups
     const popupSelectors = [
       'div[data-role="toast-container"] button',
@@ -331,7 +390,13 @@ async function closePopups(page) {
       'div.tv-dialog__close',
       'button[data-dialog-action="cancel"]',
       'button[data-dialog-action="close"]',
-      'button.js-dialog__close'
+      'button.js-dialog__close',
+      // Extra selectors voor nieuwere TradingView popups
+      '[data-name="header-toolbar-close"]',
+      '[data-name="close-button"]',
+      '.close-button',
+      '.tv-dialog__close-button',
+      '.tv-alert__close-button'
     ];
     
     for (const selector of popupSelectors) {
@@ -345,6 +410,20 @@ async function closePopups(page) {
     await page.locator('button[data-name="accept-cookies-button"]')
       .click({ timeout: 2000 })
       .catch(() => {});
+      
+    // Alternatieve cookie popup sluiten
+    await page.locator('button:has-text("Accept all cookies")')
+      .click({ timeout: 2000 })
+      .catch(() => {});
+      
+    // Sluit ads en marketing popups
+    await page.evaluate(() => {
+      // Verwijder banner containers
+      document.querySelectorAll('.banner-container').forEach(el => el.remove());
+      document.querySelectorAll('[class*="popup"], [class*="modal"], [class*="toast"]').forEach(el => {
+        if (el.style) el.style.display = 'none';
+      });
+    });
       
   } catch (error) {
     console.log('Geen popups gevonden of error bij sluiten popups');
@@ -360,26 +439,43 @@ async function waitForChart(page) {
     console.log('Wachten op chart...');
     
     // Gebruik Promise.race voor timeout
+    const chartSelector = await waitForAnySelector(page, CHART_SELECTORS, MAX_WAIT_FOR_CHART);
+    
+    if (!chartSelector) {
+      console.log('Geen specifieke chart-element gevonden, doorgaan...');
+    }
+    
+    // Wacht tot prijsdata zichtbaar is
     await Promise.race([
-      page.waitForSelector('div.chart-container', { 
+      page.waitForSelector('.price-axis', { 
         state: 'visible',
-        timeout: MAX_WAIT_FOR_CHART
+        timeout: ELEMENT_TIMEOUT
       }),
-      page.waitForSelector('div.chart-markup-table', {
+      page.waitForSelector('path[stroke]', {
         state: 'visible',
-        timeout: MAX_WAIT_FOR_CHART
+        timeout: ELEMENT_TIMEOUT
       })
-    ]);
+    ]).catch(() => console.log('Geen prijsdata gevonden, doorgaan...'));
     
     // Wacht extra tijd voor data om te laden
-    await page.waitForTimeout(2000);
+    await page.waitForTimeout(5000);
     
     // Controleer of er een laadspinner is en wacht tot deze verdwijnt
-    const loadingSpinner = await page.$('div.loading-indicator');
+    const loadingSpinner = await page.$('div.loading-indicator, .tv-spinner');
     if (loadingSpinner) {
       console.log('Wachten tot spinner verdwijnt...');
       await loadingSpinner.waitForElementState('hidden', { timeout: ELEMENT_TIMEOUT });
     }
+    
+    // Uitvoeren van extra acties om ervoor te zorgen dat grafieken correct worden weergegeven
+    await page.evaluate(() => {
+      // Dispatchen van een resize event kan helpen bij het laden van grafiek-elementen
+      window.dispatchEvent(new Event('resize'));
+      
+      // Schakel automatisch bijwerken in
+      const autoUpdateButton = document.querySelector('button[data-name="toggle-auto-update"]');
+      if (autoUpdateButton) autoUpdateButton.click();
+    });
     
     console.log('Chart geladen!');
   } catch (error) {
@@ -395,11 +491,23 @@ async function enterFullscreenMode(page) {
   try {
     console.log('Activeren fullscreen modus...');
     
-    // Methode 1: Via toetsenbord shortcut
-    await page.keyboard.press('F11');
-    await page.waitForTimeout(1000);
+    // Methode 1: Verberg onnodige UI elementen via CSS
+    await page.evaluate(() => {
+      // Verberg dialogen, toolbars, etc.
+      const style = document.createElement('style');
+      style.textContent = `
+        .header-chart-panel, .tv-side-toolbar, .bottom-widgetbar-content.backtesting {
+          display: none !important;
+        }
+        .chart-container, .chart-markup-table, .chart-container-border {
+          height: 100% !important;
+          width: 100% !important;
+        }
+      `;
+      document.head.appendChild(style);
+    });
     
-    // Methode 2: Via element selectie
+    // Methode 2: Via element selectie en klik
     await page.evaluate(() => {
       // Zoek naar fullscreen knop of probeer programmatisch fullscreen
       const fullscreenButton = document.querySelector('button[data-name="full-screen-button"]');
@@ -408,9 +516,16 @@ async function enterFullscreenMode(page) {
       } else if (document.documentElement.requestFullscreen) {
         document.documentElement.requestFullscreen().catch(() => {});
       }
+      
+      // Zorg ervoor dat de grafiek op maximale grootte wordt weergegeven
+      const chartContainer = document.querySelector('.chart-container, .chart-markup-table');
+      if (chartContainer) {
+        chartContainer.style.width = '100vw';
+        chartContainer.style.height = '100vh';
+      }
     });
     
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(2000);
   } catch (error) {
     console.log('Kon fullscreen modus niet activeren, doorgaan met normale screenshot');
   }
