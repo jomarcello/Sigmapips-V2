@@ -8,6 +8,8 @@ import time
 from typing import Optional, Dict, List, Any, Union
 from io import BytesIO
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from trading_bot.services.chart_service.tradingview import TradingViewService
 
 logger = logging.getLogger(__name__)
@@ -23,20 +25,32 @@ class TradingViewNodeService(TradingViewService):
         self.is_logged_in = False
         self.base_url = "https://www.tradingview.com"
         self.chart_url = "https://www.tradingview.com/chart"
+        self.executor = ThreadPoolExecutor(max_workers=2)  # Beperk het aantal parallelle processen
         
         # Get the project root directory and set the correct script path
         project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
-        self.script_path = os.path.join(project_root, "tradingview_screenshot.js")
+        self.script_dir = os.path.dirname(__file__)
+        self.screenshot_js_path = os.path.join(self.script_dir, "screenshot.js")
+        
+        # Controleer de Node.js installatie en maak al een cache-map aan
+        self._ensure_cache_dir()
         
         # Chart links voor verschillende symbolen
         self.chart_links = {
-            "EURUSD": "https://www.tradingview.com/chart/?symbol=EURUSD",
-            "GBPUSD": "https://www.tradingview.com/chart/?symbol=GBPUSD",
-            "BTCUSD": "https://www.tradingview.com/chart/?symbol=BTCUSD",
-            "ETHUSD": "https://www.tradingview.com/chart/?symbol=ETHUSD"
+            "EURUSD": "https://www.tradingview.com/chart/?symbol=OANDA:EURUSD",
+            "GBPUSD": "https://www.tradingview.com/chart/?symbol=OANDA:GBPUSD",
+            "USDJPY": "https://www.tradingview.com/chart/?symbol=OANDA:USDJPY",
+            "BTCUSD": "https://www.tradingview.com/chart/?symbol=BITSTAMP:BTCUSD",
+            "ETHUSD": "https://www.tradingview.com/chart/?symbol=BITSTAMP:ETHUSD"
         }
         
         logger.info(f"TradingView Node.js service initialized")
+    
+    def _ensure_cache_dir(self):
+        """Zorg ervoor dat de cache-map bestaat"""
+        self.cache_dir = os.path.join(self.script_dir, "screenshot_cache")
+        os.makedirs(self.cache_dir, exist_ok=True)
+        return self.cache_dir
     
     async def initialize(self):
         """Initialize the Node.js service"""
@@ -45,46 +59,52 @@ class TradingViewNodeService(TradingViewService):
             
             # Controleer of Node.js is geïnstalleerd
             try:
-                node_version = subprocess.check_output(["node", "--version"]).decode().strip()
+                # Gebruik asyncio voor de subprocess om blokkering te voorkomen
+                proc = await asyncio.create_subprocess_exec(
+                    "node", "--version",
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                stdout, stderr = await proc.communicate()
+                node_version = stdout.decode().strip()
                 logger.info(f"Node.js version: {node_version}")
             except Exception as node_error:
                 logger.error(f"Error checking Node.js version: {str(node_error)}")
                 return False
             
-            # Check if the screenshot.js file exists
-            if not os.path.exists(self.script_path):
-                logger.error(f"screenshot.js not found at {self.script_path}")
-                return False
-            
-            logger.info(f"screenshot.js found at {self.script_path}")
-            
-            # Installeer Playwright direct via npm
-            try:
-                logger.info("Installing Playwright directly...")
-                subprocess.run(["npm", "install", "playwright", "--no-save"], 
-                              check=True, 
-                              stdout=subprocess.PIPE, 
-                              stderr=subprocess.PIPE)
-                logger.info("Playwright installed successfully")
-            except Exception as e:
-                logger.error(f"Error installing Playwright: {str(e)}")
-                # Ga door, want het script zal proberen Playwright te installeren indien nodig
-            
-            # Test de Node.js service met een TradingView URL
-            try:
-                logger.info("Testing Node.js service with TradingView URL")
-                test_url = "https://www.tradingview.com/chart/xknpxpcr/?symbol=EURUSD&interval=1h"
-                test_result = await self.take_screenshot_of_url(test_url)
-                if test_result:
-                    logger.info("Node.js service test successful")
-                    self.is_initialized = True
-                    return True
-                else:
-                    logger.error("Node.js service test failed")
+            # Controleer of screenshot.js bestaat, zo niet maak het aan
+            if not os.path.exists(self.screenshot_js_path):
+                logger.warning(f"screenshot.js not found at {self.screenshot_js_path}, creating from tradingview_screenshot.js")
+                # Kopieer de tradingview_screenshot.js naar screenshot.js
+                try:
+                    project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+                    source_js = os.path.join(project_root, "tradingview_screenshot.js")
+                    if os.path.exists(source_js):
+                        with open(source_js, 'r') as src:
+                            with open(self.screenshot_js_path, 'w') as dst:
+                                dst.write(src.read())
+                        logger.info(f"Created screenshot.js from tradingview_screenshot.js")
+                    else:
+                        logger.error(f"tradingview_screenshot.js not found at {source_js}")
+                        return False
+                except Exception as e:
+                    logger.error(f"Error creating screenshot.js: {str(e)}")
                     return False
-            except Exception as test_error:
-                logger.error(f"Error testing Node.js service: {str(test_error)}")
-                return False
+            
+            # Voer een snelle test uit voor playwright module
+            try:
+                node_cmd = f"node -e \"try {{ require.resolve('playwright'); console.log('installed'); }} catch(e) {{ console.log('not-installed'); }}\""
+                result = subprocess.run(node_cmd, shell=True, capture_output=True, text=True)
+                if 'not-installed' in result.stdout:
+                    logger.info("Playwright not found, installation will be triggered when needed")
+                else:
+                    logger.info("Playwright already installed")
+            except Exception as e:
+                logger.warning(f"Could not check Playwright installation: {str(e)}")
+            
+            # Markeer als geïnitialiseerd
+            self.is_initialized = True
+            return True
             
         except Exception as e:
             logger.error(f"Error initializing TradingView Node.js service: {str(e)}")
@@ -101,17 +121,24 @@ class TradingViewNodeService(TradingViewService):
             # Bouw de chart URL
             chart_url = self.chart_links.get(normalized_symbol)
             if not chart_url:
-                logger.warning(f"No chart URL found for {symbol}, using default URL")
-                # Gebruik een lichtere versie van de chart
-                chart_url = f"https://www.tradingview.com/chart/xknpxpcr/?symbol={normalized_symbol}"
-                if timeframe:
-                    tv_interval = self.interval_map.get(timeframe, "D")
-                    chart_url += f"&interval={tv_interval}"
+                # Gebruik een vooraf ingestelde correcte TradingView URL-structuur met broker
+                if "USD" in normalized_symbol:
+                    # Voor forex paren, gebruik OANDA als broker
+                    chart_url = f"https://www.tradingview.com/chart/?symbol=OANDA:{normalized_symbol}"
+                elif normalized_symbol.startswith("BTC") or normalized_symbol.startswith("ETH"):
+                    # Voor crypto, gebruik Bitstamp als broker
+                    chart_url = f"https://www.tradingview.com/chart/?symbol=BITSTAMP:{normalized_symbol}"
+                else:
+                    # Voor andere instrumenten
+                    chart_url = f"https://www.tradingview.com/chart/?symbol={normalized_symbol}"
             
-            # Controleer of de URL geldig is
-            if not chart_url:
-                logger.error(f"Invalid chart URL for {symbol}")
-                return None
+            # Voeg timeframe toe indien gespecificeerd
+            if timeframe:
+                tv_interval = self.interval_map.get(timeframe, "D")
+                if "?" in chart_url:
+                    chart_url += f"&interval={tv_interval}"
+                else:
+                    chart_url += f"?interval={tv_interval}"
             
             # Gebruik de take_screenshot_of_url methode om de screenshot te maken
             logger.info(f"Taking screenshot of URL: {chart_url}")
@@ -131,10 +158,9 @@ class TradingViewNodeService(TradingViewService):
             return None
     
     async def batch_capture_charts(self, symbols=None, timeframes=None):
-        """Capture multiple charts"""
+        """Capture multiple charts in parallel"""
         if not self.is_initialized:
-            logger.warning("TradingView Node.js service not initialized")
-            return None
+            await self.initialize()
         
         if not symbols:
             symbols = ["EURUSD", "GBPUSD", "BTCUSD", "ETHUSD"]
@@ -143,19 +169,26 @@ class TradingViewNodeService(TradingViewService):
             timeframes = ["1h", "4h", "1d"]
         
         results = {}
+        tasks = []
         
         try:
+            # Maak taken voor asyncio.gather
             for symbol in symbols:
                 results[symbol] = {}
-                
                 for timeframe in timeframes:
-                    try:
-                        # Take screenshot
-                        screenshot = await self.take_screenshot(symbol, timeframe)
-                        results[symbol][timeframe] = screenshot
-                    except Exception as e:
-                        logger.error(f"Error capturing {symbol} at {timeframe}: {str(e)}")
-                        results[symbol][timeframe] = None
+                    task = asyncio.create_task(self._capture_chart(symbol, timeframe))
+                    tasks.append((symbol, timeframe, task))
+            
+            # Wacht tot alle taken zijn voltooid
+            await asyncio.sleep(0.1)  # Korte pauze om taken te laten starten
+            
+            # Verzamel resultaten
+            for symbol, timeframe, task in tasks:
+                try:
+                    results[symbol][timeframe] = await task
+                except Exception as e:
+                    logger.error(f"Error in task for {symbol} at {timeframe}: {str(e)}")
+                    results[symbol][timeframe] = None
             
             return results
             
@@ -163,17 +196,40 @@ class TradingViewNodeService(TradingViewService):
             logger.error(f"Error in batch capture: {str(e)}")
             return None
     
+    async def _capture_chart(self, symbol, timeframe):
+        """Helper method voor batch_capture_charts"""
+        try:
+            return await self.take_screenshot(symbol, timeframe)
+        except Exception as e:
+            logger.error(f"Error capturing {symbol} at {timeframe}: {str(e)}")
+            return None
+    
     async def cleanup(self):
         """Clean up resources"""
-        # Geen resources om op te ruimen
-        logger.info("TradingView Node.js service cleaned up")
+        try:
+            # Sluit de thread pool executor
+            self.executor.shutdown(wait=False)
+            
+            # Ruim tijdelijke bestanden op
+            cache_files = os.listdir(self.cache_dir)
+            for file in cache_files:
+                if file.startswith("screenshot_") and file.endswith(".png"):
+                    try:
+                        os.remove(os.path.join(self.cache_dir, file))
+                    except:
+                        pass
+            
+            logger.info("TradingView Node.js service cleaned up")
+        except Exception as e:
+            logger.error(f"Error cleaning up: {str(e)}")
     
     async def take_screenshot_of_url(self, url: str, fullscreen: bool = False) -> Optional[bytes]:
         """Take a screenshot of a URL using Node.js"""
         try:
-            # Genereer een unieke bestandsnaam voor de screenshot
+            # Genereer een unieke bestandsnaam voor de screenshot in de cache-map
             timestamp = int(time.time())
-            screenshot_path = os.path.join(os.path.dirname(self.script_path), f"screenshot_{timestamp}.png")
+            random_suffix = os.urandom(4).hex()  # Extra randomness om conflicten te voorkomen
+            screenshot_path = os.path.join(self.cache_dir, f"screenshot_{timestamp}_{random_suffix}.png")
             
             # Zorg ervoor dat de URL geen aanhalingstekens bevat
             url = url.strip('"\'')
@@ -181,52 +237,76 @@ class TradingViewNodeService(TradingViewService):
             # Debug logging
             logger.info(f"Taking screenshot with fullscreen={fullscreen}")
             
-            # Controleer of de URL naar TradingView verwijst
-            if "tradingview.com" in url:
-                logger.info(f"Taking screenshot of TradingView URL: {url}")
-            else:
-                logger.warning(f"URL is not a TradingView URL: {url}")
-            
-            # Gebruik session_id in plaats van tradingview_username
-            # Voeg fullscreen parameter toe aan het commando
-            cmd = f"node {self.script_path} \"{url}\" \"{screenshot_path}\" \"{self.session_id}\""
+            # Bouw het commando efficiënter
+            cmd_args = [
+                "node", 
+                self.screenshot_js_path, 
+                url, 
+                screenshot_path,
+                self.session_id
+            ]
             
             # Voeg fullscreen parameter toe als dat nodig is
-            if fullscreen or "fullscreen=true" in url:
-                cmd += " fullscreen"
-                logger.info("Adding fullscreen parameter to command")
+            if fullscreen:
+                cmd_args.append("fullscreen")
             
-            # Verwijder eventuele puntkomma's uit het commando
-            cmd = cmd.replace(";", "")
+            logger.info(f"Running command: node screenshot.js [url] [output] [session] {fullscreen}")
             
-            logger.info(f"Running command: {cmd.replace(self.session_id, '****')}")
-            
-            process = await asyncio.create_subprocess_shell(
-                cmd,
+            # Gebruik asyncio subprocess voor non-blocking operatie
+            start_time = time.time()
+            process = await asyncio.create_subprocess_exec(
+                *cmd_args,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
             
-            stdout, stderr = await process.communicate()
+            # Stel een timeout in van 60 seconden (verhoogd voor betere UI-laadtijd verificatie)
+            try:
+                stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=60)
+            except asyncio.TimeoutError:
+                logger.error("Node.js process timed out after 60 seconds, terminating")
+                try:
+                    process.terminate()
+                    await asyncio.sleep(0.5)
+                    if process.returncode is None:
+                        process.kill()
+                except:
+                    pass
+                return None
             
-            # Log de output
-            if stdout:
-                logger.info(f"Node.js stdout: {stdout.decode()}")
+            end_time = time.time()
+            logger.info(f"Screenshot process took {end_time - start_time:.2f} seconds")
+            
+            # Log de output alleen bij fouten of als debug niveau
+            if stdout and logger.isEnabledFor(logging.DEBUG):
+                logger.debug(f"Node.js stdout: {stdout.decode()}")
             if stderr:
                 logger.error(f"Node.js stderr: {stderr.decode()}")
             
-            # Controleer of het bestand bestaat
-            if os.path.exists(screenshot_path):
+            # Controleer of het bestand bestaat en heeft een redelijke grootte
+            if os.path.exists(screenshot_path) and os.path.getsize(screenshot_path) > 1000:
                 # Lees het bestand
                 with open(screenshot_path, 'rb') as f:
                     screenshot_data = f.read()
                 
                 # Verwijder het bestand
-                os.remove(screenshot_path)
+                try:
+                    os.remove(screenshot_path)
+                except:
+                    # Negeer fouten bij het verwijderen, dit is niet kritiek
+                    pass
                 
                 return screenshot_data
             else:
-                logger.error(f"Screenshot file not found: {screenshot_path}")
+                if os.path.exists(screenshot_path):
+                    file_size = os.path.getsize(screenshot_path)
+                    logger.error(f"Screenshot file too small: {file_size} bytes, might be an error")
+                    try:
+                        os.remove(screenshot_path)
+                    except:
+                        pass
+                else:
+                    logger.error(f"Screenshot file not found: {screenshot_path}")
                 return None
         
         except Exception as e:
