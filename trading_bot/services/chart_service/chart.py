@@ -27,8 +27,20 @@ from trading_bot.services.chart_service.base import TradingViewService
 
 logger = logging.getLogger(__name__)
 
-# Verwijder alle Yahoo Finance gerelateerde constanten
-OCR_CACHE_DIR = os.path.join('data', 'cache', 'ocr')
+# Cache directory voor charts en technische analyses
+CACHE_DIR = os.path.join('data', 'cache')
+CHART_CACHE_DIR = os.path.join(CACHE_DIR, 'charts')
+ANALYSIS_CACHE_DIR = os.path.join(CACHE_DIR, 'analysis')
+OCR_CACHE_DIR = os.path.join(CACHE_DIR, 'ocr')
+
+# Zorg dat de cache directories bestaan
+os.makedirs(CHART_CACHE_DIR, exist_ok=True)
+os.makedirs(ANALYSIS_CACHE_DIR, exist_ok=True)
+os.makedirs(OCR_CACHE_DIR, exist_ok=True)
+
+# Cache verlooptijd in seconden
+CHART_CACHE_EXPIRY = 300  # 5 minuten voor charts
+ANALYSIS_CACHE_EXPIRY = 600  # 10 minuten voor analyses
 
 # JSON Encoder voor NumPy types
 class NumpyJSONEncoder(json.JSONEncoder):
@@ -55,6 +67,12 @@ class ChartService:
             
             # Houd bij wanneer de laatste request naar Yahoo is gedaan
             self.last_yahoo_request = 0
+            
+            # In-memory caches en lock
+            self.chart_cache = {}
+            self.analysis_cache = {}
+            self._init_lock = asyncio.Lock()
+            self.node_initialized = False
             
             # Initialiseer de chart links met de specifieke TradingView links
             self.chart_links = {
@@ -130,17 +148,42 @@ class ChartService:
             raise
 
     async def get_chart(self, instrument: str, timeframe: str = "1h", fullscreen: bool = False) -> bytes:
-        """Get chart image for instrument and timeframe"""
+        """Get chart image for instrument and timeframe with caching"""
         try:
             logger.info(f"Getting chart for {instrument} ({timeframe}) fullscreen: {fullscreen}")
+            
+            # Normaliseer instrument (verwijder /)
+            instrument = instrument.upper().replace("/", "")
+            
+            # Check cache eerst
+            cache_key = f"{instrument}_{timeframe}_{1 if fullscreen else 0}"
+            cache_file = os.path.join(CHART_CACHE_DIR, f"{cache_key}.png")
+            
+            # Controleer in-memory cache eerst (snelste)
+            if cache_key in self.chart_cache:
+                cache_entry = self.chart_cache[cache_key]
+                if time.time() - cache_entry["timestamp"] < CHART_CACHE_EXPIRY:
+                    logger.info(f"Using in-memory cache for {instrument} chart")
+                    return cache_entry["data"]
+            
+            # Controleer daarna disk cache
+            if os.path.exists(cache_file):
+                file_age = time.time() - os.path.getmtime(cache_file)
+                if file_age < CHART_CACHE_EXPIRY:
+                    logger.info(f"Using disk cache for {instrument} chart")
+                    with open(cache_file, 'rb') as f:
+                        chart_data = f.read()
+                        # Update in-memory cache ook
+                        self.chart_cache[cache_key] = {
+                            "data": chart_data,
+                            "timestamp": time.time()
+                        }
+                        return chart_data
             
             # Zorg ervoor dat de services zijn geïnitialiseerd
             if not hasattr(self, 'tradingview') or not self.tradingview:
                 logger.info("Services not initialized, initializing now")
                 await self.initialize()
-            
-            # Normaliseer instrument (verwijder /)
-            instrument = instrument.upper().replace("/", "")
             
             # Gebruik de exacte TradingView link voor dit instrument zonder parameters toe te voegen
             tradingview_link = self.chart_links.get(instrument)
@@ -179,6 +222,17 @@ class ChartService:
                     chart_image = await self.tradingview.take_screenshot_of_url(tradingview_link, fullscreen=True)
                     if chart_image:
                         logger.info("Screenshot taken successfully with Node.js service")
+                        
+                        # Update cache
+                        self.chart_cache[cache_key] = {
+                            "data": chart_image,
+                            "timestamp": time.time()
+                        }
+                        
+                        # Save to disk cache
+                        with open(cache_file, 'wb') as f:
+                            f.write(chart_image)
+                            
                         return chart_image
                     else:
                         logger.error("Node.js screenshot is None")
@@ -192,6 +246,17 @@ class ChartService:
                     chart_image = await self.tradingview_selenium.get_screenshot(tradingview_link, fullscreen=True)
                     if chart_image:
                         logger.info("Screenshot taken successfully with Selenium")
+                        
+                        # Update cache
+                        self.chart_cache[cache_key] = {
+                            "data": chart_image,
+                            "timestamp": time.time()
+                        }
+                        
+                        # Save to disk cache
+                        with open(cache_file, 'wb') as f:
+                            f.write(chart_image)
+                            
                         return chart_image
                     else:
                         logger.error("Selenium screenshot is None")
@@ -200,7 +265,20 @@ class ChartService:
             
             # Als beide services niet werken, gebruik een fallback methode
             logger.warning(f"All screenshot services failed, using fallback for {instrument}")
-            return await self._generate_random_chart(instrument, timeframe)
+            fallback_image = await self._generate_random_chart(instrument, timeframe)
+            
+            # Update cache ook voor fallback
+            if fallback_image:
+                self.chart_cache[cache_key] = {
+                    "data": fallback_image,
+                    "timestamp": time.time()
+                }
+                
+                # Save to disk cache
+                with open(cache_file, 'wb') as f:
+                    f.write(fallback_image)
+            
+            return fallback_image
         
         except Exception as e:
             logger.error(f"Error getting chart: {str(e)}")
@@ -211,484 +289,128 @@ class ChartService:
             logger.warning(f"Error occurred, using fallback for {instrument}")
             return await self._generate_random_chart(instrument, timeframe)
 
-    async def _fallback_chart(self, instrument, timeframe="1h"):
-        """Fallback method to get chart"""
-        try:
-            # Hier zou je een eenvoudige fallback kunnen implementeren
-            # Bijvoorbeeld een statische afbeelding of een bericht
-            logging.warning(f"Using fallback chart for {instrument}")
-            
-            # Voor nu retourneren we None, wat betekent dat er geen chart beschikbaar is
-            return None
-            
-        except Exception as e:
-            logging.error(f"Error in fallback chart: {str(e)}")
-            return None
-
-    async def generate_chart(self, instrument, timeframe="1h"):
-        """Alias for get_chart for backward compatibility"""
-        return await self.get_chart(instrument, timeframe)
-
     async def initialize(self):
-        """Initialize the chart service"""
+        """Initialize the chart service with lazy loading"""
         try:
             logger.info("Initializing chart service")
             
-            # Initialiseer de TradingView Node.js service
-            from trading_bot.services.chart_service.tradingview_node import TradingViewNodeService
-            self.tradingview = TradingViewNodeService()
-            node_initialized = await self.tradingview.initialize()
-            
-            if node_initialized:
-                logger.info("Node.js service initialized successfully")
-            else:
-                logger.error("Node.js service initialization returned False")
-            
-            # Sla Selenium initialisatie over vanwege ChromeDriver compatibiliteitsproblemen
-            logger.warning("Skipping Selenium initialization due to ChromeDriver compatibility issues")
-            self.tradingview_selenium = None
-            
-            # Als geen van beide services is geïnitialiseerd, gebruik matplotlib fallback
-            if not node_initialized and not getattr(self, 'tradingview_selenium', None):
-                logger.warning("Using matplotlib fallback")
-            
-            return True
+            # Gebruik lock om gelijktijdige initialisaties te voorkomen
+            async with self._init_lock:
+                # Initialisatie van de Node.js service laten gebeuren in de achtergrond
+                node_init_task = asyncio.create_task(self._init_node_js())
+                
+                # Sla Selenium initialisatie over vanwege ChromeDriver compatibiliteitsproblemen
+                logger.warning("Skipping Selenium initialization due to ChromeDriver compatibility issues")
+                self.tradingview_selenium = None
+                
+                # We wachten niet op de initialisatie om de service sneller te maken
+                return True
+                
         except Exception as e:
             logger.error(f"Error initializing chart service: {str(e)}")
             return False
 
-    def get_fallback_chart(self, instrument: str) -> bytes:
-        """Get a fallback chart image for a specific instrument"""
+    async def _init_node_js(self):
+        """Initialize Node.js service in background"""
         try:
-            logger.warning(f"Using fallback chart for {instrument}")
+            # Initialiseer de TradingView Node.js service
+            from trading_bot.services.chart_service.tradingview_node import TradingViewNodeService
+            self.tradingview = TradingViewNodeService()
+            self.node_initialized = await self.tradingview.initialize()
             
-            # Hier zou je een eenvoudige fallback kunnen implementeren
-            # Voor nu gebruiken we de _generate_random_chart methode
-            return asyncio.run(self._generate_random_chart(instrument, "1h"))
-            
-        except Exception as e:
-            logger.error(f"Error in fallback chart: {str(e)}")
-            return None
-            
-    async def cleanup(self):
-        """Clean up resources"""
-        try:
-            if hasattr(self, 'tradingview_playwright') and self.tradingview_playwright:
-                await self.tradingview_playwright.cleanup()
-            
-            if hasattr(self, 'tradingview_selenium') and self.tradingview_selenium:
-                await self.tradingview_selenium.cleanup()
-            
-            logger.info("Chart service resources cleaned up")
-        except Exception as e:
-            logger.error(f"Error cleaning up chart service: {str(e)}")
-
-    async def generate_chart(self, instrument: str, timeframe: str = "1h") -> Optional[bytes]:
-        """Generate a chart using matplotlib and real data from Yahoo Finance"""
-        try:
-            import matplotlib.pyplot as plt
-            import pandas as pd
-            import numpy as np
-            import io
-            from datetime import datetime, timedelta
-            import yfinance as yf
-            import mplfinance as mpf
-            
-            logger.info(f"Generating chart for {instrument} with timeframe {timeframe}")
-            
-            # Map instrument naar Yahoo Finance symbool
-            yahoo_symbols = {
-                # Forex
-                "EURUSD": "EURUSD=X", "GBPUSD": "GBPUSD=X", "USDJPY": "USDJPY=X",
-                "AUDUSD": "AUDUSD=X", "USDCAD": "USDCAD=X", "NZDUSD": "NZDUSD=X",
-                # Crypto
-                "BTCUSD": "BTC-USD", "ETHUSD": "ETH-USD", "XRPUSD": "XRP-USD",
-                "SOLUSD": "SOL-USD", "BNBUSD": "BNB-USD", "ADAUSD": "ADA-USD",
-                # Indices
-                "US500": "^GSPC", "US30": "^DJI", "US100": "^NDX",
-                # Commodities
-                "XAUUSD": "GC=F", "XTIUSD": "CL=F"
-            }
-            
-            # Bepaal het Yahoo Finance symbool
-            symbol = yahoo_symbols.get(instrument)
-            if not symbol:
-                # Als het instrument niet in de mapping staat, probeer het direct
-                symbol = instrument.replace("/", "-")
-                if "USD" in symbol and not symbol.endswith("USD"):
-                    symbol = symbol + "-USD"
-            
-            # Bepaal de tijdsperiode op basis van timeframe
-            end_date = datetime.now()
-            interval = "1h"  # Default interval
-            
-            if timeframe == "1h":
-                start_date = end_date - timedelta(days=7)
-                interval = "1h"
-            elif timeframe == "4h":
-                start_date = end_date - timedelta(days=30)
-                interval = "1h"  # Yahoo heeft geen 4h, dus we gebruiken 1h
-            elif timeframe == "1d":
-                start_date = end_date - timedelta(days=180)
-                interval = "1d"
+            if self.node_initialized:
+                logger.info("Node.js service initialized successfully")
             else:
-                start_date = end_date - timedelta(days=7)
-                interval = "1h"
-            
-            # Haal data op van Yahoo Finance
-            try:
-                logger.info(f"Fetching data for {symbol} from {start_date} to {end_date} with interval {interval}")
-                data = yf.download(symbol, start=start_date, end=end_date, interval=interval)
+                logger.error("Node.js service initialization returned False")
                 
-                if data.empty:
-                    logger.warning(f"No data returned for {symbol}, using random data")
-                    # Gebruik willekeurige data als fallback
-                    return await self._generate_random_chart(instrument, timeframe)
-                    
-                logger.info(f"Got {len(data)} data points for {symbol}")
-                
-                # Bereken technische indicators
-                data['SMA20'] = data['Close'].rolling(window=20).mean()
-                data['SMA50'] = data['Close'].rolling(window=50).mean()
-                data['RSI'] = self._calculate_rsi(data['Close'])
-                
-                # Maak een mooie chart met mplfinance
-                plt.figure(figsize=(12, 8))
-                
-                # Maak een subplot grid: 2 rijen, 1 kolom
-                fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8), gridspec_kw={'height_ratios': [3, 1]})
-                
-                # Plot de candlestick chart
-                mpf.plot(data, type='candle', style='charles', 
-                        title=f'{instrument} - {timeframe} Chart',
-                        ylabel='Price', 
-                        ylabel_lower='RSI',
-                        ax=ax1, volume=False, 
-                        show_nontrading=False)
-                
-                # Voeg SMA's toe
-                ax1.plot(data.index, data['SMA20'], color='blue', linewidth=1, label='SMA20')
-                ax1.plot(data.index, data['SMA50'], color='red', linewidth=1, label='SMA50')
-                ax1.legend()
-                
-                # Plot RSI op de onderste subplot
-                ax2.plot(data.index, data['RSI'], color='purple', linewidth=1)
-                ax2.axhline(70, color='red', linestyle='--', alpha=0.5)
-                ax2.axhline(30, color='green', linestyle='--', alpha=0.5)
-                ax2.set_ylabel('RSI')
-                ax2.set_ylim(0, 100)
-                
-                # Stel de layout in
-                plt.tight_layout()
-                
-                # Sla de chart op als bytes
-                buf = io.BytesIO()
-                plt.savefig(buf, format='png', dpi=100)
-                buf.seek(0)
-                
-                plt.close(fig)
-                
-                return buf.getvalue()
-                
-            except Exception as e:
-                logger.error(f"Error fetching data from Yahoo Finance: {str(e)}")
-                # Gebruik willekeurige data als fallback
-                return await self._generate_random_chart(instrument, timeframe)
-                
+            return self.node_initialized
         except Exception as e:
-            logger.error(f"Error generating chart: {str(e)}")
-            return None
-        
-    def _calculate_rsi(self, prices, period=14):
-        """Calculate RSI indicator"""
-        delta = prices.diff()
-        gain = delta.where(delta > 0, 0)
-        loss = -delta.where(delta < 0, 0)
-        
-        avg_gain = gain.rolling(window=period).mean()
-        avg_loss = loss.rolling(window=period).mean()
-        
-        rs = avg_gain / avg_loss
-        rsi = 100 - (100 / (1 + rs))
-        
-        return rsi
-        
-    async def _generate_random_chart(self, instrument: str, timeframe: str = "1h") -> bytes:
-        """Generate a chart with random data as fallback"""
-        import matplotlib.pyplot as plt
-        import pandas as pd
-        import numpy as np
-        import io
-        from datetime import datetime, timedelta
-        
-        logger.info(f"Generating random chart for {instrument} with timeframe {timeframe}")
-        
-        # Bepaal de tijdsperiode op basis van timeframe
-        end_date = datetime.now()
-        if timeframe == "1h":
-            start_date = end_date - timedelta(days=7)
-            periods = 168  # 7 dagen * 24 uur
-        elif timeframe == "4h":
-            start_date = end_date - timedelta(days=30)
-            periods = 180  # 30 dagen * 6 periodes per dag
-        elif timeframe == "1d":
-            start_date = end_date - timedelta(days=180)
-            periods = 180
-        else:
-            start_date = end_date - timedelta(days=7)
-            periods = 168
-        
-        # Genereer wat willekeurige data als voorbeeld
-        np.random.seed(42)  # Voor consistente resultaten
-        dates = pd.date_range(start=start_date, end=end_date, periods=periods)
-        
-        # Genereer OHLC data
-        close = 100 + np.cumsum(np.random.normal(0, 1, periods))
-        high = close + np.random.uniform(0, 3, periods)
-        low = close - np.random.uniform(0, 3, periods)
-        open_price = close - np.random.uniform(-2, 2, periods)
-        
-        # Maak een DataFrame
-        df = pd.DataFrame({
-            'Open': open_price,
-            'High': high,
-            'Low': low,
-            'Close': close
-        }, index=dates)
-        
-        # Bereken enkele indicators
-        df['SMA20'] = df['Close'].rolling(window=20).mean()
-        df['SMA50'] = df['Close'].rolling(window=50).mean()
-        
-        # Maak de chart met aangepaste stijl
-        plt.style.use('dark_background')
-        fig = plt.figure(figsize=(12, 8), facecolor='none')
-        ax = plt.gca()
-        ax.set_facecolor('none')
-        
-        # Plot candlesticks
-        width = 0.6
-        width2 = 0.1
-        up = df[df.Close >= df.Open]
-        down = df[df.Close < df.Open]
-        
-        # Plot up candles
-        plt.bar(up.index, up.High - up.Low, width=width2, bottom=up.Low, color='green', alpha=0.5)
-        plt.bar(up.index, up.Close - up.Open, width=width, bottom=up.Open, color='green')
-        
-        # Plot down candles
-        plt.bar(down.index, down.High - down.Low, width=width2, bottom=down.Low, color='red', alpha=0.5)
-        plt.bar(down.index, down.Open - down.Close, width=width, bottom=down.Close, color='red')
-        
-        # Plot indicators
-        plt.plot(df.index, df['SMA20'], color='blue', label='SMA20')
-        plt.plot(df.index, df['SMA50'], color='orange', label='SMA50')
-        
-        # Voeg labels en titel toe
-        plt.title(f'{instrument} - {timeframe} Chart', fontsize=16, pad=20)
-        plt.xlabel('Date', fontsize=12)
-        plt.ylabel('Price', fontsize=12)
-        plt.grid(True, alpha=0.3)
-        plt.legend()
-        
-        # Verwijder de border
-        plt.gca().spines['top'].set_visible(False)
-        plt.gca().spines['right'].set_visible(False)
-        plt.gca().spines['bottom'].set_visible(False)
-        plt.gca().spines['left'].set_visible(False)
-        
-        # Sla de chart op als bytes met transparante achtergrond
-        buf = io.BytesIO()
-        plt.savefig(buf, format='png', dpi=100, bbox_inches='tight', transparent=True)
-        buf.seek(0)
-        
-        plt.close()
-        
-        return buf.getvalue()
-
-    async def get_screenshot_from_api(self, url: str) -> bytes:
-        """Get a screenshot from an external API"""
-        try:
-            # Gebruik een screenshot API zoals screenshotapi.net
-            api_key = os.getenv("SCREENSHOT_API_KEY", "")
-            if not api_key:
-                logger.error("No API key for screenshot service")
-                return None
-            
-            # Bouw de API URL
-            api_url = f"https://api.screenshotapi.net/screenshot?token={api_key}&url={url}&output=image&width=1920&height=1080"
-            
-            # Haal de screenshot op
-            async with aiohttp.ClientSession() as session:
-                async with session.get(api_url) as response:
-                    if response.status == 200:
-                        return await response.read()
-                    else:
-                        logger.error(f"Screenshot API error: {response.status}")
-                        return None
-        except Exception as e:
-            logger.error(f"Error getting screenshot from API: {str(e)}")
-            return None
-
-    async def generate_matplotlib_chart(self, symbol, timeframe=None):
-        """Generate a chart using matplotlib"""
-        try:
-            logger.info(f"Generating random chart for {symbol} with timeframe {timeframe}")
-            
-            # Maak een meer realistische dataset
-            np.random.seed(42)  # Voor consistente resultaten
-            
-            # Genereer datums voor de afgelopen 30 dagen
-            end_date = datetime.now()
-            start_date = end_date - timedelta(days=30)
-            dates = pd.date_range(start=start_date, end=end_date, freq='1H')
-            
-            # Genereer prijzen met een realistisch patroon
-            base_price = 1.0 if symbol.startswith("EUR") else (0.8 if symbol.startswith("GBP") else 110.0 if symbol.startswith("USD") and symbol.endswith("JPY") else 1.3)
-            
-            # Maak een random walk met een kleine trend
-            trend = 0.0001 * np.random.randn()
-            prices = [base_price]
-            for i in range(1, len(dates)):
-                # Voeg wat realisme toe met volatiliteit die varieert gedurende de dag
-                hour = dates[i].hour
-                volatility = 0.0005 if 8 <= hour <= 16 else 0.0002
-                
-                # Genereer de volgende prijs
-                next_price = prices[-1] * (1 + trend + volatility * np.random.randn())
-                prices.append(next_price)
-            
-            # Maak een DataFrame
-            df = pd.DataFrame({
-                'Open': prices,
-                'High': [p * (1 + 0.001 * np.random.rand()) for p in prices],
-                'Low': [p * (1 - 0.001 * np.random.rand()) for p in prices],
-                'Close': [p * (1 + 0.0005 * np.random.randn()) for p in prices],
-                'Volume': [int(1000000 * np.random.rand()) for _ in prices]
-            }, index=dates)
-            
-            # Maak een mooiere plot
-            plt.figure(figsize=(12, 6))
-            plt.style.use('dark_background')
-            
-            # Plot de candlestick chart
-            mpf.plot(df, type='candle', style='charles',
-                    title=f"{symbol} - {timeframe} Timeframe",
-                    ylabel='Price',
-                    volume=True,
-                    figsize=(12, 6),
-                    savefig=dict(fname='temp_chart.png', dpi=300))
-            
-            # Lees de afbeelding
-            with open('temp_chart.png', 'rb') as f:
-                chart_bytes = f.read()
-            
-            # Verwijder het tijdelijke bestand
-            os.remove('temp_chart.png')
-            
-            return chart_bytes
-        except Exception as e:
-            logger.error(f"Error generating matplotlib chart: {str(e)}")
-            
-            # Als fallback, genereer een zeer eenvoudige chart
-            buf = BytesIO()
-            plt.figure(figsize=(10, 6))
-            plt.plot(np.random.randn(100).cumsum())
-            plt.title(f"{symbol} - {timeframe} (Fallback Chart)")
-            plt.savefig(buf, format='png')
-            plt.close()
-            
-            return buf.getvalue()
+            logger.error(f"Error initializing Node.js service: {str(e)}")
+            return False
 
     async def get_technical_analysis(self, instrument: str, timeframe: str = "1h") -> Union[bytes, str]:
         """
         Get technical analysis for an instrument with timeframe using TradingView data and DeepSeek APIs.
+        Implements caching and parallel processing.
         """
         try:
-            # Verwijder de chart generatie, we hebben alleen marktgegevens nodig
-            # Gebruik een tijdelijk pad voor de verwijzing naar de chart
+            # Normaliseer instrument voor consistente caching
+            instrument = instrument.upper().replace("/", "")
+            
+            # Check cache eerst
+            cache_key = f"{instrument}_{timeframe}"
+            cache_file = os.path.join(ANALYSIS_CACHE_DIR, f"{cache_key}.json")
+            
+            # In-memory cache check (snelst)
+            if cache_key in self.analysis_cache:
+                cache_entry = self.analysis_cache[cache_key]
+                if time.time() - cache_entry["timestamp"] < ANALYSIS_CACHE_EXPIRY:
+                    logger.info(f"Using in-memory cache for {instrument} analysis")
+                    # We hebben nog steeds de chart nodig
+                    img_path = os.path.join('data/charts', f"{instrument.lower()}_{timeframe}_{int(datetime.now().timestamp())}.png")
+                    
+                    # Haal chart op (deze zal zelf caching gebruiken)
+                    chart_data = await self.get_chart(instrument, timeframe)
+                    
+                    if isinstance(chart_data, bytes):
+                        with open(img_path, 'wb') as f:
+                            f.write(chart_data)
+                    
+                    return img_path, cache_entry["data"]
+            
+            # Disk cache check
+            if os.path.exists(cache_file):
+                file_age = time.time() - os.path.getmtime(cache_file)
+                if file_age < ANALYSIS_CACHE_EXPIRY:
+                    logger.info(f"Using disk cache for {instrument} analysis")
+                    with open(cache_file, 'r') as f:
+                        analysis_text = f.read()
+                        
+                        # Update in-memory cache
+                        self.analysis_cache[cache_key] = {
+                            "data": analysis_text,
+                            "timestamp": time.time()
+                        }
+                        
+                        # We hebben nog steeds de chart nodig
+                        img_path = os.path.join('data/charts', f"{instrument.lower()}_{timeframe}_{int(datetime.now().timestamp())}.png")
+                        
+                        # Haal chart op (deze zal zelf caching gebruiken)
+                        chart_data = await self.get_chart(instrument, timeframe)
+                        
+                        if isinstance(chart_data, bytes):
+                            with open(img_path, 'wb') as f:
+                                f.write(chart_data)
+                        
+                        return img_path, analysis_text
+            
+            # Start parallelle taken voor marktgegevens en chart
+            # We gebruiken gather om beide taken gelijktijdig uit te voeren
             img_path = None
             timestamp = int(datetime.now().timestamp())
             os.makedirs('data/charts', exist_ok=True)
             img_path = f"data/charts/{instrument.lower()}_{timeframe}_{timestamp}.png"
             
-            try:
-                # Get real market data from TradingView instead of using OCR
-                logger.info(f"Getting real market data for {instrument} from TradingView")
-                market_data_dict = await self.get_real_market_data(instrument, timeframe)
-                logger.info(f"TradingView data retrieved: {market_data_dict}")
-                
-                # Nu we marktgegevens hebben, genereren we de chart afbeelding slechts één keer
-                chart_data = await self.get_chart(instrument, timeframe)
-                if isinstance(chart_data, bytes):
-                    try:
-                        with open(img_path, 'wb') as f:
-                            f.write(chart_data)
-                        logger.info(f"Saved chart image to file: {img_path}, size: {len(chart_data)} bytes")
-                    except Exception as save_error:
-                        logger.error(f"Failed to save chart image to file: {str(save_error)}")
-                else:
-                    img_path = chart_data  # Already a path
-                    logger.info(f"Using existing chart image path: {img_path}")
-                
-            except Exception as tv_error:
-                logger.error(f"Error getting TradingView data: {str(tv_error)}")
-                logger.error(traceback.format_exc())
-                
-                # EURUSD fallback if TradingView fails
-                if instrument.upper() == "EURUSD":
-                    logger.warning("TradingView data retrieval failed, applying EURUSD fallback data")
-                    market_data_dict = {
-                        "instrument": instrument,
-                        "timeframe": timeframe,
-                        "timestamp": datetime.now().isoformat(),
-                        "current_price": 1.08,
-                        "daily_high": 1.08323,
-                        "daily_low": 1.07611,
-                        "weekly_high": 1.0935,
-                        "weekly_low": 1.07123,
-                        "monthly_high": 1.10235,
-                        "monthly_low": 1.06788,
-                        "rsi": 32.3,
-                        "price_levels": {
-                            "daily high": 1.08323,
-                            "daily low": 1.07611,
-                            "weekly high": 1.0935,
-                            "weekly low": 1.07123,
-                            "monthly high": 1.10235,
-                            "monthly low": 1.06788
-                        },
-                        "support_levels": [1.06788, 1.07123, 1.07611],
-                        "resistance_levels": [1.08323, 1.0935, 1.10235]
-                    }
-                    
-                    # In geval van fallback data, genereer de chart afbeelding alsnog
-                    chart_data = await self.get_chart(instrument, timeframe)
-                    if isinstance(chart_data, bytes):
-                        try:
-                            with open(img_path, 'wb') as f:
-                                f.write(chart_data)
-                            logger.info(f"Saved fallback chart image to file: {img_path}")
-                        except Exception as save_error:
-                            logger.error(f"Failed to save fallback chart image: {str(save_error)}")
-                else:
-                    # Use base price if TradingView fails for non-EURUSD
-                    logger.warning("Using base price data due to TradingView error")
-                    base_price = self._get_base_price_for_instrument(instrument)
-                    volatility = self._get_volatility_for_instrument(instrument)
-                    
-                    # Create basic market data with realistic values
-                    market_data_dict = self._calculate_synthetic_support_resistance(base_price, instrument)
-                    
-                    # In geval van synthetische data, genereer de chart afbeelding alsnog
-                    chart_data = await self.get_chart(instrument, timeframe)
-                    if isinstance(chart_data, bytes):
-                        try:
-                            with open(img_path, 'wb') as f:
-                                f.write(chart_data)
-                            logger.info(f"Saved synthetic chart image to file: {img_path}")
-                        except Exception as save_error:
-                            logger.error(f"Failed to save synthetic chart image: {str(save_error)}")
+            # Creëer taken voor parallel uitvoeren
+            market_data_task = asyncio.create_task(self.get_real_market_data(instrument, timeframe))
+            chart_task = asyncio.create_task(self.get_chart(instrument, timeframe))
+            
+            # Wacht op beide taken om klaar te zijn
+            market_data_dict, chart_data = await asyncio.gather(market_data_task, chart_task)
+            
+            logger.info(f"TradingView data retrieved: {market_data_dict}")
+            
+            # Sla chart op als dat nog niet is gebeurd
+            if isinstance(chart_data, bytes):
+                try:
+                    with open(img_path, 'wb') as f:
+                        f.write(chart_data)
+                    logger.info(f"Saved chart image to file: {img_path}, size: {len(chart_data)} bytes")
+                except Exception as save_error:
+                    logger.error(f"Failed to save chart image to file: {str(save_error)}")
+            else:
+                img_path = chart_data  # Already a path
+                logger.info(f"Using existing chart image path: {img_path}")
             
             # Get the DeepSeek API key
             deepseek_api_key = os.getenv("DEEPSEEK_API_KEY")
@@ -781,7 +503,19 @@ CRITICAL REQUIREMENTS:
 9. Do NOT include the line "Sigmapips AI identifies strong buy/sell probability..." - skip directly from Trend to Zone Strength
 """
                 
-                return img_path, fallback_analysis
+                analysis = fallback_analysis
+            
+            # Update cache
+            if analysis:
+                # Update in-memory cache
+                self.analysis_cache[cache_key] = {
+                    "data": analysis,
+                    "timestamp": time.time()
+                }
+                
+                # Update disk cache
+                with open(cache_file, 'w') as f:
+                    f.write(analysis)
             
             return img_path, analysis
                 
@@ -1393,3 +1127,96 @@ CRITICAL REQUIREMENTS:
             logger.error(f"Error formatting with DeepSeek: {str(e)}")
             logger.error(traceback.format_exc())
             return None
+
+    async def _generate_random_chart(self, instrument: str, timeframe: str = "1h") -> bytes:
+        """Generate a chart with random data as fallback"""
+        import matplotlib.pyplot as plt
+        import pandas as pd
+        import numpy as np
+        import io
+        from datetime import datetime, timedelta
+        
+        logger.info(f"Generating random chart for {instrument} with timeframe {timeframe}")
+        
+        # Bepaal de tijdsperiode op basis van timeframe
+        end_date = datetime.now()
+        if timeframe == "1h":
+            start_date = end_date - timedelta(days=7)
+            periods = 168  # 7 dagen * 24 uur
+        elif timeframe == "4h":
+            start_date = end_date - timedelta(days=30)
+            periods = 180  # 30 dagen * 6 periodes per dag
+        elif timeframe == "1d":
+            start_date = end_date - timedelta(days=180)
+            periods = 180
+        else:
+            start_date = end_date - timedelta(days=7)
+            periods = 168
+        
+        # Genereer wat willekeurige data als voorbeeld
+        np.random.seed(42)  # Voor consistente resultaten
+        dates = pd.date_range(start=start_date, end=end_date, periods=periods)
+        
+        # Genereer OHLC data
+        close = 100 + np.cumsum(np.random.normal(0, 1, periods))
+        high = close + np.random.uniform(0, 3, periods)
+        low = close - np.random.uniform(0, 3, periods)
+        open_price = close - np.random.uniform(-2, 2, periods)
+        
+        # Maak een DataFrame
+        df = pd.DataFrame({
+            'Open': open_price,
+            'High': high,
+            'Low': low,
+            'Close': close
+        }, index=dates)
+        
+        # Bereken enkele indicators
+        df['SMA20'] = df['Close'].rolling(window=20).mean()
+        df['SMA50'] = df['Close'].rolling(window=50).mean()
+        
+        # Maak de chart met aangepaste stijl
+        plt.style.use('dark_background')
+        fig = plt.figure(figsize=(12, 8), facecolor='none')
+        ax = plt.gca()
+        ax.set_facecolor('none')
+        
+        # Plot candlesticks
+        width = 0.6
+        width2 = 0.1
+        up = df[df.Close >= df.Open]
+        down = df[df.Close < df.Open]
+        
+        # Plot up candles
+        plt.bar(up.index, up.High - up.Low, width=width2, bottom=up.Low, color='green', alpha=0.5)
+        plt.bar(up.index, up.Close - up.Open, width=width, bottom=up.Open, color='green')
+        
+        # Plot down candles
+        plt.bar(down.index, down.High - down.Low, width=width2, bottom=down.Low, color='red', alpha=0.5)
+        plt.bar(down.index, down.Open - down.Close, width=width, bottom=down.Close, color='red')
+        
+        # Plot indicators
+        plt.plot(df.index, df['SMA20'], color='blue', label='SMA20')
+        plt.plot(df.index, df['SMA50'], color='orange', label='SMA50')
+        
+        # Voeg labels en titel toe
+        plt.title(f'{instrument} - {timeframe} Chart', fontsize=16, pad=20)
+        plt.xlabel('Date', fontsize=12)
+        plt.ylabel('Price', fontsize=12)
+        plt.grid(True, alpha=0.3)
+        plt.legend()
+        
+        # Verwijder de border
+        plt.gca().spines['top'].set_visible(False)
+        plt.gca().spines['right'].set_visible(False)
+        plt.gca().spines['bottom'].set_visible(False)
+        plt.gca().spines['left'].set_visible(False)
+        
+        # Sla de chart op als bytes met transparante achtergrond
+        buf = io.BytesIO()
+        plt.savefig(buf, format='png', dpi=100, bbox_inches='tight', transparent=True)
+        buf.seek(0)
+        
+        plt.close()
+        
+        return buf.getvalue()
