@@ -26,8 +26,21 @@ const sessionId = process.argv[4]; // Voeg session ID toe als derde argument
 const fullscreenArg = process.argv[5] || ''; // Get the full string value
 const fullscreen = fullscreenArg === 'fullscreen' || fullscreenArg === 'true' || fullscreenArg === '1'; // Check various forms of true
 
+// Voeg een parameter toe voor test modus
+const testMode = process.argv[6] === 'test';
+
+// Stel minimale wachttijd in (in milliseconden)
+const MIN_WAIT_TIME = testMode ? 1000 : 8000; // 1 seconde voor tests, 8 seconden normaal
+
+// Stel navigatie timeout in
+const NAVIGATION_TIMEOUT = testMode ? 5000 : 15000; // 5 seconden voor tests, 15 seconden normaal
+
+// Stel viewport grootte in
+const VIEWPORT_WIDTH = 1920;
+const VIEWPORT_HEIGHT = 1080;
+
 if (!url || !outputPath) {
-    console.error('Usage: node screenshot.js <url> <outputPath> [sessionId] [fullscreen]');
+    console.error('Usage: node screenshot.js <url> <outputPath> [sessionId] [fullscreen] [testMode]');
     process.exit(1);
 }
 
@@ -183,8 +196,16 @@ const { chromium } = require('playwright');
             console.log(`Navigating to ${url}...`);
             await page.goto(url, {
                 waitUntil: 'domcontentloaded',
-                timeout: 60000 // 1 minuut timeout voor navigatie
+                timeout: NAVIGATION_TIMEOUT
             });
+            
+            // Direct Shift+F versturen voor fullscreen modus
+            console.log('Pressing Shift+F for fullscreen mode...');
+            await page.keyboard.press('Shift+F');
+            
+            // Wacht precies de minimale tijd
+            console.log(`Waiting exactly ${MIN_WAIT_TIME/1000} seconds for chart to render...`);
+            await page.waitForTimeout(MIN_WAIT_TIME);
             
             // Stel localStorage waarden in om meldingen uit te schakelen
             console.log('Setting localStorage values to disable notifications...');
@@ -439,104 +460,55 @@ const { chromium } = require('playwright');
             
             console.log(`Logged in status: ${isLoggedIn}`);
             
-            // Als fullscreen is ingeschakeld, verberg UI-elementen
-            if (fullscreen) {
-                console.log('Removing UI elements for fullscreen...');
-                await page.evaluate(() => {
-                    // Verberg de header
-                    const header = document.querySelector('.tv-header');
-                    if (header) header.style.display = 'none';
+            // Als fullscreen is aangevraagd, geen extra stappen meer
+            console.log('Additional fullscreen mode already applied via Shift+F');
+            
+            // Verberg UI elementen voor fullscreen
+            console.log('Removing UI elements for fullscreen...');
+            await page.evaluate(() => {
+                try {
+                    // Verberg alle UI elementen die de chart verbergen
+                    const elementsToHide = [
+                        '.chart-toolbar-container', // Chart toolbar
+                        '.header-chart-panel', // Header panel
+                        '.tv-side-toolbar', // Side toolbar
+                        '#tv-chat-dialog', // Chat dialoog
+                        '#tv-chart-dom-dialog', // DOM dialoog
+                        '#footer-chart-panel', // Footer panel
+                        '.bottom-widgetbar-content.widgetbar-content-floating', // Bottom widget bar
+                        '.legend-Uu7k8Nav', // Legend
+                        '.status-3LGcAzCN.statusWrap-3LGcAzCN', // Status bar
+                        '.date-range-wrapper', // Date range wrapper
+                        '.toolbar-2yU8ifXU', // Toolbar
+                        '.chart-controls-bar', // Chart controls bar
+                        '[data-role="toast-container"]', // Toast container
+                        '.widgetbar-footer'  // Widget bar footer
+                    ];
                     
-                    // Verberg de toolbar
-                    const toolbar = document.querySelector('.tv-main-panel__toolbar');
-                    if (toolbar) toolbar.style.display = 'none';
-                    
-                    // Verberg de zijbalk
-                    const sidebar = document.querySelector('.tv-side-toolbar');
-                    if (sidebar) sidebar.style.display = 'none';
-                    
-                    // Verberg andere UI-elementen
-                    const panels = document.querySelectorAll('.layout__area--left, .layout__area--right');
-                    panels.forEach(panel => {
-                        if (panel) panel.style.display = 'none';
+                    elementsToHide.forEach(selector => {
+                        const elements = document.querySelectorAll(selector);
+                        elements.forEach(el => {
+                            if (el) el.style.display = 'none';
+                        });
                     });
                     
-                    // Maximaliseer de chart
-                    const chart = document.querySelector('.chart-container');
-                    if (chart) {
-                        chart.style.width = '100vw';
-                        chart.style.height = '100vh';
+                    // Verwijder margins en paddings van de chart container
+                    const chartContainer = document.querySelector('.chart-container');
+                    if (chartContainer) {
+                        chartContainer.style.margin = '0';
+                        chartContainer.style.padding = '0';
+                        chartContainer.style.width = '100vw';
+                        chartContainer.style.height = '100vh';
                     }
                     
-                    // Verberg de footer
-                    const footer = document.querySelector('footer');
-                    if (footer) footer.style.display = 'none';
-                    
-                    // Verberg de statusbalk
-                    const statusBar = document.querySelector('.tv-main-panel__statuses');
-                    if (statusBar) statusBar.style.display = 'none';
-                });
-                
-                // Wacht even om de wijzigingen toe te passen
-                await page.waitForTimeout(1000);
-            }
-            
-            // Eenvoudige en betrouwbare methode voor fullscreen
-            console.log('Applying simple fullscreen method...');
-            
-            // Methode 1: Shift+F toetsencombinatie (meest betrouwbaar)
-            await page.keyboard.down('Shift');
-            await page.keyboard.press('F');
-            await page.keyboard.up('Shift');
-            await page.waitForTimeout(2000); // Wacht kort zodat fullscreen kan worden toegepast
-            
-            // Methode 2: Maak de chart groter met CSS (werkt altijd)
-            await page.addStyleTag({
-                content: `
-                    /* Verberg header en toolbar */
-                    .tv-header, .tv-main-panel__toolbar, .tv-side-toolbar {
-                        display: none !important;
-                    }
-                    
-                    /* Maximaliseer chart container */
-                    .chart-container, .chart-markup-table, .layout__area--center {
-                        width: 100vw !important;
-                        height: 100vh !important;
-                        position: fixed !important;
-                        top: 0 !important;
-                        left: 0 !important;
-                    }
-                `
+                    return true;
+                } catch (e) {
+                    return false;
+                }
             });
             
-            // Wacht nog wat langer als we zijn ingelogd om custom indicators te laden
-            if (isLoggedIn) {
-                console.log('Waiting for custom indicators to load...');
-                await page.waitForTimeout(5000); // 5 seconden voor custom indicators
-            }
-            
-            // Wacht tot de chart volledig is geladen
-            console.log('Waiting for chart to be fully loaded...');
-            try {
-                // Wacht maximaal 15 seconden op de chart met een timeout
-                const waitPromise = page.waitForFunction(() => {
-                    // Controleer of de chart container zichtbaar is
-                    const chartContainer = document.querySelector('.chart-container');
-                    if (!chartContainer) {
-                        return false;
-                    }
-                    return true;
-                }, { timeout: 15000 });
-                
-                // Stel een timeout in om te voorkomen dat we blijven wachten
-                const timeoutPromise = new Promise((resolve) => setTimeout(resolve, 15000));
-                
-                // Gebruik Promise.race om de eerste te nemen die voltooid is
-                await Promise.race([waitPromise, timeoutPromise]);
-                console.log('Chart loaded or timeout reached');
-            } catch (e) {
-                console.log('Timeout waiting for chart, continuing anyway:', e);
-            }
+            // Skip de vertraging en knoppen zoeken - we hebben al Shift+F gebruikt
+            console.log('Chart loaded or timeout reached');
             
             // Laatste kans om alle popups te sluiten
             await page.evaluate(() => {
@@ -564,7 +536,16 @@ const { chromium } = require('playwright');
             
             // Neem screenshot
             console.log('Taking screenshot...');
-            await page.screenshot({ path: outputPath });
+            await page.screenshot({
+                path: outputPath,
+                fullPage: false,
+                clip: {
+                    x: 0,
+                    y: 0, 
+                    width: Math.min(VIEWPORT_WIDTH, page.viewportSize().width),
+                    height: Math.min(VIEWPORT_HEIGHT, page.viewportSize().height),
+                }
+            });
             console.log('Screenshot taken successfully');
             
             // Sluit browser
