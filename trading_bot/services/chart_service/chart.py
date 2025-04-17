@@ -742,13 +742,25 @@ Resistance: {formatted_daily_high} (daily high), {formatted_resistance}
 
 <b>📈 Technical Indicators</b>
 RSI: {rsi:.2f} (neutral)
-MACD: {action} (0.00244 > signal 0.00070)
-Moving Averages: Price {'above' if is_bullish else 'below'} EMA 50, reinforcing {action.lower()} bias.
+MACD: {action} ({formatted_macd} > signal {formatted_macd_signal})
+Moving Averages: Price {'above' if is_bullish else 'below'} EMA 50 ({formatted_ema50}) and EMA 200 ({formatted_ema200}), reinforcing {action.lower()} bias.
 
 <b>🤖 Sigmapips AI Recommendation</b>
-The market shows {'strong buying' if is_bullish else 'strong selling'} pressure. Traders should watch the {formatted_resistance} {'resistance' if is_bullish else 'support'} level carefully. {'A break above could lead to further upside momentum.' if is_bullish else 'A break below could accelerate the downward trend.'}
+[2-3 sentences with market advice based on the analysis. Focus on key levels to watch and overall market bias.]
 
-⚠️ Disclaimer: Please note that the information/analysis provided is strictly for study and educational purposes only. It should not be constructed as financial advice and always do your own analysis."""
+⚠️ Disclaimer: Please note that the information/analysis provided is strictly for study and educational purposes only. It should not be constructed as financial advice and always do your own analysis.
+
+CRITICAL REQUIREMENTS:
+1. The format above must be followed EXACTLY including line breaks
+2. The 'Trend' MUST ALWAYS BE '{action}' not 'BULLISH' or 'BEARISH'
+3. Zone Strength should be ★★★★☆ for bullish and ★★★☆☆ for bearish
+4. DO NOT DEVIATE FROM THIS FORMAT AT ALL
+5. DO NOT add any introduction or explanations
+6. USE THE EXACT PHRASES PROVIDED - no paraphrasing
+7. USE EXACTLY THE SAME DECIMAL PLACES PROVIDED IN MY TEMPLATE - no additional or fewer decimal places
+8. Bold formatting should be used for headers (using <b> and </b> HTML tags)
+9. Do NOT include the line "Sigmapips AI identifies strong buy/sell probability..." - skip directly from Trend to Zone Strength
+"""
                 
                 return img_path, fallback_analysis
             
@@ -1153,16 +1165,16 @@ Zone Strength 1-5: ★★★★☆
 USDJPY is trading at 147.406, showing buy momentum near the daily high (148.291). The price remains above key EMAs (50 & 200), confirming an uptrend.
 
 <b>🔑 Key Levels</b>
-Support: 0.000 (daily low), 0.000
+Support: 147.256 (daily low), 147.000
 Resistance: 148.291 (daily high), 148.143
 
 <b>📈 Technical Indicators</b>
 RSI: 65.00 (neutral)
-MACD: Buy (0.00244 > signal 0.00070)
+MACD: BUY (0.00244 > signal 0.00070)
 Moving Averages: Price above EMA 50 (150.354) and EMA 200 (153.302), reinforcing buy bias.
 
 <b>🤖 Sigmapips AI Recommendation</b>
-The bias remains bullish but watch for resistance near 148.143. A break above could target higher levels, while failure may test 0.000 support.
+The bias remains bullish but watch for resistance near 148.143. A break above could target higher levels, while failure may test 147.000 support.
 
 ⚠️ Disclaimer: Please note that the information/analysis provided is strictly for study and educational purposes only. It should not be constructed as financial advice and always do your own analysis."""
             
@@ -1194,8 +1206,14 @@ The bias remains bullish but watch for resistance near 148.143. A break above co
             
             rsi = market_data.get('rsi', 50)
             
+            # Get actual MACD values
+            macd = market_data.get('macd', 0)
+            macd_signal = market_data.get('macd_signal', 0)
+            formatted_macd = f"{macd:.{decimals}f}"
+            formatted_macd_signal = f"{macd_signal:.{decimals}f}"
+            
             # Determine if the trend is bullish or bearish
-            is_bullish = rsi > 50
+            is_bullish = market_data.get('recommendation', 'NEUTRAL') == 'BUY' or rsi > 50
             action = "BUY" if is_bullish else "SELL"
             
             # Get support and resistance levels
@@ -1205,19 +1223,15 @@ The bias remains bullish but watch for resistance near 148.143. A break above co
             resistance = resistance_levels[0] if resistance_levels else daily_high
             formatted_resistance = f"{resistance:.{decimals}f}"
             
-            if is_bullish:
-                # For bullish scenarios, always display "0.000" as support for consistency with the example
-                support = "0.000"
-                formatted_support = "0.000"
-            else:
-                support = support_levels[0] if support_levels else daily_low
-                formatted_support = f"{support:.{decimals}f}"
-                
-            # Format EMA values with consistent decimals
-            ema50 = 150.354 if instrument == "USDJPY" else market_data.get('ema_50', current_price * 1.005 if is_bullish else current_price * 0.995)
+            # Use actual support levels instead of hardcoded 0.000
+            support = support_levels[0] if support_levels else daily_low
+            formatted_support = f"{support:.{decimals}f}"
+            
+            # Use actual EMA values from market data
+            ema50 = market_data.get('ema_50', current_price * 1.005 if is_bullish else current_price * 0.995)
             formatted_ema50 = f"{ema50:.{decimals}f}"
             
-            ema200 = 153.302 if instrument == "USDJPY" else market_data.get('ema_200', current_price * 1.01 if is_bullish else current_price * 0.99)
+            ema200 = market_data.get('ema_200', current_price * 1.01 if is_bullish else current_price * 0.99)
             formatted_ema200 = f"{ema200:.{decimals}f}"
             
             # Prepare the user prompt with market data and EXACT format requirements
@@ -1243,7 +1257,7 @@ Resistance: {formatted_daily_high} (daily high), {formatted_resistance}
 
 <b>📈 Technical Indicators</b>
 RSI: {rsi:.2f} (neutral)
-MACD: {action} (0.00244 > signal 0.00070)
+MACD: {action} ({formatted_macd} > signal {formatted_macd_signal})
 Moving Averages: Price {'above' if is_bullish else 'below'} EMA 50 ({formatted_ema50}) and EMA 200 ({formatted_ema200}), reinforcing {action.lower()} bias.
 
 <b>🤖 Sigmapips AI Recommendation</b>
@@ -1313,21 +1327,20 @@ CRITICAL REQUIREMENTS:
                                 analysis = re.sub(r'Trend\s*-\s*(BULLISH|Bullish)', f'Trend - BUY', analysis, flags=re.IGNORECASE)
                                 analysis = re.sub(r'Trend\s*-\s*(BEARISH|Bearish)', f'Trend - SELL', analysis, flags=re.IGNORECASE)
                                 
-                                # Ensure support is 0.000 for bullish trends
-                                if is_bullish and "BUY" in analysis:
-                                    analysis = re.sub(r'Support:\s*([0-9.]+)', 'Support: 0.000', analysis)
-                                
                                 # Ensure prices have consistent decimal places
                                 def fix_numbers(match):
                                     """Fix number formatting in analysis text"""
                                     try:
                                         number = float(match.group(0))
-                                        if number >= 1000:
-                                            return f"{number:,.0f}"  # Format large numbers with commas
-                                        elif number >= 100:
-                                            return f"{number:.1f}"   # One decimal for medium numbers
+                                        # Gebruik dezelfde decimal-regels als in de template
+                                        if instrument.endswith("JPY"):
+                                            return f"{number:.3f}"
+                                        elif any(x in instrument for x in ["XAU", "GOLD", "SILVER", "XAGUSD"]):
+                                            return f"{number:.2f}"
+                                        elif any(index in instrument for index in ["US30", "US500", "US100", "UK100", "DE40"]):
+                                            return f"{number:.0f}"
                                         else:
-                                            return f"{number:.2f}"   # Two decimals for small numbers
+                                            return f"{number:.5f}"  # Default for most forex pairs
                                     except:
                                         return match.group(0)  # Return original if conversion fails
                                 
