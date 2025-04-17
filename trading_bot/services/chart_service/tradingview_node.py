@@ -81,27 +81,57 @@ class TradingViewNodeService(TradingViewService):
             normalized_symbol = symbol.replace("/", "").upper()
             
             # Bouw de chart URL
-            chart_url = self.chart_links.get(normalized_symbol)
+            chart_url = None
+            
+            # Probeer eerst een specifieke link
+            if hasattr(self, 'chart_links'):
+                chart_url = self.chart_links.get(normalized_symbol)
+                if chart_url:
+                    logger.info(f"Using specific chart link for {normalized_symbol}: {chart_url}")
+            
+            # Als die er niet is, gebruik de generieke URL
             if not chart_url:
-                logger.warning(f"No chart URL found for {symbol}, using default URL")
-                # Gebruik een lichtere versie van de chart
+                # Gebruik de xknpxpcr template voor betere charts
                 chart_url = f"https://www.tradingview.com/chart/xknpxpcr/?symbol={normalized_symbol}"
                 if timeframe:
                     tv_interval = self.interval_map.get(timeframe, "D")
                     chart_url += f"&interval={tv_interval}"
+                logger.info(f"Using generic chart link: {chart_url}")
+            
+            # Voeg fullscreen parameters toe
+            fullscreen_params = [
+                "fullscreen=true",
+                "hide_side_toolbar=true",
+                "hide_top_toolbar=true",
+                "hide_legend=true",
+                "theme=dark",
+                "toolbar_bg=dark",
+                "scale_position=right",
+                "scale_mode=normal"
+            ]
+            
+            # Voeg de parameters toe
+            if "?" in chart_url:
+                chart_url += "&" + "&".join(fullscreen_params)
+            else:
+                chart_url += "?" + "&".join(fullscreen_params)
             
             # Controleer of de URL geldig is
             if not chart_url:
                 logger.error(f"Invalid chart URL for {symbol}")
                 return None
             
+            logger.info(f"Final URL: {chart_url}")
+            
             # Gebruik de take_screenshot_of_url methode om de screenshot te maken
-            logger.info(f"Taking screenshot of URL: {chart_url}")
             screenshot_bytes = await self.take_screenshot_of_url(chart_url, fullscreen=fullscreen)
             
-            if screenshot_bytes:
-                logger.info(f"Screenshot taken successfully for {symbol}")
+            if screenshot_bytes and len(screenshot_bytes) > 10000:  # Minstens 10KB voor een echte chart
+                logger.info(f"Screenshot taken successfully for {symbol} ({len(screenshot_bytes)} bytes)")
                 return screenshot_bytes
+            elif screenshot_bytes:
+                logger.error(f"Screenshot taken but too small for {symbol} ({len(screenshot_bytes)} bytes)")
+                return None
             else:
                 logger.error(f"Failed to take screenshot for {symbol}")
                 return None
@@ -209,7 +239,7 @@ class TradingViewNodeService(TradingViewService):
             
             logger.info(f"Running command: {' '.join(cmd)}")
             
-            # Voer het proces uit met een kortere timeout (15 seconden)
+            # Voer het proces uit met een langere timeout (40 seconden)
             process = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
@@ -217,7 +247,7 @@ class TradingViewNodeService(TradingViewService):
             )
             
             # Haal timeout uit class of gebruik default
-            timeout = getattr(self, 'timeout', 15)
+            timeout = getattr(self, 'timeout', 40)
             
             # Wacht maximaal op het gespecifieerde aantal seconden
             try:
