@@ -26,8 +26,21 @@ const sessionId = process.argv[4]; // Voeg session ID toe als derde argument
 const fullscreenArg = process.argv[5] || ''; // Get the full string value
 const fullscreen = fullscreenArg === 'fullscreen' || fullscreenArg === 'true' || fullscreenArg === '1'; // Check various forms of true
 
+// Voeg een parameter toe voor test modus
+const testMode = process.argv[6] === 'test';
+
+// Stel minimale wachttijd in (in milliseconden)
+const MIN_WAIT_TIME = testMode ? 1000 : 8000; // 1 seconde voor tests, 8 seconden normaal
+
+// Stel navigatie timeout in
+const NAVIGATION_TIMEOUT = testMode ? 5000 : 15000; // 5 seconden voor tests, 15 seconden normaal
+
+// Stel viewport grootte in
+const VIEWPORT_WIDTH = 1920;
+const VIEWPORT_HEIGHT = 1080;
+
 if (!url || !outputPath) {
-    console.error('Usage: node screenshot.js <url> <outputPath> [sessionId] [fullscreen]');
+    console.error('Usage: node screenshot.js <url> <outputPath> [sessionId] [fullscreen] [testMode]');
     process.exit(1);
 }
 
@@ -183,16 +196,16 @@ const { chromium } = require('playwright');
             console.log(`Navigating to ${url}...`);
             await page.goto(url, {
                 waitUntil: 'domcontentloaded',
-                timeout: 60000 // 1 minuut timeout voor navigatie
+                timeout: NAVIGATION_TIMEOUT
             });
             
             // Direct Shift+F versturen voor fullscreen modus
             console.log('Pressing Shift+F for fullscreen mode...');
             await page.keyboard.press('Shift+F');
             
-            // Wacht precies 8 seconden
-            console.log('Waiting exactly 8 seconds for chart to render...');
-            await page.waitForTimeout(8000);
+            // Wacht precies de minimale tijd
+            console.log(`Waiting exactly ${MIN_WAIT_TIME/1000} seconds for chart to render...`);
+            await page.waitForTimeout(MIN_WAIT_TIME);
             
             // Stel localStorage waarden in om meldingen uit te schakelen
             console.log('Setting localStorage values to disable notifications...');
@@ -447,57 +460,55 @@ const { chromium } = require('playwright');
             
             console.log(`Logged in status: ${isLoggedIn}`);
             
-            // Als fullscreen is aangevraagd, pas toe met meerdere methoden
-            if (fullscreen || url.includes('fullscreen=true') || true) {
-              console.log('Additional fullscreen mode already applied via Shift+F');
-              
-              // Verberg UI elementen voor fullscreen
-              console.log('Removing UI elements for fullscreen...');
-              await page.evaluate(() => {
-                  try {
-                      // Verberg alle UI elementen die de chart verbergen
-                      const elementsToHide = [
-                          '.chart-toolbar-container', // Chart toolbar
-                          '.header-chart-panel', // Header panel
-                          '.tv-side-toolbar', // Side toolbar
-                          '#tv-chat-dialog', // Chat dialoog
-                          '#tv-chart-dom-dialog', // DOM dialoog
-                          '#footer-chart-panel', // Footer panel
-                          '.bottom-widgetbar-content.widgetbar-content-floating', // Bottom widget bar
-                          '.legend-Uu7k8Nav', // Legend
-                          '.status-3LGcAzCN.statusWrap-3LGcAzCN', // Status bar
-                          '.date-range-wrapper', // Date range wrapper
-                          '.toolbar-2yU8ifXU', // Toolbar
-                          '.chart-controls-bar', // Chart controls bar
-                          '[data-role="toast-container"]', // Toast container
-                          '.widgetbar-footer'  // Widget bar footer
-                      ];
-                      
-                      elementsToHide.forEach(selector => {
-                          const elements = document.querySelectorAll(selector);
-                          elements.forEach(el => {
-                              if (el) el.style.display = 'none';
-                          });
-                      });
-                      
-                      // Verwijder margins en paddings van de chart container
-                      const chartContainer = document.querySelector('.chart-container');
-                      if (chartContainer) {
-                          chartContainer.style.margin = '0';
-                          chartContainer.style.padding = '0';
-                          chartContainer.style.width = '100vw';
-                          chartContainer.style.height = '100vh';
-                      }
-                      
-                      return true;
-                  } catch (e) {
-                      return false;
-                  }
-              });
-              
-              // Skip de vertraging en knoppen zoeken - we hebben al Shift+F gebruikt
-              console.log('Chart loaded or timeout reached');
-            }
+            // Als fullscreen is aangevraagd, geen extra stappen meer
+            console.log('Additional fullscreen mode already applied via Shift+F');
+            
+            // Verberg UI elementen voor fullscreen
+            console.log('Removing UI elements for fullscreen...');
+            await page.evaluate(() => {
+                try {
+                    // Verberg alle UI elementen die de chart verbergen
+                    const elementsToHide = [
+                        '.chart-toolbar-container', // Chart toolbar
+                        '.header-chart-panel', // Header panel
+                        '.tv-side-toolbar', // Side toolbar
+                        '#tv-chat-dialog', // Chat dialoog
+                        '#tv-chart-dom-dialog', // DOM dialoog
+                        '#footer-chart-panel', // Footer panel
+                        '.bottom-widgetbar-content.widgetbar-content-floating', // Bottom widget bar
+                        '.legend-Uu7k8Nav', // Legend
+                        '.status-3LGcAzCN.statusWrap-3LGcAzCN', // Status bar
+                        '.date-range-wrapper', // Date range wrapper
+                        '.toolbar-2yU8ifXU', // Toolbar
+                        '.chart-controls-bar', // Chart controls bar
+                        '[data-role="toast-container"]', // Toast container
+                        '.widgetbar-footer'  // Widget bar footer
+                    ];
+                    
+                    elementsToHide.forEach(selector => {
+                        const elements = document.querySelectorAll(selector);
+                        elements.forEach(el => {
+                            if (el) el.style.display = 'none';
+                        });
+                    });
+                    
+                    // Verwijder margins en paddings van de chart container
+                    const chartContainer = document.querySelector('.chart-container');
+                    if (chartContainer) {
+                        chartContainer.style.margin = '0';
+                        chartContainer.style.padding = '0';
+                        chartContainer.style.width = '100vw';
+                        chartContainer.style.height = '100vh';
+                    }
+                    
+                    return true;
+                } catch (e) {
+                    return false;
+                }
+            });
+            
+            // Skip de vertraging en knoppen zoeken - we hebben al Shift+F gebruikt
+            console.log('Chart loaded or timeout reached');
             
             // Laatste kans om alle popups te sluiten
             await page.evaluate(() => {
@@ -531,8 +542,8 @@ const { chromium } = require('playwright');
                 clip: {
                     x: 0,
                     y: 0, 
-                    width: Math.min(1920, page.viewportSize().width),
-                    height: Math.min(1080, page.viewportSize().height),
+                    width: Math.min(VIEWPORT_WIDTH, page.viewportSize().width),
+                    height: Math.min(VIEWPORT_HEIGHT, page.viewportSize().height),
                 }
             });
             console.log('Screenshot taken successfully');
