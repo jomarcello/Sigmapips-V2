@@ -183,7 +183,15 @@ class ChartService:
             # Zorg ervoor dat de services zijn geïnitialiseerd
             if not hasattr(self, 'tradingview') or not self.tradingview:
                 logger.info("Services not initialized, initializing now")
-                await self.initialize()
+                init_success = await self.initialize()
+                if not init_success:
+                    logger.error("Failed to initialize services")
+            
+            # Initialiseer direct de Node.js service als deze nog niet geïnitialiseerd is
+            if not hasattr(self, 'node_initialized') or not self.node_initialized:
+                logger.info("Node.js service not initialized, initializing now directly")
+                node_init_success = await self._init_node_js()
+                logger.info(f"Direct Node.js initialization result: {node_init_success}")
             
             # Gebruik de exacte TradingView link voor dit instrument zonder parameters toe te voegen
             tradingview_link = self.chart_links.get(instrument)
@@ -215,13 +223,23 @@ class ChartService:
             
             logger.info(f"Using exact TradingView link: {tradingview_link}")
             
+            # Verhoog de timeout voor complexe charts
+            if hasattr(self, 'tradingview') and self.tradingview:
+                self.tradingview.timeout = 40  # 40 seconden timeout (dit is belangrijk! De verwerking duurt ~17-20 seconden)
+                logger.info(f"Setting Node.js timeout to {self.tradingview.timeout} seconds")
+            
             # Probeer eerst de Node.js service te gebruiken
+            node_js_error = None  # Om errors bij te houden
             if hasattr(self, 'tradingview') and self.tradingview and hasattr(self.tradingview, 'take_screenshot_of_url'):
                 try:
-                    logger.info(f"Taking screenshot with Node.js service: {tradingview_link}")
+                    logger.info(f"Taking screenshot with Node.js service")
+                    start_time = time.time()
                     chart_image = await self.tradingview.take_screenshot_of_url(tradingview_link, fullscreen=True)
-                    if chart_image:
-                        logger.info("Screenshot taken successfully with Node.js service")
+                    elapsed_time = time.time() - start_time
+                    
+                    # Controleer het resultaat
+                    if chart_image and len(chart_image) > 10000:  # Minstens 10KB voor een echte chart
+                        logger.info(f"Screenshot taken successfully with Node.js service in {elapsed_time:.2f} seconds. Size: {len(chart_image)} bytes")
                         
                         # Update cache
                         self.chart_cache[cache_key] = {
@@ -232,39 +250,30 @@ class ChartService:
                         # Save to disk cache
                         with open(cache_file, 'wb') as f:
                             f.write(chart_image)
-                            
+                        
+                        logger.info(f"Chart cached to {cache_file}")    
                         return chart_image
                     else:
-                        logger.error("Node.js screenshot is None")
+                        if chart_image:
+                            logger.error(f"Node.js screenshot is too small: {len(chart_image)} bytes")
+                        else:
+                            logger.error("Node.js screenshot is None")
                 except Exception as e:
-                    logger.error(f"Error using Node.js for screenshot: {str(e)}")
+                    node_js_error = str(e)
+                    logger.error(f"Error using Node.js for screenshot: {node_js_error}")
+                    import traceback
+                    logger.error(traceback.format_exc())
+            else:
+                logger.error("Node.js service not properly initialized")
             
-            # Als Node.js niet werkt, probeer Selenium
-            if hasattr(self, 'tradingview_selenium') and self.tradingview_selenium and self.tradingview_selenium.is_initialized:
-                try:
-                    logger.info(f"Taking screenshot with Selenium: {tradingview_link}")
-                    chart_image = await self.tradingview_selenium.get_screenshot(tradingview_link, fullscreen=True)
-                    if chart_image:
-                        logger.info("Screenshot taken successfully with Selenium")
-                        
-                        # Update cache
-                        self.chart_cache[cache_key] = {
-                            "data": chart_image,
-                            "timestamp": time.time()
-                        }
-                        
-                        # Save to disk cache
-                        with open(cache_file, 'wb') as f:
-                            f.write(chart_image)
-                            
-                        return chart_image
-                    else:
-                        logger.error("Selenium screenshot is None")
-                except Exception as e:
-                    logger.error(f"Error using Selenium for screenshot: {str(e)}")
+            # Als Node.js niet werkt, probeer Selenium - overgeslagen omdat we al weten dat het niet werkt
+            # in deze implementatie
             
             # Als beide services niet werken, gebruik een fallback methode
             logger.warning(f"All screenshot services failed, using fallback for {instrument}")
+            if node_js_error:
+                logger.warning(f"Node.js error details: {node_js_error}")
+            
             fallback_image = await self._generate_random_chart(instrument, timeframe)
             
             # Update cache ook voor fallback
