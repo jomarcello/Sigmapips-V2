@@ -45,49 +45,56 @@ class TradingViewNodeService(TradingViewService):
             
             # Controleer of Node.js is geïnstalleerd
             try:
-                node_version = subprocess.check_output(["node", "--version"]).decode().strip()
+                process = await asyncio.create_subprocess_exec(
+                    "node", "--version",
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=5)
+                node_version = stdout.decode().strip()
                 logger.info(f"Node.js version: {node_version}")
             except Exception as node_error:
-                logger.error(f"Error checking Node.js version: {str(node_error)}")
+                logger.error(f"Node.js not found: {str(node_error)}")
                 return False
             
-            # Check if the screenshot.js file exists
+            # Controleer of het script bestaat
             if not os.path.exists(self.script_path):
-                logger.error(f"screenshot.js not found at {self.script_path}")
+                logger.error(f"Script niet gevonden: {self.script_path}")
                 return False
             
-            logger.info(f"screenshot.js found at {self.script_path}")
+            # Test een snelle screenshot om te controleren of de service werkt
+            logger.info("Testing Node.js service with a quick screenshot")
+            test_url = "https://www.example.com"
             
-            # Installeer Playwright direct via npm
+            # Voer een snelle test uit
             try:
-                logger.info("Installing Playwright directly...")
-                subprocess.run(["npm", "install", "playwright", "--no-save"], 
-                              check=True, 
-                              stdout=subprocess.PIPE, 
-                              stderr=subprocess.PIPE)
-                logger.info("Playwright installed successfully")
-            except Exception as e:
-                logger.error(f"Error installing Playwright: {str(e)}")
-                # Ga door, want het script zal proberen Playwright te installeren indien nodig
-            
-            # Test de Node.js service met een TradingView URL
-            try:
-                logger.info("Testing Node.js service with TradingView URL")
-                test_url = "https://www.tradingview.com/chart/xknpxpcr/?symbol=EURUSD&interval=1h"
-                test_result = await self.take_screenshot_of_url(test_url)
-                if test_result:
+                # Gebruik een korte timeout voor de test
+                test_cmd = ["node", self.script_path, test_url, "/tmp/test_screenshot.png", "", ""]
+                test_process = await asyncio.create_subprocess_exec(
+                    *test_cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                test_stdout, test_stderr = await asyncio.wait_for(test_process.communicate(), timeout=15)
+                
+                if test_process.returncode == 0:
                     logger.info("Node.js service test successful")
                     self.is_initialized = True
                     return True
                 else:
-                    logger.error("Node.js service test failed")
+                    logger.error(f"Node.js test failed with exit code {test_process.returncode}")
+                    logger.error(f"Error: {test_stderr.decode()}")
                     return False
-            except Exception as test_error:
-                logger.error(f"Error testing Node.js service: {str(test_error)}")
+                
+            except asyncio.TimeoutError:
+                logger.error("Node.js service test timed out after 15 seconds")
                 return False
-            
+            except Exception as e:
+                logger.error(f"Node.js service test failed: {str(e)}")
+                return False
+                
         except Exception as e:
-            logger.error(f"Error initializing TradingView Node.js service: {str(e)}")
+            logger.error(f"Error initializing Node.js service: {str(e)}")
             return False
     
     async def take_screenshot(self, symbol, timeframe=None, fullscreen=False):
@@ -169,51 +176,70 @@ class TradingViewNodeService(TradingViewService):
         logger.info("TradingView Node.js service cleaned up")
     
     async def take_screenshot_of_url(self, url: str, fullscreen: bool = False) -> Optional[bytes]:
-        """Take a screenshot of a URL using Node.js"""
+        """Take a screenshot of a URL using Node.js and Playwright"""
         try:
             # Genereer een unieke bestandsnaam voor de screenshot
             timestamp = int(time.time())
-            screenshot_path = os.path.join(os.path.dirname(self.script_path), f"screenshot_{timestamp}.png")
-            
-            # Zorg ervoor dat de URL geen aanhalingstekens bevat
-            url = url.strip('"\'')
-            
-            # Debug logging
-            logger.info(f"Taking screenshot with fullscreen={fullscreen}")
-            
-            # Controleer of de URL naar TradingView verwijst
-            if "tradingview.com" in url:
-                logger.info(f"Taking screenshot of TradingView URL: {url}")
+            if hasattr(self, 'screenshot_dir') and self.screenshot_dir:
+                os.makedirs(self.screenshot_dir, exist_ok=True)
+                screenshot_path = os.path.join(self.screenshot_dir, f"screenshot_{timestamp}.png")
             else:
-                logger.warning(f"URL is not a TradingView URL: {url}")
+                # Docker container pad als we in Docker draaien, anders tijdelijk bestand
+                if os.path.exists('/app'):
+                    screenshot_path = f"/app/screenshot_{timestamp}.png"
+                else:
+                    screenshot_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), f"screenshot_{timestamp}.png")
             
-            # Gebruik session_id in plaats van tradingview_username
-            # Voeg fullscreen parameter toe aan het commando
-            cmd = f"node {self.script_path} \"{url}\" \"{screenshot_path}\" \"{self.session_id}\""
+            # Bereid de Node.js opdracht voor
+            js_path = self.script_path if hasattr(self, 'script_path') and self.script_path else "tradingview_screenshot.js"
             
-            # Voeg fullscreen parameter toe als dat nodig is
-            if fullscreen or "fullscreen=true" in url:
-                cmd += " fullscreen"
+            # Controleer of het pad bestaat
+            if not os.path.exists(js_path) and js_path == "tradingview_screenshot.js":
+                # Probeer het bestand in de root van het project te vinden
+                project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+                js_path = os.path.join(project_root, "tradingview_screenshot.js")
+                if not os.path.exists(js_path):
+                    logger.error(f"JavaScript bestand niet gevonden: {js_path}")
+                    return None
+            
+            # Fullscreen parameter toevoegen aan opdracht
+            fullscreen_param = "fullscreen" if fullscreen else ""
+            if fullscreen:
                 logger.info("Adding fullscreen parameter to command")
             
-            # Verwijder eventuele puntkomma's uit het commando
-            cmd = cmd.replace(";", "")
+            # Stel je session ID in
+            session_id = self.session_id if hasattr(self, 'session_id') and self.session_id else ""
             
-            logger.info(f"Running command: {cmd.replace(self.session_id, '****')}")
+            # Voer de Node.js opdracht uit met een kortere timeout
+            logger.info(f"Running command: node {js_path} \"{url}\" \"{screenshot_path}\" \"****\" {fullscreen_param}")
             
-            process = await asyncio.create_subprocess_shell(
-                cmd,
+            cmd = ["node", js_path, url, screenshot_path, session_id, fullscreen_param]
+            
+            # Voer het proces uit met een kortere timeout (was 60 seconden)
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
             
-            stdout, stderr = await process.communicate()
-            
-            # Log de output
-            if stdout:
-                logger.info(f"Node.js stdout: {stdout.decode()}")
-            if stderr:
-                logger.error(f"Node.js stderr: {stderr.decode()}")
+            # Wacht maximaal 30 seconden op het proces om te voltooien (was 15 seconden)
+            try:
+                stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=30)
+                stdout_str = stdout.decode('utf-8', errors='ignore')
+                stderr_str = stderr.decode('utf-8', errors='ignore')
+                
+                logger.info(f"Node.js stdout: {stdout_str[:200]}...")
+                if stderr_str:
+                    logger.error(f"Node.js stderr: {stderr_str[:200]}...")
+                
+                if process.returncode != 0:
+                    logger.error(f"Node.js process returned non-zero exit code: {process.returncode}")
+                    return None
+                
+            except asyncio.TimeoutError:
+                logger.error("Node.js process timed out after 30 seconds")
+                process.kill()
+                return None
             
             # Controleer of het bestand bestaat
             if os.path.exists(screenshot_path):
