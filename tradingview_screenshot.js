@@ -30,10 +30,10 @@ const fullscreen = fullscreenArg === 'fullscreen' || fullscreenArg === 'true' ||
 const testMode = process.argv[6] === 'test';
 
 // Stel minimale wachttijd in (in milliseconden)
-const MIN_WAIT_TIME = testMode ? 1000 : 8000; // 1 seconde voor tests, 8 seconden normaal
+const MIN_WAIT_TIME = testMode ? 500 : 5000; // 0.5 seconde voor tests, 5 seconden normaal
 
 // Stel navigatie timeout in
-const NAVIGATION_TIMEOUT = testMode ? 5000 : 15000; // 5 seconden voor tests, 15 seconden normaal
+const NAVIGATION_TIMEOUT = testMode ? 3000 : 10000; // 3 seconden voor tests, 10 seconden normaal
 
 // Stel viewport grootte in
 const VIEWPORT_WIDTH = 1920;
@@ -386,8 +386,8 @@ const { chromium } = require('playwright');
                 // Roep de functie direct aan
                 removeAllDialogs();
                 
-                // Stel een interval in om regelmatig te controleren op popups
-                window._popupRemovalInterval = setInterval(removeAllDialogs, 500);
+                // Stel een interval in om regelmatig te controleren op popups - minder frequent in testmodus
+                window._popupRemovalInterval = setInterval(removeAllDialogs, testMode ? 200 : 500);
                 
                 // Stel ook een MutationObserver in om nieuwe elementen direct te detecteren
                 const observer = new MutationObserver(mutations => {
@@ -425,7 +425,7 @@ const { chromium } = require('playwright');
             
             // Wacht een langere tijd om de pagina en indicators te laten laden
             console.log('Waiting for page and indicators to render...');
-            await page.waitForTimeout(5000); // 5 seconden wachten voor dialogen
+            await page.waitForTimeout(testMode ? 2000 : 5000); // 2 of 5 seconden wachten voor dialogen
             
             // Direct aanpak om alle close buttons te klikken met Playwright
             const closeSelectors = [
@@ -464,8 +464,8 @@ const { chromium } = require('playwright');
             console.log('Additional fullscreen mode already applied via Shift+F');
             
             // Verberg UI elementen voor fullscreen
-            console.log('Removing UI elements for fullscreen...');
-            await page.evaluate(() => {
+                console.log('Removing UI elements for fullscreen...');
+                await page.evaluate(() => {
                 try {
                     // Verberg alle UI elementen die de chart verbergen
                     const elementsToHide = [
@@ -508,7 +508,7 @@ const { chromium } = require('playwright');
             });
             
             // Skip de vertraging en knoppen zoeken - we hebben al Shift+F gebruikt
-            console.log('Chart loaded or timeout reached');
+                console.log('Chart loaded or timeout reached');
             
             // Laatste kans om alle popups te sluiten
             await page.evaluate(() => {
@@ -532,7 +532,7 @@ const { chromium } = require('playwright');
             });
             
             // Wacht nog een laatste moment voor stabiliteit
-            await page.waitForTimeout(2000); // 2 seconden voor volledige stabiliteit
+            await page.waitForTimeout(testMode ? 500 : 2000); // 0.5 of 2 seconden voor volledige stabiliteit
             
             // Neem screenshot
             console.log('Taking screenshot...');
