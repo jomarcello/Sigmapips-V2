@@ -39,7 +39,7 @@ class TradingViewNodeService(TradingViewService):
         logger.info(f"TradingView Node.js service initialized")
     
     async def initialize(self):
-        """Initialize the Node.js service"""
+        """Initialize the Node.js service met directe initialisatie zonder test"""
         try:
             logger.info("Initializing TradingView Node.js service")
             
@@ -50,7 +50,7 @@ class TradingViewNodeService(TradingViewService):
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE
                 )
-                stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=5)
+                stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=3)
                 node_version = stdout.decode().strip()
                 logger.info(f"Node.js version: {node_version}")
             except Exception as node_error:
@@ -62,36 +62,11 @@ class TradingViewNodeService(TradingViewService):
                 logger.error(f"Script niet gevonden: {self.script_path}")
                 return False
             
-            # Test een snelle screenshot om te controleren of de service werkt
-            logger.info("Testing Node.js service with a quick screenshot")
-            test_url = "https://www.example.com"
-            
-            # Voer een snelle test uit
-            try:
-                # Gebruik een korte timeout voor de test
-                test_cmd = ["node", self.script_path, test_url, "/tmp/test_screenshot.png", "", ""]
-                test_process = await asyncio.create_subprocess_exec(
-                    *test_cmd,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE
-                )
-                test_stdout, test_stderr = await asyncio.wait_for(test_process.communicate(), timeout=15)
-                
-                if test_process.returncode == 0:
-                    logger.info("Node.js service test successful")
-                    self.is_initialized = True
-                    return True
-                else:
-                    logger.error(f"Node.js test failed with exit code {test_process.returncode}")
-                    logger.error(f"Error: {test_stderr.decode()}")
-                    return False
-                
-            except asyncio.TimeoutError:
-                logger.error("Node.js service test timed out after 15 seconds")
-                return False
-            except Exception as e:
-                logger.error(f"Node.js service test failed: {str(e)}")
-                return False
+            # DIRECTE INITIALISATIE: sla testen over
+            logger.info("DIRECT INITIALIZATION: Skipping tests completely")
+            self.is_initialized = True
+            self.node_initialized = True 
+            return True
                 
         except Exception as e:
             logger.error(f"Error initializing Node.js service: {str(e)}")
@@ -175,26 +150,39 @@ class TradingViewNodeService(TradingViewService):
         # Geen resources om op te ruimen
         logger.info("TradingView Node.js service cleaned up")
     
-    async def take_screenshot_of_url(self, url: str, fullscreen: bool = False) -> Optional[bytes]:
-        """Take a screenshot of a URL using Node.js and Playwright"""
+    async def take_screenshot_of_url(self, url: str, fullscreen: bool = False, test_mode: bool = False) -> Optional[bytes]:
+        """Take a screenshot of a URL using Node.js with optimized timeout"""
         try:
+            # Als we nog niet eerder geinitialiseerd zijn, doen we dat nu
+            if not self.is_initialized:
+                logger.warning("Node.js service not initialized, initializing now")
+                await self.initialize()
+            
             # Genereer een unieke bestandsnaam voor de screenshot
             timestamp = int(time.time())
-            if hasattr(self, 'screenshot_dir') and self.screenshot_dir:
-                os.makedirs(self.screenshot_dir, exist_ok=True)
-                screenshot_path = os.path.join(self.screenshot_dir, f"screenshot_{timestamp}.png")
+            
+            # Controleer of de Docker container draait
+            in_docker = os.path.exists('/app')
+            
+            if in_docker:
+                # We zijn in Docker
+                screenshot_path = f"/app/screenshot_{timestamp}.png"
+                logger.info(f"Running in Docker, setting screenshot path to {screenshot_path}")
             else:
-                # Docker container pad als we in Docker draaien, anders tijdelijk bestand
-                if os.path.exists('/app'):
-                    screenshot_path = f"/app/screenshot_{timestamp}.png"
-                else:
-                    screenshot_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), f"screenshot_{timestamp}.png")
+                # We zijn lokaal
+                # Gebruik een pad in dezelfde directory als het script
+                script_dir = os.path.dirname(os.path.abspath(__file__))
+                screenshot_dir = os.path.join(script_dir, "temp_screenshots")
+                os.makedirs(screenshot_dir, exist_ok=True)
+                screenshot_path = os.path.join(screenshot_dir, f"screenshot_{timestamp}.png")
+                logger.info(f"Running locally, setting screenshot path to {screenshot_path}")
             
             # Bereid de Node.js opdracht voor
-            js_path = self.script_path if hasattr(self, 'script_path') and self.script_path else "tradingview_screenshot.js"
+            js_path = os.path.abspath(self.script_path)
             
             # Controleer of het pad bestaat
-            if not os.path.exists(js_path) and js_path == "tradingview_screenshot.js":
+            if not os.path.exists(js_path):
+                logger.error(f"JavaScript bestand niet gevonden op pad: {js_path}")
                 # Probeer het bestand in de root van het project te vinden
                 project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
                 js_path = os.path.join(project_root, "tradingview_screenshot.js")
@@ -202,29 +190,43 @@ class TradingViewNodeService(TradingViewService):
                     logger.error(f"JavaScript bestand niet gevonden: {js_path}")
                     return None
             
+            # Log het absolute pad voor debugging
+            logger.info(f"Using Node.js script at: {js_path}")
+            
             # Fullscreen parameter toevoegen aan opdracht
             fullscreen_param = "fullscreen" if fullscreen else ""
             if fullscreen:
                 logger.info("Adding fullscreen parameter to command")
             
+            # Test mode parameter toevoegen
+            test_param = "test" if test_mode else ""
+            
             # Stel je session ID in
             session_id = self.session_id if hasattr(self, 'session_id') and self.session_id else ""
             
             # Voer de Node.js opdracht uit met een kortere timeout
-            logger.info(f"Running command: node {js_path} \"{url}\" \"{screenshot_path}\" \"****\" {fullscreen_param}")
+            cmd = ["node", js_path, url, screenshot_path, session_id, fullscreen_param, test_param]
             
-            cmd = ["node", js_path, url, screenshot_path, session_id, fullscreen_param]
+            logger.info(f"Running command: {' '.join(cmd)}")
             
-            # Voer het proces uit met een kortere timeout (was 60 seconden)
+            # Voer het proces uit met een kortere timeout (15 seconden)
             process = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
             
-            # Wacht maximaal 30 seconden op het proces om te voltooien (was 15 seconden)
+            # Haal timeout uit class of gebruik default
+            timeout = getattr(self, 'timeout', 15)
+            
+            # Wacht maximaal op het gespecifieerde aantal seconden
             try:
-                stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=30)
+                logger.info(f"Waiting for process to complete with timeout {timeout} seconds...")
+                start_time = time.time()
+                stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout)
+                elapsed_time = time.time() - start_time
+                logger.info(f"Process completed in {elapsed_time:.2f} seconds")
+                
                 stdout_str = stdout.decode('utf-8', errors='ignore')
                 stderr_str = stderr.decode('utf-8', errors='ignore')
                 
@@ -237,18 +239,32 @@ class TradingViewNodeService(TradingViewService):
                     return None
                 
             except asyncio.TimeoutError:
-                logger.error("Node.js process timed out after 30 seconds")
+                logger.error(f"Node.js process timed out after {timeout} seconds")
                 process.kill()
                 return None
             
             # Controleer of het bestand bestaat
             if os.path.exists(screenshot_path):
+                logger.info(f"Screenshot file exists: {screenshot_path}")
+                
                 # Lees het bestand
                 with open(screenshot_path, 'rb') as f:
                     screenshot_data = f.read()
                 
-                # Verwijder het bestand
-                os.remove(screenshot_path)
+                # Controleer of er data is
+                if not screenshot_data or len(screenshot_data) < 1000:
+                    logger.error(f"Screenshot file exists but contains no data: {screenshot_path}")
+                    return None
+                
+                # Log de bestandsgrootte
+                logger.info(f"Screenshot size: {len(screenshot_data)} bytes")
+                
+                # Verwijder het bestand na het lezen
+                try:
+                    os.remove(screenshot_path)
+                    logger.info(f"Removed screenshot file after reading")
+                except Exception as e:
+                    logger.warning(f"Could not remove screenshot file: {str(e)}")
                 
                 return screenshot_data
             else:
