@@ -39,8 +39,8 @@ os.makedirs(ANALYSIS_CACHE_DIR, exist_ok=True)
 os.makedirs(OCR_CACHE_DIR, exist_ok=True)
 
 # Cache verlooptijd in seconden
-CHART_CACHE_EXPIRY = 300  # 5 minuten voor charts
-ANALYSIS_CACHE_EXPIRY = 600  # 10 minuten voor analyses
+CHART_CACHE_EXPIRY = 1800  # 30 minuten voor charts (was 5 minuten)
+ANALYSIS_CACHE_EXPIRY = 3600  # 60 minuten voor analyses (was 10 minuten)
 
 # JSON Encoder voor NumPy types
 class NumpyJSONEncoder(json.JSONEncoder):
@@ -234,7 +234,7 @@ class ChartService:
                 try:
                     logger.info(f"Taking screenshot with Node.js service")
                     start_time = time.time()
-                    chart_image = await self.tradingview.take_screenshot_of_url(tradingview_link, fullscreen=True)
+                    chart_image = await self.tradingview.take_screenshot_of_url(tradingview_link, fullscreen=True, test_mode=True)
                     elapsed_time = time.time() - start_time
                     
                     # Controleer het resultaat
@@ -299,20 +299,22 @@ class ChartService:
             return await self._generate_random_chart(instrument, timeframe)
 
     async def initialize(self):
-        """Initialize the chart service with lazy loading"""
+        """Initialize the chart service with eager Node.js preloading"""
         try:
             logger.info("Initializing chart service")
             
             # Gebruik lock om gelijktijdige initialisaties te voorkomen
             async with self._init_lock:
-                # Initialisatie van de Node.js service laten gebeuren in de achtergrond
-                node_init_task = asyncio.create_task(self._init_node_js())
+                # Start Node.js initialisatie direct en wacht erop (eager loading)
+                # Dit zorgt ervoor dat Node.js al klaar is wanneer we het nodig hebben
+                logger.info("Eager initialization of Node.js service")
+                node_init_success = await self._init_node_js()
+                logger.info(f"Node.js initialized with result: {node_init_success}")
                 
                 # Sla Selenium initialisatie over vanwege ChromeDriver compatibiliteitsproblemen
                 logger.warning("Skipping Selenium initialization due to ChromeDriver compatibility issues")
                 self.tradingview_selenium = None
                 
-                # We wachten niet op de initialisatie om de service sneller te maken
                 return True
         
         except Exception as e:
