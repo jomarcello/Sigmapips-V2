@@ -605,38 +605,31 @@ class ChartService:
         Get technical analysis for an instrument with timeframe using TradingView data and DeepSeek APIs.
         """
         try:
-            # First get the chart image
-            chart_data = await self.get_chart(instrument, timeframe)
-            
-            # Check if chart_data is in bytes format and save it to a file first
+            # Verwijder de chart generatie, we hebben alleen marktgegevens nodig
+            # Gebruik een tijdelijk pad voor de verwijzing naar de chart
             img_path = None
-            if isinstance(chart_data, bytes):
-                timestamp = int(datetime.now().timestamp())
-                os.makedirs('data/charts', exist_ok=True)
-                img_path = f"data/charts/{instrument.lower()}_{timeframe}_{timestamp}.png"
-                
-                try:
-                    with open(img_path, 'wb') as f:
-                        f.write(chart_data)
-                    logger.info(f"Saved chart image to file: {img_path}, size: {len(chart_data)} bytes")
-                except Exception as save_error:
-                    logger.error(f"Failed to save chart image to file: {str(save_error)}")
-                    return None, "Error saving chart image."
-            else:
-                img_path = chart_data  # Already a path
-                logger.info(f"Using existing chart image path: {img_path}")
-            
-            # Get the DeepSeek API key
-            deepseek_api_key = os.getenv("DEEPSEEK_API_KEY")
-            
-            if not deepseek_api_key:
-                logger.warning("DeepSeek API key missing, analysis may be limited")
+            timestamp = int(datetime.now().timestamp())
+            os.makedirs('data/charts', exist_ok=True)
+            img_path = f"data/charts/{instrument.lower()}_{timeframe}_{timestamp}.png"
             
             try:
                 # Get real market data from TradingView instead of using OCR
                 logger.info(f"Getting real market data for {instrument} from TradingView")
                 market_data_dict = await self.get_real_market_data(instrument, timeframe)
                 logger.info(f"TradingView data retrieved: {market_data_dict}")
+                
+                # Nu we marktgegevens hebben, genereren we de chart afbeelding slechts één keer
+                chart_data = await self.get_chart(instrument, timeframe)
+                if isinstance(chart_data, bytes):
+                    try:
+                        with open(img_path, 'wb') as f:
+                            f.write(chart_data)
+                        logger.info(f"Saved chart image to file: {img_path}, size: {len(chart_data)} bytes")
+                    except Exception as save_error:
+                        logger.error(f"Failed to save chart image to file: {str(save_error)}")
+                else:
+                    img_path = chart_data  # Already a path
+                    logger.info(f"Using existing chart image path: {img_path}")
                 
             except Exception as tv_error:
                 logger.error(f"Error getting TradingView data: {str(tv_error)}")
@@ -668,6 +661,16 @@ class ChartService:
                         "support_levels": [1.06788, 1.07123, 1.07611],
                         "resistance_levels": [1.08323, 1.0935, 1.10235]
                     }
+                    
+                    # In geval van fallback data, genereer de chart afbeelding alsnog
+                    chart_data = await self.get_chart(instrument, timeframe)
+                    if isinstance(chart_data, bytes):
+                        try:
+                            with open(img_path, 'wb') as f:
+                                f.write(chart_data)
+                            logger.info(f"Saved fallback chart image to file: {img_path}")
+                        except Exception as save_error:
+                            logger.error(f"Failed to save fallback chart image: {str(save_error)}")
                 else:
                     # Use base price if TradingView fails for non-EURUSD
                     logger.warning("Using base price data due to TradingView error")
@@ -676,6 +679,22 @@ class ChartService:
                     
                     # Create basic market data with realistic values
                     market_data_dict = self._calculate_synthetic_support_resistance(base_price, instrument)
+                    
+                    # In geval van synthetische data, genereer de chart afbeelding alsnog
+                    chart_data = await self.get_chart(instrument, timeframe)
+                    if isinstance(chart_data, bytes):
+                        try:
+                            with open(img_path, 'wb') as f:
+                                f.write(chart_data)
+                            logger.info(f"Saved synthetic chart image to file: {img_path}")
+                        except Exception as save_error:
+                            logger.error(f"Failed to save synthetic chart image: {str(save_error)}")
+            
+            # Get the DeepSeek API key
+            deepseek_api_key = os.getenv("DEEPSEEK_API_KEY")
+            
+            if not deepseek_api_key:
+                logger.warning("DeepSeek API key missing, analysis may be limited")
             
             # Convert data to JSON for DeepSeek
             market_data_json = json.dumps(market_data_dict, indent=2, cls=NumpyJSONEncoder)
