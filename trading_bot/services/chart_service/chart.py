@@ -305,7 +305,7 @@ class ChartService:
                 
                 # We wachten niet op de initialisatie om de service sneller te maken
                 return True
-                
+        
         except Exception as e:
             logger.error(f"Error initializing chart service: {str(e)}")
             return False
@@ -313,13 +313,23 @@ class ChartService:
     async def _init_node_js(self):
         """Initialize Node.js service in background"""
         try:
+            # Check of Node.js al geïnitialiseerd is
+            if hasattr(self, 'tradingview') and self.tradingview and self.node_initialized:
+                logger.info("Node.js service already initialized")
+                return True
+                
             # Initialiseer de TradingView Node.js service
             from trading_bot.services.chart_service.tradingview_node import TradingViewNodeService
             self.tradingview = TradingViewNodeService()
+            
+            # Directe initialisatie zonder test
+            logger.info("Direct initialization of Node.js service")
             self.node_initialized = await self.tradingview.initialize()
             
             if self.node_initialized:
                 logger.info("Node.js service initialized successfully")
+                # Stel een kortere timeout in
+                self.tradingview.timeout = 15  # 15 seconden timeout
             else:
                 logger.error("Node.js service initialization returned False")
                 
