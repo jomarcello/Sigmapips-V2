@@ -9,6 +9,7 @@ import copy
 import re
 import time
 import random
+from io import BytesIO
 
 def get_logger(name: str) -> logging.Logger:
     """Create and return a logger instance with the given name."""
@@ -3396,8 +3397,18 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             
             # Get the chart image and analysis text
             try:
-                chart_image, analysis_text = await self.chart_service.get_technical_analysis(instrument, timeframe)
+                chart_result = await self.chart_service.get_technical_analysis(instrument, timeframe)
                 logger.info(f"Successfully retrieved chart and analysis for {instrument}")
+                
+                # Unpack the result - can be either (path, analysis) or (bytes, analysis)
+                if isinstance(chart_result, tuple) and len(chart_result) == 2:
+                    chart_image = chart_result[0]
+                    analysis_text = chart_result[1]
+                    logger.info(f"Unpacked chart result: image type={type(chart_image)}, analysis type={type(analysis_text)}")
+                else:
+                    logger.error(f"Unexpected chart result format: {type(chart_result)}")
+                    chart_image = None
+                    analysis_text = "Error retrieving chart format."
             except Exception as e:
                 logger.error(f"Error retrieving chart and analysis: {str(e)}")
                 await query.edit_message_text(
@@ -3426,33 +3437,29 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Show the chart
             try:
                 logger.info(f"Sending chart image for {instrument} {timeframe}")
-                # Try to send a new message with the chart
-                try:
-                    # Eerst proberen we de chart direct te verzenden als foto
-                    await context.bot.send_photo(
-                        chat_id=update.effective_chat.id,
-                        photo=chart_image,
-                        caption=analysis_text,
-                        reply_markup=InlineKeyboardMarkup(keyboard),
-                        parse_mode=ParseMode.HTML
-                    )
-                    logger.info(f"Successfully sent chart as photo for {instrument}")
-                except Exception as photo_error:
-                    logger.error(f"Failed to send chart as photo: {str(photo_error)}")
-                    
-                    # Als het niet lukt om direct als foto te verzenden, proberen we het als bestand
-                    if isinstance(chart_image, bytes):
-                        # Sla tijdelijk op als bestand en verzend het als document
-                        logger.info("Trying to send chart as document")
-                        temp_file_path = f"temp_chart_{instrument}_{int(time.time())}.png"
+                
+                # Process the image based on its type
+                if isinstance(chart_image, str) and os.path.exists(chart_image):
+                    # Het is een bestandspad
+                    logger.info(f"Chart image is a file path: {chart_image}, size: {os.path.getsize(chart_image)} bytes")
+                    try:
+                        with open(chart_image, 'rb') as f:
+                            await context.bot.send_photo(
+                                chat_id=update.effective_chat.id,
+                                photo=f,
+                                caption=analysis_text,
+                                reply_markup=InlineKeyboardMarkup(keyboard),
+                                parse_mode=ParseMode.HTML
+                            )
+                        logger.info(f"Successfully sent chart from file path")
+                    except Exception as file_error:
+                        logger.error(f"Failed to send chart from file path: {str(file_error)}")
+                        logger.error(traceback.format_exc())
+                        
+                        # Probeer als document te verzenden
                         try:
-                            with open(temp_file_path, 'wb') as f:
-                                f.write(chart_image)
-                            
-                            logger.info(f"Temporary file created at {temp_file_path}, size: {os.path.getsize(temp_file_path)} bytes")
-                            
-                            # Verzend als document
-                            with open(temp_file_path, 'rb') as f:
+                            logger.info(f"Attempting to send as document instead: {chart_image}")
+                            with open(chart_image, 'rb') as f:
                                 await context.bot.send_document(
                                     chat_id=update.effective_chat.id,
                                     document=f,
@@ -3460,78 +3467,64 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                                     reply_markup=InlineKeyboardMarkup(keyboard),
                                     parse_mode=ParseMode.HTML
                                 )
-                            logger.info(f"Successfully sent chart as document for {instrument}")
+                            logger.info(f"Successfully sent chart as document from file path")
+                        except Exception as doc_retry_error:
+                            logger.error(f"Failed to send chart as document from file path: {str(doc_retry_error)}")
                             
-                            # Verwijder het tijdelijke bestand
-                            try:
-                                os.remove(temp_file_path)
-                                logger.info(f"Temporary file {temp_file_path} removed successfully")
-                            except Exception as remove_error:
-                                logger.warning(f"Could not remove temp file: {str(remove_error)}")
-                        except Exception as doc_error:
-                            logger.error(f"Failed to send chart as document: {str(doc_error)}")
-                            logger.error(traceback.format_exc())
-                            
-                            # Probeer als laatste optie het bestand te sturen als foto (als het bestand bestaat)
-                            if os.path.exists(temp_file_path):
-                                try:
-                                    logger.info(f"Attempting to send temp file as photo: {temp_file_path}")
-                                    with open(temp_file_path, 'rb') as f:
-                                        await context.bot.send_photo(
-                                            chat_id=update.effective_chat.id,
-                                            photo=f,
-                                            caption=analysis_text,
-                                            reply_markup=InlineKeyboardMarkup(keyboard),
-                                            parse_mode=ParseMode.HTML
-                                        )
-                                    logger.info(f"Successfully sent temp file as photo")
-                                    
-                                    # Verwijder het tijdelijke bestand
-                                    try:
-                                        os.remove(temp_file_path)
-                                    except Exception as remove_error:
-                                        logger.warning(f"Could not remove temp file after photo send: {str(remove_error)}")
-                                except Exception as photo_retry_error:
-                                    logger.error(f"Failed to send temp file as photo: {str(photo_retry_error)}")
-                                    
-                                    # Stuur alleen tekst als ultieme fallback
-                                    await context.bot.send_message(
-                                        chat_id=update.effective_chat.id,
-                                        text=f"Could not load chart for {instrument}. Analysis:\n\n{analysis_text}",
-                                        reply_markup=InlineKeyboardMarkup(keyboard),
-                                        parse_mode=ParseMode.HTML
-                                    )
-                                    logger.info(f"Sent text-only analysis as ultimate fallback")
-                            else:
-                                # Stuur alleen tekst als ultieme fallback
-                                await context.bot.send_message(
-                                    chat_id=update.effective_chat.id,
-                                    text=f"Could not load chart for {instrument}. Analysis:\n\n{analysis_text}",
-                                    reply_markup=InlineKeyboardMarkup(keyboard),
-                                    parse_mode=ParseMode.HTML
-                                )
-                                logger.info(f"Sent text-only analysis as ultimate fallback (no temp file)")
-                    elif isinstance(chart_image, str) and os.path.exists(chart_image):
-                        # Als chart_image een pad is, open het bestand en verzend het
-                        logger.info(f"Chart image is a file path: {chart_image}, size: {os.path.getsize(chart_image)} bytes")
+                            # Stuur alleen tekst als ultieme fallback
+                            await context.bot.send_message(
+                                chat_id=update.effective_chat.id,
+                                text=f"Could not load chart for {instrument}. Analysis:\n\n{analysis_text}",
+                                reply_markup=InlineKeyboardMarkup(keyboard),
+                                parse_mode=ParseMode.HTML
+                            )
+                            logger.info(f"Sent text-only analysis as ultimate fallback for file path")
+                elif isinstance(chart_image, bytes):
+                    # Het is bytes data
+                    logger.info(f"Chart image is bytes data with size: {len(chart_image)} bytes")
+                    try:
+                        # Gebruik BytesIO om de bytes data naar een bestand-achtig object te converteren
+                        img_io = BytesIO(chart_image)
+                        img_io.name = f"{instrument.lower()}_chart.png"
+                        
+                        await context.bot.send_photo(
+                            chat_id=update.effective_chat.id,
+                            photo=img_io,
+                            caption=analysis_text,
+                            reply_markup=InlineKeyboardMarkup(keyboard),
+                            parse_mode=ParseMode.HTML
+                        )
+                        logger.info(f"Successfully sent chart as photo from bytes")
+                    except Exception as bytes_error:
+                        logger.error(f"Failed to send chart as photo from bytes: {str(bytes_error)}")
+                        
+                        # Probeer als document te verzenden
                         try:
-                            with open(chart_image, 'rb') as f:
-                                await context.bot.send_photo(
-                                    chat_id=update.effective_chat.id,
-                                    photo=f,
-                                    caption=analysis_text,
-                                    reply_markup=InlineKeyboardMarkup(keyboard),
-                                    parse_mode=ParseMode.HTML
-                                )
-                            logger.info(f"Successfully sent chart from file path")
-                        except Exception as file_error:
-                            logger.error(f"Failed to send chart from file path: {str(file_error)}")
-                            logger.error(traceback.format_exc())
+                            logger.info(f"Attempting to send bytes as document")
+                            img_io = BytesIO(chart_image)
+                            img_io.name = f"{instrument.lower()}_chart.png"
                             
-                            # Probeer als document te verzenden
+                            await context.bot.send_document(
+                                chat_id=update.effective_chat.id,
+                                document=img_io,
+                                caption=analysis_text,
+                                reply_markup=InlineKeyboardMarkup(keyboard),
+                                parse_mode=ParseMode.HTML
+                            )
+                            logger.info(f"Successfully sent chart as document from bytes")
+                        except Exception as doc_bytes_error:
+                            logger.error(f"Failed to send chart as document from bytes: {str(doc_bytes_error)}")
+                            
+                            # Als laatste optie, sla het op als bestand en probeer het dan
                             try:
-                                logger.info(f"Attempting to send as document instead: {chart_image}")
-                                with open(chart_image, 'rb') as f:
+                                logger.info(f"Saving bytes to temporary file and trying to send")
+                                temp_file_path = f"temp_chart_{instrument}_{int(time.time())}.png"
+                                with open(temp_file_path, 'wb') as f:
+                                    f.write(chart_image)
+                                
+                                logger.info(f"Temporary file created at {temp_file_path}, size: {os.path.getsize(temp_file_path)} bytes")
+                                
+                                with open(temp_file_path, 'rb') as f:
                                     await context.bot.send_document(
                                         chat_id=update.effective_chat.id,
                                         document=f,
@@ -3539,9 +3532,16 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                                         reply_markup=InlineKeyboardMarkup(keyboard),
                                         parse_mode=ParseMode.HTML
                                     )
-                                logger.info(f"Successfully sent chart as document from file path")
-                            except Exception as doc_retry_error:
-                                logger.error(f"Failed to send chart as document from file path: {str(doc_retry_error)}")
+                                logger.info(f"Successfully sent chart as document from temp file")
+                                
+                                # Verwijder het tijdelijke bestand
+                                try:
+                                    os.remove(temp_file_path)
+                                    logger.info(f"Temporary file {temp_file_path} removed successfully")
+                                except Exception as remove_error:
+                                    logger.warning(f"Could not remove temp file: {str(remove_error)}")
+                            except Exception as temp_file_error:
+                                logger.error(f"Failed to send chart from temp file: {str(temp_file_error)}")
                                 
                                 # Stuur alleen tekst als ultieme fallback
                                 await context.bot.send_message(
@@ -3550,17 +3550,17 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                                     reply_markup=InlineKeyboardMarkup(keyboard),
                                     parse_mode=ParseMode.HTML
                                 )
-                                logger.info(f"Sent text-only analysis as ultimate fallback for file path")
-                    else:
-                        # Als het geen bytes of bestandspad is, stuur alleen tekst
-                        logger.error(f"Unknown chart image type: {type(chart_image)}")
-                        await context.bot.send_message(
-                            chat_id=update.effective_chat.id,
-                            text=f"Could not load chart for {instrument}. Analysis:\n\n{analysis_text}",
-                            reply_markup=InlineKeyboardMarkup(keyboard),
-                            parse_mode=ParseMode.HTML
-                        )
-                        logger.info(f"Sent text-only analysis due to unknown chart image type")
+                                logger.info(f"Sent text-only analysis as ultimate fallback")
+                else:
+                    # Als het geen bytes of bestandspad is, stuur alleen tekst
+                    logger.error(f"Unknown chart image type: {type(chart_image)}")
+                    await context.bot.send_message(
+                        chat_id=update.effective_chat.id,
+                        text=f"Could not load chart for {instrument}. Analysis:\n\n{analysis_text}",
+                        reply_markup=InlineKeyboardMarkup(keyboard),
+                        parse_mode=ParseMode.HTML
+                    )
+                    logger.info(f"Sent text-only analysis due to unknown chart image type")
                 
                 # Delete the original message (the one with the loading indicator)
                 logger.info(f"Deleting original message {query.message.message_id}")
