@@ -147,52 +147,202 @@ class ChartService:
             logging.error(f"Error initializing chart service: {str(e)}")
             raise
 
-    async def get_chart(self, instrument: str, timeframe: str = "1h", fullscreen: bool = False) -> bytes:
-        """Get chart image for instrument and timeframe with caching"""
+    async def get_chart(self, instrument: str, timeframe: str = "1h", fullscreen: bool = False) -> Tuple[bytes, Dict]:
+        """Get a chart image and analysis for the given instrument and timeframe."""
         try:
+            # Normalize instrument name
+            instrument = instrument.upper()
+            
             logger.info(f"Getting chart for {instrument} ({timeframe}) fullscreen: {fullscreen}")
             
-            # Normaliseer instrument (verwijder /)
-            instrument = instrument.upper().replace("/", "")
-            
-            # Check cache eerst
+            # Check in-memory cache first
             cache_key = f"{instrument}_{timeframe}_{1 if fullscreen else 0}"
-            cache_file = os.path.join(CHART_CACHE_DIR, f"{cache_key}.png")
+            if cache_key in self.chart_cache and self.chart_cache_expiry.get(cache_key, 0) > time.time():
+                logger.info(f"Returning cached chart for {instrument}")
+                return self.chart_cache[cache_key], self.analysis_cache.get(cache_key, {})
+                
+            # Check disk cache 
+            cache_file = f"data/cache/charts/{instrument}_{timeframe}_{1 if fullscreen else 0}.png"
+            cache_analysis_file = f"data/cache/analyses/{instrument}_{timeframe}_{1 if fullscreen else 0}.json"
             
-            # Controleer in-memory cache eerst (snelste)
-            if cache_key in self.chart_cache:
-                cache_entry = self.chart_cache[cache_key]
-                if time.time() - cache_entry["timestamp"] < CHART_CACHE_EXPIRY:
-                    logger.info(f"Using in-memory cache for {instrument} chart")
-                    return cache_entry["data"]
+            if os.path.exists(cache_file) and os.path.getmtime(cache_file) + 1800 > time.time() and os.path.exists(cache_analysis_file):
+                logger.info(f"Reading chart from disk cache for {instrument}")
+                with open(cache_file, "rb") as f:
+                    chart_image = f.read()
+                    
+                with open(cache_analysis_file, "r") as f:
+                    analysis = json.load(f)
+                    
+                # Update in-memory cache
+                self.chart_cache[cache_key] = chart_image
+                self.chart_cache_expiry[cache_key] = time.time() + 1800  # 30 minuten
+                self.analysis_cache[cache_key] = analysis
+                self.analysis_cache_expiry[cache_key] = time.time() + 3600  # 60 minuten
+                
+                return chart_image, analysis
             
-            # Controleer daarna disk cache
-            if os.path.exists(cache_file):
-                file_age = time.time() - os.path.getmtime(cache_file)
-                if file_age < CHART_CACHE_EXPIRY:
-                    logger.info(f"Using disk cache for {instrument} chart")
-                    with open(cache_file, 'rb') as f:
-                        chart_data = f.read()
-                        # Update in-memory cache ook
-                        self.chart_cache[cache_key] = {
-                            "data": chart_data,
-                            "timestamp": time.time()
-                        }
-                        return chart_data
-            
-            # Zorg ervoor dat de services zijn geïnitialiseerd
-            if not hasattr(self, 'tradingview') or not self.tradingview:
+            # Initialize services if necessary
+            if not self.tradingview:
                 logger.info("Services not initialized, initializing now")
-                init_success = await self.initialize()
-                if not init_success:
-                    logger.error("Failed to initialize services")
+                await self.initialize()
             
-            # Initialiseer direct de Node.js service als deze nog niet geïnitialiseerd is
-            if not hasattr(self, 'node_initialized') or not self.node_initialized:
-                logger.info("Node.js service not initialized, initializing now directly")
+            # Get market data from TradingView first
+            tradingview_data = await self.get_tradingview_data(instrument)
+            
+            # Bereid de TradingView link voor met fullscreen parameter
+            tradingview_link = await self._get_tradingview_link(instrument, timeframe, fullscreen)
+            logger.info(f"Using exact TradingView link: {tradingview_link}")
+            
+            # Maak een task voor DeepSeek analyse (parallel uitvoeren)
+            analysis_task = asyncio.create_task(self._prepare_analysis(instrument, tradingview_data))
+            
+            # Timeout verhogen voor Node.js
+            logger.info(f"Setting Node.js timeout to 40 seconds")
+            
+            # Start met screenshot nemen (echte TradingView)
+            logger.info(f"Taking screenshot with Node.js service")
+            chart_image = await self.tradingview.take_screenshot_of_url(tradingview_link, fullscreen=True, test_mode=True)
+            
+            # Als Node.js succesvol is, sla de afbeelding op
+            if chart_image:
+                # Controleer of de afbeelding niet te klein is (minimaal 10KB - echte charts zijn ~91KB)
+                if len(chart_image) > 10240:  # 10KB minimum
+                    # Deze afbeelding is goed
+                    logger.info(f"Screenshot taken successfully with Node.js service in {self.tradingview.last_execution_time:.2f} seconds. Size: {len(chart_image)} bytes")
+                    
+                    # Sla op naar cache bestand
+                    os.makedirs("data/charts", exist_ok=True)
+                    timestamp = int(time.time())
+                    chart_file = f"data/charts/{instrument.lower()}_{timeframe}_{timestamp}.png"
+                    with open(chart_file, "wb") as f:
+                        f.write(chart_image)
+                    logger.info(f"Saved chart image to file: {chart_file}, size: {len(chart_image)} bytes")
+                    
+                    # Maak de cache map aan als deze niet bestaat
+                    os.makedirs("data/cache/charts", exist_ok=True)
+                    with open(cache_file, "wb") as f:
+                        f.write(chart_image)
+                    logger.info(f"Chart cached to {cache_file}")
+                    
+                    # Wacht op de DeepSeek analyse die parallel loopt
+                    analysis = await analysis_task
+                    
+                    # Update in-memory cache
+                    self.chart_cache[cache_key] = chart_image
+                    self.chart_cache_expiry[cache_key] = time.time() + 1800  # 30 minuten
+                    self.analysis_cache[cache_key] = analysis
+                    self.analysis_cache_expiry[cache_key] = time.time() + 3600  # 60 minuten
+                    
+                    # Caching voor analyse bestanden
+                    os.makedirs("data/cache/analyses", exist_ok=True)
+                    with open(cache_analysis_file, "w") as f:
+                        json.dump(analysis, f)
+                    
+                    return chart_image, analysis
+                else:
+                    logger.warning(f"Node.js screenshot is too small ({len(chart_image)} bytes), falling back to random chart")
+                    chart_image = None
+            else:
+                logger.error("Node.js screenshot is None")
+            
+            # Als we hier zijn, zijn alle diensten mislukt, val terug op random chart
+            logger.warning(f"All screenshot services failed, using fallback for {instrument}")
+            chart_image = await self._generate_random_chart(instrument, timeframe, tradingview_data)
+            
+            # Wacht op de DeepSeek analyse die parallel loopt
+            analysis = await analysis_task
+            
+            # Update in-memory cache
+            self.chart_cache[cache_key] = chart_image
+            self.chart_cache_expiry[cache_key] = time.time() + 1800  # 30 minuten
+            self.analysis_cache[cache_key] = analysis
+            self.analysis_cache_expiry[cache_key] = time.time() + 3600  # 60 minuten
+            
+            return chart_image, analysis
+            
+        except Exception as e:
+            logger.error(f"Error getting chart: {e}")
+            logger.error(traceback.format_exc())
+            
+            # Fallback naar random chart bij elke error
+            if 'tradingview_data' not in locals() or tradingview_data is None:
+                tradingview_data = await self.get_tradingview_data(instrument)
+            
+            chart_image = await self._generate_random_chart(instrument, timeframe, tradingview_data)
+            analysis = await self._prepare_analysis(instrument, tradingview_data)
+            
+            return chart_image, analysis
+
+    async def _prepare_analysis(self, instrument: str, tradingview_data: Dict) -> Dict:
+        """Formatteer data voor analyse en roep DeepSeek API aan."""
+        try:
+            logger.info(f"Formatting data with DeepSeek for {instrument}")
+            
+            # Bereid de analyse voor met DeepSeek
+            logger.info(f"Sending request to DeepSeek API for {instrument} analysis")
+            analysis = await self.deepseek_service.analyze_data(instrument, tradingview_data)
+            
+            logger.info(f"DeepSeek analysis successful for {instrument}")
+            return analysis
+            
+        except Exception as e:
+            logger.error(f"Error preparing analysis: {e}")
+            return {}
+
+    async def initialize(self):
+        """Initialize the chart service with eager Node.js preloading"""
+        try:
+            logger.info("Initializing chart service")
+            
+            # Gebruik lock om gelijktijdige initialisaties te voorkomen
+            async with self._init_lock:
+                # Start Node.js initialisatie direct en wacht erop (eager loading)
+                # Dit zorgt ervoor dat Node.js al klaar is wanneer we het nodig hebben
+                logger.info("Eager initialization of Node.js service")
                 node_init_success = await self._init_node_js()
-                logger.info(f"Direct Node.js initialization result: {node_init_success}")
+                logger.info(f"Node.js initialized with result: {node_init_success}")
             
+            # Sla Selenium initialisatie over vanwege ChromeDriver compatibiliteitsproblemen
+            logger.warning("Skipping Selenium initialization due to ChromeDriver compatibility issues")
+            self.tradingview_selenium = None
+            
+            return True
+        
+        except Exception as e:
+            logger.error(f"Error initializing chart service: {str(e)}")
+            return False
+
+    async def _init_node_js(self):
+        """Initialize Node.js service in background"""
+        try:
+            # Check of Node.js al geïnitialiseerd is
+            if hasattr(self, 'tradingview') and self.tradingview and self.node_initialized:
+                logger.info("Node.js service already initialized")
+                return True
+                
+            # Initialiseer de TradingView Node.js service
+            from trading_bot.services.chart_service.tradingview_node import TradingViewNodeService
+            self.tradingview = TradingViewNodeService()
+            
+            # Directe initialisatie zonder test
+            logger.info("Direct initialization of Node.js service")
+            self.node_initialized = await self.tradingview.initialize()
+            
+            if self.node_initialized:
+                logger.info("Node.js service initialized successfully")
+                # Stel een kortere timeout in
+                self.tradingview.timeout = 40  # 40 seconden timeout
+            else:
+                logger.error("Node.js service initialization returned False")
+                
+            return self.node_initialized
+        except Exception as e:
+            logger.error(f"Error initializing Node.js service: {str(e)}")
+            return False
+
+    async def _get_tradingview_link(self, instrument: str, timeframe: str, fullscreen: bool) -> str:
+        """Genereer de juiste TradingView URL voor het instrument."""
+        try:
             # Gebruik de exacte TradingView link voor dit instrument zonder parameters toe te voegen
             tradingview_link = self.chart_links.get(instrument)
             if not tradingview_link:
@@ -220,134 +370,12 @@ class ChartService:
                 tradingview_link += "&" + "&".join(fullscreen_params)
             else:
                 tradingview_link += "?" + "&".join(fullscreen_params)
-            
-            logger.info(f"Using exact TradingView link: {tradingview_link}")
-            
-            # Verhoog de timeout voor complexe charts
-            if hasattr(self, 'tradingview') and self.tradingview:
-                self.tradingview.timeout = 40  # 40 seconden timeout (dit is belangrijk! De verwerking duurt ~17-20 seconden)
-                logger.info(f"Setting Node.js timeout to {self.tradingview.timeout} seconds")
-            
-            # Probeer eerst de Node.js service te gebruiken
-            node_js_error = None  # Om errors bij te houden
-            if hasattr(self, 'tradingview') and self.tradingview and hasattr(self.tradingview, 'take_screenshot_of_url'):
-                try:
-                    logger.info(f"Taking screenshot with Node.js service")
-                    start_time = time.time()
-                    chart_image = await self.tradingview.take_screenshot_of_url(tradingview_link, fullscreen=True, test_mode=True)
-                    elapsed_time = time.time() - start_time
-                    
-                    # Controleer het resultaat
-                    if chart_image and len(chart_image) > 10000:  # Minstens 10KB voor een echte chart
-                        logger.info(f"Screenshot taken successfully with Node.js service in {elapsed_time:.2f} seconds. Size: {len(chart_image)} bytes")
-                        
-                        # Update cache
-                        self.chart_cache[cache_key] = {
-                            "data": chart_image,
-                            "timestamp": time.time()
-                        }
-                        
-                        # Save to disk cache
-                        with open(cache_file, 'wb') as f:
-                            f.write(chart_image)
-                        
-                        logger.info(f"Chart cached to {cache_file}")    
-                        return chart_image
-                    else:
-                        if chart_image:
-                            logger.error(f"Node.js screenshot is too small: {len(chart_image)} bytes")
-                        else:
-                            logger.error("Node.js screenshot is None")
-                except Exception as e:
-                    node_js_error = str(e)
-                    logger.error(f"Error using Node.js for screenshot: {node_js_error}")
-                    import traceback
-                    logger.error(traceback.format_exc())
-            else:
-                logger.error("Node.js service not properly initialized")
-            
-            # Als Node.js niet werkt, probeer Selenium - overgeslagen omdat we al weten dat het niet werkt
-            # in deze implementatie
-            
-            # Als beide services niet werken, gebruik een fallback methode
-            logger.warning(f"All screenshot services failed, using fallback for {instrument}")
-            if node_js_error:
-                logger.warning(f"Node.js error details: {node_js_error}")
-            
-            fallback_image = await self._generate_random_chart(instrument, timeframe)
-            
-            # Update cache ook voor fallback
-            if fallback_image:
-                self.chart_cache[cache_key] = {
-                    "data": fallback_image,
-                    "timestamp": time.time()
-                }
                 
-                # Save to disk cache
-                with open(cache_file, 'wb') as f:
-                    f.write(fallback_image)
-            
-            return fallback_image
-        
+            return tradingview_link
         except Exception as e:
-            logger.error(f"Error getting chart: {str(e)}")
-            import traceback
-            logger.error(traceback.format_exc())
-            
-            # Als er een fout optreedt, genereer een matplotlib chart
-            logger.warning(f"Error occurred, using fallback for {instrument}")
-            return await self._generate_random_chart(instrument, timeframe)
-
-    async def initialize(self):
-        """Initialize the chart service with eager Node.js preloading"""
-        try:
-            logger.info("Initializing chart service")
-            
-            # Gebruik lock om gelijktijdige initialisaties te voorkomen
-            async with self._init_lock:
-                # Start Node.js initialisatie direct en wacht erop (eager loading)
-                # Dit zorgt ervoor dat Node.js al klaar is wanneer we het nodig hebben
-                logger.info("Eager initialization of Node.js service")
-                node_init_success = await self._init_node_js()
-                logger.info(f"Node.js initialized with result: {node_init_success}")
-                
-                # Sla Selenium initialisatie over vanwege ChromeDriver compatibiliteitsproblemen
-                logger.warning("Skipping Selenium initialization due to ChromeDriver compatibility issues")
-                self.tradingview_selenium = None
-                
-                return True
-        
-        except Exception as e:
-            logger.error(f"Error initializing chart service: {str(e)}")
-            return False
-
-    async def _init_node_js(self):
-        """Initialize Node.js service in background"""
-        try:
-            # Check of Node.js al geïnitialiseerd is
-            if hasattr(self, 'tradingview') and self.tradingview and self.node_initialized:
-                logger.info("Node.js service already initialized")
-                return True
-                
-            # Initialiseer de TradingView Node.js service
-            from trading_bot.services.chart_service.tradingview_node import TradingViewNodeService
-            self.tradingview = TradingViewNodeService()
-            
-            # Directe initialisatie zonder test
-            logger.info("Direct initialization of Node.js service")
-            self.node_initialized = await self.tradingview.initialize()
-            
-            if self.node_initialized:
-                logger.info("Node.js service initialized successfully")
-                # Stel een kortere timeout in
-                self.tradingview.timeout = 15  # 15 seconden timeout
-            else:
-                logger.error("Node.js service initialization returned False")
-                
-            return self.node_initialized
-        except Exception as e:
-            logger.error(f"Error initializing Node.js service: {str(e)}")
-            return False
+            logger.error(f"Error generating TradingView link: {e}")
+            # Fallback naar een basis URL
+            return f"https://www.tradingview.com/chart/?symbol={instrument}"
 
     async def get_technical_analysis(self, instrument: str, timeframe: str = "1h") -> Union[bytes, str]:
         """
@@ -408,10 +436,10 @@ class ChartService:
             # Start parallelle taken voor marktgegevens en chart
             # We gebruiken gather om beide taken gelijktijdig uit te voeren
             img_path = None
-            timestamp = int(datetime.now().timestamp())
-            os.makedirs('data/charts', exist_ok=True)
-            img_path = f"data/charts/{instrument.lower()}_{timeframe}_{timestamp}.png"
-            
+                timestamp = int(datetime.now().timestamp())
+                os.makedirs('data/charts', exist_ok=True)
+                img_path = f"data/charts/{instrument.lower()}_{timeframe}_{timestamp}.png"
+                
             # Creëer taken voor parallel uitvoeren
             market_data_task = asyncio.create_task(self.get_real_market_data(instrument, timeframe))
             chart_task = asyncio.create_task(self.get_chart(instrument, timeframe))
@@ -1149,7 +1177,7 @@ CRITICAL REQUIREMENTS:
             logger.error(traceback.format_exc())
             return None
 
-    async def _generate_random_chart(self, instrument: str, timeframe: str = "1h") -> bytes:
+    async def _generate_random_chart(self, instrument: str, timeframe: str = "1h", tradingview_data: Dict = None) -> bytes:
         """Generate a chart with random data as fallback"""
         import matplotlib.pyplot as plt
         import pandas as pd
