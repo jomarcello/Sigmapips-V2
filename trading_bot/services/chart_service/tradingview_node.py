@@ -5,6 +5,8 @@ import json
 import base64
 import subprocess
 import time
+import random
+import string
 from typing import Optional, Dict, List, Any, Union
 from io import BytesIO
 from datetime import datetime
@@ -14,9 +16,12 @@ logger = logging.getLogger(__name__)
 
 class TradingViewNodeService(TradingViewService):
     def __init__(self, session_id=None):
-        """Initialize the TradingView Node.js service"""
+        """
+        Initialiseer de TradingView Node.js service.
+        Vereist Node.js en Playwright te zijn geïnstalleerd.
+        """
         super().__init__()
-        self.session_id = session_id or os.getenv("TRADINGVIEW_SESSION_ID", "z90l85p2anlgdwfppsrdnnfantz48z1o")
+        self.session_id = session_id or ''.join(random.choices(string.ascii_lowercase + string.digits, k=32))
         self.username = os.getenv("TRADINGVIEW_USERNAME", "")
         self.password = os.getenv("TRADINGVIEW_PASSWORD", "")
         self.is_initialized = False
@@ -24,9 +29,23 @@ class TradingViewNodeService(TradingViewService):
         self.base_url = "https://www.tradingview.com"
         self.chart_url = "https://www.tradingview.com/chart"
         
-        # Get the project root directory and set the correct script path
-        project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
-        self.script_path = os.path.join(project_root, "tradingview_screenshot.js")
+        # Stel het pad in naar het TradingView screenshot script
+        # Eerst proberen we het script te vinden in de Docker container pad
+        if os.path.exists("/app/tradingview_screenshot.js"):
+            self.script_path = "/app/tradingview_screenshot.js"
+        else:
+            # Anders proberen we het script te vinden in dezelfde directory als deze file
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            self.script_path = os.path.join(script_dir, "tradingview_screenshot.js")
+            if not os.path.exists(self.script_path):
+                # Als laatste optie, probeer het in de bovenliggende directory te vinden
+                self.script_path = os.path.join(os.path.dirname(script_dir), "tradingview_screenshot.js")
+        
+        # Stel de timeout in voor de Node.js opdracht (seconden)
+        self.timeout = 40  # 40 seconden is genoeg voor de meeste charts
+        
+        # Houd de uitvoeringstijd van de laatste screenshot bij
+        self.last_execution_time = 0.0
         
         # Chart links voor verschillende symbolen
         self.chart_links = {
@@ -181,20 +200,24 @@ class TradingViewNodeService(TradingViewService):
         logger.info("TradingView Node.js service cleaned up")
     
     async def take_screenshot_of_url(self, url: str, fullscreen: bool = False, test_mode: bool = False) -> Optional[bytes]:
-        """Take a screenshot of a URL using Node.js with optimized timeout"""
+        """
+        Neem een schermafdruk van de opgegeven URL met Node.js (Playwright).
+        Handelt de nodige opschoning af.
+        
+        Args:
+            url: De URL om een screenshot van te nemen
+            fullscreen: Of de browser in fullscreen modus moet zijn
+            test_mode: Of de snelheidsoptimalisaties voor testen moeten worden gebruikt
+        
+        Returns:
+            Optional[bytes]: De screenshot als bytes, of None bij fout
+        """
         try:
-            # Als we nog niet eerder geinitialiseerd zijn, doen we dat nu
-            if not self.is_initialized:
-                logger.warning("Node.js service not initialized, initializing now")
-                await self.initialize()
-            
-            # Genereer een unieke bestandsnaam voor de screenshot
             timestamp = int(time.time())
             
-            # Controleer of de Docker container draait
-            in_docker = os.path.exists('/app')
-            
-            if in_docker:
+            # Bereid het pad voor de screenshot voor
+            screenshot_path = ""
+            if os.path.exists("/app"):
                 # We zijn in Docker
                 screenshot_path = f"/app/screenshot_{timestamp}.png"
                 logger.info(f"Running in Docker, setting screenshot path to {screenshot_path}")
@@ -255,6 +278,8 @@ class TradingViewNodeService(TradingViewService):
                 start_time = time.time()
                 stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout)
                 elapsed_time = time.time() - start_time
+                # Sla de uitvoeringstijd op in de klasse voor gebruik in andere methoden
+                self.last_execution_time = elapsed_time
                 logger.info(f"Process completed in {elapsed_time:.2f} seconds")
                 
                 stdout_str = stdout.decode('utf-8', errors='ignore')
