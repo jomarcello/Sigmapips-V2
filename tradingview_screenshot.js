@@ -30,10 +30,10 @@ const fullscreen = fullscreenArg === 'fullscreen' || fullscreenArg === 'true' ||
 const testMode = process.argv[6] === 'test';
 
 // Stel minimale wachttijd in (in milliseconden)
-const MIN_WAIT_TIME = testMode ? 500 : 5000; // 0.5 seconde voor tests, 5 seconden normaal
+const MIN_WAIT_TIME = testMode ? 300 : 3000; // 0.3 seconde voor tests, 3 seconden normaal
 
 // Stel navigatie timeout in
-const NAVIGATION_TIMEOUT = testMode ? 3000 : 10000; // 3 seconden voor tests, 10 seconden normaal
+const NAVIGATION_TIMEOUT = testMode ? 2000 : 8000; // 2 seconden voor tests, 8 seconden normaal
 
 // Stel viewport grootte in
 const VIEWPORT_WIDTH = 1920;
@@ -398,7 +398,7 @@ const { chromium } = require('playwright');
                 removeAllDialogs();
                 
                 // Stel een interval in om regelmatig te controleren op popups - minder frequent in testmodus
-                window._popupRemovalInterval = setInterval(removeAllDialogs, testMode ? 200 : 500);
+                window._popupRemovalInterval = setInterval(removeAllDialogs, testMode ? 100 : 500);
                 
                 // Stel ook een MutationObserver in om nieuwe elementen direct te detecteren
                 const observer = new MutationObserver(mutations => {
@@ -436,7 +436,7 @@ const { chromium } = require('playwright');
             
             // Wacht een langere tijd om de pagina en indicators te laten laden
             console.log('Waiting for page and indicators to render...');
-            await page.waitForTimeout(testMode ? 2000 : 5000); // 2 of 5 seconden wachten voor dialogen
+            await page.waitForTimeout(testMode ? 1000 : 5000); // 1 of 5 seconden wachten voor dialogen
             
             // Direct aanpak om alle close buttons te klikken met Playwright
             const closeSelectors = [
@@ -456,7 +456,7 @@ const { chromium } = require('playwright');
                         try {
                             await button.click({ force: true }).catch(() => {});
                             console.log(`Clicked button with selector ${selector}`);
-                            await page.waitForTimeout(100); // Kort wachten na elke klik
+                            await page.waitForTimeout(testMode ? 50 : 100); // Minimaal wachten na elke klik in testmodus
                         } catch (e) {}
                     }
                 } catch (e) {}
@@ -549,7 +549,7 @@ const { chromium } = require('playwright');
             }, testMode);
             
             // Wacht nog een laatste moment voor stabiliteit
-            await page.waitForTimeout(testMode ? 500 : 2000); // 0.5 of 2 seconden voor volledige stabiliteit
+            await page.waitForTimeout(testMode ? 200 : 2000); // 0.2 of 2 seconden voor volledige stabiliteit
             
             // Neem screenshot
             console.log('Taking screenshot...');
