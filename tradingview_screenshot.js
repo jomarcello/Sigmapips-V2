@@ -145,6 +145,11 @@ const { chromium } = require('playwright');
             }
         });
         
+        // Ook testMode aan context toevoegen om te gebruiken in evaluatie-scripts
+        await context.addInitScript(testModeValue => {
+            window.testMode = testModeValue;
+        }, testMode);
+        
         // Open een nieuwe pagina voor de screenshot
         const page = await context.newPage();
         
@@ -209,7 +214,10 @@ const { chromium } = require('playwright');
             
             // Stel localStorage waarden in om meldingen uit te schakelen
             console.log('Setting localStorage values to disable notifications...');
-            await page.evaluate(() => {
+            await page.evaluate((testModeValue) => {
+                // Define testMode in this scope to make it available
+                const testMode = testModeValue;
+                
                 // Stel release channel in op stable
                 localStorage.setItem('tv_release_channel', 'stable');
                 
@@ -240,7 +248,7 @@ const { chromium } = require('playwright');
                 localStorage.setItem('stock_screener_banner_closed', 'true');
                 
                 console.log('LocalStorage settings applied successfully');
-            });
+            }, testMode);
             
             // Voeg CSS toe om Stock Screener popup te verbergen
             await page.addStyleTag({
@@ -278,7 +286,10 @@ const { chromium } = require('playwright');
             });
             
             // Geef een constant interval om popups te detecteren en te sluiten (nieuwe aanpak)
-            await page.evaluate(() => {
+            await page.evaluate((testModeValue) => {
+                // Define testMode in this scope to make it available
+                const testMode = testModeValue;
+                
                 // Functie om regelmatig alle dialogen te verwijderen
                 function removeAllDialogs() {
                     console.log('Checking for dialogs to remove...');
@@ -421,7 +432,7 @@ const { chromium } = require('playwright');
                 
                 // Start de observer
                 observer.observe(document.body, { childList: true, subtree: true });
-            });
+            }, testMode);
             
             // Wacht een langere tijd om de pagina en indicators te laten laden
             console.log('Waiting for page and indicators to render...');
@@ -464,8 +475,11 @@ const { chromium } = require('playwright');
             console.log('Additional fullscreen mode already applied via Shift+F');
             
             // Verberg UI elementen voor fullscreen
-                console.log('Removing UI elements for fullscreen...');
-                await page.evaluate(() => {
+            console.log('Removing UI elements for fullscreen...');
+            await page.evaluate((testModeValue) => {
+                // Define testMode in this scope to make it available
+                const testMode = testModeValue;
+                
                 try {
                     // Verberg alle UI elementen die de chart verbergen
                     const elementsToHide = [
@@ -505,13 +519,16 @@ const { chromium } = require('playwright');
                 } catch (e) {
                     return false;
                 }
-            });
+            }, testMode);
             
             // Skip de vertraging en knoppen zoeken - we hebben al Shift+F gebruikt
-                console.log('Chart loaded or timeout reached');
+            console.log('Chart loaded or timeout reached');
             
             // Laatste kans om alle popups te sluiten
-            await page.evaluate(() => {
+            await page.evaluate((testModeValue) => {
+                // Define testMode in this scope to make it available
+                const testMode = testModeValue;
+                
                 // Verwijder alle dialogen
                 document.querySelectorAll('[role="dialog"], .tv-dialog, .js-dialog, .tv-dialog--popup').forEach(dialog => {
                     dialog.style.display = 'none';
@@ -529,7 +546,7 @@ const { chromium } = require('playwright');
                         btn.click();
                     } catch (e) {}
                 });
-            });
+            }, testMode);
             
             // Wacht nog een laatste moment voor stabiliteit
             await page.waitForTimeout(testMode ? 500 : 2000); // 0.5 of 2 seconden voor volledige stabiliteit
