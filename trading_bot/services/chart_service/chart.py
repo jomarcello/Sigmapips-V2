@@ -988,221 +988,107 @@ The final text should be formatted exactly as specified with the information fil
             return ""
             
     async def _generate_random_chart(self, instrument: str, timeframe: str = "1h", tradingview_data: Dict = None) -> bytes:
-        """Generate a chart with random data as fallback"""
-        import matplotlib.pyplot as plt
-        import numpy as np
-        from matplotlib.dates import DateFormatter, MinuteLocator, HourLocator, DayLocator
-        
-        logger.info(f"Generating random chart for {instrument} with timeframe {timeframe}")
-        
-        # Use tradingview data if provided
-        if tradingview_data and isinstance(tradingview_data, dict):
-            # Extract key metrics from TradingView data
-            current_price = tradingview_data.get('current_price', 0)
-            rsi = tradingview_data.get('rsi', 50)
-            is_bullish = rsi > 50
-        else:
-            # Generate synthetic data
-            base_price = self._get_base_price_for_instrument(instrument)
-            volatility = self._get_volatility_for_instrument(instrument)
-            current_price = base_price * (1 + random.uniform(-volatility, volatility))
-            rsi = random.uniform(30, 70)
-            is_bullish = rsi > 50
-        
+        """
+        Generate a random chart for the given instrument if all other methods fail.
+        Uses matplotlib to create a basic candlestick chart.
+        """
         try:
-            # Set up time periods based on timeframe
-            if timeframe == "1m":
-                periods = 120  # 2 hours (120 minutes)
-                date_range = [datetime.now() - timedelta(minutes=periods-i) for i in range(periods)]
-                start_price = current_price * (1 - random.uniform(0.001, 0.005) * (1 if is_bullish else -1))
-            elif timeframe == "5m":
-                periods = 72  # 6 hours (72 x 5 minutes)
-                date_range = [datetime.now() - timedelta(minutes=5*periods-i*5) for i in range(periods)]
-                start_price = current_price * (1 - random.uniform(0.002, 0.008) * (1 if is_bullish else -1))
-            elif timeframe == "15m":
-                periods = 48  # 12 hours (48 x 15 minutes)
-                date_range = [datetime.now() - timedelta(minutes=15*periods-i*15) for i in range(periods)]
-                start_price = current_price * (1 - random.uniform(0.003, 0.01) * (1 if is_bullish else -1))
-            elif timeframe == "30m":
-                periods = 48  # 24 hours (48 x 30 minutes)
-                date_range = [datetime.now() - timedelta(minutes=30*periods-i*30) for i in range(periods)]
-                start_price = current_price * (1 - random.uniform(0.005, 0.015) * (1 if is_bullish else -1))
-            elif timeframe == "1h":
-                periods = 48  # 48 hours (2 days)
-                date_range = [datetime.now() - timedelta(hours=periods-i) for i in range(periods)]
-                start_price = current_price * (1 - random.uniform(0.008, 0.02) * (1 if is_bullish else -1))
-            elif timeframe == "4h":
-                periods = 42  # 7 days (42 x 4 hours)
-                date_range = [datetime.now() - timedelta(hours=4*periods-i*4) for i in range(periods)]
-                start_price = current_price * (1 - random.uniform(0.01, 0.03) * (1 if is_bullish else -1))
-            elif timeframe == "1d":
-                periods = 30  # 30 days
-                date_range = [datetime.now() - timedelta(days=periods-i) for i in range(periods)]
-                start_price = current_price * (1 - random.uniform(0.02, 0.05) * (1 if is_bullish else -1))
-            else:
-                # Default to 1h
-                periods = 48
-                date_range = [datetime.now() - timedelta(hours=periods-i) for i in range(periods)]
-                start_price = current_price * (1 - random.uniform(0.008, 0.02) * (1 if is_bullish else -1))
+            logger.info(f"Generating random chart for {instrument} with timeframe {timeframe}")
             
-            # Determine instrument volatility
-            vol = self._get_volatility_for_instrument(instrument)
+            # Get synthetic market data if real data wasn't provided
+            if not tradingview_data:
+                tradingview_data = await self.get_real_market_data(instrument, timeframe)
             
-            # Generate price movements based on trend
-            if is_bullish:
-                # Upward trend with random noise
-                drift = np.linspace(0, vol * 1.5, periods)  # Positive drift
-                noise = np.random.normal(0, vol/2, periods)  # Random noise
-                price_changes = drift + noise
-            else:
-                # Downward trend with random noise
-                drift = np.linspace(0, -vol * 1.5, periods)  # Negative drift
-                noise = np.random.normal(0, vol/2, periods)  # Random noise
-                price_changes = drift + noise
+            # Extract current price from data
+            current_price = tradingview_data.get('current_price', 1.0)
             
-            # Calculate cumulative price changes
-            cumulative_changes = np.cumsum(price_changes)
+            # Create a directory for fallback charts if it doesn't exist
+            os.makedirs("data/fallback_charts", exist_ok=True)
             
-            # Generate prices starting from start_price
-            prices = start_price * (1 + cumulative_changes)
+            # Check if we already have a fallback chart for this instrument
+            fallback_chart_path = f"data/fallback_charts/{instrument.lower()}_fallback.png"
+            if os.path.exists(fallback_chart_path):
+                # Use existing fallback chart
+                logger.info(f"Using existing fallback chart for {instrument}")
+                with open(fallback_chart_path, 'rb') as f:
+                    return f.read()
             
-            # Make sure the last price equals the current price from TradingView
-            prices = prices * (current_price / prices[-1])
+            # Create a very basic chart using matplotlib (without mplfinance)
+            plt.figure(figsize=(12, 6))
+            plt.title(f"{instrument} Price Chart (Fallback)")
             
-            # Generate OHLC data with more realistic movement patterns
-            ohlc_data = []
-            for i in range(periods):
-                if i == 0:
-                    prev_close = prices[0]
-                else:
-                    prev_close = ohlc_data[i-1][3]
-                
-                # Current period's movement centered around the trend
-                period_volatility = vol * (0.5 + random.random())  # Varying volatility
-                
-                # Calculate open, high, low, close
-                if is_bullish:
-                    # Bullish candlestick patterns are more likely
-                    if random.random() < 0.7:  # 70% chance of bullish candle
-                        _open = prev_close * (1 - random.uniform(0, period_volatility * 0.5))
-                        close = prices[i]
-                        high = max(_open, close) * (1 + random.uniform(0, period_volatility))
-                        low = min(_open, close) * (1 - random.uniform(0, period_volatility * 0.8))
-                    else:  # 30% chance of bearish candle
-                        _open = prev_close * (1 + random.uniform(0, period_volatility * 0.5))
-                        close = prices[i]
-                        high = max(_open, close) * (1 + random.uniform(0, period_volatility * 0.5))
-                        low = min(_open, close) * (1 - random.uniform(0, period_volatility))
-                else:
-                    # Bearish candlestick patterns are more likely
-                    if random.random() < 0.7:  # 70% chance of bearish candle
-                        _open = prev_close * (1 + random.uniform(0, period_volatility * 0.5))
-                        close = prices[i]
-                        high = max(_open, close) * (1 + random.uniform(0, period_volatility * 0.8))
-                        low = min(_open, close) * (1 - random.uniform(0, period_volatility))
-                    else:  # 30% chance of bullish candle
-                        _open = prev_close * (1 - random.uniform(0, period_volatility * 0.5))
-                        close = prices[i]
-                        high = max(_open, close) * (1 + random.uniform(0, period_volatility * 0.5))
-                        low = min(_open, close) * (1 - random.uniform(0, period_volatility * 0.5))
-                
-                volume = random.randint(int(5000 * (1 - vol*5)), int(100000 * (1 + vol*5)))
-                ohlc_data.append([date_range[i], _open, high, low, close, volume])
+            # Generate synthetic price data
+            days = 30
+            dates = pd.date_range(end=pd.Timestamp.now(), periods=days)
             
-            # Create OHLCV DataFrame
-            df = pd.DataFrame(ohlc_data, columns=['Date', 'Open', 'High', 'Low', 'Close', 'Volume'])
-            df.set_index('Date', inplace=True)
+            # Get the base price and volatility for this instrument
+            base_price = self._get_base_price_for_instrument(instrument) or current_price
+            volatility = self._get_volatility_for_instrument(instrument) or 0.01
             
-            # Create figure and ax
-            fig, ax = plt.subplots(figsize=(12, 8))
+            # Generate random prices with some trend
+            np.random.seed(hash(instrument) % 100000)  # Consistent randomness per instrument
+            price_changes = np.random.normal(0, volatility, days).cumsum()
+            prices = base_price * (1 + price_changes)
             
-            # Set plot style for dark theme to match TradingView
-            plt.style.use('dark_background')
-            fig.patch.set_facecolor('#131722')  # TradingView dark background
-            ax.set_facecolor('#131722')
+            # Ensure the final price is close to current price
+            prices = prices - (prices[-1] - current_price)
             
-            # Plot candlestick chart
-            mpf.plot(df, type='candle', style='charles', ax=ax,
-                    ylabel='Price',
-                    volume=True,
-                    datetime_format='%Y-%m-%d %H:%M',
-                    ylabel_lower='Volume',
-                    mavcolors=['#1e88e5', '#ff0000'],  # Blue for 50, Red for 200
-                    mav=(50, 200),  # 50 and 200 period moving averages
-                    volume_panel=1,
-                    panel_ratios=(4, 1))
+            # Create a simple line chart
+            plt.plot(dates, prices)
+            plt.axhline(y=current_price, color='r', linestyle='-', alpha=0.3)
             
-            # Add grid
-            ax.grid(alpha=0.2)
+            # Add some random support and resistance lines
+            support = current_price * 0.98
+            resistance = current_price * 1.02
+            plt.axhline(y=support, color='g', linestyle='--', alpha=0.5)
+            plt.axhline(y=resistance, color='r', linestyle='--', alpha=0.5)
             
-            # Set title and axis labels
-            ax.set_title(f'{instrument} - {timeframe} Timeframe', color='white', fontsize=14)
-            ax.set_xlabel('Date', color='white')
-            ax.set_ylabel('Price', color='white')
+            # Format axes
+            plt.ylabel('Price')
+            plt.grid(True, alpha=0.3)
             
-            # Format date based on timeframe
-            if timeframe in ["1m", "5m", "15m", "30m"]:
-                date_format = DateFormatter('%H:%M')
-                if timeframe == "1m":
-                    ax.xaxis.set_major_locator(MinuteLocator(byminute=range(0, 60, 15)))
-                else:
-                    ax.xaxis.set_major_locator(HourLocator())
-            elif timeframe in ["1h", "4h"]:
-                date_format = DateFormatter('%m-%d %H:%M')
-                ax.xaxis.set_major_locator(DayLocator())
-            else:
-                date_format = DateFormatter('%Y-%m-%d')
-                ax.xaxis.set_major_locator(DayLocator(interval=5))
+            # Make it look more like a trading chart
+            plt.gca().spines['top'].set_visible(False)
+            plt.gca().spines['right'].set_visible(False)
             
-            ax.xaxis.set_major_formatter(date_format)
-            
-            # Auto adjust date labels
-            fig.autofmt_xdate()
-            
-            # Add price levels from TradingView if available
-            if tradingview_data and 'price_levels' in tradingview_data:
-                for level_name, price_value in tradingview_data['price_levels'].items():
-                    if price_value:
-                        color = '#4caf50' if 'support' in level_name.lower() else '#f44336'  # Green for support, red for resistance
-                        ax.axhline(y=price_value, color=color, linestyle='-', linewidth=1, alpha=0.7)
-                        ax.text(df.index[0], price_value, f" {level_name}: {price_value:.5f}", color=color, alpha=0.9)
-            
-            # Tight layout
-            plt.tight_layout()
-            
-            # Save to BytesIO
+            # Save the chart to a buffer
             buf = BytesIO()
-            plt.savefig(buf, format='png', dpi=100, bbox_inches='tight')
-            plt.close(fig)
+            plt.savefig(buf, format='png', dpi=100)
+            plt.close()
             
-            # Get image data
+            # Also save to disk for future use
+            with open(fallback_chart_path, 'wb') as f:
+                f.write(buf.getvalue())
+            
+            logger.info(f"Created fallback chart for {instrument} and saved to {fallback_chart_path}")
+            
+            # Return the buffer
             buf.seek(0)
-            img_data = buf.getvalue()
-            
-            logger.info(f"Generated random chart successfully for {instrument}, size: {len(img_data)} bytes")
-            return img_data
-            
-        except Exception as e:
-            logger.error(f"Error generating random chart: {str(e)}")
-            logger.error(traceback.format_exc())
-            
-            # Create an even more basic chart as final fallback
-            fig, ax = plt.subplots(figsize=(10, 6))
-            plt.style.use('dark_background')
-            ax.plot(range(100), np.random.normal(0, 1, 100).cumsum(), 'b-')
-            ax.set_title(f"Fallback Chart for {instrument} - {timeframe}")
-            ax.set_xlabel("Time")
-            ax.set_ylabel("Price")
-            ax.grid(alpha=0.3)
-            
-            buf = BytesIO()
-            plt.savefig(buf, format='png')
-            plt.close(fig)
-            buf.seek(0)
-            
-            logger.warning(f"Returning basic fallback chart for {instrument}")
             return buf.getvalue()
             
+        except Exception as e:
+            logger.error(f"Error generating random chart: {e}")
+            logger.error(traceback.format_exc())
+            
+            # Ultimate fallback - create a super simple chart with just text
+            logger.warning(f"Returning basic fallback chart for {instrument}")
+            
+            # Create very simple image with text
+            plt.figure(figsize=(10, 6))
+            plt.text(0.5, 0.5, f"{instrument}\nNo chart available", 
+                    horizontalalignment='center',
+                    verticalalignment='center',
+                    transform=plt.gca().transAxes,
+                    fontsize=24)
+            plt.axis('off')
+            
+            buf = BytesIO()
+            plt.savefig(buf, format='png', dpi=100)
+            plt.close()
+            
+            buf.seek(0)
+            return buf.getvalue()
+
     async def _get_tradingview_link(self, instrument: str, timeframe: str, fullscreen: bool) -> str:
         """Genereer de juiste TradingView URL voor het instrument."""
         try:
