@@ -57,8 +57,31 @@ class NumpyJSONEncoder(json.JSONEncoder):
 
 class ChartService:
     def __init__(self):
-        """Initialize chart service"""
-        print("ChartService initialized")
+        """Initialize the ChartService"""
+        # Service instances
+        self.tradingview = None
+        self.selenium = None
+        self.current_symbol = None
+        
+        # In-memory cache
+        self.chart_cache = {}
+        self.chart_cache_expiry = {}
+        self.analysis_cache = {}
+        self.analysis_cache_expiry = {}
+        
+        # Stel het last_analysis attribuut in
+        self.last_analysis = ""
+        
+        # Create cache directories
+        os.makedirs("data/cache", exist_ok=True)
+        os.makedirs("data/cache/charts", exist_ok=True)
+        os.makedirs("data/cache/analyses", exist_ok=True)
+        
+        # Random chart fallback
+        self.template_charts = {}
+        
+        # Log initialisatie
+        logger.info("ChartService initialized")
         try:
             # Maak cache directory aan als die niet bestaat
             os.makedirs(OCR_CACHE_DIR, exist_ok=True)
@@ -166,16 +189,14 @@ class ChartService:
                 if time.time() - cache_entry["timestamp"] < ANALYSIS_CACHE_EXPIRY:
                     logger.info(f"Using in-memory cache for {instrument} analysis")
                     # We hebben nog steeds de chart nodig
-                    img_path = os.path.join('data/charts', f"{instrument.lower()}_{timeframe}_{int(datetime.now().timestamp())}.png")
                     
                     # Haal chart op (deze zal zelf caching gebruiken)
-                    chart_data = await self.get_chart(instrument, timeframe)
+                    chart_data, _ = await self.get_chart(instrument, timeframe)
                     
-                    if isinstance(chart_data, bytes):
-                        with open(img_path, 'wb') as f:
-                            f.write(chart_data)
+                    # Stel de analyse in als last_analysis attribuut voor latere toegang
+                    self.last_analysis = cache_entry["data"]
                     
-                    return img_path, cache_entry["data"]
+                    return chart_data
             
             # Disk cache check
             if os.path.exists(cache_file):
@@ -191,45 +212,31 @@ class ChartService:
                             "timestamp": time.time()
                         }
                         
-                        # We hebben nog steeds de chart nodig
-                        img_path = os.path.join('data/charts', f"{instrument.lower()}_{timeframe}_{int(datetime.now().timestamp())}.png")
-                        
                         # Haal chart op (deze zal zelf caching gebruiken)
-                        chart_data = await self.get_chart(instrument, timeframe)
+                        chart_data, _ = await self.get_chart(instrument, timeframe)
                         
-                        if isinstance(chart_data, bytes):
-                            with open(img_path, 'wb') as f:
-                                f.write(chart_data)
+                        # Stel de analyse in als last_analysis attribuut voor latere toegang
+                        self.last_analysis = analysis_text
                         
-                        return img_path, analysis_text
+                        return chart_data
             
             # Start parallelle taken voor marktgegevens en chart
             # We gebruiken gather om beide taken gelijktijdig uit te voeren
-            img_path = None
-            timestamp = int(datetime.now().timestamp())
-            os.makedirs('data/charts', exist_ok=True)
-            img_path = f"data/charts/{instrument.lower()}_{timeframe}_{timestamp}.png"
             
             # Creëer taken voor parallel uitvoeren
             market_data_task = asyncio.create_task(self.get_real_market_data(instrument, timeframe))
             chart_task = asyncio.create_task(self.get_chart(instrument, timeframe))
             
             # Wacht op beide taken om klaar te zijn
-            market_data_dict, chart_data = await asyncio.gather(market_data_task, chart_task)
+            market_data_dict, chart_result = await asyncio.gather(market_data_task, chart_task)
+            
+            # Extraheer de juiste chart_data uit het resultaat
+            if isinstance(chart_result, tuple) and len(chart_result) == 2:
+                chart_data = chart_result[0]
+            else:
+                chart_data = chart_result
             
             logger.info(f"TradingView data retrieved: {market_data_dict}")
-            
-            # Sla chart op als dat nog niet is gebeurd
-            if isinstance(chart_data, bytes):
-                try:
-                    with open(img_path, 'wb') as f:
-                        f.write(chart_data)
-                    logger.info(f"Saved chart image to file: {img_path}, size: {len(chart_data)} bytes")
-                except Exception as save_error:
-                    logger.error(f"Failed to save chart image to file: {str(save_error)}")
-            else:
-                img_path = chart_data  # Already a path
-                logger.info(f"Using existing chart image path: {img_path}")
             
             # Get the DeepSeek API key
             deepseek_api_key = os.getenv("DEEPSEEK_API_KEY")
@@ -319,20 +326,9 @@ MACD: {action} ({formatted_macd} > signal {formatted_macd_signal})
 Moving Averages: Price {'above' if is_bullish else 'below'} EMA 50 ({formatted_ema50}) and EMA 200 ({formatted_ema200}), reinforcing {action.lower()} bias.
 
 <b>🤖 Sigmapips AI Recommendation</b>
-[2-3 sentences with market advice based on the analysis. Focus on key levels to watch and overall market bias.]
+Monitor price action around {formatted_price}. {'Look for buying opportunities on dips toward support at ' + formatted_support if is_bullish else 'Consider selling rallies toward resistance at ' + formatted_resistance}. {'Stay bullish while price holds above ' + formatted_support if is_bullish else 'Maintain bearish bias below ' + formatted_resistance}.
 
 ⚠️ Disclaimer: Please note that the information/analysis provided is strictly for study and educational purposes only. It should not be constructed as financial advice and always do your own analysis.
-
-CRITICAL REQUIREMENTS:
-1. The format above must be followed EXACTLY including line breaks
-2. The 'Trend' MUST ALWAYS BE '{action}' not 'BULLISH' or 'BEARISH'
-3. Zone Strength should be ★★★★☆ for bullish and ★★★☆☆ for bearish
-4. DO NOT DEVIATE FROM THIS FORMAT AT ALL
-5. DO NOT add any introduction or explanations
-6. USE THE EXACT PHRASES PROVIDED - no paraphrasing
-7. USE EXACTLY THE SAME DECIMAL PLACES PROVIDED IN MY TEMPLATE - no additional or fewer decimal places
-8. Bold formatting should be used for headers (using <b> and </b> HTML tags)
-9. Do NOT include the line "Sigmapips AI identifies strong buy/sell probability..." - skip directly from Trend to Zone Strength
 """
                 
                 analysis = fallback_analysis
@@ -345,16 +341,25 @@ CRITICAL REQUIREMENTS:
                     "timestamp": time.time()
                 }
                 
+                # Stel de analyse in als last_analysis attribuut voor latere toegang
+                self.last_analysis = analysis
+                
                 # Update disk cache
+                os.makedirs(os.path.dirname(cache_file), exist_ok=True)
                 with open(cache_file, 'w') as f:
                     f.write(analysis)
             
-            return img_path, analysis
-                
+            return chart_data
+            
         except Exception as e:
             logger.error(f"Error in get_technical_analysis: {str(e)}")
             logger.error(traceback.format_exc())
-            return None, "Error generating technical analysis." 
+            
+            # Stel een lege analyse in zodat de bot nog kan werken
+            self.last_analysis = f"{instrument} - {timeframe}\n\nFailed to retrieve technical analysis. Please try again later."
+            
+            # Stuur als fallback een lege chart
+            return None
 
     async def get_real_market_data(self, instrument: str, timeframe: str = "1h") -> Dict[str, Any]:
         """Get real market data from TradingView"""
