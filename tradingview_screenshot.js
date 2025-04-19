@@ -33,37 +33,166 @@ if (!url || !outputPath) {
 
 const { chromium } = require('playwright');
 
+// De TradingView-specifieke localStorage waarden die popups blokkeren
+const tvLocalStorage = {
+    'tv_release_channel': 'stable',
+    'tv_alert': 'dont_show',
+    'feature_hint_shown': 'true',
+    'screener_new_feature_notification': 'shown',
+    'screener_deprecated': 'true',
+    'tv_notification': 'dont_show',
+    'screener_new_feature_already_shown': 'true',
+    'stock_screener_banner_closed': 'true',
+    'tv_screener_notification': 'dont_show',
+    'hints_are_disabled': 'true',
+    'tv.alerts-tour': 'true',
+    'feature-hint-dialog-shown': 'true',
+    'feature-hint-alerts-shown': 'true',
+    'feature-hint-screener-shown': 'true',
+    'feature-hint-shown': 'true',
+    'popup.popup-handling-popups-shown': 'true',
+    'tv.greeting-dialog-shown': 'true',
+    'tv_notice_shown': 'true',
+    'tv_chart_beta_notice': 'shown',
+    'tv_chart_notice': 'shown',
+    'tv_screener_notice': 'shown',
+    'tv_watch_list_notice': 'shown',
+    'tv_new_feature_notification': 'shown',
+    'tv_notification_popup': 'dont_show',
+    'notification_shown': 'true'
+};
+
+// CSS om dialoogvensters te verbergen
+const hideDialogsCSS = `
+    [role="dialog"], 
+    .tv-dialog, 
+    .js-dialog,
+    .tv-dialog-container,
+    .tv-dialog__modal,
+    .tv-dialog__modal-container,
+    div[data-dialog-name*="chart-new-features"],
+    div[data-dialog-name*="notice"],
+    div[data-name*="dialog"],
+    .tv-dialog--popup,
+    .tv-alert-dialog,
+    .tv-notification,
+    .feature-no-touch .tv-dialog--popup,
+    .tv-dialog--alert,
+    div[class*="dialog"],
+    div:has(button.close-B02UUUN3),
+    div:has(button[data-name="close"]) {
+        display: none !important;
+        visibility: hidden !important;
+        opacity: 0 !important;
+        pointer-events: none !important;
+        z-index: -9999 !important;
+        position: absolute !important;
+        top: -9999px !important;
+        left: -9999px !important;
+        width: 0 !important;
+        height: 0 !important;
+        overflow: hidden !important;
+    }
+    
+    /* Verberg de overlay/backdrop */
+    .tv-dialog__modal-background {
+        opacity: 0 !important;
+        display: none !important;
+        visibility: hidden !important;
+    }
+`;
+
+// Functie om alle dialogen te verwijderen
+const removeAllDialogsScript = `
+    function removeAllDialogs() {
+        // Gebruik Escape key om dialogen te sluiten
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', keyCode: 27 }));
+        
+        // Klik op alle sluitingsknoppen
+        document.querySelectorAll('button.close-B02UUUN3, button[data-name="close"], .nav-button-znwuaSC1').forEach(btn => {
+            try { btn.click(); } catch (e) {}
+        });
+        
+        // Zoek op SVG paden (X-pictogrammen in sluitknoppen)
+        document.querySelectorAll('svg path[d="m.58 1.42.82-.82 15 15-.82.82z"], svg path[d="m.58 15.58 15-15 .82.82-15 15z"]').forEach(path => {
+            try {
+                let button = path;
+                while (button && button.tagName !== 'BUTTON') {
+                    button = button.parentElement;
+                    if (!button) break;
+                }
+                if (button) button.click();
+            } catch (e) {}
+        });
+        
+        // Klik op "Got it, thanks" knoppen
+        document.querySelectorAll('button').forEach(btn => {
+            if (btn.textContent.includes('Got it') || 
+                btn.textContent.includes('thanks') || 
+                btn.textContent.includes('OK') ||
+                btn.textContent.includes('Dismiss')) {
+                try { btn.click(); } catch (e) {}
+            }
+        });
+        
+        // Verwijder alle dialoogelementen
+        document.querySelectorAll('[role="dialog"], .tv-dialog, .js-dialog, .tv-dialog--popup').forEach(dialog => {
+            try {
+                dialog.style.display = 'none';
+                dialog.style.visibility = 'hidden';
+                dialog.style.opacity = '0';
+                if (dialog.parentNode) {
+                    dialog.parentNode.removeChild(dialog);
+                }
+            } catch (e) {}
+        });
+    }
+    
+    // Roep de functie direct aan en stel ook interval in
+    removeAllDialogs();
+    window._popupRemovalInterval = setInterval(removeAllDialogs, 300);
+`;
+
+// CSS voor fullscreen modus
+const fullscreenCSS = `
+    /* Verberg header en toolbar */
+    .tv-header, .tv-main-panel__toolbar, .tv-side-toolbar {
+        display: none !important;
+    }
+    
+    /* Maximaliseer chart container */
+    .chart-container, .chart-markup-table, .layout__area--center {
+        width: 100vw !important;
+        height: 100vh !important;
+        position: fixed !important;
+        top: 0 !important;
+        left: 0 !important;
+    }
+`;
+
 (async () => {
     let browser;
     try {
         console.log(`Taking screenshot of ${url} and saving to ${outputPath} (fullscreen: ${fullscreen})`);
         
-        // Start een browser
+        // Start een browser met minder argumenten voor snellere opstart
         browser = await chromium.launch({
             headless: true,
-            args: [
-                '--no-sandbox', 
-                '--disable-setuid-sandbox', 
-                '--disable-dev-shm-usage',
-                '--disable-notifications',
-                '--disable-popup-blocking',
-                '--disable-extensions'
-            ]
+            args: ['--no-sandbox', '--disable-setuid-sandbox']
         });
         
-        // Open een nieuwe pagina met grotere viewport voor fullscreen
+        // Maak een context met een wat kleinere viewport voor snellere rendering
         const context = await browser.newContext({
-            locale: 'en-US', // Stel de locale in op Engels
-            timezoneId: 'Europe/Amsterdam', // Stel de tijdzone in op Amsterdam
-            viewport: { width: 1920, height: 1080 }, // Stel een grotere viewport in
-            bypassCSP: true, // Bypass Content Security Policy
+            locale: 'en-US',
+            timezoneId: 'Europe/Amsterdam',
+            viewport: { width: 1280, height: 800 },
+            bypassCSP: true,
         });
         
         // Voeg cookies toe als er een session ID is
         if (sessionId) {
             console.log(`Using session ID: ${sessionId.substring(0, 5)}...`);
             
-            // Voeg de session cookie direct toe zonder eerst naar TradingView te gaan
             await context.addCookies([
                 {
                     name: 'sessionid',
@@ -80,7 +209,6 @@ const { chromium } = require('playwright');
                     domain: '.tradingview.com',
                     path: '/'
                 },
-                // Extra cookies om popups te blokkeren
                 {
                     name: 'feature_hint_shown',
                     value: 'true',
@@ -96,37 +224,15 @@ const { chromium } = require('playwright');
             ]);
         }
         
-        // Stel localStorage waarden in voordat navigatie plaatsvindt
-        await context.addInitScript(() => {
-            const storageItems = {
-                'tv_release_channel': 'stable',
-                'tv_alert': 'dont_show',
-                'feature_hint_shown': 'true',
-                'screener_new_feature_notification': 'shown',
-                'screener_deprecated': 'true',
-                'tv_notification': 'dont_show',
-                'screener_new_feature_already_shown': 'true',
-                'stock_screener_banner_closed': 'true',
-                'tv_screener_notification': 'dont_show',
-                'hints_are_disabled': 'true',
-                'tv.alerts-tour': 'true',
-                'feature-hint-dialog-shown': 'true',
-                'feature-hint-alerts-shown': 'true',
-                'feature-hint-screener-shown': 'true',
-                'feature-hint-shown': 'true',
-                'popup.popup-handling-popups-shown': 'true',
-                'tv.greeting-dialog-shown': 'true',
-                'tv_notice_shown': 'true'
-            };
-            
+        // Stel localStorage waarden in om meldingen uit te schakelen
+        await context.addInitScript(`(() => {
+            const storageItems = ${JSON.stringify(tvLocalStorage)};
             for (const [key, value] of Object.entries(storageItems)) {
-                try {
-                    localStorage.setItem(key, value);
-                } catch (e) { }
+                try { localStorage.setItem(key, value); } catch (e) { }
             }
-        });
+        })()`);
         
-        // Open een nieuwe pagina voor de screenshot
+        // Open een nieuwe pagina
         const page = await context.newPage();
         
         // Auto dismiss dialogs
@@ -134,193 +240,94 @@ const { chromium } = require('playwright');
             await dialog.dismiss().catch(() => {});
         });
         
-        // Voeg CSS toe om dialogen te verbergen voordat navigatie begint
-        await page.addStyleTag({
-            content: `
-                [role="dialog"], 
-                .tv-dialog, 
-                .js-dialog,
-                .tv-dialog-container,
-                .tv-dialog__modal,
-                .tv-dialog__modal-container,
-                div[data-dialog-name*="chart-new-features"],
-                div[data-dialog-name*="notice"],
-                div[data-name*="dialog"],
-                .tv-dialog--popup,
-                .tv-alert-dialog,
-                .tv-notification,
-                .feature-no-touch .tv-dialog--popup,
-                .tv-dialog--alert,
-                div[class*="dialog"],
-                div:has(button.close-B02UUUN3),
-                div:has(button[data-name="close"]) {
-                    display: none !important;
-                    visibility: hidden !important;
-                    opacity: 0 !important;
-                    pointer-events: none !important;
-                    z-index: -9999 !important;
-                }
-            `
-        }).catch(() => {});
-        
-        // Stel een kortere timeout in - GEOPTIMALISEERD
-        page.setDefaultTimeout(30000); // was 60000, nu 30 seconden timeout
+        // Stel een kortere timeout in (30 seconden in plaats van 60)
+        page.setDefaultTimeout(30000);
         
         try {
-            // Ga naar de URL
+            // Voeg direct CSS toe om dialogen te verbergen
+            await page.addStyleTag({ content: hideDialogsCSS }).catch(() => {});
+            
+            // Ga naar de URL met kortere timeout
             console.log(`Navigating to ${url}...`);
             await page.goto(url, {
-                waitUntil: 'domcontentloaded',
-                timeout: 30000 // was 60000, nu 30 seconden timeout voor navigatie
+                waitUntil: 'domcontentloaded', // Sneller dan 'networkidle'
+                timeout: 20000 // Kortere timeout voor navigatie
             });
             
-            // Stel localStorage waarden in om meldingen uit te schakelen
-            console.log('Setting localStorage values to disable notifications...');
-            await page.evaluate(() => {
-                // Stel release channel in op stable
-                localStorage.setItem('tv_release_channel', 'stable');
-                
-                // Schakel versie meldingen uit
-                localStorage.setItem('tv_alert', 'dont_show');
-                
-                // Schakel nieuwe functie hints uit
-                localStorage.setItem('feature_hint_shown', 'true');
-                
-                // Schakel privacy meldingen uit
-                localStorage.setItem('TVPrivacySettingsAccepted', 'true');
-                
-                // Schakel specifiek de Stock Screener popup uit
-                localStorage.setItem('screener_new_feature_notification', 'shown');
-                localStorage.setItem('screener_deprecated', 'true');
-                localStorage.setItem('tv_screener_notification', 'dont_show');
-                
-                // Functie om regelmatig alle dialogen te verwijderen
-                function removeAllDialogs() {
-                    // Escape key gebruiken om dialogen te sluiten
-                    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', keyCode: 27 }));
+            // Voeg nog een keer de CSS toe en voer JavaScript uit om dialogen te verbergen
+            await page.addStyleTag({ content: hideDialogsCSS });
+            await page.evaluate(removeAllDialogsScript);
+            
+            // Verwijder popup buttons direct met Playwright
+            const closeSelectors = [
+                'button.close-B02UUUN3',
+                'button[data-name="close"]',
+                'button.nav-button-znwuaSC1.size-medium-znwuaSC1.preserve-paddings-znwuaSC1.close-B02UUUN3'
+            ];
+            
+            for (const selector of closeSelectors) {
+                try {
+                    const buttons = await page.$$(selector);
+                    console.log(`Found ${buttons.length} buttons with selector ${selector}`);
                     
-                    // Klik op alle close buttons
-                    document.querySelectorAll('button.close-B02UUUN3, button[data-name="close"]').forEach(btn => {
-                        try { btn.click(); } catch (e) {}
-                    });
-                    
-                    // Verwijder alle dialoog elementen
-                    document.querySelectorAll('[role="dialog"], .tv-dialog, .js-dialog').forEach(dialog => {
+                    for (const button of buttons) {
                         try {
-                            dialog.style.display = 'none';
-                            if (dialog.parentNode) {
-                                dialog.parentNode.removeChild(dialog);
-                            }
+                            await button.click({ force: true }).catch(() => {});
                         } catch (e) {}
-                    });
-                }
-                
-                // Roep de functie direct aan
-                removeAllDialogs();
-                
-                // Stel een MutationObserver in om nieuwe elementen direct te verwijderen
-                const observer = new MutationObserver(mutations => {
-                    for (const mutation of mutations) {
-                        if (mutation.addedNodes && mutation.addedNodes.length) {
-                            removeAllDialogs();
-                        }
                     }
-                });
-                
-                // Start de observer
-                observer.observe(document.body, { childList: true, subtree: true });
+                } catch (e) {}
+            }
+            
+            // Controleer of we zijn ingelogd (voor debugging)
+            const isLoggedIn = await page.evaluate(() => {
+                return document.body.innerText.includes('Log out') || 
+                       document.body.innerText.includes('Account') ||
+                       document.querySelector('.tv-header__user-menu-button') !== null;
             });
+            console.log(`Logged in status: ${isLoggedIn}`);
             
-            // Kortere wachttijd voor de pagina - GEOPTIMALISEERD
-            console.log('Waiting for page to render...');
-            await page.waitForTimeout(3000); // was 5000, nu 3 seconden wachten voor dialogen
-            
-            // Als fullscreen is ingeschakeld, verberg UI-elementen
+            // Als fullscreen is aangevraagd, activeer dit en wacht kort
             if (fullscreen) {
                 console.log('Removing UI elements for fullscreen...');
-                await page.evaluate(() => {
-                    // Verberg de header
-                    const header = document.querySelector('.tv-header');
-                    if (header) header.style.display = 'none';
-                    
-                    // Verberg de toolbar, zijbalk en andere UI-elementen
-                    const elementsToHide = [
-                        '.tv-main-panel__toolbar',
-                        '.tv-side-toolbar',
-                        '.layout__area--left', 
-                        '.layout__area--right',
-                        'footer',
-                        '.tv-main-panel__statuses'
-                    ];
-                    
-                    elementsToHide.forEach(selector => {
-                        const element = document.querySelector(selector);
-                        if (element) element.style.display = 'none';
-                    });
-                    
-                    // Maximaliseer de chart
-                    const chart = document.querySelector('.chart-container');
-                    if (chart) {
-                        chart.style.width = '100vw';
-                        chart.style.height = '100vh';
-                    }
-                });
+                await page.addStyleTag({ content: fullscreenCSS });
+                
+                // Wacht kort om de CSS toe te passen
+                await page.waitForTimeout(500);
             }
             
             // Eenvoudige en betrouwbare methode voor fullscreen
             console.log('Applying simple fullscreen method...');
             
-            // Methode 1: Shift+F toetsencombinatie (meest betrouwbaar)
+            // Methode 1: Shift+F toetsencombinatie
             await page.keyboard.down('Shift');
             await page.keyboard.press('F');
             await page.keyboard.up('Shift');
             
-            // CSS toevoegen om de chart te maximaliseren
-            await page.addStyleTag({
-                content: `
-                    /* Verberg header en toolbar */
-                    .tv-header, .tv-main-panel__toolbar, .tv-side-toolbar {
-                        display: none !important;
-                    }
-                    
-                    /* Maximaliseer chart container */
-                    .chart-container, .chart-markup-table, .layout__area--center {
-                        width: 100vw !important;
-                        height: 100vh !important;
-                        position: fixed !important;
-                        top: 0 !important;
-                        left: 0 !important;
-                    }
-                `
-            });
-            
-            // Kortere wachttijd voor chart laden - GEOPTIMALISEERD
+            // Wacht kort voor chartcontainer
             console.log('Waiting for chart to be fully loaded...');
             try {
-                // Wacht maximaal 10 seconden op de chart (was 15 seconden)
+                // Wacht maximaal 5 seconden op de chart met een timeout
                 const waitPromise = page.waitForFunction(() => {
-                    const chartContainer = document.querySelector('.chart-container');
-                    return chartContainer !== null;
-                }, { timeout: 10000 });
+                    return document.querySelector('.chart-container') !== null;
+                }, { timeout: 5000 });
                 
-                // Stel een timeout in om te voorkomen dat we blijven wachten
-                const timeoutPromise = new Promise((resolve) => setTimeout(resolve, 10000));
-                
-                // Gebruik Promise.race om de eerste te nemen die voltooid is
+                const timeoutPromise = new Promise((resolve) => setTimeout(resolve, 5000));
                 await Promise.race([waitPromise, timeoutPromise]);
                 console.log('Chart loaded or timeout reached');
             } catch (e) {
-                console.log('Timeout waiting for chart, continuing anyway:', e);
+                console.log('Timeout waiting for chart, continuing anyway');
             }
             
-            // Kortere stabilisatiewachttijd - GEOPTIMALISEERD
-            await page.waitForTimeout(1000); // Was 2000ms, nu 1000ms voor stabiliteit
+            // Laatste popup verwijdering
+            await page.evaluate('removeAllDialogs()');
             
             // Neem screenshot
             console.log('Taking screenshot...');
             await page.screenshot({ path: outputPath });
             console.log('Screenshot taken successfully');
             
+            // Sluit browser
+            await browser.close();
         } catch (error) {
             console.error('Error:', error);
             
@@ -332,15 +339,13 @@ const { chromium } = require('playwright');
             } catch (screenshotError) {
                 console.error('Failed to take screenshot after error:', screenshotError);
             }
-        } finally {
-            // Sluit browser altijd netjes af - GEOPTIMALISEERD
-            await browser.close().catch(() => {});
+            
+            await browser.close();
+            process.exit(1);
         }
     } catch (error) {
         console.error('Fatal error:', error);
-        try {
-            if (browser) await browser.close().catch(() => {});
-        } catch (e) {}
+        if (browser) await browser.close();
         process.exit(1);
     }
 })();
