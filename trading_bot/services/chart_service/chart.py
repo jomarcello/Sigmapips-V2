@@ -164,19 +164,35 @@ class ChartService:
                 logger.info(f"Using generic link for {instrument}")
                 tradingview_link = f"https://www.tradingview.com/chart/?symbol={instrument}"
             
-            # Bouw de URL met fullscreen parameters - voorgedefinieerd om herberekening te vermijden
-            fullscreen_params = "fullscreen=true&hide_side_toolbar=true&hide_top_toolbar=true&hide_legend=true&theme=dark&toolbar_bg=dark"
-            
-            # Voeg de parameters toe aan de URL
-            if "?" in tradingview_link:
-                tradingview_link += "&" + fullscreen_params
-            else:
-                tradingview_link += "?" + fullscreen_params
-            
-            # Voeg timeframe toe indien nodig
+            # Voeg eerst timeframe toe indien nodig
             if timeframe:
                 tv_interval = {"1h": "60", "4h": "240", "1d": "D"}.get(timeframe, "60")
-                tradingview_link += f"&interval={tv_interval}"
+                if "?" in tradingview_link:
+                    tradingview_link += f"&interval={tv_interval}"
+                else:
+                    tradingview_link += f"?interval={tv_interval}"
+            
+            # Bouw de volledige URL met uitgebreide fullscreen parameters
+            fullscreen_params = [
+                "fullscreen=true",
+                "hide_side_toolbar=true",
+                "hide_top_toolbar=true", 
+                "hide_legend=true",
+                "theme=dark",
+                "toolbar_bg=dark",
+                "scale_position=right",
+                "scale_mode=normal",
+                "studies=[]",
+                "hotlist=false",
+                "calendar=false",
+                "details=false",
+                "disabled_features=[]",
+                "enabled_features=[]"
+            ]
+            
+            # Voeg de parameters toe aan de URL
+            seperator = "&" if "?" in tradingview_link else "?"
+            tradingview_link += seperator + "&".join(fullscreen_params)
             
             logger.info(f"Using TradingView link: {tradingview_link}")
             
@@ -184,6 +200,7 @@ class ChartService:
             if hasattr(self, 'tradingview') and self.tradingview:
                 try:
                     logger.info(f"Taking screenshot with Node.js service")
+                    # Geef expliciet de fullscreen parameter door
                     chart_image = await self.tradingview.take_screenshot_of_url(tradingview_link, fullscreen=fullscreen)
                     if chart_image:
                         logger.info("Screenshot taken successfully with Node.js service")
