@@ -177,7 +177,7 @@ class TradingViewNodeService(TradingViewService):
             # Bouw het commando
             cmd = f"node {self.script_path} \"{url}\" \"{screenshot_path}\" \"{self.session_id}\""
             
-            # Voeg fullscreen parameter toe als dat nodig is
+            # Voeg fullscreen parameter toe als dat nodig is (zorg dat dit altijd wordt doorgegeven als het true is)
             if fullscreen:
                 cmd += " fullscreen"
                 logger.info("Adding fullscreen parameter to command")
