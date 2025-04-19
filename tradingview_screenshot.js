@@ -66,6 +66,38 @@ const blockPopupCSS = `
     }
 `;
 
+// CSS for fullscreen mode
+const fullscreenCSS = `
+    /* Verberg UI-elementen */
+    .tv-header, .tv-main-panel__toolbar, .tv-side-toolbar, 
+    .layout__area--left, .layout__area--right, 
+    footer, .tv-main-panel__statuses, 
+    .header-chart-panel, .control-bar, .chart-controls-bar {
+        display: none !important;
+    }
+    
+    /* Maximaliseer chart */
+    .chart-container, .chart-markup-table, .layout__area--center {
+        width: 100vw !important;
+        height: 100vh !important;
+        position: fixed !important;
+        top: 0 !important;
+        left: 0 !important;
+    }
+    
+    /* Extra stijlen om zeker te zijn dat de chart volledig zichtbaar is */
+    body, html {
+        overflow: hidden !important;
+        margin: 0 !important;
+        padding: 0 !important;
+    }
+    
+    /* Verberg alle andere elementen die fullscreen zouden kunnen storen */
+    .tv-floating-toolbar, .chart-page, .layout__area--top, .layout__area--bottom {
+        display: none !important;
+    }
+`;
+
 // LocalStorage waarden om popups te blokkeren - gedefinieerd op één plek
 const disablePopupLocalStorage = {
     'tv_release_channel': 'stable',
@@ -112,7 +144,7 @@ const disablePopupLocalStorage = {
             locale: 'en-US',
             timezoneId: 'Europe/Amsterdam',
             viewport: { width: 1920, height: 1080 },
-            bypassCSP: true, // Bypass Content Security Policy
+            bypassCSS: true, // Bypass Content Security Policy
         });
         
         // Voeg cookies toe als er een session ID is
@@ -317,50 +349,75 @@ const disablePopupLocalStorage = {
         // Kortere wachttijd voor chart rendering
         await page.waitForTimeout(2000);
         
-        // Als fullscreen is ingeschakeld, schakel het direct in
-        if (fullscreen) {
-            console.log('Enabling fullscreen...');
+        // ALTIJD FULLSCREEN METHODES GEBRUIKEN - ook wanneer fullscreen niet expliciet is opgegeven
+        // Dit zorgt voor consistente screenshots en voorkomt problemen
+        console.log('Enabling fullscreen mode (ALWAYS)...');
+        
+        // ALTIJD Shift+F als eerste uitvoeren - dit is het meest betrouwbaar
+        try {
+            // Zorg ervoor dat de pagina focus heeft
+            await page.focus('body');
+            await page.keyboard.down('Shift');
+            await page.keyboard.press('F');
+            await page.keyboard.up('Shift');
+            console.log('Successfully pressed Shift+F to toggle fullscreen');
             
-            // Methode 1: CSS om UI te verbergen (snelste aanpak)
-            await page.addStyleTag({
-                content: `
-                    /* Verberg UI-elementen */
-                    .tv-header, .tv-main-panel__toolbar, .tv-side-toolbar,
-                    .layout__area--left, .layout__area--right, footer, .tv-main-panel__statuses {
-                        display: none !important;
-                    }
-                    
-                    /* Maximaliseer chart */
-                    .chart-container, .chart-markup-table, .layout__area--center {
-                        width: 100vw !important;
-                        height: 100vh !important;
-                        position: fixed !important;
-                        top: 0 !important;
-                        left: 0 !important;
-                    }
-                `
-            });
-            
-            // Methode 2: Shift+F sneltoets (als backup)
-            try {
-                await page.keyboard.down('Shift');
-                await page.keyboard.press('F');
-                await page.keyboard.up('Shift');
-            } catch (e) {
-                console.log('Shift+F failed, but CSS fullscreen is applied');
-            }
-            
-            // Korte wachttijd na fullscreen
-            await page.waitForTimeout(1000);
+            // Wacht zodat fullscreen kan worden toegepast (belangrijk)
+            await page.waitForTimeout(2000);
+        } catch (e) {
+            console.log('Shift+F shortcut failed:', e);
         }
         
-        // Snellere check voor chart geladen
-        try {
-            // Wacht tot de chart container zichtbaar is, met een korte timeout
-            await page.waitForSelector('.chart-container', { timeout: 5000 });
-        } catch (e) {
-            console.log('Chart container niet gevonden binnen timeout, maar we gaan door');
-        }
+        // Methode 2: CSS om UI te verbergen (als backup, altijd toepassen)
+        await page.addStyleTag({ content: fullscreenCSS });
+        console.log('Applied fullscreen CSS');
+        
+        // Methode 3: Verberg UI-elementen direct (als extra backup)
+        await page.evaluate(() => {
+            // Verberg header en toolbars
+            const elementsToHide = [
+                '.tv-header', 
+                '.tv-main-panel__toolbar', 
+                '.tv-side-toolbar',
+                '.layout__area--left', 
+                '.layout__area--right', 
+                'footer', 
+                '.tv-main-panel__statuses',
+                '.header-chart-panel',
+                '.control-bar',
+                '.chart-controls-bar'
+            ];
+            
+            elementsToHide.forEach(selector => {
+                const elements = document.querySelectorAll(selector);
+                elements.forEach(el => {
+                    if (el) el.style.display = 'none';
+                });
+            });
+            
+            // Vergroot chart container
+            const chartContainer = document.querySelector('.chart-container');
+            if (chartContainer) {
+                chartContainer.style.width = '100vw';
+                chartContainer.style.height = '100vh';
+                chartContainer.style.position = 'fixed';
+                chartContainer.style.top = '0';
+                chartContainer.style.left = '0';
+            }
+            
+            // Vergroot layout center element
+            const layoutCenter = document.querySelector('.layout__area--center');
+            if (layoutCenter) {
+                layoutCenter.style.width = '100vw';
+                layoutCenter.style.height = '100vh';
+                layoutCenter.style.position = 'fixed';
+                layoutCenter.style.top = '0';
+                layoutCenter.style.left = '0';
+            }
+        });
+        
+        // Wacht nog even voor betere stabiliteit na fullscreen acties
+        await page.waitForTimeout(2000);
         
         // Laatste cleanup voor screenshot
         await page.evaluate(() => {
