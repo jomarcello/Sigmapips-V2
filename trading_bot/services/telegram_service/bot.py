@@ -3444,6 +3444,15 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                                 reply_markup=InlineKeyboardMarkup(keyboard)
                             )
                         logger.info(f"Successfully sent chart from file path")
+                        
+                        # Stuur de analyse als apart bericht
+                        if analysis_text:
+                            await context.bot.send_message(
+                                chat_id=update.effective_chat.id,
+                                text=analysis_text,
+                                parse_mode=ParseMode.HTML
+                            )
+                            logger.info(f"Successfully sent analysis text ({len(analysis_text)} characters)")
                     except Exception as e:
                         logger.error(f"Failed to send chart from file: {str(e)}")
                         
@@ -3470,6 +3479,15 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                                 reply_markup=InlineKeyboardMarkup(keyboard)
                             )
                         logger.info(f"Successfully sent chart from bytes")
+                        
+                        # Stuur de analyse als apart bericht
+                        if analysis_text:
+                            await context.bot.send_message(
+                                chat_id=update.effective_chat.id,
+                                text=analysis_text,
+                                parse_mode=ParseMode.HTML
+                            )
+                            logger.info(f"Successfully sent analysis text ({len(analysis_text)} characters)")
                         
                         # Verwijder het tijdelijke bestand
                         os.remove(temp_file_path)
