@@ -9,7 +9,6 @@ import copy
 import re
 import time
 import random
-from io import BytesIO
 
 def get_logger(name: str) -> logging.Logger:
     """Create and return a logger instance with the given name."""
@@ -3397,12 +3396,8 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             
             # Get the chart image and analysis text
             try:
-                chart_image = await self.chart_service.get_technical_analysis(instrument, timeframe)
-                logger.info(f"Successfully retrieved chart for {instrument}")
-                
-                # Haal de analyse tekst op uit het chart_service object
-                analysis_text = getattr(self.chart_service, 'last_analysis', f"Technical Analysis for {instrument} is not available.")
-                logger.info(f"Retrieved analysis text from chart service: {len(analysis_text)} characters")
+                chart_image, analysis_text = await self.chart_service.get_technical_analysis(instrument, timeframe)
+                logger.info(f"Successfully retrieved chart and analysis for {instrument}")
             except Exception as e:
                 logger.error(f"Error retrieving chart and analysis: {str(e)}")
                 await query.edit_message_text(
@@ -3431,86 +3426,14 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Show the chart
             try:
                 logger.info(f"Sending chart image for {instrument} {timeframe}")
-                
-                # Controleer of we een bestandspad of bytes hebben
-                if isinstance(chart_image, str) and os.path.exists(chart_image):
-                    # Het is een bestandspad
-                    logger.info(f"Sending chart from file: {chart_image}")
-                    try:
-                        with open(chart_image, 'rb') as f:
-                            await context.bot.send_photo(
-                                chat_id=update.effective_chat.id,
-                                photo=f,
-                                reply_markup=InlineKeyboardMarkup(keyboard)
-                            )
-                        logger.info(f"Successfully sent chart from file path")
-                        
-                        # Stuur de analyse als apart bericht
-                        if analysis_text:
-                            await context.bot.send_message(
-                                chat_id=update.effective_chat.id,
-                                text=analysis_text,
-                                parse_mode=ParseMode.HTML
-                            )
-                            logger.info(f"Successfully sent analysis text ({len(analysis_text)} characters)")
-                    except Exception as e:
-                        logger.error(f"Failed to send chart from file: {str(e)}")
-                        
-                        # Fallback naar tekst-only
-                        await context.bot.send_message(
-                            chat_id=update.effective_chat.id,
-                            text=f"Could not load chart for {instrument}. Analysis:\n\n{analysis_text}",
-                            reply_markup=InlineKeyboardMarkup(keyboard),
-                            parse_mode=ParseMode.HTML
-                        )
-                elif isinstance(chart_image, bytes):
-                    # Het is bytes data
-                    logger.info(f"Sending chart from bytes data")
-                    # Maak een tijdelijk bestand aan en verstuur dat
-                    temp_file_path = f"temp_chart_{instrument}_{int(time.time())}.png"
-                    try:
-                        with open(temp_file_path, 'wb') as f:
-                            f.write(chart_image)
-                        
-                        with open(temp_file_path, 'rb') as f:
-                            await context.bot.send_photo(
-                                chat_id=update.effective_chat.id,
-                                photo=f,
-                                reply_markup=InlineKeyboardMarkup(keyboard)
-                            )
-                        logger.info(f"Successfully sent chart from bytes")
-                        
-                        # Stuur de analyse als apart bericht
-                        if analysis_text:
-                            await context.bot.send_message(
-                                chat_id=update.effective_chat.id,
-                                text=analysis_text,
-                                parse_mode=ParseMode.HTML
-                            )
-                            logger.info(f"Successfully sent analysis text ({len(analysis_text)} characters)")
-                        
-                        # Verwijder het tijdelijke bestand
-                        os.remove(temp_file_path)
-                    except Exception as e:
-                        logger.error(f"Failed to send chart from bytes: {str(e)}")
-                        
-                        # Fallback naar tekst-only
-                        await context.bot.send_message(
-                            chat_id=update.effective_chat.id,
-                            text=f"Could not load chart for {instrument}. Analysis:\n\n{analysis_text}",
-                            reply_markup=InlineKeyboardMarkup(keyboard),
-                            parse_mode=ParseMode.HTML
-                        )
-                else:
-                    # Onbekend type, stuur alleen tekst
-                    logger.error(f"Unknown chart image type: {type(chart_image)}")
-                    await context.bot.send_message(
-                        chat_id=update.effective_chat.id,
-                        text=f"Could not load chart for {instrument}. Analysis:\n\n{analysis_text}",
-                        reply_markup=InlineKeyboardMarkup(keyboard),
-                        parse_mode=ParseMode.HTML
-                    )
-                    logger.info(f"Sent text-only analysis due to unknown chart image type")
+                # Try to send a new message with the chart
+                await context.bot.send_photo(
+                    chat_id=update.effective_chat.id,
+                    photo=chart_image,
+                    caption=analysis_text,
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.HTML
+                )
                 
                 # Delete the original message (the one with the loading indicator)
                 logger.info(f"Deleting original message {query.message.message_id}")
@@ -3520,13 +3443,11 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 # Clear loading message from context if it exists
                 if context and hasattr(context, 'user_data') and 'loading_message' in context.user_data:
                     del context.user_data['loading_message']
-                    logger.info("Cleared loading message from user_data")
                 
                 return SHOW_RESULT
                 
             except Exception as e:
                 logger.error(f"Failed to send chart: {str(e)}")
-                logger.error(traceback.format_exc())
                 
                 # Fallback error handling
                 try:
@@ -3536,13 +3457,6 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     )
                 except Exception as edit_error:
                     logger.error(f"Failed to edit message: {str(edit_error)}")
-                    
-                    # Laatste redmiddel: stuur een nieuw bericht
-                    await context.bot.send_message(
-                        chat_id=update.effective_chat.id,
-                        text=f"Error sending chart for {instrument}. Please try again later.",
-                        reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
-                    )
                 
                 return MENU
         
@@ -3808,72 +3722,15 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 except Exception as edit_error:
                     logger.warning(f"Could not edit message, will create new one: {str(edit_error)}")
                     
-                    # If editing fails, try to delete and create new message
-                    try:
-                        await query.message.delete()
-                        await context.bot.send_message(
-                            chat_id=update.effective_chat.id,
-                            text=full_message,
-                            parse_mode=ParseMode.HTML,
-                            reply_markup=reply_markup
-                        )
-                        logger.info("Created new message with sentiment analysis after deleting old one")
-                    except Exception as delete_error:
-                        logger.warning(f"Could not delete message: {str(delete_error)}")
-                        
-                        # Check if we're dealing with a photo or media message
-                        has_photo = False
-                        if query and query.message:
-                            has_photo = bool(query.message.photo) or query.message.animation is not None
-                        
-                        # If message has media, try alternative approaches
-                        if has_photo:
-                            try:
-                                # Try to replace with a transparent GIF
-                                transparent_gif_url = "https://upload.wikimedia.org/wikipedia/commons/c/ca/1x1.png"
-                                await query.edit_message_media(
-                                    media=InputMediaAnimation(
-                                        media=transparent_gif_url,
-                                        caption=full_message[:1024],  # Truncate to Telegram limits
-                                        parse_mode=ParseMode.HTML
-                                    ),
-                                    reply_markup=reply_markup
-                                )
-                                logger.info("Successfully replaced photo with GIF and caption")
-                            except Exception as media_error:
-                                logger.warning(f"Could not replace media: {str(media_error)}")
-                                
-                                # Try caption edit as fallback for media
-                                try:
-                                    # Truncate message to fit caption limits
-                                    truncated_message = full_message
-                                    if len(full_message) > 1024:
-                                        truncated_message = full_message[:1020] + "..."
-                                    
-                                    await query.edit_message_caption(
-                                        caption=truncated_message,
-                                        parse_mode=ParseMode.HTML,
-                                        reply_markup=reply_markup
-                                    )
-                                    logger.info("Successfully edited caption with truncated message")
-                                except Exception as caption_error:
-                                    logger.error(f"All media edit methods failed: {str(caption_error)}")
-                                    # Last resort for media - send new message
-                                    await context.bot.send_message(
-                                        chat_id=update.effective_chat.id,
-                                        text=full_message,
-                                        parse_mode=ParseMode.HTML,
-                                        reply_markup=reply_markup
-                                    )
-                        else:
-                            # Last resort for non-media - send new message
-                            await context.bot.send_message(
-                                chat_id=update.effective_chat.id,
-                                text=full_message,
-                                parse_mode=ParseMode.HTML,
-                                reply_markup=reply_markup
-                            )
-                            logger.info("Created new message after all edit attempts failed")
+                    # If editing fails, delete and create new message
+                    await query.message.delete()
+                    await context.bot.send_message(
+                        chat_id=update.effective_chat.id,
+                        text=full_message,
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=reply_markup
+                    )
+                    logger.info("Created new message with sentiment analysis after deleting old one")
             except Exception as msg_error:
                 logger.error(f"Error sending message: {str(msg_error)}")
                 # Try without HTML parsing if that's the issue
