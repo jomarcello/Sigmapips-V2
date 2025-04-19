@@ -13,6 +13,27 @@ import sys
 
 logger = logging.getLogger(__name__)
 
+class TavilyClient:
+    """Client for the Tavily API that wraps the TavilyService"""
+    
+    def __init__(self, api_key=None):
+        """Initialize the Tavily client"""
+        # Import here to avoid circular imports
+        from trading_bot.services.ai_service.tavily_service import TavilyService
+        self.service = TavilyService(api_key=api_key)
+        
+    async def search(self, query: str, search_depth: str = "basic", include_answer: bool = True, max_results: int = 5):
+        """Search the web using Tavily API and return the results"""
+        try:
+            result = await self.service.search(
+                query=query,
+                max_results=max_results
+            )
+            return {"results": result, "answer": ""}
+        except Exception as e:
+            logger.error(f"Error in TavilyClient search: {str(e)}")
+            return None
+
 class MarketSentimentService:
     """Service for retrieving market sentiment data"""
     
@@ -92,166 +113,178 @@ class MarketSentimentService:
         # Optimalisatie: geen logging van eindresultaat
         return base_query
             
-    async def get_sentiment(self, instrument: str, market_type: Optional[str] = None) -> Dict[str, Any]:
-        """
-        Get sentiment for a given instrument. This function is used by the TelegramService.
-        Returns a dictionary with sentiment data or formatted text.
-        """
-        logger.info(f"get_sentiment called for {instrument}")
+    async def get_sentiment(self, asset: str):
+        """Get sentiment for a given asset"""
+        # Check cache first
+        cache_key = f"sentiment_{asset}"
+        current_time = time.time()
+        
+        if cache_key in self.sentiment_cache:
+            cached_data, timestamp = self.sentiment_cache[cache_key]
+            if current_time - timestamp < self.cache_expiry:
+                logger.info(f"Using cached sentiment data for {asset}")
+                return cached_data
+            
+        # Create queries for sentiment analysis
+        queries = [
+            f"Latest market sentiment analysis for {asset}",
+            f"{asset} stock price prediction",
+            f"{asset} market outlook",
+            f"What are analysts saying about {asset}?",
+            f"{asset} recent news and market impact"
+        ]
+        
+        # Get search results for each query
+        all_results = []
+        for query in queries:
+            results = await self._get_tavily_search_results(query)
+            all_results.extend(results)
+            
+        if not all_results:
+            logger.warning(f"No search results found for {asset}")
+            return {"sentiment": "neutral", "confidence": 0.5, "summary": f"No data available for {asset}"}
+        
+        # Extract relevant information from search results
+        context = self._extract_context_from_results(all_results)
+        
+        # Get sentiment analysis from DeepSeek API
+        sentiment_data = await self._analyze_sentiment_with_deepseek(asset, context)
+        
+        # Cache the result
+        self.sentiment_cache[cache_key] = (sentiment_data, current_time)
+        
+        return sentiment_data
+        
+    def _extract_context_from_results(self, results: list) -> str:
+        """Extract relevant context from search results"""
+        context = ""
+        
+        for result in results[:5]:  # Limit to top 5 results for efficiency
+            title = result.get("title", "")
+            content = result.get("content", "")
+            
+            # Add title and content to context
+            if title:
+                context += f"### {title}\n\n"
+            if content:
+                # Limit content length
+                max_content_length = 500
+                trimmed_content = content[:max_content_length] + "..." if len(content) > max_content_length else content
+                context += f"{trimmed_content}\n\n"
+                
+        return context
+        
+    async def _analyze_sentiment_with_deepseek(self, asset: str, context: str) -> dict:
+        """Analyze sentiment using DeepSeek API"""
+        if not self.deepseek_api_key:
+            logger.warning("No DeepSeek API key available, using default sentiment")
+            return {"sentiment": "neutral", "confidence": 0.5, "summary": f"No sentiment analysis available for {asset}"}
+            
+        logger.info(f"Analyzing sentiment for {asset} using DeepSeek API")
         
         try:
-            # Get sentiment text directly
-            logger.info(f"Calling get_market_sentiment_text for {instrument}...")
-            sentiment_text = await self.get_market_sentiment_text(instrument, market_type)
-            logger.info(f"Received sentiment_text for {instrument}, length: {len(sentiment_text) if sentiment_text else 0}")
+            # Check DeepSeek API connectivity first
+            deepseek_available = await self._check_deepseek_connectivity()
+            if not deepseek_available:
+                logger.warning("DeepSeek API is unreachable, using default sentiment")
+                return {"sentiment": "neutral", "confidence": 0.5, "summary": f"Sentiment service temporarily unavailable for {asset}"}
             
-            # Make sure we have appropriate sentiment format. If not, use default.
-            if not "<b>🎯" in sentiment_text or "Market Sentiment Analysis</b>" not in sentiment_text:
-                logger.warning(f"Sentiment text doesn't have proper title format, using default format")
-                sentiment_text = self._get_default_sentiment_text(instrument)
-            
-            # Check for required sections before continuing
-            required_sections = [
-                "<b>Overall Sentiment:</b>",
-                "<b>Market Sentiment Breakdown:</b>",
-                "🟢 Bullish:",
-                "🔴 Bearish:",
-                "<b>📊 Market Sentiment Analysis:</b>",
-                "<b>📰 Key Sentiment Drivers:</b>",
-                "<b>📅 Important Events & News:</b>"
-            ]
-            
-            for section in required_sections:
-                if section not in sentiment_text:
-                    logger.warning(f"Missing required section: {section}, using default format")
-                    sentiment_text = self._get_default_sentiment_text(instrument)
-                    break
-            
-            # Check for disallowed sections before continuing
-            disallowed_sections = [
-                "Market Direction:",
-                "Technical Outlook:",
-                "Support & Resistance:",
-                "Conclusion:"
-            ]
-            
-            for section in disallowed_sections:
-                if section in sentiment_text:
-                    logger.warning(f"Found disallowed section: {section}, using default format")
-                    sentiment_text = self._get_default_sentiment_text(instrument)
-                    break
-            
-            # Extract sentiment values from the text if possible
-            # Updated regex to better match the emoji format with more flexible whitespace handling
-            bullish_match = re.search(r'(?:Bullish:|🟢\s*Bullish:)\s*(\d+)\s*%', sentiment_text)
-            bearish_match = re.search(r'(?:Bearish:|🔴\s*Bearish:)\s*(\d+)\s*%', sentiment_text)
-            
-            # Log regex matches for debugging
-            if bullish_match:
-                logger.info(f"get_sentiment found bullish percentage for {instrument}: {bullish_match.group(1)}%")
-            else:
-                logger.warning(f"get_sentiment could not find bullish percentage in text for {instrument}")
-                # Log a small snippet of the text for debugging
-                text_snippet = sentiment_text[:300] + "..." if len(sentiment_text) > 300 else sentiment_text
-                logger.warning(f"Text snippet: {text_snippet}")
-                
-                # If we can't extract the percentages, use the default format
-                sentiment_text = self._get_default_sentiment_text(instrument)
-                # Try again with the default format
-                bullish_match = re.search(r'(?:Bullish:|🟢\s*Bullish:)\s*(\d+)\s*%', sentiment_text)
-                bearish_match = re.search(r'(?:Bearish:|🔴\s*Bearish:)\s*(\d+)\s*%', sentiment_text)
-                
-            if bearish_match:
-                logger.info(f"get_sentiment found bearish percentage for {instrument}: {bearish_match.group(1)}%")
-            else:
-                logger.warning(f"get_sentiment could not find bearish percentage in text for {instrument}")
-                # If we can't extract the percentages, use the default format
-                sentiment_text = self._get_default_sentiment_text(instrument)
-                # Try again with the default format
-                bullish_match = re.search(r'(?:Bullish:|🟢\s*Bullish:)\s*(\d+)\s*%', sentiment_text)
-                bearish_match = re.search(r'(?:Bearish:|🔴\s*Bearish:)\s*(\d+)\s*%', sentiment_text)
-                
-            if bullish_match and bearish_match:
-                bullish = int(bullish_match.group(1))
-                bearish = int(bearish_match.group(1))
-                neutral = 100 - (bullish + bearish)
-                neutral = max(0, neutral)  # Ensure it's not negative
-                
-                # Calculate the sentiment score (-1.0 to 1.0)
-                sentiment_score = (bullish - bearish) / 100
-                
-                # Determine trend strength based on how far from neutral
-                trend_strength = 'Strong' if abs(bullish - 50) > 15 else 'Moderate' if abs(bullish - 50) > 5 else 'Weak'
-                
-                # Determine sentiment
-                overall_sentiment = 'bullish' if bullish > bearish else 'bearish' if bearish > bullish else 'neutral'
-                
-                logger.info(f"Returning complete sentiment data for {instrument}: {overall_sentiment} (score: {sentiment_score:.2f})")
-                
-                result = {
-                    'bullish': bullish,
-                    'bearish': bearish,
-                    'neutral': neutral,
-                    'sentiment_score': sentiment_score,
-                    'technical_score': 'Based on market analysis',
-                    'news_score': f"{bullish}% positive",
-                    'social_score': f"{bearish}% negative",
-                    'trend_strength': trend_strength,
-                    'volatility': 'Moderate',
-                    'volume': 'Normal',
-                    'news_headlines': [],
-                    'overall_sentiment': overall_sentiment,
-                    'analysis': sentiment_text
-                }
-                
-                # Log the final result dictionary
-                logger.info(f"Final sentiment result for {instrument}: {overall_sentiment}, score: {sentiment_score:.2f}, bullish: {bullish}%, bearish: {bearish}%, neutral: {neutral}%")
-                return result
-            else:
-                # If we can't extract percentages, use default values from default text
-                logger.warning(f"Extracting percentages failed even with default text, using hardcoded defaults")
-                
-                result = {
-                    'bullish': 50,
-                    'bearish': 50,
-                    'neutral': 0,
-                    'sentiment_score': 0,
-                    'technical_score': 'Based on market analysis',
-                    'news_score': '50% positive',
-                    'social_score': '50% negative',
-                    'trend_strength': 'Moderate',
-                    'volatility': 'Moderate',
-                    'volume': 'Normal',
-                    'news_headlines': [],
-                    'overall_sentiment': 'neutral',
-                    'analysis': self._get_default_sentiment_text(instrument)
-                }
-                
-                # Log the fallback result
-                logger.warning(f"Using hardcoded defaults for {instrument}: neutral, score: 0.00")
-                return result
-            
-        except Exception as e:
-            logger.error(f"Error in get_sentiment: {str(e)}")
-            logger.exception(e)
-            # Return a basic analysis message
-            error_result = {
-                'bullish': 50,
-                'bearish': 50,
-                'neutral': 0,
-                'sentiment_score': 0,
-                'technical_score': 'N/A',
-                'news_score': 'N/A',
-                'social_score': 'N/A',
-                'trend_strength': 'Moderate',
-                'volatility': 'Normal',
-                'volume': 'Normal',
-                'news_headlines': [],
-                'overall_sentiment': 'neutral',
-                'analysis': self._get_default_sentiment_text(instrument)
+            # Prepare the API call
+            headers = {
+                "Authorization": f"Bearer {self.deepseek_api_key.strip()}",
+                "Content-Type": "application/json"
             }
-            logger.error(f"Returning error result for {instrument} due to exception")
-            return error_result
+            
+            # Create prompt for sentiment analysis
+            prompt = f"""Analyze the following market data for {asset} and provide a sentiment analysis.
+
+Market Data:
+{context}
+
+Please provide a structured analysis with:
+1. Overall sentiment (bullish, bearish, or neutral)
+2. Confidence level (0-1 scale)
+3. Brief summary of key sentiment drivers
+4. Important factors affecting the sentiment
+
+Return the analysis as JSON with the following structure:
+{{
+  "sentiment": "bullish/bearish/neutral",
+  "confidence": 0.X,
+  "summary": "brief summary",
+  "key_factors": ["factor1", "factor2", "factor3"]
+}}
+"""
+
+            # Make the API call with custom timeout
+            async with aiohttp.ClientSession() as session:
+                try:
+                    async with session.post(
+                        self.deepseek_url,
+                        headers=headers,
+                        json={
+                            "model": "deepseek-chat",
+                            "messages": [
+                                {"role": "system", "content": "You are a professional market analyst. Always provide sentiment analysis in the exact JSON format requested."},
+                                {"role": "user", "content": prompt}
+                            ],
+                            "temperature": 0.2,
+                            "max_tokens": 1024
+                        },
+                        timeout=aiohttp.ClientTimeout(total=30)
+                    ) as response:
+                        if response.status == 200:
+                            data = await response.json()
+                            response_content = data['choices'][0]['message']['content']
+                            
+                            # Try to extract JSON from the response
+                            try:
+                                # First try to extract JSON if wrapped in code blocks
+                                json_match = re.search(r'```(?:json)?\s*({.*?})\s*```', response_content, re.DOTALL)
+                                if json_match:
+                                    json_str = json_match.group(1)
+                                    sentiment_data = json.loads(json_str)
+                                else:
+                                    # Otherwise try to parse the whole response as JSON
+                                    sentiment_data = json.loads(response_content)
+                                
+                                # Validate the sentiment data
+                                if "sentiment" not in sentiment_data or "confidence" not in sentiment_data:
+                                    raise ValueError("Missing required fields in response")
+                                
+                                return sentiment_data
+                            except Exception as e:
+                                logger.error(f"Failed to parse DeepSeek response as JSON: {e}")
+                                # Extract sentiment based on keywords in the response
+                                sentiment = "neutral"
+                                confidence = 0.5
+                                summary = f"Unable to determine clear sentiment for {asset}"
+                                
+                                if "bullish" in response_content.lower():
+                                    sentiment = "bullish"
+                                    confidence = 0.7
+                                elif "bearish" in response_content.lower():
+                                    sentiment = "bearish"
+                                    confidence = 0.7
+                                
+                                return {
+                                    "sentiment": sentiment,
+                                    "confidence": confidence,
+                                    "summary": summary,
+                                    "key_factors": ["Market conditions", "Economic indicators", "News sentiment"]
+                                }
+                        else:
+                            logger.error(f"DeepSeek API request failed with status {response.status}")
+                            return {"sentiment": "neutral", "confidence": 0.5, "summary": f"Error in sentiment analysis for {asset}"}
+                except asyncio.TimeoutError:
+                    logger.error(f"Timeout occurred with DeepSeek API call for {asset}")
+                    return {"sentiment": "neutral", "confidence": 0.5, "summary": f"Sentiment analysis timed out for {asset}"}
+                except Exception as e:
+                    logger.error(f"Error in DeepSeek API call: {str(e)}")
+                    return {"sentiment": "neutral", "confidence": 0.5, "summary": f"Error processing sentiment for {asset}"}
+        except Exception as e:
+            logger.error(f"Error in sentiment analysis: {str(e)}")
+            return {"sentiment": "neutral", "confidence": 0.5, "summary": f"Error analyzing sentiment for {asset}"}
     
     async def get_market_sentiment(self, instrument: str, market_type: Optional[str] = None) -> Optional[dict]:
         """
@@ -1112,3 +1145,14 @@ The market shows balanced sentiment for {instrument} with no strong directional 
             return 'crypto'
         else:
             return 'forex'  # Default to forex
+
+    async def _get_tavily_search_results(self, query: str, max_results: int = 5):
+        """Get search results from Tavily API"""
+        try:
+            response = await self.tavily_client.search(query=query, max_results=max_results)
+            if response:
+                return response.get("results", [])
+            return []
+        except Exception as e:
+            logger.error(f"Failed to get Tavily search results: {e}")
+            return []
