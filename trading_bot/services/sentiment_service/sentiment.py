@@ -3,6 +3,7 @@ import logging
 import aiohttp
 import json
 import random
+import time
 from typing import Dict, Any, Optional
 import asyncio
 import socket
@@ -38,6 +39,10 @@ class MarketSentimentService:
             logger.info(f"DeepSeek API key is configured: {masked_key}")
         else:
             logger.warning("No DeepSeek API key found")
+            
+        # Initialize sentiment cache
+        self.sentiment_cache = {}
+        self.cache_expiry = 20 * 60  # Cache items expire after 20 minutes
             
     def _build_search_query(self, instrument: str, market_type: str) -> str:
         """
@@ -92,80 +97,37 @@ class MarketSentimentService:
         Get sentiment for a given instrument. This function is used by the TelegramService.
         Returns a dictionary with sentiment data or formatted text.
         """
-        logger.info(f"get_sentiment called for {instrument}")
+        # Controleer cache voor bestaande resultaten
+        cache_key = f"{instrument}_{market_type or 'auto'}"
+        if cache_key in self.sentiment_cache:
+            cached_data, timestamp = self.sentiment_cache[cache_key]
+            # Controleer of de cache nog geldig is
+            if time.time() - timestamp < self.cache_expiry:
+                # Log minder uitgebreid - alleen dat we cache gebruiken
+                logger.info(f"Using cached sentiment data for {instrument}")
+                return cached_data
+            else:
+                # Cache is verlopen, verwijder
+                del self.sentiment_cache[cache_key]
+                
+        logger.info(f"Retrieving sentiment for {instrument}")
         
         try:
             # Get sentiment text directly
-            logger.info(f"Calling get_market_sentiment_text for {instrument}...")
             sentiment_text = await self.get_market_sentiment_text(instrument, market_type)
-            logger.info(f"Received sentiment_text for {instrument}, length: {len(sentiment_text) if sentiment_text else 0}")
             
             # Make sure we have appropriate sentiment format. If not, use default.
             if not "<b>🎯" in sentiment_text or "Market Sentiment Analysis</b>" not in sentiment_text:
-                logger.warning(f"Sentiment text doesn't have proper title format, using default format")
+                sentiment_text = self._get_default_sentiment_text(instrument)
+                
+            # Vereenvoudigde section check (alleen meest cruciale secties)
+            if "<b>Market Sentiment Breakdown:</b>" not in sentiment_text or "Bullish:" not in sentiment_text:
                 sentiment_text = self._get_default_sentiment_text(instrument)
             
-            # Check for required sections before continuing
-            required_sections = [
-                "<b>Overall Sentiment:</b>",
-                "<b>Market Sentiment Breakdown:</b>",
-                "🟢 Bullish:",
-                "🔴 Bearish:",
-                "<b>📊 Market Sentiment Analysis:</b>",
-                "<b>📰 Key Sentiment Drivers:</b>",
-                "<b>📅 Important Events & News:</b>"
-            ]
+            # Extract sentiment values from the text using simpler regex
+            bullish_match = re.search(r'Bullish:[\s]*(\d+)\s*%', sentiment_text, re.IGNORECASE)
+            bearish_match = re.search(r'Bearish:[\s]*(\d+)\s*%', sentiment_text, re.IGNORECASE)
             
-            for section in required_sections:
-                if section not in sentiment_text:
-                    logger.warning(f"Missing required section: {section}, using default format")
-                    sentiment_text = self._get_default_sentiment_text(instrument)
-                    break
-            
-            # Check for disallowed sections before continuing
-            disallowed_sections = [
-                "Market Direction:",
-                "Technical Outlook:",
-                "Support & Resistance:",
-                "Conclusion:"
-            ]
-            
-            for section in disallowed_sections:
-                if section in sentiment_text:
-                    logger.warning(f"Found disallowed section: {section}, using default format")
-                    sentiment_text = self._get_default_sentiment_text(instrument)
-                    break
-            
-            # Extract sentiment values from the text if possible
-            # Updated regex to better match the emoji format with more flexible whitespace handling
-            bullish_match = re.search(r'(?:Bullish:|🟢\s*Bullish:)\s*(\d+)\s*%', sentiment_text)
-            bearish_match = re.search(r'(?:Bearish:|🔴\s*Bearish:)\s*(\d+)\s*%', sentiment_text)
-            
-            # Log regex matches for debugging
-            if bullish_match:
-                logger.info(f"get_sentiment found bullish percentage for {instrument}: {bullish_match.group(1)}%")
-            else:
-                logger.warning(f"get_sentiment could not find bullish percentage in text for {instrument}")
-                # Log a small snippet of the text for debugging
-                text_snippet = sentiment_text[:300] + "..." if len(sentiment_text) > 300 else sentiment_text
-                logger.warning(f"Text snippet: {text_snippet}")
-                
-                # If we can't extract the percentages, use the default format
-                sentiment_text = self._get_default_sentiment_text(instrument)
-                # Try again with the default format
-                bullish_match = re.search(r'(?:Bullish:|🟢\s*Bullish:)\s*(\d+)\s*%', sentiment_text)
-                bearish_match = re.search(r'(?:Bearish:|🔴\s*Bearish:)\s*(\d+)\s*%', sentiment_text)
-                
-            if bearish_match:
-                logger.info(f"get_sentiment found bearish percentage for {instrument}: {bearish_match.group(1)}%")
-            else:
-                logger.warning(f"get_sentiment could not find bearish percentage in text for {instrument}")
-                # If we can't extract the percentages, use the default format
-                sentiment_text = self._get_default_sentiment_text(instrument)
-                # Try again with the default format
-                bullish_match = re.search(r'(?:Bullish:|🟢\s*Bullish:)\s*(\d+)\s*%', sentiment_text)
-                bearish_match = re.search(r'(?:Bearish:|🔴\s*Bearish:)\s*(\d+)\s*%', sentiment_text)
-                
             if bullish_match and bearish_match:
                 bullish = int(bullish_match.group(1))
                 bearish = int(bearish_match.group(1))
@@ -180,8 +142,6 @@ class MarketSentimentService:
                 
                 # Determine sentiment
                 overall_sentiment = 'bullish' if bullish > bearish else 'bearish' if bearish > bullish else 'neutral'
-                
-                logger.info(f"Returning complete sentiment data for {instrument}: {overall_sentiment} (score: {sentiment_score:.2f})")
                 
                 result = {
                     'bullish': bullish,
@@ -199,14 +159,15 @@ class MarketSentimentService:
                     'analysis': sentiment_text
                 }
                 
-                # Log the final result dictionary
-                logger.info(f"Final sentiment result for {instrument}: {overall_sentiment}, score: {sentiment_score:.2f}, bullish: {bullish}%, bearish: {bearish}%, neutral: {neutral}%")
+                # Sla resultaat op in cache met huidige timestamp
+                self.sentiment_cache[cache_key] = (result, time.time())
+                    
                 return result
             else:
                 # If we can't extract percentages, use default values from default text
-                logger.warning(f"Extracting percentages failed even with default text, using hardcoded defaults")
+                logger.warning(f"Using default sentiment values for {instrument}")
                 
-                result = {
+                default_result = {
                     'bullish': 50,
                     'bearish': 50,
                     'neutral': 0,
@@ -222,13 +183,14 @@ class MarketSentimentService:
                     'analysis': self._get_default_sentiment_text(instrument)
                 }
                 
-                # Log the fallback result
-                logger.warning(f"Using hardcoded defaults for {instrument}: neutral, score: 0.00")
-                return result
+                # Cache ook standaard resultaten om herhaalde verzoeken te voorkomen
+                self.sentiment_cache[cache_key] = (default_result, time.time())
+                
+                return default_result
         
         except Exception as e:
             logger.error(f"Error in get_sentiment: {str(e)}")
-            logger.exception(e)
+            
             # Return a basic analysis message
             error_result = {
                 'bullish': 50,
@@ -245,7 +207,8 @@ class MarketSentimentService:
                 'overall_sentiment': 'neutral',
                 'analysis': self._get_default_sentiment_text(instrument)
             }
-            logger.error(f"Returning error result for {instrument} due to exception")
+            
+            # Foutieve resultaten niet cachen
             return error_result
     
     async def get_market_sentiment(self, instrument: str, market_type: Optional[str] = None) -> Optional[dict]:
@@ -736,31 +699,26 @@ Standard risk management practices recommended until clearer sentiment emerges.
     
     async def _get_tavily_news(self, search_query: str) -> str:
         """Use Tavily API to get latest news and market data"""
-        logger.info(f"Searching for news using Tavily API")
-        
         # Check if API key is configured
         if not self.tavily_api_key:
-            logger.error("Tavily API key is not configured")
             return None
             
         # Use our Tavily client to make the API call
         try:
             response = await self.tavily_client.search(
                 query=search_query,
-                search_depth="basic",  # Gebruik 'basic' in plaats van 'advanced' voor snellere resultaten
+                search_depth="basic",
                 include_answer=True,
-                max_results=3          # Verlaag van 5 naar 3 voor minder resultaten die verwerkt moeten worden
+                max_results=2  # Verlaagd van 3 naar 2 voor nog snellere verwerking
             )
             
             if response:
                 return self._process_tavily_response(json.dumps(response))
             else:
-                logger.error("Tavily search returned no results")
                 return None
                 
         except Exception as e:
             logger.error(f"Error calling Tavily API: {str(e)}")
-            logger.exception(e)
             return None
             
     def _process_tavily_response(self, response_text: str) -> str:
@@ -768,42 +726,27 @@ Standard risk management practices recommended until clearer sentiment emerges.
         try:
             data = json.loads(response_text)
             
-            # Structure for the formatted response
-            formatted_text = f"Market Sentiment Analysis:\n\n"
+            # Vereenvoudigde verwerking - alleen antwoord en eerste resultaat
+            formatted_text = "Market Analysis:\n\n"
             
-            # Extract the generated answer if available
+            # Extract answer from Tavily (belangrijkste deel)
             if data and "answer" in data and data["answer"]:
                 answer = data["answer"]
-                formatted_text += f"Summary: {answer}\n\n"
-                logger.info("Successfully received answer from Tavily")
+                formatted_text += f"{answer}\n\n"
                 
-            # Extract results for more comprehensive information
-            if "results" in data and data["results"]:
-                formatted_text += "Detailed Market Information:\n"
-                for idx, result in enumerate(data["results"][:5]):  # Limit to top 5 results
-                    title = result.get("title", "No Title")
-                    content = result.get("content", "No Content").strip()
-                    url = result.get("url", "")
-                    score = result.get("score", 0)
-                    
-                    formatted_text += f"\n{idx+1}. {title}\n"
-                    formatted_text += f"{content[:500]}...\n" if len(content) > 500 else f"{content}\n"
-                    formatted_text += f"Source: {url}\n"
-                    formatted_text += f"Relevance: {score:.2f}\n"
+            # Voeg alleen het eerste resultaat toe, indien beschikbaar
+            if "results" in data and data["results"] and len(data["results"]) > 0:
+                result = data["results"][0]
+                title = result.get("title", "")
+                content = result.get("content", "").strip()
                 
-                logger.info(f"Successfully processed {len(data['results'])} results from Tavily")
-                return formatted_text
-            
-            # If no answer and no results but we have response content
-            if response_text and len(response_text) > 20:
-                logger.warning(f"Unusual Tavily response format, but using raw content")
-                return f"Market sentiment data:\n\n{response_text[:2000]}"
+                # Limiteer content lengte voor snellere verwerking
+                formatted_text += f"{title}\n"
+                formatted_text += f"{content[:300]}...\n" if len(content) > 300 else f"{content}\n"
                 
-            logger.error(f"Unexpected Tavily API response format: {response_text[:200]}...")
-            return None
+            return formatted_text
                 
         except json.JSONDecodeError:
-            logger.error(f"Invalid JSON response from Tavily: {response_text[:200]}...")
             return None
     
     async def _format_with_deepseek(self, instrument: str, market: str, market_data: str) -> str:
@@ -812,14 +755,11 @@ Standard risk management practices recommended until clearer sentiment emerges.
             logger.warning("No DeepSeek API key available, using manual formatting")
             return self._format_data_manually(market_data, instrument)
         
-        logger.info(f"Formatting market data for {instrument} using DeepSeek API")
+        # Minimale logging
+        logger.info(f"Formatting sentiment for {instrument} with DeepSeek")
         
         try:
-            # Check DeepSeek API connectivity first
-            deepseek_available = await self._check_deepseek_connectivity()
-            if not deepseek_available:
-                logger.warning("DeepSeek API is unreachable, using manual formatting")
-                return self._format_data_manually(market_data, instrument)
+            # Sla connectiviteitscheck over om tijd te besparen
             
             # Prepare the API call
             headers = {
@@ -827,22 +767,18 @@ Standard risk management practices recommended until clearer sentiment emerges.
                 "Content-Type": "application/json"
             }
             
-            # Create prompt for sentiment analysis
-            prompt = f"""Analyze the following market data for {instrument} and provide a market sentiment analysis focused ONLY on news, events, and broader market sentiment. 
+            # Create shorter prompt with limited market data
+            # Beperk marktdata tot maximaal 1500 tekens
+            truncated_market_data = market_data[:1500] if len(market_data) > 1500 else market_data
+            
+            prompt = f"""Analyze the market data for {instrument} and provide sentiment analysis.
 
-**IMPORTANT**: 
-1. You MUST include explicit percentages for bullish, bearish, and neutral sentiment in EXACTLY the format shown below. The percentages MUST be integers that sum to 100%.
-2. DO NOT include ANY specific price levels, exact numbers, technical analysis, support/resistance levels, or price targets. 
-3. DO NOT include ANY specific trading recommendations or strategies like "buy at X" or "sell at Y".
-4. DO NOT mention any specific trading indicators like RSI, EMA, MACD, or specific numerical values like percentages of price movement.
-5. Focus ONLY on general news events, market sentiment, and fundamental factors that drive sentiment.
-6. DO NOT include sections named "Market Direction", "Technical Outlook", "Support & Resistance", "Conclusion", or anything related to technical analysis.
+IMPORTANT: 
+1. Include EXACT percentages: Bullish: XX%, Bearish: YY% (integers summing to 100%)
+2. NO specific price targets, technical indicators, or trading advice
+3. Focus ONLY on market sentiment, news, and events
 
-Market Data:
-{market_data}
-
-Your response MUST follow this EXACT format with EXACTLY this HTML formatting (keep the exact formatting with the <b> tags):
-
+Format:
 <b>🎯 {instrument} Market Sentiment Analysis</b>
 
 <b>Overall Sentiment:</b> [Bullish/Bearish/Neutral] [Emoji]
@@ -853,29 +789,23 @@ Your response MUST follow this EXACT format with EXACTLY this HTML formatting (k
 ⚪️ Neutral: ZZ%
 
 <b>📊 Market Sentiment Analysis:</b>
-[Brief description of the current market sentiment and outlook without specific price targets]
+[Brief analysis]
 
 <b>📰 Key Sentiment Drivers:</b>
-• [Key sentiment factor 1]
-• [Key sentiment factor 2]
-• [Key sentiment factor 3]
+• [Factor 1]
+• [Factor 2]
+• [Factor 3]
 
 <b>📅 Important Events & News:</b>
-• [News event 1]
-• [News event 2]
-• [News event 3]
+• [Event 1]
+• [Event 2]
+• [Event 3]
 
-DO NOT mention any specific price levels, numeric values, resistance/support levels, or trading recommendations. Focus ONLY on NEWS, EVENTS, and SENTIMENT information.
-
-The sentiment percentages (Overall Sentiment, Bullish, Bearish, Neutral percentages) MUST be clearly indicated EXACTLY as shown in the format.
-
-I will check your output to ensure you have followed the EXACT format required. DO NOT add any additional sections beyond the ones shown above.
+Market Data:
+{truncated_market_data}
 """
 
-            # Log the prompt for debugging
-            logger.info(f"DeepSeek prompt for {instrument} (first 200 chars): {prompt[:200]}...")
-            
-            # Make the API call
+            # Make the API call with shorter timeout
             async with aiohttp.ClientSession() as session:
                 async with session.post(
                     self.deepseek_url,
@@ -883,202 +813,56 @@ I will check your output to ensure you have followed the EXACT format required. 
                     json={
                         "model": "deepseek-chat",
                         "messages": [
-                            {"role": "system", "content": "You are a professional market analyst specializing in quantitative sentiment analysis. You ALWAYS follow the EXACT format requested."},
+                            {"role": "system", "content": "You are a market analyst providing sentiment analysis with exact percentages."},
                             {"role": "user", "content": prompt}
                         ],
                         "temperature": 0.2,
-                        "max_tokens": 1024
+                        "max_tokens": 800  # Verminderd van 1024 naar 800
                     }
                 ) as response:
                     if response.status == 200:
                         data = await response.json()
                         response_content = data['choices'][0]['message']['content']
-                        logger.info(f"DeepSeek raw response for {instrument}: {response_content[:200]}...")
                         
-                        # Ensure the title is correctly formatted
+                        # Alleen essentiële bewerkingen en formattering
+                        # Zorg voor correcte titel en sentiment breakdown
                         if not "<b>🎯" in response_content:
                             response_content = f"<b>🎯 {instrument} Market Sentiment Analysis</b>\n\n" + response_content
                         
-                        # Ensure the title uses "Market Sentiment Analysis" not just "Market Analysis"
-                        response_content = response_content.replace("Market Analysis</b>", "Market Sentiment Analysis</b>")
-                        
-                        # Check for required sections and add them if missing
-                        required_sections = [
-                            ("<b>Overall Sentiment:</b>", f"<b>Overall Sentiment:</b> Neutral ➡️\n\n"),
-                            ("<b>Market Sentiment Breakdown:</b>", f"<b>Market Sentiment Breakdown:</b>\n🟢 Bullish: 50%\n🔴 Bearish: 50%\n⚪️ Neutral: 0%\n\n"),
-                            ("<b>📊 Market Sentiment Analysis:</b>", f"<b>📊 Market Sentiment Analysis:</b>\n{instrument} is currently showing mixed signals with no clear sentiment bias. The market shows balanced sentiment with no strong directional bias at this time.\n\n"),
-                            ("<b>📰 Key Sentiment Drivers:</b>", f"<b>📰 Key Sentiment Drivers:</b>\n• Market conditions appear normal with mixed signals\n• No clear directional bias at this time\n• Standard market activity observed\n\n"),
-                            ("<b>📅 Important Events & News:</b>", f"<b>📅 Important Events & News:</b>\n• Normal market activity with no major catalysts\n• No significant economic releases impacting the market\n• General news and global trends affecting sentiment\n")
-                        ]
-                        
-                        for section, default_content in required_sections:
-                            if section not in response_content:
-                                # Find where to insert the missing section
-                                insert_position = len(response_content)
-                                for next_section, _ in required_sections:
-                                    if next_section in response_content and response_content.find(next_section) > response_content.find(section) if section in response_content else True:
-                                        insert_position = min(insert_position, response_content.find(next_section))
-                                
-                                # Insert the section
-                                response_content = response_content[:insert_position] + default_content + response_content[insert_position:]
-                                logger.info(f"Added missing section: {section}")
-                        
-                        # Remove disallowed sections
-                        disallowed_sections = [
-                            ("<b>📈 Market Direction:</b>", "<b>Market Direction:</b>", "Market Direction:"),
-                            ("<b>Technical Outlook:</b>", "Technical Outlook:"),
-                            ("<b>Support & Resistance:</b>", "Support & Resistance:"),
-                            ("<b>💡 Conclusion:</b>", "<b>Conclusion:</b>", "Conclusion:")
-                        ]
-                        
-                        for section_variants in disallowed_sections:
-                            for variant in section_variants:
-                                if variant in response_content:
-                                    # Find start and end of section
-                                    start_idx = response_content.find(variant)
-                                    end_idx = len(response_content)
-                                    
-                                    # Try to find the next section that starts with <b>
-                                    next_section = response_content.find("<b>", start_idx + 1)
-                                    if next_section != -1:
-                                        end_idx = next_section
-                                    
-                                    # Remove the section
-                                    response_content = response_content[:start_idx] + response_content[end_idx:]
-                                    logger.info(f"Removed disallowed section: {variant}")
-                        
-                        # Fix section titles to ensure correct emoji
-                        response_content = response_content.replace("<b>Key Sentiment Drivers:</b>", "<b>📰 Key Sentiment Drivers:</b>")
-                        response_content = response_content.replace("<b>Market Mood:</b>", "<b>📊 Market Sentiment Analysis:</b>")
-                        response_content = response_content.replace("<b>Important Events & News:</b>", "<b>📅 Important Events & News:</b>")
-                        
-                        # Remove Sentiment Outlook if it exists and hasn't been caught by disallowed sections
-                        if "<b>🔮 Sentiment Outlook:</b>" in response_content or "<b>Sentiment Outlook:</b>" in response_content:
-                            for pattern in ["<b>🔮 Sentiment Outlook:</b>", "<b>Sentiment Outlook:</b>"]:
-                                if pattern in response_content:
-                                    start_idx = response_content.find(pattern)
-                                    end_idx = len(response_content)
-                                    
-                                    # Try to find the next section that starts with <b>
-                                    next_section = response_content.find("<b>", start_idx + 1)
-                                    if next_section != -1:
-                                        end_idx = next_section
-                                    
-                                    # Remove the section
-                                    response_content = response_content[:start_idx] + response_content[end_idx:]
-                                    logger.info(f"Removed deprecated section: {pattern}")
-                        
-                        # If Market Sentiment Analysis is not present, rename Market Mood to it
-                        if "<b>📊 Market Sentiment Analysis:</b>" not in response_content and "<b>📊 Market Mood:</b>" in response_content:
-                            response_content = response_content.replace("<b>📊 Market Mood:</b>", "<b>📊 Market Sentiment Analysis:</b>")
-                            logger.info("Renamed Market Mood to Market Sentiment Analysis")
-                        
-                        # Extract and validate sentiment percentages
-                        bullish_match = re.search(r'(?:Bullish:|🟢\s*Bullish:)\s*(\d+)\s*%', response_content)
-                        bearish_match = re.search(r'(?:Bearish:|🔴\s*Bearish:)\s*(\d+)\s*%', response_content)
-                        neutral_match = re.search(r'(?:Neutral:|⚪️\s*Neutral:)\s*(\d+)\s*%', response_content)
-                        
-                        if bullish_match and bearish_match and neutral_match:
-                            bullish = int(bullish_match.group(1))
-                            bearish = int(bearish_match.group(1))
-                            neutral = int(neutral_match.group(1))
-                            total = bullish + bearish + neutral
+                        if "Market Sentiment Breakdown:" not in response_content:
+                            # Voeg de breakdown sectie toe na de titel
+                            title_end = response_content.find("</b>", response_content.find("<b>🎯")) + 4
+                            sentiment_section = "\n\n<b>Market Sentiment Breakdown:</b>\n🟢 Bullish: 50%\n🔴 Bearish: 50%\n⚪️ Neutral: 0%\n\n"
+                            response_content = response_content[:title_end] + sentiment_section + response_content[title_end:] if title_end > 0 else response_content
                             
-                            # Ensure percentages sum to 100%
-                            if total != 100:
-                                logger.warning(f"Sentiment percentages sum to {total}, adjusting to 100%")
-                                # Adjust to ensure sum is 100%
-                                if total > 0:
-                                    bullish = int((bullish / total) * 100)
-                                    bearish = int((bearish / total) * 100)
-                                    neutral = 100 - bullish - bearish
-                                else:
-                                    bullish = 50
-                                    bearish = 50
-                                    neutral = 0
-                                
-                                # Update the sentiment values in the text
-                                response_content = re.sub(
-                                    r'(🟢\s*Bullish:)\s*\d+\s*%', 
-                                    f'🟢 Bullish: {bullish}%', 
-                                    response_content
-                                )
-                                response_content = re.sub(
-                                    r'(🔴\s*Bearish:)\s*\d+\s*%', 
-                                    f'🔴 Bearish: {bearish}%', 
-                                    response_content
-                                )
-                                response_content = re.sub(
-                                    r'(⚪️\s*Neutral:)\s*\d+\s*%', 
-                                    f'⚪️ Neutral: {neutral}%', 
-                                    response_content
-                                )
-                                
-                                # Also make sure Overall Sentiment matches the percentages
-                                if bullish > bearish:
-                                    overall = "Bullish 📈"
-                                elif bearish > bullish:
-                                    overall = "Bearish 📉"
-                                else:
-                                    overall = "Neutral ➡️"
-                                    
-                                response_content = re.sub(
-                                    r'<b>Overall Sentiment:</b>.*?\n',
-                                    f'<b>Overall Sentiment:</b> {overall}\n',
-                                    response_content
-                                )
+                        # Extractie en correctie van sentimentpercentages
+                        bullish_match = re.search(r'Bullish:[\s]*(\d+)\s*%', response_content, re.IGNORECASE)
+                        bearish_match = re.search(r'Bearish:[\s]*(\d+)\s*%', response_content, re.IGNORECASE)
+                        
+                        if bullish_match and bearish_match:
+                            # Percentages zijn aanwezig, geen verdere actie nodig
+                            pass
                         else:
-                            # Add default values if percentages are missing
-                            logger.warning(f"Sentiment percentages missing, adding defaults")
-                            sentiment_section = "<b>Market Sentiment Breakdown:</b>\n🟢 Bullish: 50%\n🔴 Bearish: 50%\n⚪️ Neutral: 0%\n\n"
-                            if "<b>Market Sentiment Breakdown:</b>" in response_content:
-                                # Replace existing section
-                                response_content = re.sub(
-                                    r'<b>Market Sentiment Breakdown:</b>.*?(?=<b>|$)',
-                                    sentiment_section,
-                                    response_content,
-                                    flags=re.DOTALL
-                                )
+                            # Probeer de percentages uit Overall Sentiment te halen
+                            if "bullish" in response_content.lower():
+                                # Set to somewhat bullish sentiment
+                                response_content = re.sub(r'(🟢\s*Bullish:)\s*\d+\s*%', '🟢 Bullish: 60%', response_content)
+                                response_content = re.sub(r'(🔴\s*Bearish:)\s*\d+\s*%', '🔴 Bearish: 40%', response_content)
+                            elif "bearish" in response_content.lower():
+                                # Set to somewhat bearish sentiment
+                                response_content = re.sub(r'(🟢\s*Bullish:)\s*\d+\s*%', '🟢 Bullish: 40%', response_content)
+                                response_content = re.sub(r'(🔴\s*Bearish:)\s*\d+\s*%', '🔴 Bearish: 60%', response_content)
                             else:
-                                # Add section after title
-                                title_end = response_content.find("</b>", response_content.find("<b>🎯")) + 4
-                                response_content = response_content[:title_end] + "\n\n" + sentiment_section + response_content[title_end:]
-                        
-                        # Cleanup whitespace and formatting
-                        response_content = re.sub(r'\n{3,}', '\n\n', response_content)
-                        
-                        # Final check for any disallowed sections that might have been missed
-                        final_disallowed = [
-                            "Market Direction", 
-                            "Technical Outlook", 
-                            "Support & Resistance", 
-                            "Support and Resistance",
-                            "Conclusion", 
-                            "Technical Analysis",
-                            "Price Targets",
-                            "Trading Recommendation"
-                        ]
-                        
-                        for disallowed in final_disallowed:
-                            if disallowed in response_content:
-                                logger.warning(f"Found disallowed content '{disallowed}' in final output, replacing with default")
-                                # If we still have disallowed content, return default format
-                                return self._get_default_sentiment_text(instrument)
-                        
-                        # Final log of modified content
-                        logger.info(f"Final formatted response for {instrument} (first 200 chars): {response_content[:200]}...")
+                                # Set to neutral sentiment
+                                response_content = re.sub(r'(🟢\s*Bullish:)\s*\d+\s*%', '🟢 Bullish: 50%', response_content)
+                                response_content = re.sub(r'(🔴\s*Bearish:)\s*\d+\s*%', '🔴 Bearish: 50%', response_content)
                         
                         return response_content
                     else:
                         logger.error(f"DeepSeek API request failed with status {response.status}")
-                        error_message = await response.text()
-                        logger.error(f"DeepSeek API error: {error_message}")
-                        # Fall back to default sentiment text
                         return self._get_default_sentiment_text(instrument)
         except Exception as e:
             logger.error(f"Error in DeepSeek formatting: {str(e)}")
-            logger.exception(e)
-            # Return a default sentiment text
             return self._get_default_sentiment_text(instrument)
     
     def _guess_market_from_instrument(self, instrument: str) -> str:
