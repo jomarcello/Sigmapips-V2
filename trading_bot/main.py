@@ -123,6 +123,11 @@ async def startup_event():
         # Initialize sentiment service and start background prefetch
         logger.info("Initializing sentiment service with background prefetch...")
         sentiment_service = MarketSentimentService(fast_mode=True)
+        # Laad de cache en wacht tot het klaar is
+        logger.info("Loading sentiment cache...")
+        await sentiment_service.load_cache()
+        logger.info("Sentiment cache loaded successfully")
+        
         # Populaire forex en crypto paren vooraf laden
         popular_instruments = ["EURUSD", "GBPUSD", "USDJPY", "BTCUSD", "ETHUSD", "XAUUSD", "US30"]
         asyncio.create_task(sentiment_service.start_background_prefetch(popular_instruments, interval_minutes=20))
