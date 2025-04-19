@@ -3441,9 +3441,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                             await context.bot.send_photo(
                                 chat_id=update.effective_chat.id,
                                 photo=f,
-                                caption=analysis_text,
-                                reply_markup=InlineKeyboardMarkup(keyboard),
-                                parse_mode=ParseMode.HTML
+                                reply_markup=InlineKeyboardMarkup(keyboard)
                             )
                         logger.info(f"Successfully sent chart from file path")
                     except Exception as e:
@@ -3469,9 +3467,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                             await context.bot.send_photo(
                                 chat_id=update.effective_chat.id,
                                 photo=f,
-                                caption=analysis_text,
-                                reply_markup=InlineKeyboardMarkup(keyboard),
-                                parse_mode=ParseMode.HTML
+                                reply_markup=InlineKeyboardMarkup(keyboard)
                             )
                         logger.info(f"Successfully sent chart from bytes")
                         
