@@ -3577,6 +3577,83 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             if isinstance(sentiment_data.get('analysis'), str):
                 analysis_text = sentiment_data['analysis']
             
+            # Check if the analysis text is already in the correct format
+            # The key identifier is the presence of "Market Sentiment Analysis</b>" and all required sections
+            if analysis_text and "Market Sentiment Analysis</b>" in analysis_text:
+                # Check if it has all the required sections
+                required_sections = [
+                    "<b>Overall Sentiment:</b>",
+                    "<b>Market Sentiment Breakdown:</b>",
+                    "🟢 Bullish:",
+                    "🔴 Bearish:",
+                    "⚪️ Neutral:",
+                    "<b>📰 Key Sentiment Drivers:</b>",
+                    "<b>📊 Market Mood:</b>",
+                    "<b>📅 Important Events & News:</b>",
+                    "<b>🔮 Sentiment Outlook:</b>"
+                ]
+                
+                all_sections_present = all(section in analysis_text for section in required_sections)
+                
+                if all_sections_present:
+                    logger.info(f"Analysis text for {clean_instrument} is already in the correct format, using it directly")
+                    
+                    # Use the existing properly formatted text directly
+                    full_message = analysis_text
+                    
+                    # Create reply markup with back button - use correct back button based on flow
+                    back_callback = "back_to_signal_analysis" if is_from_signal else "back_to_analysis"
+                    logger.info(f"Using back button callback: {back_callback} (from_signal: {is_from_signal})")
+                    reply_markup = InlineKeyboardMarkup([[
+                        InlineKeyboardButton("⬅️ Back", callback_data=back_callback)
+                    ]])
+                    
+                    # Send the message
+                    try:
+                        # First try to edit the existing message when possible
+                        try:
+                            await query.edit_message_text(
+                                text=full_message,
+                                parse_mode=ParseMode.HTML,
+                                reply_markup=reply_markup
+                            )
+                            logger.info("Successfully edited existing message with sentiment analysis")
+                        except Exception as edit_error:
+                            logger.warning(f"Could not edit message, will create new one: {str(edit_error)}")
+                            
+                            # If editing fails, delete and create new message
+                            try:
+                                deleted = await self.delete_message(update)
+                                if deleted:
+                                    logger.info("Deleted previous message")
+                                else:
+                                    logger.warning("Could not delete previous message")
+                            except Exception as del_error:
+                                logger.warning(f"Error deleting previous message: {str(del_error)}")
+                            
+                            try:
+                                sent_message = await update.effective_chat.send_message(
+                                    text=full_message,
+                                    parse_mode=ParseMode.HTML,
+                                    reply_markup=reply_markup
+                                )
+                                logger.info("Created new message with sentiment analysis after deleting old one")
+                            except Exception as send_error:
+                                logger.error(f"Error sending new message: {str(send_error)}")
+                                raise send_error
+                    except Exception as e:
+                        logger.error(f"Error updating message with sentiment analysis: {str(e)}")
+                        # Attempt a simple text update as fallback
+                        try:
+                            await query.message.reply_text(
+                                text=f"<b>Error displaying sentiment analysis for {clean_instrument}.</b>\nPlease try again later.",
+                                parse_mode=ParseMode.HTML
+                            )
+                        except Exception as reply_error:
+                            logger.error(f"Even fallback failed: {str(reply_error)}")
+                    
+                    return CHOOSE_ANALYSIS
+            
             # Prepare the message format without relying on regex
             # This will help avoid HTML parsing errors
             title = f"<b>🎯 {clean_instrument} Market Analysis</b>"
