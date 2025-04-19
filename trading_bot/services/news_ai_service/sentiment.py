@@ -431,7 +431,10 @@ class MarketSentimentService:
                 
                 # Format the sentiment text
                 sentiment_text = self._format_fast_sentiment_text(
-                    instrument, bullish_pct, bearish_pct, neutral_pct
+                    instrument=instrument, 
+                    bullish_pct=bullish_pct, 
+                    bearish_pct=bearish_pct, 
+                    neutral_pct=neutral_pct
                 )
                 
                 # Create the result dictionary
@@ -538,40 +541,21 @@ class MarketSentimentService:
             logger.error(f"Error in API request for {instrument}: {str(e)}")
             return None
             
-    def _format_fast_sentiment_text(self, instrument: str, bullish_pct=None, bearish_pct=None, neutral_pct=None, bullish=None, bearish=None, neutral=None) -> str:
-        """
-        Format sentiment text based on percentages.
-        
-        Accepts either bullish_pct/bearish_pct/neutral_pct or bullish/bearish/neutral parameter names
-        for backward compatibility.
-        """
-        # Handle both naming conventions
-        b_pct = bullish_pct if bullish_pct is not None else bullish
-        br_pct = bearish_pct if bearish_pct is not None else bearish
-        n_pct = neutral_pct if neutral_pct is not None else neutral
-        
-        # Ensure we have values
-        if b_pct is None or br_pct is None:
-            b_pct = 50
-            br_pct = 50
-            n_pct = 0
-        
-        # Fill in neutral if missing
-        if n_pct is None:
-            n_pct = max(0, 100 - b_pct - br_pct)
-            
+    def _format_fast_sentiment_text(self, instrument: str, bullish_pct: float, 
+                                  bearish_pct: float, neutral_pct: float) -> str:
+        """Format sentiment text based on percentages"""
         sentiment_text = f"Marktsentiment voor {instrument}: "
         
-        if b_pct > br_pct + 20:
-            sentiment_text += f"Sterk bullish ({b_pct:.1f}% bullish, {br_pct:.1f}% bearish)"
-        elif b_pct > br_pct + 5:
-            sentiment_text += f"Gematigd bullish ({b_pct:.1f}% bullish, {br_pct:.1f}% bearish)"
-        elif br_pct > b_pct + 20:
-            sentiment_text += f"Sterk bearish ({br_pct:.1f}% bearish, {b_pct:.1f}% bullish)"
-        elif br_pct > b_pct + 5:
-            sentiment_text += f"Gematigd bearish ({br_pct:.1f}% bearish, {b_pct:.1f}% bullish)"
+        if bullish_pct > bearish_pct + 20:
+            sentiment_text += f"Sterk bullish ({bullish_pct:.1f}% bullish, {bearish_pct:.1f}% bearish)"
+        elif bullish_pct > bearish_pct + 5:
+            sentiment_text += f"Gematigd bullish ({bullish_pct:.1f}% bullish, {bearish_pct:.1f}% bearish)"
+        elif bearish_pct > bullish_pct + 20:
+            sentiment_text += f"Sterk bearish ({bearish_pct:.1f}% bearish, {bullish_pct:.1f}% bullish)"
+        elif bearish_pct > bullish_pct + 5:
+            sentiment_text += f"Gematigd bearish ({bearish_pct:.1f}% bearish, {bullish_pct:.1f}% bullish)"
         else:
-            sentiment_text += f"Neutraal ({n_pct:.1f}% neutraal, {b_pct:.1f}% bullish, {br_pct:.1f}% bearish)"
+            sentiment_text += f"Neutraal ({neutral_pct:.1f}% neutraal, {bullish_pct:.1f}% bullish, {bearish_pct:.1f}% bearish)"
             
         return sentiment_text
         
@@ -603,7 +587,10 @@ De percentages moeten optellen tot 100. Geef alleen de JSON terug zonder extra t
         
         # Format the sentiment text
         formatted_text = self._format_fast_sentiment_text(
-            instrument, bullish_pct, bearish_pct, neutral_pct
+            instrument=instrument,
+            bullish_pct=bullish_pct,
+            bearish_pct=bearish_pct,
+            neutral_pct=neutral_pct
         )
         
         return {
