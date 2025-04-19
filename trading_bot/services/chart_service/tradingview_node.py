@@ -262,15 +262,15 @@ class TradingViewNodeService(TradingViewService):
             
             logger.info(f"Running command: {' '.join(cmd)}")
             
-            # Voer het proces uit met een langere timeout (40 seconden)
+            # Voer het proces uit met een kortere timeout (10 seconden in plaats van 40)
             process = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
             
-            # Haal timeout uit class of gebruik default
-            timeout = getattr(self, 'timeout', 40)
+            # Haal timeout uit class of gebruik verlaagde default
+            timeout = getattr(self, 'timeout', 10)  # Verlaagd van 40 naar 10 seconden
             
             # Wacht maximaal op het gespecifieerde aantal seconden
             try:
