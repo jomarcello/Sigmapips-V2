@@ -42,7 +42,7 @@ class TradingViewNodeService(TradingViewService):
                 self.script_path = os.path.join(os.path.dirname(script_dir), "tradingview_screenshot.js")
         
         # Stel de timeout in voor de Node.js opdracht (seconden)
-        self.timeout = 40  # 40 seconden is genoeg voor de meeste charts
+        self.timeout = 25  # 25 seconden is een goede balans tussen snelheid en correctheid
         
         # Houd de uitvoeringstijd van de laatste screenshot bij
         self.last_execution_time = 0.0
@@ -270,27 +270,28 @@ class TradingViewNodeService(TradingViewService):
             )
             
             # Haal timeout uit class of gebruik verlaagde default
-            timeout = getattr(self, 'timeout', 10)  # Verlaagd van 40 naar 10 seconden
+            timeout = getattr(self, 'timeout', 25)  # Gebruik klasse-timeout of 25 seconden default
             
             # Wacht maximaal op het gespecifieerde aantal seconden
             try:
-                logger.info(f"Waiting for process to complete with timeout {timeout} seconds...")
+                logger.info(f"Wachten op Node.js proces met timeout van {timeout} seconden...")
                 start_time = time.time()
                 stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout)
                 elapsed_time = time.time() - start_time
                 # Sla de uitvoeringstijd op in de klasse voor gebruik in andere methoden
                 self.last_execution_time = elapsed_time
-                logger.info(f"Process completed in {elapsed_time:.2f} seconds")
+                logger.info(f"Node.js proces voltooid in {elapsed_time:.2f} seconden")
                 
                 stdout_str = stdout.decode('utf-8', errors='ignore')
                 stderr_str = stderr.decode('utf-8', errors='ignore')
                 
-                logger.info(f"Node.js stdout: {stdout_str[:200]}...")
+                if stdout_str:
+                    logger.info(f"Node.js stdout: {stdout_str[:200]}...")
                 if stderr_str:
                     logger.error(f"Node.js stderr: {stderr_str[:200]}...")
                 
                 if process.returncode != 0:
-                    logger.error(f"Node.js process returned non-zero exit code: {process.returncode}")
+                    logger.error(f"Node.js proces geeft niet-nul exit code: {process.returncode}")
                     return None
                 
             except asyncio.TimeoutError:
