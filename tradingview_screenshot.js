@@ -38,7 +38,7 @@ const { chromium } = require('playwright');
     try {
         console.log(`Taking screenshot of ${url} and saving to ${outputPath} (fullscreen: ${fullscreen})`);
         
-        // Start een browser met gereduceerde wachttijden
+        // Start een browser
         browser = await chromium.launch({
             headless: true,
             args: [
@@ -47,26 +47,23 @@ const { chromium } = require('playwright');
                 '--disable-dev-shm-usage',
                 '--disable-notifications',
                 '--disable-popup-blocking',
-                '--disable-extensions',
-                '--disable-web-security',
-                '--disable-background-networking',
-                '--disable-sync'
+                '--disable-extensions'
             ]
         });
         
         // Open een nieuwe pagina met grotere viewport voor fullscreen
         const context = await browser.newContext({
-            locale: 'en-US', 
-            timezoneId: 'Europe/Amsterdam',
-            viewport: { width: 1920, height: 1080 },
-            bypassCSP: true,
-            userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36'
+            locale: 'en-US', // Stel de locale in op Engels
+            timezoneId: 'Europe/Amsterdam', // Stel de tijdzone in op Amsterdam
+            viewport: { width: 1920, height: 1080 }, // Stel een grotere viewport in
+            bypassCSP: true, // Bypass Content Security Policy
         });
         
         // Voeg cookies toe als er een session ID is
         if (sessionId) {
             console.log(`Using session ID: ${sessionId.substring(0, 5)}...`);
             
+            // Voeg de session cookie direct toe zonder eerst naar TradingView te gaan
             await context.addCookies([
                 {
                     name: 'sessionid',
@@ -123,13 +120,10 @@ const { chromium } = require('playwright');
             };
             
             for (const [key, value] of Object.entries(storageItems)) {
-                try { localStorage.setItem(key, value); } catch (e) { }
+                try {
+                    localStorage.setItem(key, value);
+                } catch (e) { }
             }
-            
-            // Block popups and dialogs
-            window.open = () => null;
-            window.confirm = () => true;
-            window.alert = () => {};
         });
         
         // Open een nieuwe pagina voor de screenshot
@@ -169,37 +163,48 @@ const { chromium } = require('playwright');
             `
         }).catch(() => {});
         
-        // Stel een lagere timeout in (30s in plaats van 60s)
-        page.setDefaultTimeout(30000);
+        // Stel een kortere timeout in - GEOPTIMALISEERD
+        page.setDefaultTimeout(30000); // was 60000, nu 30 seconden timeout
         
         try {
-            // Ga naar de URL met geoptimaliseerde timeout
+            // Ga naar de URL
             console.log(`Navigating to ${url}...`);
             await page.goto(url, {
                 waitUntil: 'domcontentloaded',
-                timeout: 30000 // 30 seconden timeout voor navigatie
+                timeout: 30000 // was 60000, nu 30 seconden timeout voor navigatie
             });
             
             // Stel localStorage waarden in om meldingen uit te schakelen
             console.log('Setting localStorage values to disable notifications...');
             await page.evaluate(() => {
+                // Stel release channel in op stable
                 localStorage.setItem('tv_release_channel', 'stable');
-                localStorage.setItem('tv_alert', 'dont_show');
-                localStorage.setItem('feature_hint_shown', 'true');
-                localStorage.setItem('TVPrivacySettingsAccepted', 'true');
-                localStorage.setItem('screener_new_feature_notification', 'shown');
                 
-                // Functie om dialogen te verwijderen
+                // Schakel versie meldingen uit
+                localStorage.setItem('tv_alert', 'dont_show');
+                
+                // Schakel nieuwe functie hints uit
+                localStorage.setItem('feature_hint_shown', 'true');
+                
+                // Schakel privacy meldingen uit
+                localStorage.setItem('TVPrivacySettingsAccepted', 'true');
+                
+                // Schakel specifiek de Stock Screener popup uit
+                localStorage.setItem('screener_new_feature_notification', 'shown');
+                localStorage.setItem('screener_deprecated', 'true');
+                localStorage.setItem('tv_screener_notification', 'dont_show');
+                
+                // Functie om regelmatig alle dialogen te verwijderen
                 function removeAllDialogs() {
-                    // Escape toets om dialogen te sluiten
+                    // Escape key gebruiken om dialogen te sluiten
                     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', keyCode: 27 }));
                     
-                    // Klik op sluitingsknoppen
+                    // Klik op alle close buttons
                     document.querySelectorAll('button.close-B02UUUN3, button[data-name="close"]').forEach(btn => {
                         try { btn.click(); } catch (e) {}
                     });
                     
-                    // Verwijder dialoog elementen
+                    // Verwijder alle dialoog elementen
                     document.querySelectorAll('[role="dialog"], .tv-dialog, .js-dialog').forEach(dialog => {
                         try {
                             dialog.style.display = 'none';
@@ -213,7 +218,7 @@ const { chromium } = require('playwright');
                 // Roep de functie direct aan
                 removeAllDialogs();
                 
-                // Observer om nieuwe dialogen te verwijderen
+                // Stel een MutationObserver in om nieuwe elementen direct te verwijderen
                 const observer = new MutationObserver(mutations => {
                     for (const mutation of mutations) {
                         if (mutation.addedNodes && mutation.addedNodes.length) {
@@ -226,9 +231,9 @@ const { chromium } = require('playwright');
                 observer.observe(document.body, { childList: true, subtree: true });
             });
             
-            // Kortere wachttijd voor het laden van de pagina
+            // Kortere wachttijd voor de pagina - GEOPTIMALISEERD
             console.log('Waiting for page to render...');
-            await page.waitForTimeout(2500); // 2.5 seconden wachten (voorheen 5s)
+            await page.waitForTimeout(3000); // was 5000, nu 3 seconden wachten voor dialogen
             
             // Als fullscreen is ingeschakeld, verberg UI-elementen
             if (fullscreen) {
@@ -238,7 +243,7 @@ const { chromium } = require('playwright');
                     const header = document.querySelector('.tv-header');
                     if (header) header.style.display = 'none';
                     
-                    // Verberg andere UI-elementen
+                    // Verberg de toolbar, zijbalk en andere UI-elementen
                     const elementsToHide = [
                         '.tv-main-panel__toolbar',
                         '.tv-side-toolbar',
@@ -270,7 +275,7 @@ const { chromium } = require('playwright');
             await page.keyboard.press('F');
             await page.keyboard.up('Shift');
             
-            // Methode 2: CSS fullscreen (backup)
+            // CSS toevoegen om de chart te maximaliseren
             await page.addStyleTag({
                 content: `
                     /* Verberg header en toolbar */
@@ -289,23 +294,27 @@ const { chromium } = require('playwright');
                 `
             });
             
-            // Wacht tot de chart volledig is geladen (kortere timeout)
+            // Kortere wachttijd voor chart laden - GEOPTIMALISEERD
             console.log('Waiting for chart to be fully loaded...');
             try {
+                // Wacht maximaal 10 seconden op de chart (was 15 seconden)
                 const waitPromise = page.waitForFunction(() => {
                     const chartContainer = document.querySelector('.chart-container');
                     return chartContainer !== null;
-                }, { timeout: 10000 }); // 10s in plaats van 15s
+                }, { timeout: 10000 });
                 
+                // Stel een timeout in om te voorkomen dat we blijven wachten
                 const timeoutPromise = new Promise((resolve) => setTimeout(resolve, 10000));
+                
+                // Gebruik Promise.race om de eerste te nemen die voltooid is
                 await Promise.race([waitPromise, timeoutPromise]);
                 console.log('Chart loaded or timeout reached');
             } catch (e) {
                 console.log('Timeout waiting for chart, continuing anyway:', e);
             }
             
-            // Kortere stabiliteitswachttijd
-            await page.waitForTimeout(1000); // 1s in plaats van 2s
+            // Kortere stabilisatiewachttijd - GEOPTIMALISEERD
+            await page.waitForTimeout(1000); // Was 2000ms, nu 1000ms voor stabiliteit
             
             // Neem screenshot
             console.log('Taking screenshot...');
@@ -323,13 +332,15 @@ const { chromium } = require('playwright');
             } catch (screenshotError) {
                 console.error('Failed to take screenshot after error:', screenshotError);
             }
+        } finally {
+            // Sluit browser altijd netjes af - GEOPTIMALISEERD
+            await browser.close().catch(() => {});
         }
     } catch (error) {
         console.error('Fatal error:', error);
+        try {
+            if (browser) await browser.close().catch(() => {});
+        } catch (e) {}
         process.exit(1);
-    } finally {
-        if (browser) {
-            await browser.close().catch(e => console.error('Error closing browser:', e));
-        }
     }
 })();
