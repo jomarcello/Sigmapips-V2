@@ -1,35 +1,31 @@
-import json
-import os
-import re
-import time
-import logging
-import asyncio
-import numpy as np
-import aiohttp
-import datetime
-import traceback
-from io import BytesIO
-from typing import Dict, List, Tuple, Any, Optional, Union
-
-logger = logging.getLogger(__name__)
-
 print("Loading chart.py module...")
 
+import os
+import logging
+import aiohttp
 import random
+from typing import Optional, Union, Dict, List, Tuple, Any
 from urllib.parse import quote
+import asyncio
 import base64
 from io import BytesIO
 import matplotlib.pyplot as plt
 import pandas as pd
+import numpy as np
 import mplfinance as mpf
 from datetime import datetime, timedelta
+import time
+import json
 import pickle
 import hashlib
 import traceback
+import re
 from tradingview_ta import TA_Handler, Interval
 
 # Importeer alleen de base class
 from trading_bot.services.chart_service.base import TradingViewService
+
+logger = logging.getLogger(__name__)
 
 # Verwijder alle Yahoo Finance gerelateerde constanten
 OCR_CACHE_DIR = os.path.join('data', 'cache', 'ocr')
@@ -146,37 +142,18 @@ class ChartService:
             # Normaliseer instrument (verwijder /)
             instrument = instrument.upper().replace("/", "")
             
-            # Cache key voor chart caching
-            cache_key = f"{instrument}_{timeframe}_{fullscreen}"
-            
-            # Controleer of we al een chart in cache hebben
-            if hasattr(self, 'chart_cache') and cache_key in self.chart_cache:
-                cache_time, chart_data = self.chart_cache[cache_key]
-                # Cache is 5 minuten geldig (300 seconden)
-                if time.time() - cache_time < 300:
-                    logger.info(f"Using cached chart for {instrument} (age: {int(time.time() - cache_time)}s)")
-                    return chart_data
-            
-            # Gebruik de exacte TradingView link
+            # Gebruik de exacte TradingView link voor dit instrument zonder parameters toe te voegen
             tradingview_link = self.chart_links.get(instrument)
             if not tradingview_link:
                 # Als er geen specifieke link is, gebruik een generieke link
-                logger.info(f"Using generic link for {instrument}")
+                logger.warning(f"No specific link found for {instrument}, using generic link")
                 tradingview_link = f"https://www.tradingview.com/chart/?symbol={instrument}"
             
-            # Voeg eerst timeframe toe indien nodig
-            if timeframe:
-                tv_interval = {"1h": "60", "4h": "240", "1d": "D"}.get(timeframe, "60")
-                if "?" in tradingview_link:
-                    tradingview_link += f"&interval={tv_interval}"
-                else:
-                    tradingview_link += f"?interval={tv_interval}"
-            
-            # Bouw de volledige URL met uitgebreide fullscreen parameters
+            # Voeg fullscreen parameters toe aan de URL
             fullscreen_params = [
                 "fullscreen=true",
                 "hide_side_toolbar=true",
-                "hide_top_toolbar=true", 
+                "hide_top_toolbar=true",
                 "hide_legend=true",
                 "theme=dark",
                 "toolbar_bg=dark",
@@ -184,54 +161,35 @@ class ChartService:
                 "scale_mode=normal",
                 "studies=[]",
                 "hotlist=false",
-                "calendar=false",
-                "details=false",
-                "disabled_features=[]",
-                "enabled_features=[]"
+                "calendar=false"
             ]
             
             # Voeg de parameters toe aan de URL
-            seperator = "&" if "?" in tradingview_link else "?"
-            tradingview_link += seperator + "&".join(fullscreen_params)
+            if "?" in tradingview_link:
+                tradingview_link += "&" + "&".join(fullscreen_params)
+            else:
+                tradingview_link += "?" + "&".join(fullscreen_params)
             
-            logger.info(f"Using TradingView link: {tradingview_link}")
+            logger.info(f"Using exact TradingView link: {tradingview_link}")
             
-            # Probeer Node.js service direct
-            if hasattr(self, 'tradingview') and self.tradingview:
+            # Probeer eerst de Node.js service te gebruiken
+            if hasattr(self, 'tradingview') and self.tradingview and hasattr(self.tradingview, 'take_screenshot_of_url'):
                 try:
-                    logger.info(f"Taking screenshot with Node.js service")
-                    # Geef expliciet de fullscreen parameter door
-                    chart_image = await self.tradingview.take_screenshot_of_url(tradingview_link, fullscreen=fullscreen)
+                    logger.info(f"Taking screenshot with Node.js service: {tradingview_link}")
+                    chart_image = await self.tradingview.take_screenshot_of_url(tradingview_link, fullscreen=True)
                     if chart_image:
                         logger.info("Screenshot taken successfully with Node.js service")
-                        
-                        # Sla het bestand op voor debugging
-                        timestamp = int(time.time())
-                        output_dir = "data/charts"
-                        os.makedirs(output_dir, exist_ok=True)
-                        output_path = os.path.join(output_dir, f"{instrument.lower()}_{timeframe}_{timestamp}.png")
-                        
-                        with open(output_path, "wb") as f:
-                            f.write(chart_image)
-                        
-                        logger.info(f"Saved chart image to file: {output_path}, size: {len(chart_image)} bytes")
-                        
-                        # Cache het resultaat voor hergebruik
-                        if not hasattr(self, 'chart_cache'):
-                            self.chart_cache = {}
-                        self.chart_cache[cache_key] = (time.time(), chart_image)
-                        
                         return chart_image
                     else:
                         logger.error("Node.js screenshot is None")
                 except Exception as e:
                     logger.error(f"Error using Node.js for screenshot: {str(e)}")
             
-            # Als Node.js niet werkt, probeer Selenium alleen als het expliciet is geïnitialiseerd
+            # Als Node.js niet werkt, probeer Selenium
             if hasattr(self, 'tradingview_selenium') and self.tradingview_selenium and self.tradingview_selenium.is_initialized:
                 try:
-                    logger.info(f"Taking screenshot with Selenium")
-                    chart_image = await self.tradingview_selenium.get_screenshot(tradingview_link, fullscreen=fullscreen)
+                    logger.info(f"Taking screenshot with Selenium: {tradingview_link}")
+                    chart_image = await self.tradingview_selenium.get_screenshot(tradingview_link, fullscreen=True)
                     if chart_image:
                         logger.info("Screenshot taken successfully with Selenium")
                         return chart_image
@@ -249,7 +207,8 @@ class ChartService:
             import traceback
             logger.error(traceback.format_exc())
             
-            # Als er een fout optreedt, genereer een fallback chart
+            # Als er een fout optreedt, genereer een matplotlib chart
+            logger.warning(f"Error occurred, using fallback for {instrument}")
             return await self._generate_random_chart(instrument, timeframe)
 
     async def _fallback_chart(self, instrument, timeframe="1h"):
