@@ -131,84 +131,73 @@ class ChartService:
 
     async def get_chart(self, instrument: str, timeframe: str = "1h", fullscreen: bool = False) -> bytes:
         """Get chart image for instrument and timeframe"""
+        # Check caching first (in-memory cache)
+        cache_key = f"{instrument}_{timeframe}_{fullscreen}"
+        
+        # Controleer of deze configuratie in cache zit en nog geldig is
+        if hasattr(self, '_chart_cache') and cache_key in self._chart_cache:
+            cache_entry = self._chart_cache[cache_key]
+            # Check if cache is still valid (60 seconds cache)
+            if time.time() - cache_entry['timestamp'] < 60:
+                logger.info(f"Using cached chart for {instrument} ({timeframe})")
+                return cache_entry['data']
+        
         try:
-            logger.info(f"Getting chart for {instrument} ({timeframe}) fullscreen: {fullscreen}")
-            
-            # Zorg ervoor dat de services zijn geïnitialiseerd
-            if not hasattr(self, 'tradingview') or not self.tradingview:
-                logger.info("Services not initialized, initializing now")
+            # Load services only if needed (lazy initialization)
+            if not hasattr(self, 'tradingview') or not self.tradingview or not self.tradingview.is_initialized:
                 await self.initialize()
             
             # Normaliseer instrument (verwijder /)
             instrument = instrument.upper().replace("/", "")
             
-            # Gebruik de exacte TradingView link voor dit instrument zonder parameters toe te voegen
+            # Gebruik de exacte TradingView link voor dit instrument (indien beschikbaar)
             tradingview_link = self.chart_links.get(instrument)
             if not tradingview_link:
-                # Als er geen specifieke link is, gebruik een generieke link
-                logger.warning(f"No specific link found for {instrument}, using generic link")
+                # Als er geen specifieke link is, gebruik een generieke link (sneller pad)
                 tradingview_link = f"https://www.tradingview.com/chart/?symbol={instrument}"
+                if timeframe:
+                    tv_interval = self.interval_map.get(timeframe, "D") if hasattr(self, 'interval_map') else "D"
+                    tradingview_link += f"&interval={tv_interval}"
             
-            # Voeg fullscreen parameters toe aan de URL
-            fullscreen_params = [
-                "fullscreen=true",
-                "hide_side_toolbar=true",
-                "hide_top_toolbar=true",
-                "hide_legend=true",
-                "theme=dark",
-                "toolbar_bg=dark",
-                "scale_position=right",
-                "scale_mode=normal",
-                "studies=[]",
-                "hotlist=false",
-                "calendar=false"
-            ]
+            # Als fullscreen = True, voeg het direct toe aan URL voor snellere verwerking
+            if fullscreen:
+                if "?" in tradingview_link:
+                    tradingview_link += "&fullscreen=true"
+                else:
+                    tradingview_link += "?fullscreen=true"
             
-            # Voeg de parameters toe aan de URL
-            if "?" in tradingview_link:
-                tradingview_link += "&" + "&".join(fullscreen_params)
-            else:
-                tradingview_link += "?" + "&".join(fullscreen_params)
+            # Gebruik de Node.js service (sneller dan Selenium)
+            try:
+                chart_image = await self.tradingview.take_screenshot_of_url(tradingview_link, fullscreen=fullscreen)
+                if chart_image:
+                    # Cache het resultaat
+                    if not hasattr(self, '_chart_cache'):
+                        self._chart_cache = {}
+                    
+                    # Cache voor 60 seconden
+                    self._chart_cache[cache_key] = {
+                        'data': chart_image,
+                        'timestamp': time.time()
+                    }
+                    
+                    # Clean cache indien te groot (max 20 items)
+                    if len(self._chart_cache) > 20:
+                        # Verwijder oudste items
+                        oldest_keys = sorted(self._chart_cache.keys(), 
+                                            key=lambda k: self._chart_cache[k]['timestamp'])[:5]
+                        for key in oldest_keys:
+                            del self._chart_cache[key]
+                    
+                    return chart_image
+            except Exception as e:
+                logger.error(f"Error using Node.js for screenshot: {str(e)}")
             
-            logger.info(f"Using exact TradingView link: {tradingview_link}")
-            
-            # Probeer eerst de Node.js service te gebruiken
-            if hasattr(self, 'tradingview') and self.tradingview and hasattr(self.tradingview, 'take_screenshot_of_url'):
-                try:
-                    logger.info(f"Taking screenshot with Node.js service: {tradingview_link}")
-                    chart_image = await self.tradingview.take_screenshot_of_url(tradingview_link, fullscreen=True)
-                    if chart_image:
-                        logger.info("Screenshot taken successfully with Node.js service")
-                        return chart_image
-                    else:
-                        logger.error("Node.js screenshot is None")
-                except Exception as e:
-                    logger.error(f"Error using Node.js for screenshot: {str(e)}")
-            
-            # Als Node.js niet werkt, probeer Selenium
-            if hasattr(self, 'tradingview_selenium') and self.tradingview_selenium and self.tradingview_selenium.is_initialized:
-                try:
-                    logger.info(f"Taking screenshot with Selenium: {tradingview_link}")
-                    chart_image = await self.tradingview_selenium.get_screenshot(tradingview_link, fullscreen=True)
-                    if chart_image:
-                        logger.info("Screenshot taken successfully with Selenium")
-                        return chart_image
-                    else:
-                        logger.error("Selenium screenshot is None")
-                except Exception as e:
-                    logger.error(f"Error using Selenium for screenshot: {str(e)}")
-            
-            # Als beide services niet werken, gebruik een fallback methode
+            # Fallback naar matplotlib chart - alleen als strikt noodzakelijk
             logger.warning(f"All screenshot services failed, using fallback for {instrument}")
             return await self._generate_random_chart(instrument, timeframe)
         
         except Exception as e:
             logger.error(f"Error getting chart: {str(e)}")
-            import traceback
-            logger.error(traceback.format_exc())
-            
-            # Als er een fout optreedt, genereer een matplotlib chart
-            logger.warning(f"Error occurred, using fallback for {instrument}")
             return await self._generate_random_chart(instrument, timeframe)
 
     async def _fallback_chart(self, instrument, timeframe="1h"):
@@ -232,27 +221,35 @@ class ChartService:
     async def initialize(self):
         """Initialize the chart service"""
         try:
-            logger.info("Initializing chart service")
-            
-            # Initialiseer de TradingView Node.js service
+            # Initialiseer de TradingView Node.js service direct zonder Selenium
             from trading_bot.services.chart_service.tradingview_node import TradingViewNodeService
             self.tradingview = TradingViewNodeService()
             node_initialized = await self.tradingview.initialize()
             
-            if node_initialized:
-                logger.info("Node.js service initialized successfully")
-            else:
-                logger.error("Node.js service initialization returned False")
-            
-            # Sla Selenium initialisatie over vanwege ChromeDriver compatibiliteitsproblemen
-            logger.warning("Skipping Selenium initialization due to ChromeDriver compatibility issues")
-            self.tradingview_selenium = None
-            
-            # Als geen van beide services is geïnitialiseerd, gebruik matplotlib fallback
-            if not node_initialized and not getattr(self, 'tradingview_selenium', None):
-                logger.warning("Using matplotlib fallback")
-            
+            if not node_initialized:
+                logger.error("Node.js service initialization failed")
+                
+            # Initialiseer in-memory cache
+            if not hasattr(self, '_chart_cache'):
+                self._chart_cache = {}
+                
+            # Initialiseer de interval mapping als die niet bestaat
+            if not hasattr(self, 'interval_map'):
+                self.interval_map = {
+                    "1m": "1",
+                    "5m": "5",
+                    "15m": "15",
+                    "30m": "30",
+                    "1h": "60",
+                    "2h": "120",
+                    "4h": "240",
+                    "1d": "D",
+                    "1w": "W",
+                    "1M": "M"
+                }
+                
             return True
+            
         except Exception as e:
             logger.error(f"Error initializing chart service: {str(e)}")
             return False
