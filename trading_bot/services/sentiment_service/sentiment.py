@@ -172,7 +172,7 @@ class MarketSentimentService:
         
         # Load cache from disk if persistent caching is enabled
         if self.use_persistent_cache:
-            self._load_cache_from_disk()
+            self._load_cache_from_file()
         
         # Background task lock to prevent multiple saves at once
         self._cache_lock = threading.Lock()
