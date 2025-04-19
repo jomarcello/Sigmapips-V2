@@ -223,14 +223,14 @@ class TradingViewNodeService(TradingViewService):
             
             # Schakel fullscreen in door de parameter direct aan de URL toe te voegen
             # Dit is efficiënter dan twee parameters doorgeven
-            if fullscreen and "fullscreen=true" not in url:
+            if "fullscreen=true" not in url:
                 if "?" in url:
                     url += "&fullscreen=true"
                 else:
                     url += "?fullscreen=true"
             
-            # Bouw het commando
-            cmd = f"node {self.script_path} \"{url}\" \"{screenshot_path}\" \"{self.session_id}\""
+            # Bouw het commando - ALTIJD fullscreen parameter meegeven
+            cmd = f"node {self.script_path} \"{url}\" \"{screenshot_path}\" \"{self.session_id}\" fullscreen"
             
             # Beperkte logging voor snelheid
             logger.debug(f"Running command with url: {url}")
