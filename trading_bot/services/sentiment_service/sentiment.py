@@ -170,9 +170,9 @@ class MarketSentimentService:
         # Initialize cache for sentiment data
         self.sentiment_cache = {}  # Format: {instrument: {'data': sentiment_data, 'timestamp': creation_time}}
         
-        # Load cache from disk if persistent caching is enabled
-        if self.use_persistent_cache:
-            self._load_cache_from_file()
+        # Load cache from disk if persistent caching is enabled - but don't block startup
+        # Instead of loading here, we'll provide an async method to load the cache
+        self.cache_loaded = False
         
         # Background task lock to prevent multiple saves at once
         self._cache_lock = threading.Lock()
@@ -2561,6 +2561,28 @@ De percentages moeten optellen tot 100. Geef alleen de JSON terug zonder extra t
             'news_headlines': [],
             'analysis': formatted_text
         }
+
+    async def load_cache(self):
+        """
+        Asynchronously load cache from file
+        This can be called after initialization to load the cache without blocking startup
+        
+        Returns:
+            bool: True if cache was loaded successfully, False otherwise
+        """
+        if not self.use_persistent_cache or not self.cache_file or self.cache_loaded:
+            return False
+            
+        try:
+            # Run the load operation in a thread pool to avoid blocking the event loop
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(None, self._load_cache_from_file)
+            self.cache_loaded = True
+            logger.info(f"Asynchronously loaded {len(self.sentiment_cache)} sentiment cache entries")
+            return True
+        except Exception as e:
+            logger.error(f"Error loading sentiment cache asynchronously: {str(e)}")
+            return False
 
 class TavilyClient:
     """A simple wrapper for the Tavily API that handles errors properly"""
