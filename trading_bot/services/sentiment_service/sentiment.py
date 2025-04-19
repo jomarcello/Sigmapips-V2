@@ -110,10 +110,9 @@ class MarketSentimentService:
                 "<b>Market Sentiment Breakdown:</b>",
                 "🟢 Bullish:",
                 "🔴 Bearish:",
+                "<b>📊 Market Sentiment Analysis:</b>",
                 "<b>📰 Key Sentiment Drivers:</b>",
-                "<b>📊 Market Mood:</b>",
-                "<b>📅 Important Events & News:</b>",
-                "<b>🔮 Sentiment Outlook:</b>"
+                "<b>📅 Important Events & News:</b>"
             ]
             
             for section in required_sections:
@@ -855,21 +854,18 @@ Your response MUST follow this EXACT format with EXACTLY this HTML formatting (k
 🔴 Bearish: YY%
 ⚪️ Neutral: ZZ%
 
+<b>📊 Market Sentiment Analysis:</b>
+[Brief description of the current market sentiment and outlook without specific price targets]
+
 <b>📰 Key Sentiment Drivers:</b>
 • [Key sentiment factor 1]
 • [Key sentiment factor 2]
 • [Key sentiment factor 3]
 
-<b>📊 Market Mood:</b>
-[Brief description of the current market mood and sentiment]
-
 <b>📅 Important Events & News:</b>
 • [News event 1]
 • [News event 2]
 • [News event 3]
-
-<b>🔮 Sentiment Outlook:</b>
-[General sentiment outlook without specific price targets or trading recommendations]
 
 DO NOT mention any specific price levels, numeric values, resistance/support levels, or trading recommendations. Focus ONLY on NEWS, EVENTS, and SENTIMENT information.
 
@@ -912,10 +908,9 @@ I will check your output to ensure you have followed the EXACT format required. 
                         required_sections = [
                             ("<b>Overall Sentiment:</b>", f"<b>Overall Sentiment:</b> Neutral ➡️\n\n"),
                             ("<b>Market Sentiment Breakdown:</b>", f"<b>Market Sentiment Breakdown:</b>\n🟢 Bullish: 50%\n🔴 Bearish: 50%\n⚪️ Neutral: 0%\n\n"),
+                            ("<b>📊 Market Sentiment Analysis:</b>", f"<b>📊 Market Sentiment Analysis:</b>\n{instrument} is currently showing mixed signals with no clear sentiment bias. The market shows balanced sentiment with no strong directional bias at this time.\n\n"),
                             ("<b>📰 Key Sentiment Drivers:</b>", f"<b>📰 Key Sentiment Drivers:</b>\n• Market conditions appear normal with mixed signals\n• No clear directional bias at this time\n• Standard market activity observed\n\n"),
-                            ("<b>📊 Market Mood:</b>", f"<b>📊 Market Mood:</b>\n{instrument} is currently showing mixed signals with no clear sentiment bias.\n\n"),
-                            ("<b>📅 Important Events & News:</b>", f"<b>📅 Important Events & News:</b>\n• Normal market activity with no major catalysts\n• No significant economic releases impacting the market\n• General news and global trends affecting sentiment\n\n"),
-                            ("<b>🔮 Sentiment Outlook:</b>", f"<b>🔮 Sentiment Outlook:</b>\nThe market shows balanced sentiment for {instrument} with no strong directional bias at this time.\n")
+                            ("<b>📅 Important Events & News:</b>", f"<b>📅 Important Events & News:</b>\n• Normal market activity with no major catalysts\n• No significant economic releases impacting the market\n• General news and global trends affecting sentiment\n")
                         ]
                         
                         for section, default_content in required_sections:
@@ -956,9 +951,29 @@ I will check your output to ensure you have followed the EXACT format required. 
                         
                         # Fix section titles to ensure correct emoji
                         response_content = response_content.replace("<b>Key Sentiment Drivers:</b>", "<b>📰 Key Sentiment Drivers:</b>")
-                        response_content = response_content.replace("<b>Market Mood:</b>", "<b>📊 Market Mood:</b>")
+                        response_content = response_content.replace("<b>Market Mood:</b>", "<b>📊 Market Sentiment Analysis:</b>")
                         response_content = response_content.replace("<b>Important Events & News:</b>", "<b>📅 Important Events & News:</b>")
-                        response_content = response_content.replace("<b>Sentiment Outlook:</b>", "<b>🔮 Sentiment Outlook:</b>")
+                        
+                        # Remove Sentiment Outlook if it exists and hasn't been caught by disallowed sections
+                        if "<b>🔮 Sentiment Outlook:</b>" in response_content or "<b>Sentiment Outlook:</b>" in response_content:
+                            for pattern in ["<b>🔮 Sentiment Outlook:</b>", "<b>Sentiment Outlook:</b>"]:
+                                if pattern in response_content:
+                                    start_idx = response_content.find(pattern)
+                                    end_idx = len(response_content)
+                                    
+                                    # Try to find the next section that starts with <b>
+                                    next_section = response_content.find("<b>", start_idx + 1)
+                                    if next_section != -1:
+                                        end_idx = next_section
+                                    
+                                    # Remove the section
+                                    response_content = response_content[:start_idx] + response_content[end_idx:]
+                                    logger.info(f"Removed deprecated section: {pattern}")
+                        
+                        # If Market Sentiment Analysis is not present, rename Market Mood to it
+                        if "<b>📊 Market Sentiment Analysis:</b>" not in response_content and "<b>📊 Market Mood:</b>" in response_content:
+                            response_content = response_content.replace("<b>📊 Market Mood:</b>", "<b>📊 Market Sentiment Analysis:</b>")
+                            logger.info("Renamed Market Mood to Market Sentiment Analysis")
                         
                         # Extract and validate sentiment percentages
                         bullish_match = re.search(r'(?:Bullish:|🟢\s*Bullish:)\s*(\d+)\s*%', response_content)
@@ -1738,21 +1753,18 @@ Monitor market developments for potential sentiment shifts.
 🔴 Bearish: 50%
 ⚪️ Neutral: 0%
 
+<b>📊 Market Sentiment Analysis:</b>
+{instrument} is currently showing mixed signals with no clear sentiment bias. The market shows balanced sentiment with no strong directional bias at this time.
+
 <b>📰 Key Sentiment Drivers:</b>
 • Market conditions appear normal with mixed signals
 • No clear directional bias at this time
 • Standard market activity observed
 
-<b>📊 Market Mood:</b>
-{instrument} is currently showing mixed signals with no clear sentiment bias.
-
 <b>📅 Important Events & News:</b>
 • Normal market activity with no major catalysts
 • No significant economic releases impacting the market
 • General news and global trends affecting sentiment
-
-<b>🔮 Sentiment Outlook:</b>
-The market shows balanced sentiment for {instrument} with no strong directional bias at this time.
 """
 
 class TavilyClient:
