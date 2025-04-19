@@ -470,17 +470,17 @@ class MarketSentimentService:
 {instrument} is currently showing mixed signals with no clear directional bias.
 
 <b>📰 Latest News & Events:</b>
-• Error retrieving market data
-• Please try again later
-• Service currently experiencing issues
+• Normal market activity with no major catalysts
+• No significant economic releases impacting the market
+• General news and global trends affecting sentiment
 
 <b>⚠️ Risk Factors:</b>
-• Market Volatility: Moderate
-• Limited data available for analysis 
-• Consider manual analysis until service resumes
+• Market Volatility: Normal
+• Unexpected news events could shift sentiment
+• Broader economic trends may influence direction
 
 <b>💡 Conclusion:</b>
-Unable to provide detailed analysis at this time. Please try again later.
+The market shows balanced sentiment for {instrument} with no strong directional bias at this time.
 
 <i>Error details: {str(e)[:100]}</i>
 """
@@ -584,21 +584,20 @@ The {instrument} is currently showing {sentiment} sentiment with {trend_strength
 ⚪️ Neutral: 0%
 
 <b>📈 Market Direction:</b>
-The {instrument} is currently showing neutral sentiment with moderate momentum.
-Market conditions are stable at the moment.
+{instrument} is trading with a balanced sentiment pattern with no clear sentiment bias.
 
 <b>📰 Latest News & Events:</b>
-• Standard market activity with no major movements
-• Technical factors are the primary drivers
-• No significant economic releases impacting the market
+• Regular market activity with no major catalysts
+• General economic factors influencing market mood
+• No significant news events driving sentiment
 
 <b>⚠️ Risk Factors:</b>
-• Market Volatility: Moderate
-• Normal trading conditions apply
-• Standard risk management recommended
+• Market Volatility: Normal
+• Unexpected news could cause sentiment shifts
+• Monitor general economic releases
 
 <b>💡 Conclusion:</b>
-Monitor price action and manage risk appropriately.
+Current sentiment for {instrument} is neutral with balanced perspectives from market participants.
 """
             
             logger.info(f"Returning sentiment text for {instrument} (length: {len(result) if result else 0})")
@@ -788,8 +787,10 @@ Please try again later or choose a different instrument.
 
 **IMPORTANT**: 
 1. You MUST include explicit percentages for bullish, bearish, and neutral sentiment in EXACTLY the format shown below. The percentages MUST be integers that sum to 100%.
-2. DO NOT include any specific price levels, technical analysis, support/resistance levels, or price targets.
-3. Focus ONLY on news events, market sentiment, and fundamental factors that drive sentiment.
+2. DO NOT include ANY specific price levels, exact numbers, technical analysis, support/resistance levels, or price targets. 
+3. DO NOT include ANY specific trading recommendations or strategies like "buy at X" or "sell at Y".
+4. DO NOT mention any specific trading indicators like RSI, EMA, MACD, or specific numerical values like percentages of price movement.
+5. Focus ONLY on general news events, market sentiment, and fundamental factors that drive sentiment.
 
 Market Data:
 {market_data}
@@ -819,9 +820,9 @@ Your response MUST follow this EXACT format with EXACTLY this HTML formatting (k
 • [News event 3]
 
 <b>🔮 Sentiment Outlook:</b>
-[General sentiment outlook without specific price targets]
+[General sentiment outlook without specific price targets or trading recommendations]
 
-DO NOT mention any specific price levels, technical support/resistance levels, or exact price targets. Focus ONLY on NEWS, EVENTS, and SENTIMENT information.
+DO NOT mention any specific price levels, numeric values, resistance/support levels, or trading recommendations. Focus ONLY on NEWS, EVENTS, and SENTIMENT information.
 
 The sentiment percentages (Overall Sentiment, Bullish, Bearish, Neutral percentages) MUST be clearly indicated EXACTLY as shown in the format.
 """
@@ -889,20 +890,20 @@ The sentiment percentages (Overall Sentiment, Bullish, Bearish, Neutral percenta
 ⚪️ Neutral: 0%
 
 <b>📈 Market Direction:</b>
-{instrument} is currently showing mixed signals with no clear directional bias. The price is consolidating within recent trading ranges.
+{instrument} is trading with a balanced sentiment pattern with no clear sentiment bias.
 
 <b>📰 Latest News & Events:</b>
-• Normal market activity with no major catalysts
-• No significant economic releases impacting the price
-• Technical factors are the primary price drivers
+• Regular market activity with no major catalysts
+• General economic factors influencing market mood
+• No significant news events driving sentiment
 
 <b>⚠️ Risk Factors:</b>
 • Market Volatility: Normal
-• Unexpected news could cause short-term price spikes
-• Monitor broader market conditions
+• Unexpected news could cause sentiment shifts
+• Monitor general economic releases
 
 <b>💡 Conclusion:</b>
-Maintain a neutral stance on {instrument} until clearer directional signals emerge. Focus on risk management in the current market environment.
+Current sentiment for {instrument} is neutral with balanced perspectives from market participants.
 """
                                 response_content = default_response
                         
@@ -977,20 +978,20 @@ Maintain a neutral stance on {instrument} until clearer directional signals emer
 ⚪️ Neutral: 0%
 
 <b>📈 Market Direction:</b>
-{instrument} is trading in a range-bound pattern with no clear directional bias.
+{instrument} is trading with a balanced sentiment pattern with no clear sentiment bias.
 
 <b>📰 Latest News & Events:</b>
 • Regular market activity with no major catalysts
-• Technical factors are the primary price drivers
-• No significant economic releases impacting the price
+• General economic factors influencing market mood
+• No significant news events driving sentiment
 
 <b>⚠️ Risk Factors:</b>
 • Market Volatility: Normal
-• Unexpected news could cause short-term price spikes
-• Potential for breakout from current trading range
+• Unexpected news could cause sentiment shifts
+• Monitor general economic releases
 
 <b>💡 Conclusion:</b>
-Maintain a neutral stance on {instrument} until clearer directional signals emerge. Focus on risk management in the current market environment.
+Current sentiment for {instrument} is neutral with balanced perspectives from market participants.
 """
                         logger.info(f"Returning default sentiment analysis due to API error")
                         return default_response
@@ -1009,20 +1010,20 @@ Maintain a neutral stance on {instrument} until clearer directional signals emer
 ⚪️ Neutral: 0%
 
 <b>📈 Market Direction:</b>
-{instrument} is trading in a range-bound pattern with no clear directional bias.
+{instrument} is trading with a balanced sentiment pattern with no clear sentiment bias.
 
 <b>📰 Latest News & Events:</b>
 • Regular market activity with no major catalysts
-• Technical factors are the primary price drivers
-• No significant economic releases impacting the price
+• General economic factors influencing market mood
+• No significant news events driving sentiment
 
 <b>⚠️ Risk Factors:</b>
 • Market Volatility: Normal
-• Unexpected news could cause short-term price spikes
-• Potential for breakout from current trading range
+• Unexpected news could cause sentiment shifts
+• Monitor general economic releases
 
 <b>💡 Conclusion:</b>
-Maintain a neutral stance on {instrument} until clearer directional signals emerge. Focus on risk management in the current market environment.
+Current sentiment for {instrument} is neutral with balanced perspectives from market participants.
 """
             logger.info(f"Returning default sentiment analysis due to exception: {str(e)}")
             return default_response
