@@ -647,6 +647,383 @@ De percentages moeten optellen tot 100. Geef alleen de JSON terug zonder extra t
         except Exception as e:
             logger.error(f"Unexpected error loading sentiment cache: {str(e)}")
     
+    def _get_from_cache(self, instrument: str) -> Optional[Dict[str, Any]]:
+        """
+        Get sentiment data from cache if available and not expired
+        
+        Args:
+            instrument: The instrument to get data for
+            
+        Returns:
+            Dict with sentiment data or None if not available/expired
+        """
+        if not instrument or not isinstance(instrument, str):
+            return None
+            
+        instrument = instrument.upper()
+        
+        # Check if we have this instrument in cache
+        if instrument not in self.sentiment_cache:
+            return None
+            
+        cache_entry = self.sentiment_cache[instrument]
+        
+        # Check if entry is valid
+        if not isinstance(cache_entry, dict) or 'data' not in cache_entry or 'timestamp' not in cache_entry:
+            # Invalid entry, remove it
+            del self.sentiment_cache[instrument]
+            return None
+            
+        # Check if entry is expired
+        timestamp = cache_entry.get('timestamp', 0)
+        if time.time() - timestamp > self.cache_ttl:
+            # Expired entry, remove it
+            del self.sentiment_cache[instrument]
+            return None
+            
+        # Return the cached data
+        return cache_entry.get('data')
+    
+    def _add_to_cache(self, instrument: str, data: Dict[str, Any]) -> None:
+        """
+        Add sentiment data to cache
+        
+        Args:
+            instrument: The instrument to cache data for
+            data: The sentiment data to cache
+        """
+        if not instrument or not isinstance(instrument, str) or not data:
+            return
+            
+        instrument = instrument.upper()
+        
+        # Create cache entry
+        cache_entry = {
+            'data': data,
+            'timestamp': time.time()
+        }
+        
+        # Add to cache
+        self.sentiment_cache[instrument] = cache_entry
+        
+        # Save cache to disk if persistent caching is enabled
+        if self.use_persistent_cache and self.cache_file:
+            # Use background thread to avoid blocking
+            threading.Thread(
+                target=self._save_cache_to_file,
+                name=f"cache_save_{instrument}",
+                daemon=True
+            ).start()
+    
+    def _save_cache_to_file(self) -> None:
+        """
+        Save the current cache to disk file
+        This is called in a background thread to avoid blocking
+        """
+        if not self.use_persistent_cache or not self.cache_file:
+            return
+            
+        # Use lock to prevent multiple saves at once
+        if not self._cache_lock.acquire(blocking=False):
+            logger.debug("Cache save already in progress, skipping")
+            return
+            
+        try:
+            # Create directory if needed
+            os.makedirs(self.cache_file.parent, exist_ok=True)
+            
+            # Write cache to file
+            with open(self.cache_file, 'w') as f:
+                json.dump(self.sentiment_cache, f)
+                
+            logger.debug(f"Saved {len(self.sentiment_cache)} sentiment cache entries to {self.cache_file}")
+        except Exception as e:
+            logger.error(f"Error saving sentiment cache to file: {str(e)}")
+        finally:
+            self._cache_lock.release()
+    
+    def _guess_market_from_instrument(self, instrument: str) -> str:
+        """
+        Try to determine the market type from the instrument name
+        
+        Args:
+            instrument: The instrument name (e.g., 'EURUSD')
+            
+        Returns:
+            str: Market type (forex, crypto, indices, commodities)
+        """
+        instrument = instrument.upper() if instrument else ""
+        
+        # Check for common forex pairs
+        forex_pairs = ['USD', 'EUR', 'GBP', 'JPY', 'AUD', 'CAD', 'CHF', 'NZD']
+        if len(instrument) == 6 and any(instrument.startswith(pair) for pair in forex_pairs) and any(instrument.endswith(pair) for pair in forex_pairs):
+            return 'forex'
+            
+        # Check for crypto
+        crypto_currencies = ['BTC', 'ETH', 'SOL', 'DOT', 'ADA', 'DOGE', 'XRP']
+        if any(crypto in instrument for crypto in crypto_currencies) or instrument.endswith('USD') and not instrument.startswith('X'):
+            return 'crypto'
+            
+        # Check for commodities
+        commodities = {
+            'XAUUSD': 'commodities',  # Gold
+            'XAGUSD': 'commodities',  # Silver
+            'USOIL': 'commodities',   # US Oil
+            'BRENT': 'commodities',   # Brent Oil
+            'NGAS': 'commodities'     # Natural Gas
+        }
+        if instrument in commodities:
+            return commodities[instrument]
+            
+        # Check for indices
+        indices = {
+            'US30': 'indices',     # Dow Jones
+            'US500': 'indices',    # S&P 500
+            'US100': 'indices',    # Nasdaq
+            'GER30': 'indices',    # DAX
+            'UK100': 'indices',    # FTSE 100
+            'JPN225': 'indices',   # Nikkei
+            'AUS200': 'indices',   # ASX 200
+            'STOXX50': 'indices',  # Euro Stoxx 50
+            'HK50': 'indices'      # Hang Seng
+        }
+        if instrument in indices:
+            return indices[instrument]
+            
+        # Default to forex if we can't determine
+        logger.info(f"Could not determine market type for {instrument}, defaulting to forex")
+        return 'forex'
+    
+    async def _get_tavily_news(self, query: str) -> str:
+        """
+        Get news content from Tavily API for a given search query
+        
+        Args:
+            query: The search query to use
+            
+        Returns:
+            str: Formatted news content or empty string if failed
+        """
+        start_time = time.time()
+        
+        if not self.tavily_client or not self.tavily_api_key:
+            logger.warning("No Tavily API client available")
+            return ""
+            
+        try:
+            # Make the API request
+            response = await self.tavily_client.search(
+                query=query,
+                search_depth="advanced",
+                include_answer=True,
+                include_images=False,
+                max_results=8
+            )
+            
+            # Record API call duration
+            self.metrics.record_api_call('tavily', time.time() - start_time)
+            
+            if not response:
+                logger.error(f"No response from Tavily API for query: {query}")
+                return ""
+                
+            # Extract content from response
+            content = response.get('answer', '')
+            
+            # Add sources if available
+            sources = response.get('results', [])
+            if sources:
+                content += "\n\nSources:\n"
+                for idx, source in enumerate(sources[:3], 1):
+                    title = source.get('title', 'No title')
+                    url = source.get('url', '')
+                    content += f"{idx}. {title} - {url}\n"
+                    
+            return content
+            
+        except Exception as e:
+            logger.error(f"Error in Tavily news retrieval: {str(e)}")
+            return ""
+    
+    def _format_data_manually(self, content: str, instrument: str) -> str:
+        """
+        Format the raw news content into a more structured format
+        
+        Args:
+            content: The raw news content
+            instrument: The instrument being analyzed
+            
+        Returns:
+            str: Formatted content
+        """
+        if not content:
+            return f"No data available for {instrument}."
+            
+        # Simple formatting to ensure consistent structure
+        formatted = f"Market Analysis for {instrument}:\n\n"
+        
+        # Split content into paragraphs and keep only the first few
+        paragraphs = content.split('\n\n')
+        main_content = '\n\n'.join(paragraphs[:min(5, len(paragraphs))])
+        
+        formatted += main_content
+        
+        # Add sources if present
+        if "Sources:" in content:
+            sources_part = content.split("Sources:")[1] if len(content.split("Sources:")) > 1 else ""
+            if sources_part:
+                formatted += f"\n\nSources: {sources_part}"
+                
+        return formatted
+    
+    async def _format_with_deepseek(self, instrument: str, market_type: str, content: str) -> str:
+        """
+        Format content with DeepSeek API to extract sentiment
+        
+        Args:
+            instrument: The trading instrument
+            market_type: Type of market (forex, crypto, etc.)
+            content: The content to analyze
+            
+        Returns:
+            str: HTML-formatted sentiment analysis
+        """
+        start_time = time.time()
+        
+        if not self.deepseek_api_key:
+            logger.warning(f"No DeepSeek API key available for sentiment analysis of {instrument}")
+            # Return a basic formatted version of the content
+            return self._create_fallback_sentiment(instrument, content)
+            
+        try:
+            # Prepare prompt for DeepSeek
+            system_prompt = """You are a financial market analyzer. Analyze market sentiment and generate a concise, 
+            well-structured analysis with the following sections:
+            1. Overall Sentiment (bullish, bearish, or neutral with emoji)
+            2. Market Sentiment Breakdown (percentages for bullish, bearish, neutral)
+            3. Key Sentiment Drivers (bullet points)
+            4. Market Mood (concise description)
+            Format the response in HTML with appropriate bold tags and emojis."""
+            
+            user_prompt = f"""Analyze the market sentiment for {instrument} ({market_type} market) based on the following information:
+
+{content}
+
+Determine if the overall sentiment is bullish, bearish, or neutral. 
+Provide percentages for bullish, bearish, and neutral sentiment that add up to 100%.
+Give specific reasons for the sentiment in the Key Sentiment Drivers section.
+Keep the analysis concise but informative and format as HTML with <b></b> tags for headers.
+"""
+            
+            # Prepare API request
+            headers = {
+                'Content-Type': 'application/json',
+                'Authorization': f'Bearer {self.deepseek_api_key}'
+            }
+            
+            payload = {
+                'model': 'deepseek-chat',
+                'messages': [
+                    {'role': 'system', 'content': system_prompt},
+                    {'role': 'user', 'content': user_prompt}
+                ],
+                'temperature': 0.3,
+                'max_tokens': 500
+            }
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    self.deepseek_url,
+                    headers=headers,
+                    json=payload,
+                    timeout=self.request_timeout
+                ) as response:
+                    if response.status != 200:
+                        logger.error(f"DeepSeek API error: {response.status}, {await response.text()}")
+                        return self._create_fallback_sentiment(instrument, content)
+                    
+                    data = await response.json()
+            
+            # Record API call duration
+            self.metrics.record_api_call('deepseek', time.time() - start_time)
+            
+            # Extract the formatted content
+            formatted_content = data.get('choices', [{}])[0].get('message', {}).get('content', '')
+            
+            if not formatted_content:
+                return self._create_fallback_sentiment(instrument, content)
+                
+            # Ensure we have the key sections in the result
+            if '<b>Overall Sentiment:</b>' not in formatted_content:
+                # Add a proper header if missing
+                formatted_content = f"<b>🎯 {instrument} Market Analysis</b>\n\n" + formatted_content
+                
+            return formatted_content
+            
+        except Exception as e:
+            logger.error(f"Error in DeepSeek formatting: {str(e)}")
+            return self._create_fallback_sentiment(instrument, content)
+    
+    def _create_fallback_sentiment(self, instrument: str, content: str) -> str:
+        """
+        Create a fallback sentiment analysis when DeepSeek API fails
+        
+        Args:
+            instrument: The trading instrument
+            content: The raw content
+            
+        Returns:
+            str: Basic formatted sentiment analysis
+        """
+        # Use a simple keyword-based approach for fallback
+        bullish_keywords = ['up', 'rise', 'bull', 'growth', 'positive', 'gain', 'increase', 'higher']
+        bearish_keywords = ['down', 'fall', 'bear', 'decline', 'negative', 'loss', 'decrease', 'lower']
+        
+        # Count occurrences of keywords
+        bullish_count = sum(content.lower().count(keyword) for keyword in bullish_keywords)
+        bearish_count = sum(content.lower().count(keyword) for keyword in bearish_keywords)
+        
+        total_count = bullish_count + bearish_count
+        if total_count == 0:
+            # No clear sentiment, default to neutral
+            bullish_pct = 50
+            bearish_pct = 30
+            neutral_pct = 20
+            sentiment = "Neutral ⚖️"
+        else:
+            # Calculate percentages
+            bullish_pct = int(min(100, max(0, (bullish_count / total_count) * 100)))
+            bearish_pct = int(min(100, max(0, (bearish_count / total_count) * 100)))
+            neutral_pct = 100 - bullish_pct - bearish_pct
+            
+            # Determine overall sentiment
+            if bullish_pct > bearish_pct + 20:
+                sentiment = "Bullish 📈"
+            elif bearish_pct > bullish_pct + 20:
+                sentiment = "Bearish 📉"
+            else:
+                sentiment = "Neutral ⚖️"
+                
+        # Create the formatted content
+        summary = content[:200] + "..." if len(content) > 200 else content
+        
+        formatted = f"""<b>🎯 {instrument} Market Analysis</b>
+
+<b>Overall Sentiment:</b> {sentiment}
+
+<b>Market Sentiment Breakdown:</b>
+🟢 Bullish: {bullish_pct}%
+🔴 Bearish: {bearish_pct}%
+⚪️ Neutral: {neutral_pct}%
+
+<b>📰 Key Sentiment Drivers:</b>
+{summary}
+
+<b>📊 Market Mood:</b>
+Market appears to be showing {sentiment.lower().split()[0]} signals based on available information.
+"""
+        return formatted
+        
     async def load_cache(self):
         """
         Asynchronously load cache from file
@@ -668,6 +1045,46 @@ De percentages moeten optellen tot 100. Geef alleen de JSON terug zonder extra t
         except Exception as e:
             logger.error(f"Error loading sentiment cache asynchronously: {str(e)}")
             return False
+            
+    async def start_background_prefetch(self, instruments: List[str], interval_minutes: int = 30):
+        """
+        Start a background task to prefetch sentiment data for popular instruments
+        
+        Args:
+            instruments: List of instrument names to prefetch
+            interval_minutes: How often to refresh the data (in minutes)
+        """
+        logger.info(f"Starting background prefetch for {len(instruments)} instruments")
+        
+        while True:
+            try:
+                for instrument in instruments:
+                    try:
+                        # Check if we already have fresh cached data
+                        cached_data = self._get_from_cache(instrument)
+                        if cached_data:
+                            logger.info(f"Using cached data for {instrument} in prefetch")
+                            continue
+                            
+                        # Get fresh data
+                        logger.info(f"Prefetching sentiment data for {instrument}")
+                        result = await self._get_fast_sentiment(instrument)
+                        logger.info(f"Successfully prefetched sentiment for {instrument}")
+                        
+                        # Small delay between requests to avoid API rate limits
+                        await asyncio.sleep(2)
+                    except Exception as e:
+                        logger.error(f"Error prefetching sentiment for {instrument}: {str(e)}")
+                        # Continue with next instrument
+                        continue
+                
+                # Wait for the specified interval before refreshing
+                logger.info(f"Completed prefetch cycle, waiting {interval_minutes} minutes for next cycle")
+                await asyncio.sleep(interval_minutes * 60)
+            except Exception as e:
+                logger.error(f"Error in background prefetch task: {str(e)}")
+                # Wait a bit before retrying
+                await asyncio.sleep(60)
 
 class TavilyClient:
     """A simple wrapper for the Tavily API that handles errors properly"""
