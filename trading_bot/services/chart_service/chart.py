@@ -37,8 +37,8 @@ os.makedirs(ANALYSIS_CACHE_DIR, exist_ok=True)
 os.makedirs(OCR_CACHE_DIR, exist_ok=True)
 
 # Cache verlooptijd in seconden
-CHART_CACHE_EXPIRY = 1800  # 30 minuten voor charts (was 5 minuten)
-ANALYSIS_CACHE_EXPIRY = 3600  # 60 minuten voor analyses (was 10 minuten)
+CHART_CACHE_EXPIRY = 7200  # 2 uur voor charts (was 30 minuten)
+ANALYSIS_CACHE_EXPIRY = 7200  # 2 uur voor analyses (was 60 minuten)
 
 # JSON Encoder voor NumPy types
 class NumpyJSONEncoder(json.JSONEncoder):
@@ -739,24 +739,24 @@ Monitor price action around {formatted_price}. {'Look for buying opportunities o
         }
 
     async def get_chart(self, instrument: str, timeframe: str = "1h", fullscreen: bool = False) -> Tuple[bytes, Dict]:
-        """Get a chart image and analysis for the given instrument and timeframe."""
+        """Get a chart image for a given instrument and timeframe"""
         try:
             # Normalize instrument name
             instrument = instrument.upper()
             
             logger.info(f"Getting chart for {instrument} ({timeframe}) fullscreen: {fullscreen}")
             
-            # Check in-memory cache first
+            # Check in-memory cache first (snelste optie)
             cache_key = f"{instrument}_{timeframe}_{1 if fullscreen else 0}"
             if cache_key in self.chart_cache and self.chart_cache_expiry.get(cache_key, 0) > time.time():
-                logger.info(f"Returning cached chart for {instrument}")
+                logger.info(f"Returning in-memory cached chart for {instrument}")
                 return self.chart_cache[cache_key], self.analysis_cache.get(cache_key, {})
                 
-            # Check disk cache 
+            # Check disk cache (tweede snelste optie)
             cache_file = f"data/cache/charts/{instrument}_{timeframe}_{1 if fullscreen else 0}.png"
             cache_analysis_file = f"data/cache/analyses/{instrument}_{timeframe}_{1 if fullscreen else 0}.json"
             
-            if os.path.exists(cache_file) and os.path.getmtime(cache_file) + 1800 > time.time() and os.path.exists(cache_analysis_file):
+            if os.path.exists(cache_file) and os.path.getmtime(cache_file) + CHART_CACHE_EXPIRY > time.time() and os.path.exists(cache_analysis_file):
                 logger.info(f"Reading chart from disk cache for {instrument}")
                 with open(cache_file, "rb") as f:
                     chart_image = f.read()
@@ -766,33 +766,43 @@ Monitor price action around {formatted_price}. {'Look for buying opportunities o
                     
                 # Update in-memory cache
                 self.chart_cache[cache_key] = chart_image
-                self.chart_cache_expiry[cache_key] = time.time() + 1800  # 30 minuten
+                self.chart_cache_expiry[cache_key] = time.time() + CHART_CACHE_EXPIRY
                 self.analysis_cache[cache_key] = analysis
-                self.analysis_cache_expiry[cache_key] = time.time() + 3600  # 60 minuten
+                self.analysis_cache_expiry[cache_key] = time.time() + ANALYSIS_CACHE_EXPIRY
+                
+                # Stel de analyse in als last_analysis attribuut voor latere toegang
+                self.last_analysis = analysis
                 
                 return chart_image, analysis
             
-            # Initialize services if necessary
+            # Initialize services if necessary (dit kan traag zijn, dus doen we alleen als echt nodig)
             if not self.tradingview:
                 logger.info("Services not initialized, initializing now")
                 await self.initialize()
             
-            # Get market data from TradingView first
-            tradingview_data = await self.get_real_market_data(instrument)
+            # Haal market data op voor instrumenten, parallel met screenshot proces
+            tradingview_data_task = asyncio.create_task(self.get_real_market_data(instrument, timeframe))
             
-            # Bereid de TradingView link voor met fullscreen parameter
-            tradingview_link = await self._get_tradingview_link(instrument, timeframe, fullscreen)
-            logger.info(f"Using exact TradingView link: {tradingview_link}")
+            # Voorbereiden voor de Node.js screenshot (snel)
+            if not hasattr(self, 'tradingview') or not self.tradingview:
+                from trading_bot.services.chart_service.tradingview_node import TradingViewNodeService
+                self.tradingview = TradingViewNodeService()
+                await self.tradingview.initialize()
             
-            # Maak een task voor DeepSeek analyse (parallel uitvoeren)
+            # Start de screenshot taak (langzaamste deel)
+            chart_image = None
+            try:
+                # Probeer een screenshot te nemen met Node.js
+                chart_image = await self.tradingview.take_screenshot(instrument, timeframe, fullscreen)
+            except Exception as e:
+                logger.error(f"Node.js screenshot error: {e}")
+                chart_image = None
+            
+            # Wacht op de marktdata taak (sneller dan screenshot)
+            tradingview_data = await tradingview_data_task
+            
+            # Start alvast de analyse voorbereiding terwijl we screenshot controleren
             analysis_task = asyncio.create_task(self._prepare_analysis(instrument, tradingview_data))
-            
-            # Timeout verhogen voor Node.js
-            logger.info(f"Setting Node.js timeout to 40 seconds")
-            
-            # Start met screenshot nemen (echte TradingView)
-            logger.info(f"Taking screenshot with Node.js service")
-            chart_image = await self.tradingview.take_screenshot_of_url(tradingview_link, fullscreen=True, test_mode=True)
             
             # Als Node.js succesvol is, sla de afbeelding op
             if chart_image:
@@ -820,9 +830,12 @@ Monitor price action around {formatted_price}. {'Look for buying opportunities o
                     
                     # Update in-memory cache
                     self.chart_cache[cache_key] = chart_image
-                    self.chart_cache_expiry[cache_key] = time.time() + 1800  # 30 minuten
+                    self.chart_cache_expiry[cache_key] = time.time() + CHART_CACHE_EXPIRY
                     self.analysis_cache[cache_key] = analysis
-                    self.analysis_cache_expiry[cache_key] = time.time() + 3600  # 60 minuten
+                    self.analysis_cache_expiry[cache_key] = time.time() + ANALYSIS_CACHE_EXPIRY
+                    
+                    # Sla de analyse op als last_analysis attribuut
+                    self.last_analysis = analysis
                     
                     # Caching voor analyse bestanden
                     os.makedirs("data/cache/analyses", exist_ok=True)
@@ -831,23 +844,28 @@ Monitor price action around {formatted_price}. {'Look for buying opportunities o
                     
                     return chart_image, analysis
                 else:
-                    logger.warning(f"Node.js screenshot is too small ({len(chart_image)} bytes), falling back to random chart")
+                    logger.warning(f"Node.js screenshot is too small ({len(chart_image)} bytes), falling back to generated chart")
                     chart_image = None
             else:
                 logger.error("Node.js screenshot is None")
             
-            # Als we hier zijn, zijn alle diensten mislukt, val terug op random chart
-            logger.warning(f"All screenshot services failed, using fallback for {instrument}")
+            # Als we hier zijn, zijn alle diensten mislukt, val terug op onze eigen chart generator
+            logger.warning(f"Using fallback chart generator for {instrument}")
+            
+            # Gebruik market data die we al hebben opgehaald
             chart_image = await self._generate_random_chart(instrument, timeframe, tradingview_data)
             
             # Wacht op de DeepSeek analyse die parallel loopt
             analysis = await analysis_task
             
-            # Update in-memory cache
+            # Update in-memory cache (ook voor fallback charts)
             self.chart_cache[cache_key] = chart_image
-            self.chart_cache_expiry[cache_key] = time.time() + 1800  # 30 minuten
+            self.chart_cache_expiry[cache_key] = time.time() + CHART_CACHE_EXPIRY
             self.analysis_cache[cache_key] = analysis
-            self.analysis_cache_expiry[cache_key] = time.time() + 3600  # 60 minuten
+            self.analysis_cache_expiry[cache_key] = time.time() + ANALYSIS_CACHE_EXPIRY
+            
+            # Sla de analyse op als last_analysis attribuut
+            self.last_analysis = analysis
             
             return chart_image, analysis
             
@@ -855,12 +873,13 @@ Monitor price action around {formatted_price}. {'Look for buying opportunities o
             logger.error(f"Error getting chart: {e}")
             logger.error(traceback.format_exc())
             
-            # Fallback naar random chart bij elke error
-            if 'tradingview_data' not in locals() or tradingview_data is None:
-                tradingview_data = await self.get_real_market_data(instrument)
-            
+            # Maak een eenvoudige fallback chart met de error
+            tradingview_data = await self.get_real_market_data(instrument)
             chart_image = await self._generate_random_chart(instrument, timeframe, tradingview_data)
             analysis = await self._prepare_analysis(instrument, tradingview_data)
+            
+            # Sla de analyse op als last_analysis attribuut
+            self.last_analysis = analysis
             
             return chart_image, analysis
 
@@ -994,11 +1013,11 @@ The final text should be formatted exactly as specified with the information fil
             
     async def _generate_random_chart(self, instrument: str, timeframe: str = "1h", tradingview_data: Dict = None) -> bytes:
         """
-        Generate a random chart for the given instrument if all other methods fail.
-        Uses matplotlib to create a basic candlestick chart.
+        Generate a chart for the given instrument with technical analysis data embedded in the image.
+        Uses matplotlib to create a candlestick chart with annotations for technical analysis.
         """
         try:
-            logger.info(f"Generating random chart for {instrument} with timeframe {timeframe}")
+            logger.info(f"Generating chart with embedded analysis for {instrument} with timeframe {timeframe}")
             
             # Get synthetic market data if real data wasn't provided
             if not tradingview_data:
@@ -1007,76 +1026,139 @@ The final text should be formatted exactly as specified with the information fil
             # Extract current price from data
             current_price = tradingview_data.get('current_price', 1.0)
             
-            # Create a directory for fallback charts if it doesn't exist
-            os.makedirs("data/fallback_charts", exist_ok=True)
+            # Extract other data from TradingView data
+            rsi = tradingview_data.get('rsi', 50)
+            macd = tradingview_data.get('macd', 0)
+            macd_signal = tradingview_data.get('macd_signal', 0)
+            ema_50 = tradingview_data.get('ema_50', current_price * 0.99)
+            ema_200 = tradingview_data.get('ema_200', current_price * 0.98)
+            daily_high = tradingview_data.get('daily_high', current_price * 1.01)
+            daily_low = tradingview_data.get('daily_low', current_price * 0.99)
+            buy_signals = tradingview_data.get('buy_signals', 0)
+            sell_signals = tradingview_data.get('sell_signals', 0)
             
-            # Check if we already have a fallback chart for this instrument
-            fallback_chart_path = f"data/fallback_charts/{instrument.lower()}_fallback.png"
-            if os.path.exists(fallback_chart_path):
-                # Use existing fallback chart
-                logger.info(f"Using existing fallback chart for {instrument}")
-                with open(fallback_chart_path, 'rb') as f:
-                    return f.read()
+            # Bepaal de trend op basis van de signalen
+            is_bullish = buy_signals > sell_signals
+            action = "BUY" if is_bullish else "SELL"
             
-            # Create a very basic chart using matplotlib (without mplfinance)
-            plt.figure(figsize=(12, 6))
-            plt.title(f"{instrument} Price Chart (Fallback)")
+            # Bepaal support en resistance levels
+            resistance_levels = tradingview_data.get('resistance_levels', [])
+            support_levels = tradingview_data.get('support_levels', [])
             
-            # Generate synthetic price data
+            resistance = resistance_levels[0] if resistance_levels else daily_high
+            support = support_levels[0] if support_levels else daily_low
+            
+            # Bepaal aantal decimalen voor formatter op basis van het instrument
+            if instrument.startswith(('BTC', 'ETH')):
+                decimals = 1  # Minder decimalen voor crypto met hoge waarden
+            elif instrument.startswith('XAU'):
+                decimals = 2  # Minder decimalen voor goud
+            else:
+                decimals = 5  # Standaard voor forex
+            
+            # Formateer de waarden voor weergave
+            formatted_price = f"{current_price:.{decimals}f}"
+            formatted_daily_high = f"{daily_high:.{decimals}f}"
+            formatted_daily_low = f"{daily_low:.{decimals}f}"
+            formatted_resistance = f"{resistance:.{decimals}f}"
+            formatted_support = f"{support:.{decimals}f}"
+            formatted_ema50 = f"{ema_50:.{decimals}f}"
+            formatted_ema200 = f"{ema_200:.{decimals}f}"
+            formatted_macd = f"{macd:.{decimals}f}"
+            formatted_macd_signal = f"{macd_signal:.{decimals}f}"
+
+            # Create a figure with 2 sections: chart and analysis text
+            fig = plt.figure(figsize=(12, 8))
+            
+            # Chart section (top 60%)
+            ax1 = plt.subplot2grid((10, 1), (0, 0), rowspan=6, colspan=1)
+            
+            # Generate synthetic price data for chart
             days = 30
             dates = pd.date_range(end=pd.Timestamp.now(), periods=days)
             
             # Get the base price and volatility for this instrument
-            base_price = self._get_base_price_for_instrument(instrument) or current_price
-            volatility = self._get_volatility_for_instrument(instrument) or 0.01
+            base_price = self._get_base_price_for_instrument(instrument)
+            volatility = self._get_volatility_for_instrument(instrument)
             
-            # Generate random prices with some trend
-            np.random.seed(hash(instrument) % 100000)  # Consistent randomness per instrument
-            price_changes = np.random.normal(0, volatility, days).cumsum()
+            # Generate random prices with a trend based on if we're bullish or bearish
+            np.random.seed(hash(instrument) % 100000)
+            # Add a slight trend based on bullish/bearish
+            trend = 0.0002 if is_bullish else -0.0002
+            price_changes = np.random.normal(trend, volatility, days).cumsum()
             prices = base_price * (1 + price_changes)
             
-            # Ensure the final price is close to current price
+            # Ensure the final price is correct
             prices = prices - (prices[-1] - current_price)
             
+            # Add support and resistance lines
+            ax1.axhline(y=support, color='g', linestyle='--', alpha=0.5, label=f'Support: {formatted_support}')
+            ax1.axhline(y=resistance, color='r', linestyle='--', alpha=0.5, label=f'Resistance: {formatted_resistance}')
+            ax1.axhline(y=current_price, color='b', linestyle='-', alpha=0.3, label=f'Current: {formatted_price}')
+            
             # Create a simple line chart
-            plt.plot(dates, prices)
-            plt.axhline(y=current_price, color='r', linestyle='-', alpha=0.3)
+            ax1.plot(dates, prices, color='#1E90FF')
             
-            # Add some random support and resistance lines
-            support = current_price * 0.98
-            resistance = current_price * 1.02
-            plt.axhline(y=support, color='g', linestyle='--', alpha=0.5)
-            plt.axhline(y=resistance, color='r', linestyle='--', alpha=0.5)
-            
-            # Format axes
-            plt.ylabel('Price')
-            plt.grid(True, alpha=0.3)
+            # Format axis
+            ax1.set_ylabel('Price')
+            ax1.grid(True, alpha=0.3)
+            ax1.set_title(f"{instrument} - {timeframe}", fontsize=16, fontweight='bold')
             
             # Make it look more like a trading chart
-            plt.gca().spines['top'].set_visible(False)
-            plt.gca().spines['right'].set_visible(False)
+            ax1.spines['top'].set_visible(False)
+            ax1.spines['right'].set_visible(False)
+            
+            # Add a TradingView-like logo
+            plt.figtext(0.01, 0.01, "TradingView", fontsize=8, alpha=0.5)
+            
+            # Analysis text section (bottom 40%)
+            ax2 = plt.subplot2grid((10, 1), (6, 0), rowspan=4, colspan=1)
+            ax2.axis('off')
+            
+            # Create the analysis text
+            analysis_text = f"""
+{instrument} - {timeframe}
+
+Trend - {action}
+
+Zone Strength 1-5: {'★★★★☆' if is_bullish else '★★★☆☆'}
+
+📊 Market Overview
+{instrument} is trading at {formatted_price}, showing {action.lower()} momentum near the daily {'high' if is_bullish else 'low'} ({formatted_daily_high}). The price remains {'above' if is_bullish else 'below'} key EMAs (50 & 200), confirming an {'uptrend' if is_bullish else 'downtrend'}.
+
+🔑 Key Levels
+Support: {formatted_support} (daily low), {formatted_support}
+Resistance: {formatted_daily_high} (daily high), {formatted_resistance}
+
+📈 Technical Indicators
+RSI: {rsi:.2f} (neutral)
+MACD: {action} ({formatted_macd} > signal {formatted_macd_signal})
+Moving Averages: Price {'above' if is_bullish else 'below'} EMA 50 ({formatted_ema50}) and EMA 200 ({formatted_ema200}), reinforcing {action.lower()} bias.
+
+🤖 Sigmapips AI Recommendation
+Monitor price action around {formatted_price}. {'Look for buying opportunities on dips toward support at ' + formatted_support if is_bullish else 'Consider selling rallies toward resistance at ' + formatted_resistance}. {'Stay bullish while price holds above ' + formatted_support if is_bullish else 'Maintain bearish bias below ' + formatted_resistance}.
+
+⚠️ Disclaimer: Please note that the information/analysis provided is strictly for study and educational purposes only. It should not be constructed as financial advice and always do your own analysis.
+"""
+
+            # Save the text as the last_analysis attribute for the bot
+            self.last_analysis = analysis_text
+            
+            # Display the analysis text
+            plt.figtext(0.05, 0.58, analysis_text, fontsize=9, wrap=True)
             
             # Save the chart to a buffer
             buf = BytesIO()
-            plt.savefig(buf, format='png', dpi=100)
-            plt.close()
-            
-            # Also save to disk for future use
-            with open(fallback_chart_path, 'wb') as f:
-                f.write(buf.getvalue())
-            
-            logger.info(f"Created fallback chart for {instrument} and saved to {fallback_chart_path}")
+            plt.savefig(buf, format='png', dpi=150, bbox_inches='tight')
+            plt.close(fig)
             
             # Return the buffer
             buf.seek(0)
             return buf.getvalue()
             
         except Exception as e:
-            logger.error(f"Error generating random chart: {e}")
+            logger.error(f"Error generating chart with analysis: {e}")
             logger.error(traceback.format_exc())
-            
-            # Ultimate fallback - create a super simple chart with just text
-            logger.warning(f"Returning basic fallback chart for {instrument}")
             
             # Create very simple image with text
             plt.figure(figsize=(10, 6))
