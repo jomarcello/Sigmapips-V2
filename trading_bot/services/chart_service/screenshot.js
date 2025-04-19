@@ -1,3 +1,131 @@
+// CSS om altijd fullscreen modus af te dwingen
+const fullscreenCSS = `
+  /* Verberg alle UI elementen */
+  .tv-header, 
+  .tv-main-panel__toolbar, 
+  .tv-side-toolbar,
+  .layout__area--left, 
+  .layout__area--right, 
+  footer,
+  .tv-main-panel__statuses,
+  .header-chart-panel,
+  .control-bar,
+  .chart-controls-bar,
+  .tv-floating-toolbar,
+  .chart-page,
+  .layout__area--top,
+  .layout__area--bottom {
+    display: none !important;
+    visibility: hidden !important;
+    opacity: 0 !important;
+  }
+  
+  /* Maximaliseer chart container */
+  .chart-container, 
+  .chart-markup-table, 
+  .layout__area--center {
+    width: 100vw !important;
+    height: 100vh !important;
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+  }
+  
+  /* Volledige pagina vullen */
+  body, html {
+    overflow: hidden !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+`;
+
+// Voeg functie toe om fullscreen modus af te dwingen
+async function applyFullscreenMode(page) {
+  console.log('Applying fullscreen mode - multiple methods');
+  
+  // Methode 1: Shift+F toetsencombinatie (meest direct)
+  try {
+    await page.focus('body'); // Zorg ervoor dat de pagina focus heeft
+    await page.keyboard.down('Shift');
+    await page.keyboard.press('F');
+    await page.keyboard.up('Shift');
+    console.log('Applied Shift+F fullscreen keyboard shortcut');
+    
+    // Geef tijd om de fullscreen modus te activeren
+    await page.waitForTimeout(2000);
+  } catch (e) {
+    console.log('Shift+F failed, using alternative methods', e);
+  }
+  
+  // Methode 2: CSS injectie
+  try {
+    await page.addStyleTag({ content: fullscreenCSS });
+    console.log('Applied fullscreen CSS');
+  } catch (e) {
+    console.log('Fullscreen CSS injection failed', e);
+  }
+  
+  // Methode 3: JavaScript directe manipulatie
+  try {
+    await page.evaluate(() => {
+      // Verberg alle UI elementen
+      const selectors = [
+        '.tv-header', 
+        '.tv-main-panel__toolbar', 
+        '.tv-side-toolbar',
+        '.layout__area--left', 
+        '.layout__area--right', 
+        'footer',
+        '.tv-main-panel__statuses',
+        '.header-chart-panel',
+        '.control-bar',
+        '.chart-controls-bar'
+      ];
+      
+      selectors.forEach(selector => {
+        document.querySelectorAll(selector).forEach(el => {
+          if (el) {
+            el.style.display = 'none';
+            el.style.visibility = 'hidden';
+          }
+        });
+      });
+      
+      // Maximaliseer chart container
+      const chartContainer = document.querySelector('.chart-container');
+      if (chartContainer) {
+        chartContainer.style.width = '100vw';
+        chartContainer.style.height = '100vh';
+        chartContainer.style.position = 'fixed';
+        chartContainer.style.top = '0';
+        chartContainer.style.left = '0';
+        chartContainer.style.right = '0';
+        chartContainer.style.bottom = '0';
+      }
+      
+      // Maximaliseer ook layout center
+      const layoutCenter = document.querySelector('.layout__area--center');
+      if (layoutCenter) {
+        layoutCenter.style.width = '100vw';
+        layoutCenter.style.height = '100vh';
+        layoutCenter.style.position = 'fixed';
+        layoutCenter.style.top = '0';
+        layoutCenter.style.left = '0';
+        layoutCenter.style.right = '0';
+        layoutCenter.style.bottom = '0';
+      }
+    });
+    console.log('Applied JS direct DOM manipulation for fullscreen');
+  } catch (e) {
+    console.log('JS fullscreen manipulation failed', e);
+  }
+  
+  // Wacht na alle fullscreen methodes om de wijzigingen toe te passen
+  await page.waitForTimeout(1000);
+}
+
 // Verbeterde foutafhandeling en module import
 const fs = require('fs');
 const { execSync } = require('child_process');
@@ -291,44 +419,7 @@ const { chromium } = playwright;
     // Direct aanpak voor popup handling - voert uit ongeacht navigatieresultaat
     await page.addStyleTag({ content: blockDialogCSS });
     
-    // Snelle direct actie voor fullscreen als dat nodig is
-    if (fullscreen) {
-      console.log('Applying fullscreen mode...');
-      
-      // Methode 1: CSS methode (meest betrouwbaar)
-      await page.addStyleTag({
-        content: `
-          /* Verbergen van UI elementen */
-          .tv-header, .tv-main-panel__toolbar, .tv-side-toolbar,
-          .layout__area--left, .layout__area--right, footer,
-          .tv-main-panel__statuses {
-            display: none !important;
-          }
-          
-          /* Maximaliseer chart */
-          .chart-container, .layout__area--center {
-            width: 100vw !important;
-            height: 100vh !important;
-            position: fixed !important;
-            top: 0 !important;
-            left: 0 !important;
-            right: 0 !important;
-            bottom: 0 !important;
-          }
-        `
-      });
-      
-      // Methode 2: Keyboard shortcut (als backup)
-      try {
-        await page.keyboard.down('Shift');
-        await page.keyboard.press('F');
-        await page.keyboard.up('Shift');
-      } catch (e) {
-        console.log('Shift+F failed, but CSS method was applied');
-      }
-    }
-    
-    // Snellere popup cleanup actie
+    // Snelle popup cleanup actie
     await page.evaluate(() => {
       // Escape toets
       document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', keyCode: 27 }));
@@ -346,6 +437,12 @@ const { chromium } = playwright;
         } catch(e) {}
       });
     });
+    
+    // Wacht kort voordat we fullscreen toepassen
+    await page.waitForTimeout(1500);
+    
+    // ALTIJD fullscreen toepassen, ongeacht de parameter
+    await applyFullscreenMode(page);
     
     // Korte wachttijd voor stabiliteit
     await page.waitForTimeout(1500);
