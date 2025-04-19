@@ -9,14 +9,21 @@ import socket
 import re
 import ssl
 import sys
+import time
+from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
 
 class MarketSentimentService:
     """Service for retrieving market sentiment data"""
     
-    def __init__(self):
-        """Initialize the market sentiment service"""
+    def __init__(self, cache_ttl_minutes: int = 30):
+        """
+        Initialize the market sentiment service
+        
+        Args:
+            cache_ttl_minutes: Time in minutes to keep sentiment data in cache (default: 30)
+        """
         self.deepseek_api_key = os.getenv("DEEPSEEK_API_KEY")
         self.tavily_api_key = os.getenv("TAVILY_API_KEY")
         
@@ -24,6 +31,11 @@ class MarketSentimentService:
         
         # Initialize the Tavily client
         self.tavily_client = TavilyClient(self.tavily_api_key)
+        
+        # Initialize cache for sentiment data
+        self.sentiment_cache = {}  # Format: {instrument: {'data': sentiment_data, 'timestamp': creation_time}}
+        self.cache_ttl = cache_ttl_minutes * 60  # Convert minutes to seconds
+        logger.info(f"Sentiment cache TTL set to {cache_ttl_minutes} minutes ({self.cache_ttl} seconds)")
         
         # Log API key status (without revealing full keys)
         if self.tavily_api_key:
@@ -92,6 +104,12 @@ class MarketSentimentService:
         Returns a dictionary with sentiment data or formatted text.
         """
         logger.info(f"get_sentiment called for {instrument}")
+        
+        # Check if we have a valid cached result
+        cached_data = self._get_from_cache(instrument)
+        if cached_data:
+            logger.info(f"Returning cached sentiment data for {instrument}")
+            return cached_data
         
         try:
             # Get sentiment text directly
@@ -198,6 +216,9 @@ class MarketSentimentService:
                     'analysis': sentiment_text
                 }
                 
+                # Cache the result before returning
+                self._add_to_cache(instrument, result)
+                
                 # Log the final result dictionary
                 logger.info(f"Final sentiment result for {instrument}: {overall_sentiment}, score: {sentiment_score:.2f}, bullish: {bullish}%, bearish: {bearish}%, neutral: {neutral}%")
                 return result
@@ -220,6 +241,9 @@ class MarketSentimentService:
                     'overall_sentiment': 'neutral',
                     'analysis': self._get_default_sentiment_text(instrument)
                 }
+                
+                # Cache the result before returning
+                self._add_to_cache(instrument, result)
                 
                 # Log the fallback result
                 logger.warning(f"Using hardcoded defaults for {instrument}: neutral, score: 0.00")
@@ -260,6 +284,12 @@ class MarketSentimentService:
         """
         try:
             logger.info(f"Getting market sentiment for {instrument} ({market_type or 'unknown'})")
+            
+            # Check for cached data first
+            cached_data = self._get_from_cache(instrument)
+            if cached_data:
+                logger.info(f"Using cached sentiment data for {instrument}")
+                return cached_data
             
             if market_type is None:
                 # Determine market type from instrument if not provided
@@ -357,7 +387,7 @@ class MarketSentimentService:
                 
                 logger.info(f"Returning complete sentiment data for {instrument}: {overall_sentiment} (score: {sentiment_score:.2f})")
                 
-                return {
+                result = {
                     'bullish': bullish_percentage,
                     'bearish': bearish_percentage,
                     'neutral': neutral_percentage,
@@ -372,6 +402,11 @@ class MarketSentimentService:
                     'overall_sentiment': overall_sentiment,
                     'analysis': final_analysis
                 }
+                
+                # Cache the result
+                self._add_to_cache(instrument, result)
+                
+                return result
             else:
                 logger.warning(f"Could not find bullish percentage in DeepSeek response for {instrument}. Using keyword analysis.")
                 # Fallback: Calculate sentiment through keyword analysis
@@ -398,7 +433,7 @@ class MarketSentimentService:
                 
                 logger.warning(f"Using keyword analysis for {instrument}: Bullish {bullish_percentage}%, Bearish {bearish_percentage}%, Sentiment: {overall_sentiment}")
                 
-                return {
+                result = {
                     'bullish': bullish_percentage,
                     'bearish': bearish_percentage,
                     'neutral': neutral_percentage,
@@ -413,6 +448,11 @@ class MarketSentimentService:
                     'overall_sentiment': overall_sentiment,
                     'analysis': final_analysis
                 }
+                
+                # Cache the result
+                self._add_to_cache(instrument, result)
+                
+                return result
             
             sentiment = 'bullish' if bullish_percentage > 50 else 'bearish' if bullish_percentage < 50 else 'neutral'
             
@@ -437,6 +477,9 @@ class MarketSentimentService:
                 'analysis': final_analysis,
                 'news_headlines': []  # We don't have actual headlines from the API
             }
+            
+            # Cache the result
+            self._add_to_cache(instrument, result)
             
             logger.info(f"Returning sentiment data for {instrument}: {sentiment} (score: {bullish_percentage/100:.2f})")
             return result
@@ -471,6 +514,13 @@ class MarketSentimentService:
             
             # Get sentiment data as dictionary
             try:
+                # First check if we have a cached sentiment that contains the analysis
+                cached_sentiment = self._get_from_cache(instrument)
+                if cached_sentiment and 'analysis' in cached_sentiment:
+                    logger.info(f"Using cached sentiment analysis for {instrument}")
+                    return cached_sentiment['analysis']
+                
+                # If no cache, proceed with regular sentiment analysis
                 logger.info(f"Calling get_market_sentiment for {instrument} ({market_type})")
                 sentiment_data = await self.get_market_sentiment(instrument, market_type)
                 logger.info(f"Got sentiment data: {type(sentiment_data)}")
@@ -522,6 +572,9 @@ The market shows balanced sentiment for {instrument} with no strong directional 
 """
                 }
                 logger.info(f"Created fallback sentiment data with proper format for {instrument}")
+                
+                # Cache this fallback data too
+                self._add_to_cache(instrument, sentiment_data)
             
             # Convert sentiment_data to a string result
             result = None
@@ -1766,6 +1819,123 @@ Monitor market developments for potential sentiment shifts.
 • No significant economic releases impacting the market
 • General news and global trends affecting sentiment
 """
+
+    def _add_to_cache(self, instrument: str, data: Dict[str, Any]) -> None:
+        """
+        Add sentiment data to the cache with current timestamp
+        
+        Args:
+            instrument: The instrument symbol (e.g., 'EURUSD')
+            data: The sentiment data to cache
+        """
+        self.sentiment_cache[instrument] = {
+            'data': data,
+            'timestamp': time.time()
+        }
+        logger.info(f"Added sentiment data for {instrument} to cache")
+    
+    def _get_from_cache(self, instrument: str) -> Optional[Dict[str, Any]]:
+        """
+        Get sentiment data from cache if it exists and is not expired
+        
+        Args:
+            instrument: The instrument symbol (e.g., 'EURUSD')
+            
+        Returns:
+            Optional[Dict[str, Any]]: The cached sentiment data if available and fresh, None otherwise
+        """
+        cache_entry = self.sentiment_cache.get(instrument)
+        
+        if not cache_entry:
+            logger.info(f"No cached data found for {instrument}")
+            return None
+            
+        # Check if the cache entry is expired
+        cache_age = time.time() - cache_entry['timestamp']
+        if cache_age > self.cache_ttl:
+            logger.info(f"Cached data for {instrument} is expired (age: {cache_age:.1f}s, ttl: {self.cache_ttl}s)")
+            # Remove expired entry
+            self.sentiment_cache.pop(instrument, None)
+            return None
+            
+        logger.info(f"Using cached data for {instrument} (age: {cache_age:.1f}s)")
+        return cache_entry['data']
+        
+    def clear_cache(self, instrument: Optional[str] = None) -> None:
+        """
+        Clear cache entries for a specific instrument or all instruments
+        
+        Args:
+            instrument: Optional instrument to clear from cache. If None, clears all cache.
+        """
+        if instrument:
+            removed = self.sentiment_cache.pop(instrument, None)
+            if removed:
+                logger.info(f"Cleared cache for {instrument}")
+            else:
+                logger.info(f"No cache found for {instrument}")
+        else:
+            cache_size = len(self.sentiment_cache)
+            self.sentiment_cache.clear()
+            logger.info(f"Cleared complete sentiment cache ({cache_size} entries)")
+
+    def get_cache_stats(self) -> Dict[str, Any]:
+        """
+        Get statistics about the current cache state
+        
+        Returns:
+            Dict with cache statistics including size, entries, etc.
+        """
+        now = time.time()
+        
+        # Count active vs expired entries
+        active_entries = 0
+        expired_entries = 0
+        instruments = []
+        
+        for instrument, entry in self.sentiment_cache.items():
+            age = now - entry['timestamp']
+            if age <= self.cache_ttl:
+                active_entries += 1
+                instruments.append({
+                    'instrument': instrument,
+                    'age_seconds': round(age),
+                    'age_minutes': round(age / 60, 1),
+                    'expires_in_minutes': round((self.cache_ttl - age) / 60, 1)
+                })
+            else:
+                expired_entries += 1
+        
+        # Sort instruments by expiration time
+        instruments.sort(key=lambda x: x['expires_in_minutes'])
+        
+        return {
+            'total_entries': len(self.sentiment_cache),
+            'active_entries': active_entries,
+            'expired_entries': expired_entries,
+            'cache_ttl_minutes': self.cache_ttl / 60,
+            'instruments': instruments
+        }
+        
+    def cleanup_expired_cache(self) -> int:
+        """
+        Remove all expired entries from the cache
+        
+        Returns:
+            Number of entries removed
+        """
+        now = time.time()
+        expired_keys = []
+        
+        for instrument, entry in self.sentiment_cache.items():
+            if now - entry['timestamp'] > self.cache_ttl:
+                expired_keys.append(instrument)
+        
+        for key in expired_keys:
+            self.sentiment_cache.pop(key, None)
+        
+        logger.info(f"Cleaned up {len(expired_keys)} expired cache entries")
+        return len(expired_keys)
 
 class TavilyClient:
     """A simple wrapper for the Tavily API that handles errors properly"""
