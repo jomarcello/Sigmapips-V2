@@ -3,7 +3,7 @@ import logging
 import aiohttp
 import json
 import random
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List, Tuple, Set
 import asyncio
 import socket
 import re
@@ -11,18 +11,132 @@ import ssl
 import sys
 import time
 from datetime import datetime, timedelta
+import threading
+import pathlib
+import statistics
 
 logger = logging.getLogger(__name__)
+
+class PerformanceMetrics:
+    """Class to track and analyze performance metrics for API calls and caching"""
+    
+    def __init__(self, max_history: int = 100):
+        """
+        Initialize performance metrics tracking
+        
+        Args:
+            max_history: Maximum number of data points to store
+        """
+        self.api_calls = {
+            'tavily': [],
+            'deepseek': [],
+            'total': []
+        }
+        self.cache_hits = 0
+        self.cache_misses = 0
+        self.max_history = max_history
+        self.lock = threading.Lock()
+    
+    def record_api_call(self, api_name: str, duration: float) -> None:
+        """
+        Record the duration of an API call
+        
+        Args:
+            api_name: Name of the API ('tavily' or 'deepseek')
+            duration: Duration of the call in seconds
+        """
+        with self.lock:
+            if api_name in self.api_calls:
+                # Keep only the most recent entries
+                if len(self.api_calls[api_name]) >= self.max_history:
+                    self.api_calls[api_name].pop(0)
+                self.api_calls[api_name].append(duration)
+    
+    def record_total_request(self, duration: float) -> None:
+        """
+        Record the total duration of a sentiment request
+        
+        Args:
+            duration: Duration of the request in seconds
+        """
+        with self.lock:
+            if len(self.api_calls['total']) >= self.max_history:
+                self.api_calls['total'].pop(0)
+            self.api_calls['total'].append(duration)
+    
+    def record_cache_hit(self) -> None:
+        """Record a cache hit"""
+        with self.lock:
+            self.cache_hits += 1
+    
+    def record_cache_miss(self) -> None:
+        """Record a cache miss"""
+        with self.lock:
+            self.cache_misses += 1
+    
+    def get_metrics(self) -> Dict[str, Any]:
+        """
+        Get current performance metrics
+        
+        Returns:
+            Dict with performance statistics
+        """
+        with self.lock:
+            metrics = {
+                'api_calls': {},
+                'cache': {
+                    'hits': self.cache_hits,
+                    'misses': self.cache_misses,
+                    'hit_rate': (self.cache_hits / (self.cache_hits + self.cache_misses) * 100)
+                    if (self.cache_hits + self.cache_misses) > 0 else 0
+                }
+            }
+            
+            # Calculate API call statistics
+            for api_name, durations in self.api_calls.items():
+                if durations:
+                    metrics['api_calls'][api_name] = {
+                        'count': len(durations),
+                        'avg_duration': statistics.mean(durations),
+                        'min_duration': min(durations),
+                        'max_duration': max(durations),
+                        'median_duration': statistics.median(durations),
+                        'p90_duration': sorted(durations)[int(len(durations) * 0.9)] if len(durations) >= 10 else None
+                    }
+                else:
+                    metrics['api_calls'][api_name] = {
+                        'count': 0,
+                        'avg_duration': None,
+                        'min_duration': None,
+                        'max_duration': None,
+                        'median_duration': None,
+                        'p90_duration': None
+                    }
+            
+            return metrics
+    
+    def reset(self) -> None:
+        """Reset all metrics"""
+        with self.lock:
+            self.api_calls = {
+                'tavily': [],
+                'deepseek': [],
+                'total': []
+            }
+            self.cache_hits = 0
+            self.cache_misses = 0
 
 class MarketSentimentService:
     """Service for retrieving market sentiment data"""
     
-    def __init__(self, cache_ttl_minutes: int = 30):
+    def __init__(self, cache_ttl_minutes: int = 30, persistent_cache: bool = True, cache_file: str = None):
         """
         Initialize the market sentiment service
         
         Args:
             cache_ttl_minutes: Time in minutes to keep sentiment data in cache (default: 30)
+            persistent_cache: Whether to save/load cache to/from disk (default: True)
+            cache_file: Path to cache file, if None uses default in user's home directory
         """
         self.deepseek_api_key = os.getenv("DEEPSEEK_API_KEY")
         self.tavily_api_key = os.getenv("TAVILY_API_KEY")
@@ -32,10 +146,37 @@ class MarketSentimentService:
         # Initialize the Tavily client
         self.tavily_client = TavilyClient(self.tavily_api_key)
         
+        # Initialize cache settings
+        self.cache_ttl = cache_ttl_minutes * 60  # Convert minutes to seconds
+        self.use_persistent_cache = persistent_cache
+        
+        # Performance metrics
+        self.metrics = PerformanceMetrics()
+        
+        # Set default cache file path if not specified
+        if cache_file is None:
+            home_dir = pathlib.Path.home()
+            cache_dir = home_dir / ".trading_bot"
+            os.makedirs(cache_dir, exist_ok=True)
+            self.cache_file = cache_dir / "sentiment_cache.json"
+        else:
+            self.cache_file = pathlib.Path(cache_file)
+        
         # Initialize cache for sentiment data
         self.sentiment_cache = {}  # Format: {instrument: {'data': sentiment_data, 'timestamp': creation_time}}
-        self.cache_ttl = cache_ttl_minutes * 60  # Convert minutes to seconds
+        
+        # Load cache from disk if persistent caching is enabled
+        if self.use_persistent_cache:
+            self._load_cache_from_disk()
+        
+        # Background task lock to prevent multiple saves at once
+        self._cache_lock = threading.Lock()
+        
+        # Common request timeouts to improve response times
+        self.request_timeout = aiohttp.ClientTimeout(total=12, connect=4)
+        
         logger.info(f"Sentiment cache TTL set to {cache_ttl_minutes} minutes ({self.cache_ttl} seconds)")
+        logger.info(f"Persistent caching {'enabled' : 'disabled'}, cache file: {self.cache_file if self.use_persistent_cache else 'N/A'}")
         
         # Log API key status (without revealing full keys)
         if self.tavily_api_key:
@@ -105,11 +246,22 @@ class MarketSentimentService:
         """
         logger.info(f"get_sentiment called for {instrument}")
         
+        # Start timing the total request
+        start_time = time.time()
+        
         # Check if we have a valid cached result
         cached_data = self._get_from_cache(instrument)
         if cached_data:
+            # Record cache hit
+            self.metrics.record_cache_hit()
             logger.info(f"Returning cached sentiment data for {instrument}")
+            
+            # Record total time (very fast for cache hits)
+            self.metrics.record_total_request(time.time() - start_time)
             return cached_data
+        
+        # Record cache miss
+        self.metrics.record_cache_miss()
         
         try:
             # Get sentiment text directly
@@ -299,18 +451,33 @@ class MarketSentimentService:
             search_query = self._build_search_query(instrument, market_type)
             logger.info(f"Built search query: {search_query}")
             
-            # Get news data using Tavily
-            news_content = await self._get_tavily_news(search_query)
+            # Get news data and process sentiment in parallel
+            news_content_task = self._get_tavily_news(search_query)
+            
+            try:
+                # Use timeout to avoid waiting too long
+                news_content = await asyncio.wait_for(news_content_task, timeout=15)
+            except asyncio.TimeoutError:
+                logger.warning(f"Tavily news retrieval timed out for {instrument}")
+                news_content = f"Market analysis for {instrument}"
+            
             if not news_content:
                 logger.error(f"Failed to retrieve Tavily news content for {instrument}")
-                # Val NIET terug op mock data, maar probeer een lege string
                 news_content = f"Market analysis for {instrument}"
             
             # Process and format the news content
             formatted_content = self._format_data_manually(news_content, instrument)
             
             # Use DeepSeek to analyze the sentiment
-            final_analysis = await self._format_with_deepseek(instrument, market_type, formatted_content)
+            try:
+                final_analysis = await asyncio.wait_for(
+                    self._format_with_deepseek(instrument, market_type, formatted_content),
+                    timeout=20
+                )
+            except asyncio.TimeoutError:
+                logger.warning(f"DeepSeek analysis timed out for {instrument}, using formatted content")
+                final_analysis = formatted_content
+                
             if not final_analysis:
                 logger.error(f"Failed to format DeepSeek analysis for {instrument}")
                 # Val NIET terug op een error, maar gebruik de ruwe content
@@ -793,6 +960,9 @@ Standard risk management practices recommended until clearer sentiment emerges.
         """Use Tavily API to get latest news and market data"""
         logger.info(f"Searching for news using Tavily API")
         
+        # Start timing the API call
+        start_time = time.time()
+        
         # Check if API key is configured
         if not self.tavily_api_key:
             logger.error("Tavily API key is not configured")
@@ -807,6 +977,9 @@ Standard risk management practices recommended until clearer sentiment emerges.
                 max_results=5
             )
             
+            # Record API call duration
+            self.metrics.record_api_call('tavily', time.time() - start_time)
+            
             if response:
                 return self._process_tavily_response(json.dumps(response))
             else:
@@ -814,6 +987,9 @@ Standard risk management practices recommended until clearer sentiment emerges.
                 return None
                 
         except Exception as e:
+            # Record API call duration even for failures
+            self.metrics.record_api_call('tavily', time.time() - start_time)
+            
             logger.error(f"Error calling Tavily API: {str(e)}")
             logger.exception(e)
             return None
@@ -868,6 +1044,9 @@ Standard risk management practices recommended until clearer sentiment emerges.
             return self._format_data_manually(market_data, instrument)
             
         logger.info(f"Formatting market data for {instrument} using DeepSeek API")
+        
+        # Start timing the API call
+        start_time = time.time()
         
         try:
             # Check DeepSeek API connectivity first
@@ -947,8 +1126,15 @@ I will check your output to ensure you have followed the EXACT format required. 
                 ) as response:
                     if response.status == 200:
                         data = await response.json()
+                        
+                        # Record API call duration for successful call
+                        self.metrics.record_api_call('deepseek', time.time() - start_time)
+                        
                         response_content = data['choices'][0]['message']['content']
                         logger.info(f"DeepSeek raw response for {instrument}: {response_content[:200]}...")
+                        
+                        # Clean up any trailing instructions that might have been included in the output
+                        response_content = self._clean_deepseek_response(response_content)
                         
                         # Ensure the title is correctly formatted
                         if not "<b>🎯" in response_content:
@@ -1125,16 +1311,65 @@ I will check your output to ensure you have followed the EXACT format required. 
                         
                         return response_content
                     else:
+                        # Record API call duration for failed call
+                        self.metrics.record_api_call('deepseek', time.time() - start_time)
+                        
                         logger.error(f"DeepSeek API request failed with status {response.status}")
                         error_message = await response.text()
                         logger.error(f"DeepSeek API error: {error_message}")
                         # Fall back to default sentiment text
                         return self._get_default_sentiment_text(instrument)
         except Exception as e:
+            # Record API call duration for exceptions
+            self.metrics.record_api_call('deepseek', time.time() - start_time)
+            
             logger.error(f"Error in DeepSeek formatting: {str(e)}")
             logger.exception(e)
             # Return a default sentiment text
             return self._get_default_sentiment_text(instrument)
+    
+    def _clean_deepseek_response(self, response_content: str) -> str:
+        """
+        Clean up the DeepSeek response to remove any prompt instructions that might have been included
+        
+        Args:
+            response_content: The raw response from DeepSeek API
+            
+        Returns:
+            str: Cleaned response without any prompt instructions
+        """
+        # List of instruction-related phrases to detect and clean up
+        instruction_markers = [
+            "DO NOT mention any specific price levels",
+            "The sentiment percentages",
+            "I will check your output",
+            "DO NOT add any additional sections",
+            "Focus ONLY on NEWS, EVENTS, and SENTIMENT",
+            "resistance/support levels"
+        ]
+        
+        # Check if any instruction text is included at the end of the response
+        for marker in instruction_markers:
+            if marker in response_content:
+                # Find the start of the instruction text
+                marker_index = response_content.find(marker)
+                
+                # Check if the marker is part of a longer instruction paragraph
+                # by looking for newlines before it
+                paragraph_start = response_content.rfind("\n\n", 0, marker_index)
+                if paragraph_start != -1:
+                    # If we found a paragraph break before the marker, trim from there
+                    cleaned_content = response_content[:paragraph_start].strip()
+                    logger.info(f"Removed instruction text starting with: '{marker}'")
+                    return cleaned_content
+                else:
+                    # If no clear paragraph break, just trim from the marker
+                    cleaned_content = response_content[:marker_index].strip()
+                    logger.info(f"Removed instruction text starting with: '{marker}'")
+                    return cleaned_content
+        
+        # If no instruction markers were found, return the original content
+        return response_content
     
     def _guess_market_from_instrument(self, instrument: str) -> str:
         """Guess market type from instrument symbol"""
@@ -1833,6 +2068,11 @@ Monitor market developments for potential sentiment shifts.
             'timestamp': time.time()
         }
         logger.info(f"Added sentiment data for {instrument} to cache")
+        
+        # Save cache to disk if persistent caching is enabled
+        if self.use_persistent_cache:
+            # Use a background thread to avoid blocking
+            threading.Thread(target=self._save_cache_to_disk, args=()).start()
     
     def _get_from_cache(self, instrument: str) -> Optional[Dict[str, Any]]:
         """
@@ -1856,11 +2096,69 @@ Monitor market developments for potential sentiment shifts.
             logger.info(f"Cached data for {instrument} is expired (age: {cache_age:.1f}s, ttl: {self.cache_ttl}s)")
             # Remove expired entry
             self.sentiment_cache.pop(instrument, None)
+            
+            # Save updated cache after removal if persistent caching is enabled
+            if self.use_persistent_cache:
+                threading.Thread(target=self._save_cache_to_disk, args=()).start()
+                
             return None
             
         logger.info(f"Using cached data for {instrument} (age: {cache_age:.1f}s)")
         return cache_entry['data']
-        
+    
+    def _save_cache_to_disk(self) -> None:
+        """Save the current cache to disk for persistence between restarts"""
+        if not self.use_persistent_cache:
+            return
+            
+        # Use a lock to prevent multiple simultaneous writes
+        with self._cache_lock:
+            try:
+                # Create a serializable copy of the cache
+                serializable_cache = {}
+                for instrument, entry in self.sentiment_cache.items():
+                    serializable_cache[instrument] = {
+                        'data': entry['data'],
+                        'timestamp': entry['timestamp']
+                    }
+                
+                # Write to file
+                with open(self.cache_file, 'w') as f:
+                    json.dump(serializable_cache, f)
+                
+                logger.debug(f"Cache saved to disk: {self.cache_file}")
+            except Exception as e:
+                logger.error(f"Error saving cache to disk: {str(e)}")
+    
+    def _load_cache_from_disk(self) -> None:
+        """Load cache from disk if available"""
+        if not os.path.exists(self.cache_file):
+            logger.info(f"No cache file found at {self.cache_file}")
+            return
+            
+        try:
+            with open(self.cache_file, 'r') as f:
+                loaded_cache = json.load(f)
+                
+            # Parse the loaded cache
+            for instrument, entry in loaded_cache.items():
+                if 'data' in entry and 'timestamp' in entry:
+                    # Check if entry is still valid
+                    age = time.time() - entry['timestamp']
+                    if age <= self.cache_ttl:
+                        self.sentiment_cache[instrument] = {
+                            'data': entry['data'],
+                            'timestamp': entry['timestamp']
+                        }
+                        logger.debug(f"Loaded valid cache entry for {instrument} (age: {age:.1f}s)")
+                    else:
+                        logger.debug(f"Skipped expired cache entry for {instrument} (age: {age:.1f}s)")
+                        
+            logger.info(f"Loaded {len(self.sentiment_cache)} valid entries from cache file")
+        except Exception as e:
+            logger.error(f"Error loading cache from disk: {str(e)}")
+            self.sentiment_cache = {}
+
     def clear_cache(self, instrument: Optional[str] = None) -> None:
         """
         Clear cache entries for a specific instrument or all instruments
@@ -1936,6 +2234,92 @@ Monitor market developments for potential sentiment shifts.
         
         logger.info(f"Cleaned up {len(expired_keys)} expired cache entries")
         return len(expired_keys)
+
+    async def prefetch_common_instruments(self, instruments: List[str]) -> None:
+        """
+        Prefetch sentiment data for commonly used instruments
+        
+        Args:
+            instruments: List of instrument symbols to prefetch
+        """
+        logger.info(f"Starting prefetch for {len(instruments)} instruments")
+        
+        # Create a list to track which instruments need fetching
+        to_fetch = []
+        
+        # Check which instruments are not already in the cache
+        for instrument in instruments:
+            if not self._get_from_cache(instrument):
+                to_fetch.append(instrument)
+        
+        if not to_fetch:
+            logger.info("All common instruments already in cache")
+            return
+            
+        logger.info(f"Prefetching sentiment for {len(to_fetch)} instruments: {', '.join(to_fetch)}")
+        
+        # Use a semaphore to limit concurrent requests
+        semaphore = asyncio.Semaphore(3)  # Limit to 3 concurrent requests
+        
+        async def fetch_with_semaphore(instrument):
+            async with semaphore:
+                try:
+                    logger.info(f"Prefetching sentiment for {instrument}")
+                    await self.get_sentiment(instrument)
+                    logger.info(f"Successfully prefetched sentiment for {instrument}")
+                except Exception as e:
+                    logger.error(f"Error prefetching sentiment for {instrument}: {str(e)}")
+        
+        # Create tasks for all instruments to fetch
+        fetch_tasks = [fetch_with_semaphore(instrument) for instrument in to_fetch]
+        
+        # Run all tasks concurrently with a timeout
+        try:
+            await asyncio.gather(*fetch_tasks)
+            logger.info("Prefetch completed successfully")
+        except Exception as e:
+            logger.error(f"Error during prefetch: {str(e)}")
+    
+    async def start_background_prefetch(self, popular_instruments: List[str], interval_minutes: int = 25) -> None:
+        """
+        Start a background task to periodically prefetch popular instruments
+        
+        Args:
+            popular_instruments: List of popular instrument symbols
+            interval_minutes: How often to refresh the cache (default: 25 minutes)
+        """
+        logger.info(f"Starting background prefetch task for {len(popular_instruments)} instruments")
+        
+        async def prefetch_loop():
+            while True:
+                try:
+                    await self.prefetch_common_instruments(popular_instruments)
+                except Exception as e:
+                    logger.error(f"Error in prefetch loop: {str(e)}")
+                
+                # Sleep until next refresh
+                logger.info(f"Next prefetch in {interval_minutes} minutes")
+                await asyncio.sleep(interval_minutes * 60)
+        
+        # Start the prefetch loop as a background task
+        asyncio.create_task(prefetch_loop())
+        logger.info("Background prefetch task started")
+
+    def get_performance_metrics(self) -> Dict[str, Any]:
+        """
+        Get performance metrics for sentiment API calls and caching
+        
+        Returns:
+            Dict with performance metrics
+        """
+        metrics = self.metrics.get_metrics()
+        
+        # Add cache size information
+        cache_stats = self.get_cache_stats()
+        metrics['cache']['size'] = cache_stats['total_entries']
+        metrics['cache']['active_entries'] = cache_stats['active_entries']
+        
+        return metrics
 
 class TavilyClient:
     """A simple wrapper for the Tavily API that handles errors properly"""
