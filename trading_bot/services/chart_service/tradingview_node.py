@@ -28,6 +28,9 @@ class TradingViewNodeService(TradingViewService):
         project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
         self.script_path = os.path.join(project_root, "tradingview_screenshot.js")
         
+        # Caching van playfound playwright check
+        self.playwright_installed = None
+        
         # Chart links voor verschillende symbolen
         self.chart_links = {
             "EURUSD": "https://www.tradingview.com/chart/?symbol=EURUSD",
@@ -43,7 +46,7 @@ class TradingViewNodeService(TradingViewService):
         try:
             logger.info("Initializing TradingView Node.js service")
             
-            # Controleer of Node.js is geïnstalleerd
+            # Controleer of Node.js is geïnstalleerd (alleen indien nodig)
             try:
                 node_version = subprocess.check_output(["node", "--version"]).decode().strip()
                 logger.info(f"Node.js version: {node_version}")
@@ -58,33 +61,49 @@ class TradingViewNodeService(TradingViewService):
             
             logger.info(f"screenshot.js found at {self.script_path}")
             
-            # Installeer Playwright direct via npm
-            try:
-                logger.info("Installing Playwright directly...")
-                subprocess.run(["npm", "install", "playwright", "--no-save"], 
-                              check=True, 
-                              stdout=subprocess.PIPE, 
-                              stderr=subprocess.PIPE)
-                logger.info("Playwright installed successfully")
-            except Exception as e:
-                logger.error(f"Error installing Playwright: {str(e)}")
-                # Ga door, want het script zal proberen Playwright te installeren indien nodig
+            # Controleer of Playwright al geïnstalleerd is om te vermijden dat het elke keer wordt gecontroleerd
+            if self.playwright_installed is None:
+                try:
+                    # Test of Playwright al beschikbaar is
+                    subprocess.run(["node", "-e", "require('playwright')"], 
+                                  check=True, 
+                                  stdout=subprocess.PIPE, 
+                                  stderr=subprocess.PIPE)
+                    logger.info("Playwright is already installed")
+                    self.playwright_installed = True
+                except Exception:
+                    # Installeer Playwright als het niet beschikbaar is
+                    logger.info("Installing Playwright directly...")
+                    try:
+                        subprocess.run(["npm", "install", "playwright", "--no-save"], 
+                                      check=True, 
+                                      stdout=subprocess.PIPE, 
+                                      stderr=subprocess.PIPE)
+                        logger.info("Playwright installed successfully")
+                        self.playwright_installed = True
+                    except Exception as e:
+                        logger.error(f"Error installing Playwright: {str(e)}")
+                        self.playwright_installed = False
             
-            # Test de Node.js service met een TradingView URL
-            try:
-                logger.info("Testing Node.js service with TradingView URL")
-                test_url = "https://www.tradingview.com/chart/xknpxpcr/?symbol=EURUSD&interval=1h"
-                test_result = await self.take_screenshot_of_url(test_url)
-                if test_result:
-                    logger.info("Node.js service test successful")
-                    self.is_initialized = True
-                    return True
-                else:
-                    logger.error("Node.js service test failed")
+            # Test de Node.js service met een TradingView URL, maar alleen als we nog niet geïnitialiseerd zijn
+            if not self.is_initialized:
+                try:
+                    logger.info("Testing Node.js service with TradingView URL")
+                    test_url = "https://www.tradingview.com/chart/xknpxpcr/?symbol=EURUSD&interval=1h"
+                    test_result = await self.take_screenshot_of_url(test_url)
+                    if test_result:
+                        logger.info("Node.js service test successful")
+                        self.is_initialized = True
+                        return True
+                    else:
+                        logger.error("Node.js service test failed")
+                        return False
+                except Exception as test_error:
+                    logger.error(f"Error testing Node.js service: {str(test_error)}")
                     return False
-            except Exception as test_error:
-                logger.error(f"Error testing Node.js service: {str(test_error)}")
-                return False
+            else:
+                # Als we al geïnitialiseerd zijn, return direct true
+                return True
             
         except Exception as e:
             logger.error(f"Error initializing TradingView Node.js service: {str(e)}")
@@ -201,13 +220,20 @@ class TradingViewNodeService(TradingViewService):
             
             logger.info(f"Running command: {cmd.replace(self.session_id, '****')}")
             
+            # Gebruik asyncio.create_subprocess_shell met een timeout om te voorkomen dat het script vastloopt
             process = await asyncio.create_subprocess_shell(
                 cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
             
-            stdout, stderr = await process.communicate()
+            # Wacht op het proces met een timeout om te voorkomen dat we te lang wachten
+            try:
+                stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=60.0)
+            except asyncio.TimeoutError:
+                logger.error("Timeout waiting for Node.js script, terminating process")
+                process.kill()
+                return None
             
             # Log de output
             if stdout:
