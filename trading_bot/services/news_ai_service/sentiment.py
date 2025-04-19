@@ -802,6 +802,7 @@ Standard risk management practices recommended until clearer sentiment emerges.
 3. DO NOT include ANY specific trading recommendations or strategies like "buy at X" or "sell at Y".
 4. DO NOT mention any specific trading indicators like RSI, EMA, MACD, or specific numerical values like percentages of price movement.
 5. Focus ONLY on general news events, market sentiment, and fundamental factors that drive sentiment.
+6. DO NOT include sections named "Market Direction", "Technical Outlook", "Support & Resistance", "Conclusion", or anything related to technical analysis.
 
 Market Data:
 {market_data}
@@ -849,10 +850,10 @@ The sentiment percentages (Overall Sentiment, Bullish, Bearish, Neutral percenta
                     json={
                         "model": "deepseek-chat",
                         "messages": [
-                            {"role": "system", "content": "You are a professional market analyst specializing in quantitative sentiment analysis."},
+                            {"role": "system", "content": "You are a professional market analyst specializing in quantitative sentiment analysis. You ALWAYS follow the EXACT format requested."},
                             {"role": "user", "content": prompt}
                         ],
-                        "temperature": 0.3,
+                        "temperature": 0.2,
                         "max_tokens": 1024
                     }
                 ) as response:
@@ -956,6 +957,49 @@ Current sentiment for {instrument} is neutral with balanced perspectives from ma
                         # Final check - make sure the format is perfect for parsing
                         final_response = response_content
                         
+                        # Ensure the title format is correct
+                        if not "<b>🎯" in final_response:
+                            final_response = f"<b>🎯 {instrument} Market Sentiment Analysis</b>\n\n" + final_response
+                            
+                        # If the response still contains "Market Direction" section, replace it
+                        if "<b>📈 Market Direction:</b>" in final_response or "<b>Market Direction:</b>" in final_response or "Market Direction:" in final_response:
+                            # Remove all content from Market Direction until the next section
+                            pattern = r'(<b>)?📈?\s*Market Direction:(</b>)?.*?(?=<b>|$)'
+                            final_response = re.sub(pattern, '', final_response, flags=re.DOTALL)
+                        
+                        # If there's a Conclusion section, replace it with Sentiment Outlook
+                        if "<b>💡 Conclusion:</b>" in final_response or "<b>Conclusion:</b>" in final_response or "Conclusion:" in final_response:
+                            pattern = r'(<b>)?💡?\s*Conclusion:(</b>)?.*?(?=<b>|$)'
+                            sentiment_text = "Current market sentiment suggests watching for continued developments in economic indicators."
+                            replacement = f"<b>🔮 Sentiment Outlook:</b>\n{sentiment_text}\n\n"
+                            final_response = re.sub(pattern, replacement, final_response, flags=re.DOTALL)
+                            
+                        # Ensure all required sections are present
+                        required_sections = [
+                            "<b>Overall Sentiment:</b>",
+                            "<b>Market Sentiment Breakdown:</b>",
+                            "<b>📰 Key Sentiment Drivers:</b>",
+                            "<b>📊 Market Mood:</b>",
+                            "<b>📅 Important Events & News:</b>",
+                            "<b>🔮 Sentiment Outlook:</b>"
+                        ]
+                        
+                        for section in required_sections:
+                            if section not in final_response:
+                                # Add missing section with default content
+                                if section == "<b>Overall Sentiment:</b>":
+                                    final_response += f"\n\n{section} Neutral ➡️\n"
+                                elif section == "<b>Market Sentiment Breakdown:</b>":
+                                    final_response += f"\n\n{section}\n🟢 Bullish: 50%\n🔴 Bearish: 50%\n⚪️ Neutral: 0%\n"
+                                elif section == "<b>📰 Key Sentiment Drivers:</b>":
+                                    final_response += f"\n\n{section}\n• General market conditions\n• Economic indicators\n• Market participant sentiment\n"
+                                elif section == "<b>📊 Market Mood:</b>":
+                                    final_response += f"\n\n{section}\n{instrument} is showing balanced sentiment with no strong directional bias.\n"
+                                elif section == "<b>📅 Important Events & News:</b>":
+                                    final_response += f"\n\n{section}\n• Recent economic data releases\n• Central bank communications\n• Market-specific news\n"
+                                elif section == "<b>🔮 Sentiment Outlook:</b>":
+                                    final_response += f"\n\n{section}\nMarket participants remain cautious while monitoring upcoming economic developments.\n"
+                        
                         # Ensure the key sentiment lines are exactly in the required format
                         if not re.search(r'🟢\s*Bullish:\s*\d+%', final_response):
                             bullish_value = 50
@@ -972,41 +1016,21 @@ Current sentiment for {instrument} is neutral with balanced perspectives from ma
 
 """
                                 final_response = final_response.replace(market_section.group(0), replacement)
-                                logger.info(f"Replaced Market Sentiment section with standardized format")
+
+                        # Final cleanup of whitespace and formatting
+                        final_response = re.sub(r'\n{3,}', '\n\n', final_response)  # Replace 3+ newlines with 2
                         
-                        logger.info(f"Final formatted response for {instrument} (first 200 chars): {final_response[:200]}...")
+                        # Log the final formatted response
+                        logger.info(f"DeepSeek final formatted response for {instrument} (first 200 chars): {final_response[:200]}...")
+                        
+                        # Return the properly formatted response
                         return final_response
                     else:
-                        logger.error(f"DeepSeek API error: {response.status}")
-                        # Return a default manual analysis with correct format for parsing
-                        default_response = f"""<b>🎯 {instrument} Market Sentiment Analysis</b>
-
-<b>Overall Sentiment:</b> Neutral ➡️
-
-<b>Market Sentiment Breakdown:</b>
-🟢 Bullish: 50%
-🔴 Bearish: 50%
-⚪️ Neutral: 0%
-
-<b>📰 Key Sentiment Drivers:</b>
-• Regular market activity with no major catalysts
-• General economic factors influencing market mood
-• No significant news events driving sentiment
-
-<b>📊 Market Mood:</b>
-{instrument} is trading with a balanced sentiment pattern with no clear sentiment bias.
-
-<b>📅 Important Events & News:</b>
-• Standard market updates with limited impact
-• No major economic releases affecting sentiment
-• Regular market fluctuations within expected ranges
-
-<b>🔮 Sentiment Outlook:</b>
-Current sentiment for {instrument} is neutral with balanced perspectives from market participants.
-"""
-                        logger.info(f"Returning default sentiment analysis due to API error")
-                        return default_response
-                    
+                        logger.error(f"DeepSeek API request failed with status {response.status}")
+                        error_message = await response.text()
+                        logger.error(f"DeepSeek API error: {error_message}")
+                        # Fall back to manual formatting
+                        return self._format_data_manually(market_data, instrument)
         except Exception as e:
             logger.error(f"Error in DeepSeek formatting: {str(e)}")
             logger.exception(e)
