@@ -708,6 +708,16 @@ class ChartService:
                 formatted_daily_high = f"{daily_high:.{decimals}f}"
                 formatted_daily_low = f"{daily_low:.{decimals}f}"
                 
+                # Format prices with correct decimal places - Extra nauwkeurig voor EURUSD en vergelijkbare instrumenten
+                if instrument in ["EURUSD", "GBPUSD", "AUDUSD", "NZDUSD"]:
+                    formatted_price = f"{current_price:.5f}"
+                    formatted_daily_high = f"{daily_high:.5f}"
+                    formatted_daily_low = f"{daily_low:.5f}"
+                else:
+                    formatted_price = f"{current_price:.{decimals}f}"
+                    formatted_daily_high = f"{daily_high:.{decimals}f}"
+                    formatted_daily_low = f"{daily_low:.{decimals}f}"
+                
                 # Determine trend based on RSI
                 is_bullish = rsi > 50
                 action = "BUY" if is_bullish else "SELL"
@@ -719,19 +729,12 @@ class ChartService:
                 resistance = resistance_levels[0] if resistance_levels else daily_high
                 formatted_resistance = f"{resistance:.{decimals}f}"
                 
-                if is_bullish:
-                    # For bullish scenarios, always display "0.000" as support
-                    support = support_levels[0] if support_levels else daily_low; formatted_support = f"{support:.{decimals}f}"
-                else:
-                    support = support_levels[0] if support_levels else daily_low
-                    formatted_support = f"{support:.{decimals}f}"
-
-                resistance = resistance_levels[0] if resistance_levels else daily_high
-                formatted_resistance = f"{resistance:.{decimals}f}"
-                
                 # Get actual support value for all scenarios
                 support = support_levels[0] if support_levels else daily_low
                 formatted_support = f"{support:.{decimals}f}"
+                
+                # Log exacte waarden voor debugging
+                logger.info(f"FINAL FORMATTED values for {instrument}: price={formatted_price}, support={formatted_support}, resistance={formatted_resistance}")
                 
                 # Create a fallback analysis text in the exact format we need
                 fallback_analysis = f"""{instrument} - {timeframe}
@@ -1174,7 +1177,23 @@ The bias remains bullish but watch for resistance near 148.143. A break above co
 ⚠️ Disclaimer: Please note that the information/analysis provided is strictly for study and educational purposes only. It should not be constructed as financial advice and always do your own analysis."""
             
             # Prepare the system prompt
-            system_prompt = """You are an expert financial analyst specializing in technical analysis for forex, commodities, cryptocurrencies, and indices. Your task is to analyze market data and provide a concise technical analysis with a clear market bias (BUY or SELL) and actionable insight."""
+            system_prompt = """You are an expert financial analyst specializing in technical analysis for forex, commodities, cryptocurrencies, and indices. Your task is to analyze market data and provide a concise technical analysis with a clear market bias (BUY or SELL) and actionable insight.
+
+EXTREMELY IMPORTANT: Do NOT round any numbers. Use the EXACT numerical values provided in the template, especially for forex pairs like EURUSD which require 5 decimal places (e.g., 1.13913). Do not change 1.13913 to 1.14 or 1.10026 to 1.10 - use the exact values given."""
+
+            # Prepare the system prompt
+            system_prompt = """You are an expert financial analyst specializing in technical analysis for forex, commodities, cryptocurrencies, and indices. Your task is to analyze market data and provide a concise technical analysis with a clear market bias (BUY or SELL) and actionable insight.
+
+EXTREMELY IMPORTANT: Do NOT round any numbers. Use the EXACT numerical values provided in the template, especially for forex pairs like EURUSD which require 5 decimal places (e.g., 1.13913). Do not change 1.13913 to 1.14 or 1.10026 to 1.10 - use the exact values given.
+
+EXTREMELY IMPORTANT: Do NOT round any numbers. Use the EXACT numerical values provided in the template, especially for forex pairs like EURUSD which require 5 decimal places (e.g., 1.13913). Do not change 1.13913 to 1.14 or 1.10026 to 1.10 - use the exact values given."""
+
+            # Prepare the system prompt with enhanced precision instructions
+            system_prompt = """You are an expert financial analyst specializing in technical analysis for forex, commodities, cryptocurrencies, and indices. Your task is to analyze market data and provide a concise technical analysis with a clear market bias (BUY or SELL) and actionable insight.
+
+EXTREMELY IMPORTANT: Do NOT round any numbers. Use the EXACT numerical values provided in the template, especially for forex pairs like EURUSD which require 5 decimal places (e.g., 1.13913). Do not change 1.13913 to 1.14 or 1.10026 to 1.10 - use the exact values given.
+
+EXTREMELY IMPORTANT: Do NOT round any numbers. Use the EXACT numerical values provided in the template, especially for forex pairs like EURUSD which require 5 decimal places (e.g., 1.13913). Do not change 1.13913 to 1.14 or 1.10026 to 1.10 - use the exact values given."""
 
             # Extract data from the market_data_json
             market_data = json.loads(market_data_json)
@@ -1199,6 +1218,16 @@ The bias remains bullish but watch for resistance near 148.143. A break above co
             daily_low = market_data.get('daily_low', 0)
             formatted_daily_low = f"{daily_low:.{decimals}f}"
             
+            # Format prices with correct decimal places - Extra nauwkeurig voor EURUSD en vergelijkbare instrumenten
+            if instrument in ["EURUSD", "GBPUSD", "AUDUSD", "NZDUSD"]:
+                formatted_price = f"{current_price:.5f}"
+                formatted_daily_high = f"{daily_high:.5f}"
+                formatted_daily_low = f"{daily_low:.5f}"
+            else:
+                formatted_price = f"{current_price:.{decimals}f}"
+                formatted_daily_high = f"{daily_high:.{decimals}f}"
+                formatted_daily_low = f"{daily_low:.{decimals}f}"
+            
             rsi = market_data.get('rsi', 50)
             
             # Determine if the trend is bullish or bearish
@@ -1212,33 +1241,15 @@ The bias remains bullish but watch for resistance near 148.143. A break above co
             resistance = resistance_levels[0] if resistance_levels else daily_high
             formatted_resistance = f"{resistance:.{decimals}f}"
             
-            if is_bullish:
-                # For bullish scenarios, always display "0.000" as support
-                support = support_levels[0] if support_levels else daily_low; formatted_support = f"{support:.{decimals}f}"
-            else:
-                support = support_levels[0] if support_levels else daily_low
-                formatted_support = f"{support:.{decimals}f}"
-                
             # Get actual support value for all scenarios
             support = support_levels[0] if support_levels else daily_low
             formatted_support = f"{support:.{decimals}f}"
             
-            # Format EMA values with consistent decimals
-            ema50 = 150.354 if instrument == "USDJPY" else market_data.get('ema_50', current_price * 1.005 if is_bullish else current_price * 0.995)
-            formatted_ema50 = f"{ema50:.{decimals}f}"
+            # Log exacte waarden voor debugging
+            logger.info(f"FINAL FORMATTED values for {instrument}: price={formatted_price}, support={formatted_support}, resistance={formatted_resistance}")
             
-            ema200 = 153.302 if instrument == "USDJPY" else market_data.get('ema_200', current_price * 1.01 if is_bullish else current_price * 0.99)
-            formatted_ema200 = f"{ema200:.{decimals}f}"
-            
-            # Prepare the user prompt with market data and EXACT format requirements
-            user_prompt = f"""Analyze the following market data for {instrument} on the {timeframe} timeframe and provide a technical analysis in the EXACT format I specify. The format must match precisely character for character:
-
-{market_data_json}
-
-Based on this data, you must determine if the trend is {action}, and identify key levels.
-
-YOUR RESPONSE MUST BE IN THIS EXACT FORMAT:
-{instrument} - {timeframe}
+            # Create a fallback analysis text in the exact format we need
+            fallback_analysis = f"""{instrument} - {timeframe}
 
 <b>Trend - {action}</b>
 
@@ -1254,7 +1265,7 @@ Resistance: {formatted_daily_high} (daily high), {formatted_resistance}
 <b>📈 Technical Indicators</b>
 RSI: {rsi:.2f} (neutral)
 MACD: {action} (0.00244 > signal 0.00070)
-Moving Averages: Price {'above' if is_bullish else 'below'} EMA 50 ({formatted_ema50}) and EMA 200 ({formatted_ema200}), reinforcing {action.lower()} bias.
+Moving Averages: Price {'above' if is_bullish else 'below'} EMA 50 ({formatted_daily_high}) and EMA 200 ({formatted_daily_high}), reinforcing {action.lower()} bias.
 
 <b>🤖 Sigmapips AI Recommendation</b>
 [2-3 sentences with market advice based on the analysis. Focus on key levels to watch and overall market bias.]
@@ -1268,7 +1279,7 @@ CRITICAL REQUIREMENTS:
 4. DO NOT DEVIATE FROM THIS FORMAT AT ALL
 5. DO NOT add any introduction or explanations
 6. USE THE EXACT PHRASES PROVIDED - no paraphrasing
-7. USE EXACTLY THE SAME DECIMAL PLACES PROVIDED IN MY TEMPLATE - no additional or fewer decimal places
+7. For EURUSD, GBPUSD, and other forex pairs, you MUST use EXACTLY 5 decimal places (e.g., 1.13913)
 8. Bold formatting should be used for headers (using <b> and </b> HTML tags)
 9. Do NOT include the line "Sigmapips AI identifies strong buy/sell probability..." - skip directly from Trend to Zone Strength
 """
@@ -1328,33 +1339,23 @@ CRITICAL REQUIREMENTS:
                                     """Fix number formatting in analysis text"""
                                     try:
                                         number = float(match.group(0))
-                                        if number >= 1000:
+                                        # Specifieke regels voor forex paren zoals EURUSD
+                                        if 0.5 <= number <= 2.0:
+                                            return f"{number:.5f}"  # 5 decimalen voor forex paren
+                                        elif number >= 1000:
                                             return f"{number:,.0f}"  # Format large numbers with commas
                                         elif number >= 100:
                                             return f"{number:.1f}"   # One decimal for medium numbers
                                         elif 1 <= number < 100:
                                             return f"{number:.2f}"   # Two decimals for medium-small numbers
                                         else:
-                                            return f"{number:.4f}"   # Four decimals for forex pairs like EURUSD
+                                            return f"{number:.5f}"   # Vijf decimalen voor forex paren
                                     except:
                                         return match.group(0)  # Return original if conversion fails
                                 
                                 # Apply regex to fix decimals in numerical values
                                 analysis = re.sub(r'(\d+\.\d+)', fix_numbers, analysis)
-                                
-                                # Remove the "Sigmapips AI identifies..." line if it exists
-                                analysis = re.sub(r'\n\nSigmapips AI identifies strong (buy|sell) probability.*?\n\n', '\n\n', analysis, flags=re.IGNORECASE)
-                                
-                                # Convert markdown bold to HTML bold if needed
-                                analysis = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', analysis)
-                                
-                                # Add HTML bold formatting to headers if not already present
-                                analysis = re.sub(r'\n(Trend - [A-Z]+)\n', r'\n<b>\1</b>\n', analysis)
-                                analysis = re.sub(r'\n(📊 Market Overview)\n', r'\n<b>\1</b>\n', analysis)
-                                analysis = re.sub(r'\n(🔑 Key Levels)\n', r'\n<b>\1</b>\n', analysis)
-                                analysis = re.sub(r'\n(📈 Technical Indicators)\n', r'\n<b>\1</b>\n', analysis)
-                                analysis = re.sub(r'\n(🤖 Sigmapips AI Recommendation)\n', r'\n<b>\1</b>\n', analysis)
-                            
+
                             # Just return the analysis directly, skipping _clean_for_telegram
                             return analysis
                         else:
