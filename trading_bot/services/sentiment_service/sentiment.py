@@ -176,7 +176,7 @@ class MarketSentimentService:
         self.request_timeout = aiohttp.ClientTimeout(total=12, connect=4)
         
         logger.info(f"Sentiment cache TTL set to {cache_ttl_minutes} minutes ({self.cache_ttl} seconds)")
-        logger.info(f"Persistent caching {'enabled' : 'disabled'}, cache file: {self.cache_file if self.use_persistent_cache else 'N/A'}")
+        logger.info(f"Persistent caching {'enabled' if self.use_persistent_cache else 'disabled'}, cache file: {self.cache_file if self.use_persistent_cache else 'N/A'}")
         
         # Log API key status (without revealing full keys)
         if self.tavily_api_key:
