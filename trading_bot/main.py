@@ -120,19 +120,6 @@ async def startup_event():
         calendar_service = EconomicCalendarService()
         logger.info("Calendar service initialized")
         
-        # Initialize sentiment service and start background prefetch
-        logger.info("Initializing sentiment service with background prefetch...")
-        sentiment_service = MarketSentimentService(fast_mode=True)
-        # Populaire forex en crypto paren vooraf laden
-        popular_instruments = ["EURUSD", "GBPUSD", "USDJPY", "BTCUSD", "ETHUSD", "XAUUSD", "US30"]
-        asyncio.create_task(sentiment_service.start_background_prefetch(popular_instruments, interval_minutes=20))
-        logger.info(f"Started background prefetch for {len(popular_instruments)} popular instruments")
-        
-        # Share the sentiment service with telegram_service to avoid multiple instances
-        if hasattr(telegram_service, 'sentiment_service'):
-            telegram_service.sentiment_service = sentiment_service
-            logger.info("Shared sentiment service with telegram service")
-        
         # Log environment variables
         webhook_url = os.getenv("WEBHOOK_URL", "")
         logger.info(f"WEBHOOK_URL from environment: '{webhook_url}'")
