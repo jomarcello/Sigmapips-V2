@@ -5,8 +5,6 @@ import json
 import base64
 import subprocess
 import time
-import random
-import string
 from typing import Optional, Dict, List, Any, Union
 from io import BytesIO
 from datetime import datetime
@@ -16,12 +14,9 @@ logger = logging.getLogger(__name__)
 
 class TradingViewNodeService(TradingViewService):
     def __init__(self, session_id=None):
-        """
-        Initialiseer de TradingView Node.js service.
-        Vereist Node.js en Playwright te zijn geïnstalleerd.
-        """
+        """Initialize the TradingView Node.js service"""
         super().__init__()
-        self.session_id = session_id or ''.join(random.choices(string.ascii_lowercase + string.digits, k=32))
+        self.session_id = session_id or os.getenv("TRADINGVIEW_SESSION_ID", "z90l85p2anlgdwfppsrdnnfantz48z1o")
         self.username = os.getenv("TRADINGVIEW_USERNAME", "")
         self.password = os.getenv("TRADINGVIEW_PASSWORD", "")
         self.is_initialized = False
@@ -29,23 +24,9 @@ class TradingViewNodeService(TradingViewService):
         self.base_url = "https://www.tradingview.com"
         self.chart_url = "https://www.tradingview.com/chart"
         
-        # Stel het pad in naar het TradingView screenshot script
-        # Eerst proberen we het script te vinden in de Docker container pad
-        if os.path.exists("/app/tradingview_screenshot.js"):
-            self.script_path = "/app/tradingview_screenshot.js"
-        else:
-            # Anders proberen we het script te vinden in dezelfde directory als deze file
-            script_dir = os.path.dirname(os.path.abspath(__file__))
-            self.script_path = os.path.join(script_dir, "tradingview_screenshot.js")
-            if not os.path.exists(self.script_path):
-                # Als laatste optie, probeer het in de bovenliggende directory te vinden
-                self.script_path = os.path.join(os.path.dirname(script_dir), "tradingview_screenshot.js")
-        
-        # Stel de timeout in voor de Node.js opdracht (seconden)
-        self.timeout = 25  # 25 seconden is een goede balans tussen snelheid en correctheid
-        
-        # Houd de uitvoeringstijd van de laatste screenshot bij
-        self.last_execution_time = 0.0
+        # Get the project root directory and set the correct script path
+        project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+        self.script_path = os.path.join(project_root, "tradingview_screenshot.js")
         
         # Chart links voor verschillende symbolen
         self.chart_links = {
@@ -58,37 +39,55 @@ class TradingViewNodeService(TradingViewService):
         logger.info(f"TradingView Node.js service initialized")
     
     async def initialize(self):
-        """Initialize the Node.js service met directe initialisatie zonder test"""
+        """Initialize the Node.js service"""
         try:
             logger.info("Initializing TradingView Node.js service")
             
             # Controleer of Node.js is geïnstalleerd
             try:
-                process = await asyncio.create_subprocess_exec(
-                    "node", "--version",
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE
-                )
-                stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=3)
-                node_version = stdout.decode().strip()
+                node_version = subprocess.check_output(["node", "--version"]).decode().strip()
                 logger.info(f"Node.js version: {node_version}")
             except Exception as node_error:
-                logger.error(f"Node.js not found: {str(node_error)}")
+                logger.error(f"Error checking Node.js version: {str(node_error)}")
                 return False
             
-            # Controleer of het script bestaat
+            # Check if the screenshot.js file exists
             if not os.path.exists(self.script_path):
-                logger.error(f"Script niet gevonden: {self.script_path}")
+                logger.error(f"screenshot.js not found at {self.script_path}")
                 return False
             
-            # DIRECTE INITIALISATIE: sla testen over
-            logger.info("DIRECT INITIALIZATION: Skipping tests completely")
-            self.is_initialized = True
-            self.node_initialized = True 
-            return True
-                
+            logger.info(f"screenshot.js found at {self.script_path}")
+            
+            # Installeer Playwright direct via npm
+            try:
+                logger.info("Installing Playwright directly...")
+                subprocess.run(["npm", "install", "playwright", "--no-save"], 
+                              check=True, 
+                              stdout=subprocess.PIPE, 
+                              stderr=subprocess.PIPE)
+                logger.info("Playwright installed successfully")
+            except Exception as e:
+                logger.error(f"Error installing Playwright: {str(e)}")
+                # Ga door, want het script zal proberen Playwright te installeren indien nodig
+            
+            # Test de Node.js service met een TradingView URL
+            try:
+                logger.info("Testing Node.js service with TradingView URL")
+                test_url = "https://www.tradingview.com/chart/xknpxpcr/?symbol=EURUSD&interval=1h"
+                test_result = await self.take_screenshot_of_url(test_url)
+                if test_result:
+                    logger.info("Node.js service test successful")
+                    self.is_initialized = True
+                    return True
+                else:
+                    logger.error("Node.js service test failed")
+                    return False
+            except Exception as test_error:
+                logger.error(f"Error testing Node.js service: {str(test_error)}")
+                return False
+            
         except Exception as e:
-            logger.error(f"Error initializing Node.js service: {str(e)}")
+            logger.error(f"Error initializing TradingView Node.js service: {str(e)}")
             return False
     
     async def take_screenshot(self, symbol, timeframe=None, fullscreen=False):
@@ -100,57 +99,27 @@ class TradingViewNodeService(TradingViewService):
             normalized_symbol = symbol.replace("/", "").upper()
             
             # Bouw de chart URL
-            chart_url = None
-            
-            # Probeer eerst een specifieke link
-            if hasattr(self, 'chart_links'):
-                chart_url = self.chart_links.get(normalized_symbol)
-                if chart_url:
-                    logger.info(f"Using specific chart link for {normalized_symbol}: {chart_url}")
-            
-            # Als die er niet is, gebruik de generieke URL
+            chart_url = self.chart_links.get(normalized_symbol)
             if not chart_url:
-                # Gebruik de xknpxpcr template voor betere charts
+                logger.warning(f"No chart URL found for {symbol}, using default URL")
+                # Gebruik een lichtere versie van de chart
                 chart_url = f"https://www.tradingview.com/chart/xknpxpcr/?symbol={normalized_symbol}"
                 if timeframe:
                     tv_interval = self.interval_map.get(timeframe, "D")
                     chart_url += f"&interval={tv_interval}"
-                logger.info(f"Using generic chart link: {chart_url}")
-            
-            # Voeg fullscreen parameters toe
-            fullscreen_params = [
-                "fullscreen=true",
-                "hide_side_toolbar=true",
-                "hide_top_toolbar=true",
-                "hide_legend=true",
-                "theme=dark",
-                "toolbar_bg=dark",
-                "scale_position=right",
-                "scale_mode=normal"
-            ]
-            
-            # Voeg de parameters toe
-            if "?" in chart_url:
-                chart_url += "&" + "&".join(fullscreen_params)
-            else:
-                chart_url += "?" + "&".join(fullscreen_params)
             
             # Controleer of de URL geldig is
             if not chart_url:
                 logger.error(f"Invalid chart URL for {symbol}")
                 return None
             
-            logger.info(f"Final URL: {chart_url}")
-            
             # Gebruik de take_screenshot_of_url methode om de screenshot te maken
+            logger.info(f"Taking screenshot of URL: {chart_url}")
             screenshot_bytes = await self.take_screenshot_of_url(chart_url, fullscreen=fullscreen)
             
-            if screenshot_bytes and len(screenshot_bytes) > 10000:  # Minstens 10KB voor een echte chart
-                logger.info(f"Screenshot taken successfully for {symbol} ({len(screenshot_bytes)} bytes)")
+            if screenshot_bytes:
+                logger.info(f"Screenshot taken successfully for {symbol}")
                 return screenshot_bytes
-            elif screenshot_bytes:
-                logger.error(f"Screenshot taken but too small for {symbol} ({len(screenshot_bytes)} bytes)")
-                return None
             else:
                 logger.error(f"Failed to take screenshot for {symbol}")
                 return None
@@ -199,128 +168,61 @@ class TradingViewNodeService(TradingViewService):
         # Geen resources om op te ruimen
         logger.info("TradingView Node.js service cleaned up")
     
-    async def take_screenshot_of_url(self, url: str, fullscreen: bool = False, test_mode: bool = False) -> Optional[bytes]:
-        """
-        Neem een schermafdruk van de opgegeven URL met Node.js (Playwright).
-        Handelt de nodige opschoning af.
-        
-        Args:
-            url: De URL om een screenshot van te nemen
-            fullscreen: Of de browser in fullscreen modus moet zijn
-            test_mode: Of de snelheidsoptimalisaties voor testen moeten worden gebruikt
-        
-        Returns:
-            Optional[bytes]: De screenshot als bytes, of None bij fout
-        """
+    async def take_screenshot_of_url(self, url: str, fullscreen: bool = False) -> Optional[bytes]:
+        """Take a screenshot of a URL using Node.js"""
         try:
+            # Genereer een unieke bestandsnaam voor de screenshot
             timestamp = int(time.time())
+            screenshot_path = os.path.join(os.path.dirname(self.script_path), f"screenshot_{timestamp}.png")
             
-            # Bereid het pad voor de screenshot voor
-            screenshot_path = ""
-            if os.path.exists("/app"):
-                # We zijn in Docker
-                screenshot_path = f"/app/screenshot_{timestamp}.png"
-                logger.info(f"Running in Docker, setting screenshot path to {screenshot_path}")
+            # Zorg ervoor dat de URL geen aanhalingstekens bevat
+            url = url.strip('"\'')
+            
+            # Debug logging
+            logger.info(f"Taking screenshot with fullscreen={fullscreen}")
+            
+            # Controleer of de URL naar TradingView verwijst
+            if "tradingview.com" in url:
+                logger.info(f"Taking screenshot of TradingView URL: {url}")
             else:
-                # We zijn lokaal
-                # Gebruik een pad in dezelfde directory als het script
-                script_dir = os.path.dirname(os.path.abspath(__file__))
-                screenshot_dir = os.path.join(script_dir, "temp_screenshots")
-                os.makedirs(screenshot_dir, exist_ok=True)
-                screenshot_path = os.path.join(screenshot_dir, f"screenshot_{timestamp}.png")
-                logger.info(f"Running locally, setting screenshot path to {screenshot_path}")
+                logger.warning(f"URL is not a TradingView URL: {url}")
             
-            # Bereid de Node.js opdracht voor
-            js_path = os.path.abspath(self.script_path)
+            # Gebruik session_id in plaats van tradingview_username
+            # Voeg fullscreen parameter toe aan het commando
+            cmd = f"node {self.script_path} \"{url}\" \"{screenshot_path}\" \"{self.session_id}\""
             
-            # Controleer of het pad bestaat
-            if not os.path.exists(js_path):
-                logger.error(f"JavaScript bestand niet gevonden op pad: {js_path}")
-                # Probeer het bestand in de root van het project te vinden
-                project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
-                js_path = os.path.join(project_root, "tradingview_screenshot.js")
-                if not os.path.exists(js_path):
-                    logger.error(f"JavaScript bestand niet gevonden: {js_path}")
-                    return None
-            
-            # Log het absolute pad voor debugging
-            logger.info(f"Using Node.js script at: {js_path}")
-            
-            # Fullscreen parameter toevoegen aan opdracht
-            fullscreen_param = "fullscreen" if fullscreen else ""
-            if fullscreen:
+            # Voeg fullscreen parameter toe als dat nodig is
+            if fullscreen or "fullscreen=true" in url:
+                cmd += " fullscreen"
                 logger.info("Adding fullscreen parameter to command")
             
-            # Test mode parameter toevoegen
-            test_param = "test" if test_mode else ""
+            # Verwijder eventuele puntkomma's uit het commando
+            cmd = cmd.replace(";", "")
             
-            # Stel je session ID in
-            session_id = self.session_id if hasattr(self, 'session_id') and self.session_id else ""
+            logger.info(f"Running command: {cmd.replace(self.session_id, '****')}")
             
-            # Voer de Node.js opdracht uit met een kortere timeout
-            cmd = ["node", js_path, url, screenshot_path, session_id, fullscreen_param, test_param]
-            
-            logger.info(f"Running command: {' '.join(cmd)}")
-            
-            # Voer het proces uit met een kortere timeout (10 seconden in plaats van 40)
-            process = await asyncio.create_subprocess_exec(
-                *cmd,
+            process = await asyncio.create_subprocess_shell(
+                cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
             
-            # Haal timeout uit class of gebruik verlaagde default
-            timeout = getattr(self, 'timeout', 25)  # Gebruik klasse-timeout of 25 seconden default
+            stdout, stderr = await process.communicate()
             
-            # Wacht maximaal op het gespecifieerde aantal seconden
-            try:
-                logger.info(f"Wachten op Node.js proces met timeout van {timeout} seconden...")
-                start_time = time.time()
-                stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout)
-                elapsed_time = time.time() - start_time
-                # Sla de uitvoeringstijd op in de klasse voor gebruik in andere methoden
-                self.last_execution_time = elapsed_time
-                logger.info(f"Node.js proces voltooid in {elapsed_time:.2f} seconden")
-                
-                stdout_str = stdout.decode('utf-8', errors='ignore')
-                stderr_str = stderr.decode('utf-8', errors='ignore')
-                
-                if stdout_str:
-                    logger.info(f"Node.js stdout: {stdout_str[:200]}...")
-                if stderr_str:
-                    logger.error(f"Node.js stderr: {stderr_str[:200]}...")
-                
-                if process.returncode != 0:
-                    logger.error(f"Node.js proces geeft niet-nul exit code: {process.returncode}")
-                    return None
-                
-            except asyncio.TimeoutError:
-                logger.error(f"Node.js process timed out after {timeout} seconds")
-                process.kill()
-                return None
+            # Log de output
+            if stdout:
+                logger.info(f"Node.js stdout: {stdout.decode()}")
+            if stderr:
+                logger.error(f"Node.js stderr: {stderr.decode()}")
             
             # Controleer of het bestand bestaat
             if os.path.exists(screenshot_path):
-                logger.info(f"Screenshot file exists: {screenshot_path}")
-                
                 # Lees het bestand
                 with open(screenshot_path, 'rb') as f:
                     screenshot_data = f.read()
                 
-                # Controleer of er data is
-                if not screenshot_data or len(screenshot_data) < 1000:
-                    logger.error(f"Screenshot file exists but contains no data: {screenshot_path}")
-                    return None
-                
-                # Log de bestandsgrootte
-                logger.info(f"Screenshot size: {len(screenshot_data)} bytes")
-                
-                # Verwijder het bestand na het lezen
-                try:
-                    os.remove(screenshot_path)
-                    logger.info(f"Removed screenshot file after reading")
-                except Exception as e:
-                    logger.warning(f"Could not remove screenshot file: {str(e)}")
+                # Verwijder het bestand
+                os.remove(screenshot_path)
                 
                 return screenshot_data
             else:
