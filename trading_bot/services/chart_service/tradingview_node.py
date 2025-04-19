@@ -24,8 +24,9 @@ class TradingViewNodeService(TradingViewService):
         self.base_url = "https://www.tradingview.com"
         self.chart_url = "https://www.tradingview.com/chart"
         
-        # Bepaal het script pad op basis van de bestandslocatie
-        self.script_path = os.path.join(os.path.dirname(__file__), "tradingview_screenshot.js")
+        # Get the project root directory and set the correct script path
+        project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+        self.script_path = os.path.join(project_root, "trading_bot/services/chart_service/tradingview_screenshot.js")
         
         # Chart links voor verschillende symbolen
         self.chart_links = {
@@ -76,11 +77,17 @@ class TradingViewNodeService(TradingViewService):
             # Bouw de chart URL
             chart_url = self.chart_links.get(normalized_symbol)
             if not chart_url:
+                logger.warning(f"No chart URL found for {symbol}, using default URL")
                 # Gebruik een lichtere versie van de chart
                 chart_url = f"https://www.tradingview.com/chart/xknpxpcr/?symbol={normalized_symbol}"
                 if timeframe:
                     tv_interval = self.interval_map.get(timeframe, "D")
                     chart_url += f"&interval={tv_interval}"
+            
+            # Controleer of de URL geldig is
+            if not chart_url:
+                logger.error(f"Invalid chart URL for {symbol}")
+                return None
             
             # Gebruik de take_screenshot_of_url methode om de screenshot te maken
             logger.info(f"Taking screenshot of URL: {chart_url}")
@@ -141,14 +148,19 @@ class TradingViewNodeService(TradingViewService):
         try:
             # Genereer een unieke bestandsnaam voor de screenshot
             timestamp = int(time.time())
-            tmp_dir = "/tmp" if os.path.exists("/tmp") else os.path.dirname(self.script_path)
-            screenshot_path = os.path.join(tmp_dir, f"screenshot_{timestamp}.png")
+            screenshot_path = os.path.join(os.path.dirname(self.script_path), f"screenshot_{timestamp}.png")
             
             # Zorg ervoor dat de URL geen aanhalingstekens bevat
             url = url.strip('"\'')
             
             # Debug logging
             logger.info(f"Taking screenshot with fullscreen={fullscreen}")
+            
+            # Controleer of de URL naar TradingView verwijst
+            if "tradingview.com" in url:
+                logger.info(f"Taking screenshot of TradingView URL: {url}")
+            else:
+                logger.warning(f"URL is not a TradingView URL: {url}")
             
             # Bouw het commando op
             cmd = f"node {self.script_path} \"{url}\" \"{screenshot_path}\" \"{self.session_id}\""
