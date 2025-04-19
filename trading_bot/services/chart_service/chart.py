@@ -721,10 +721,17 @@ class ChartService:
                 
                 if is_bullish:
                     # For bullish scenarios, always display "0.000" as support
-                    formatted_support = "0.000"
+                    support = support_levels[0] if support_levels else daily_low; formatted_support = f"{support:.{decimals}f}"
                 else:
                     support = support_levels[0] if support_levels else daily_low
                     formatted_support = f"{support:.{decimals}f}"
+
+                resistance = resistance_levels[0] if resistance_levels else daily_high
+                formatted_resistance = f"{resistance:.{decimals}f}"
+                
+                # Get actual support value for all scenarios
+                support = support_levels[0] if support_levels else daily_low
+                formatted_support = f"{support:.{decimals}f}"
                 
                 # Create a fallback analysis text in the exact format we need
                 fallback_analysis = f"""{instrument} - {timeframe}
@@ -1153,7 +1160,7 @@ Zone Strength 1-5: ★★★★☆
 USDJPY is trading at 147.406, showing buy momentum near the daily high (148.291). The price remains above key EMAs (50 & 200), confirming an uptrend.
 
 <b>🔑 Key Levels</b>
-Support: 0.000 (daily low), 0.000
+Support: 147.106 (daily low), 146.500
 Resistance: 148.291 (daily high), 148.143
 
 <b>📈 Technical Indicators</b>
@@ -1162,7 +1169,7 @@ MACD: Buy (0.00244 > signal 0.00070)
 Moving Averages: Price above EMA 50 (150.354) and EMA 200 (153.302), reinforcing buy bias.
 
 <b>🤖 Sigmapips AI Recommendation</b>
-The bias remains bullish but watch for resistance near 148.143. A break above could target higher levels, while failure may test 0.000 support.
+The bias remains bullish but watch for resistance near 148.143. A break above could target higher levels, while failure may test 147.106 support.
 
 ⚠️ Disclaimer: Please note that the information/analysis provided is strictly for study and educational purposes only. It should not be constructed as financial advice and always do your own analysis."""
             
@@ -1206,13 +1213,16 @@ The bias remains bullish but watch for resistance near 148.143. A break above co
             formatted_resistance = f"{resistance:.{decimals}f}"
             
             if is_bullish:
-                # For bullish scenarios, always display "0.000" as support for consistency with the example
-                support = "0.000"
-                formatted_support = "0.000"
+                # For bullish scenarios, always display "0.000" as support
+                support = support_levels[0] if support_levels else daily_low; formatted_support = f"{support:.{decimals}f}"
             else:
                 support = support_levels[0] if support_levels else daily_low
                 formatted_support = f"{support:.{decimals}f}"
                 
+            # Get actual support value for all scenarios
+            support = support_levels[0] if support_levels else daily_low
+            formatted_support = f"{support:.{decimals}f}"
+            
             # Format EMA values with consistent decimals
             ema50 = 150.354 if instrument == "USDJPY" else market_data.get('ema_50', current_price * 1.005 if is_bullish else current_price * 0.995)
             formatted_ema50 = f"{ema50:.{decimals}f}"
@@ -1312,10 +1322,6 @@ CRITICAL REQUIREMENTS:
                                 # Make sure the "Trend" is correctly labeled as BUY/SELL instead of BULLISH/BEARISH
                                 analysis = re.sub(r'Trend\s*-\s*(BULLISH|Bullish)', f'Trend - BUY', analysis, flags=re.IGNORECASE)
                                 analysis = re.sub(r'Trend\s*-\s*(BEARISH|Bearish)', f'Trend - SELL', analysis, flags=re.IGNORECASE)
-                                
-                                # Ensure support is 0.000 for bullish trends
-                                if is_bullish and "BUY" in analysis:
-                                    analysis = re.sub(r'Support:\s*([0-9.]+)', 'Support: 0.000', analysis)
                                 
                                 # Ensure prices have consistent decimal places
                                 def fix_numbers(match):
