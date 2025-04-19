@@ -198,7 +198,7 @@ class MarketSentimentService:
             logger.exception(e)
             # Return a basic analysis message
             error_result = {
-                'analysis': f"<b>🎯 {instrument} Market Analysis</b>\n\nSorry, there was an error analyzing the market sentiment. Please try again later.",
+                'analysis': f"<b>🎯 {instrument} Market Sentiment Analysis</b>\n\nSorry, there was an error analyzing the market sentiment. Please try again later.",
                 'sentiment_score': 0,
                 'technical_score': 'N/A',
                 'news_score': 'N/A',
@@ -457,7 +457,7 @@ class MarketSentimentService:
                     'neutral': 0,
                     'trend_strength': 'Weak',
                     'volatility': 'Moderate',
-                    'analysis': f"""<b>🎯 {instrument} Market Analysis</b>
+                    'analysis': f"""<b>🎯 {instrument} Market Sentiment Analysis</b>
 
 <b>Overall Sentiment:</b> Neutral ➡️
 
@@ -466,20 +466,20 @@ class MarketSentimentService:
 🔴 Bearish: 50%
 ⚪️ Neutral: 0%
 
-<b>📈 Market Direction:</b>
-{instrument} is currently showing mixed signals with no clear directional bias.
+<b>📰 Key Sentiment Drivers:</b>
+• Market conditions appear normal with mixed signals
+• No clear directional bias at this time
+• Standard market activity observed
 
-<b>📰 Latest News & Events:</b>
+<b>📊 Market Mood:</b>
+{instrument} is currently showing mixed signals with no clear sentiment bias.
+
+<b>📅 Important Events & News:</b>
 • Normal market activity with no major catalysts
 • No significant economic releases impacting the market
 • General news and global trends affecting sentiment
 
-<b>⚠️ Risk Factors:</b>
-• Market Volatility: Normal
-• Unexpected news events could shift sentiment
-• Broader economic trends may influence direction
-
-<b>💡 Conclusion:</b>
+<b>🔮 Sentiment Outlook:</b>
 The market shows balanced sentiment for {instrument} with no strong directional bias at this time.
 
 <i>Error details: {str(e)[:100]}</i>
@@ -544,7 +544,7 @@ The market shows balanced sentiment for {instrument} with no strong directional 
                 sentiment = sentiment_data.get('overall_sentiment', 'neutral')
                 trend_strength = sentiment_data.get('trend_strength', 'Moderate')
                 
-                result = f"""<b>🎯 {instrument} Market Analysis</b>
+                result = f"""<b>🎯 {instrument} Market Sentiment Analysis</b>
 
 <b>Overall Sentiment:</b> {sentiment.capitalize()} {'📈' if sentiment == 'bullish' else '📉' if sentiment == 'bearish' else '➡️'}
 
@@ -553,28 +553,28 @@ The market shows balanced sentiment for {instrument} with no strong directional 
 🔴 Bearish: {bearish}%
 ⚪️ Neutral: {neutral}%
 
-<b>📈 Market Direction:</b>
+<b>📰 Key Sentiment Drivers:</b>
+• Market sentiment driven by technical and fundamental factors
+• Recent market developments shaping trader perception
+• Evolving economic conditions influencing outlook
+
+<b>📊 Market Mood:</b>
 The {instrument} is currently showing {sentiment} sentiment with {trend_strength.lower()} momentum.
 
-<b>📰 Latest News & Events:</b>
-• Market sentiment driven by technical factors
+<b>📅 Important Events & News:</b>
 • Regular trading activity observed
 • No major market-moving events at this time
+• Standard economic influences in effect
 
-<b>⚠️ Risk Factors:</b>
-• Market Volatility: {sentiment_data.get('volatility', 'Moderate')}
-• Watch for unexpected news events
-• Monitor broader market conditions
-
-<b>💡 Conclusion:</b>
-{sentiment_data.get('recommendation', 'Monitor price action and manage risk appropriately.')}
+<b>🔮 Sentiment Outlook:</b>
+{sentiment_data.get('recommendation', 'Monitor market conditions and manage risk appropriately.')}
 """
                 logger.info(f"Generated complete formatted text with percentages for {instrument}")
             
             # Fallback to a simple message if we still don't have a result
             if not result or not isinstance(result, str) or len(result.strip()) == 0:
                 logger.warning(f"Using complete fallback sentiment message for {instrument}")
-                result = f"""<b>🎯 {instrument} Market Analysis</b>
+                result = f"""<b>🎯 {instrument} Market Sentiment Analysis</b>
 
 <b>Overall Sentiment:</b> Neutral ➡️
 
@@ -583,20 +583,20 @@ The {instrument} is currently showing {sentiment} sentiment with {trend_strength
 🔴 Bearish: 50%
 ⚪️ Neutral: 0%
 
-<b>📈 Market Direction:</b>
-{instrument} is trading with a balanced sentiment pattern with no clear sentiment bias.
-
-<b>📰 Latest News & Events:</b>
+<b>📰 Key Sentiment Drivers:</b>
 • Regular market activity with no major catalysts
 • General economic factors influencing market mood
 • No significant news events driving sentiment
 
-<b>⚠️ Risk Factors:</b>
-• Market Volatility: Normal
-• Unexpected news could cause sentiment shifts
-• Monitor general economic releases
+<b>📊 Market Mood:</b>
+{instrument} is trading with a balanced sentiment pattern with no clear sentiment bias.
 
-<b>💡 Conclusion:</b>
+<b>📅 Important Events & News:</b>
+• Standard market updates with limited impact
+• No major economic releases affecting sentiment
+• Regular market fluctuations within expected ranges
+
+<b>🔮 Sentiment Outlook:</b>
 Current sentiment for {instrument} is neutral with balanced perspectives from market participants.
 """
             
@@ -625,10 +625,10 @@ Current sentiment for {instrument} is neutral with balanced perspectives from ma
                 
             # Ensure the result has the expected sections with emojis
             expected_sections = [
-                ('<b>📈 Market Direction:</b>', '<b>Market Direction:</b>'),
-                ('<b>📰 Latest News & Events:</b>', '<b>Latest News & Events:</b>'),
-                ('<b>⚠️ Risk Factors:</b>', '<b>Risk Factors:</b>'),
-                ('<b>💡 Conclusion:</b>', '<b>Conclusion:</b>')
+                ('<b>📰 Key Sentiment Drivers:</b>', '<b>Key Sentiment Drivers:</b>'),
+                ('<b>📊 Market Mood:</b>', '<b>Market Mood:</b>'),
+                ('<b>📅 Important Events & News:</b>', '<b>Important Events & News:</b>'),
+                ('<b>🔮 Sentiment Outlook:</b>', '<b>Sentiment Outlook:</b>')
             ]
             
             for emoji_section, plain_section in expected_sections:
@@ -642,7 +642,7 @@ Current sentiment for {instrument} is neutral with balanced perspectives from ma
             logger.error(f"Uncaught error in get_market_sentiment_text: {str(e)}")
             logger.exception(e)
             # Return a valid response even in case of errors, with correct percentages format
-            return f"""<b>🎯 {instrument} Market Analysis</b>
+            return f"""<b>🎯 {instrument} Market Sentiment Analysis</b>
 
 <b>Overall Sentiment:</b> Neutral ➡️
 
@@ -655,10 +655,21 @@ Current sentiment for {instrument} is neutral with balanced perspectives from ma
 The sentiment analysis service encountered an error while processing data for {instrument}.
 Please try again later or choose a different instrument.
 
-<b>Default Analysis:</b>
-• Market conditions appear normal with mixed trading patterns
+<b>📰 Key Sentiment Drivers:</b>
+• Market conditions appear normal with mixed signals
 • No clear directional bias at this time
-• Standard risk management practices recommended
+• Standard risk factors in the current market
+
+<b>📊 Market Mood:</b>
+Market mood is currently balanced with no strong signals.
+
+<b>📅 Important Events & News:</b>
+• No major market-moving events detected
+• Regular market activity continues
+• Standard economic factors in play
+
+<b>🔮 Sentiment Outlook:</b>
+Standard risk management practices recommended until clearer sentiment emerges.
 """
     
     def _format_data_manually(self, news_content: str, instrument: str) -> str:
@@ -667,10 +678,10 @@ Please try again later or choose a different instrument.
             logger.info(f"Manually formatting market data for {instrument}")
             
             # Extract key phrases and content from news_content
-            formatted_text = f"# Market Data for {instrument}\n\n"
+            formatted_text = f"# Market Sentiment Data for {instrument}\n\n"
             
             # Add news content sections
-            if "Market Analysis" in news_content:
+            if "Market Sentiment Analysis" in news_content or "Market Analysis" in news_content:
                 formatted_text += news_content
             else:
                 # Extract key parts of the news content
@@ -687,7 +698,7 @@ Please try again later or choose a different instrument.
             
         except Exception as e:
             logger.error(f"Error formatting market data manually: {str(e)}")
-            return f"# Market Data for {instrument}\n\nError formatting data: {str(e)}\n\nRaw content: {news_content[:500]}..."
+            return f"# Market Sentiment Data for {instrument}\n\nError formatting data: {str(e)}\n\nRaw content: {news_content[:500]}..."
     
     async def _get_tavily_news(self, search_query: str) -> str:
         """Use Tavily API to get latest news and market data"""
@@ -724,7 +735,7 @@ Please try again later or choose a different instrument.
             data = json.loads(response_text)
             
             # Structure for the formatted response
-            formatted_text = f"Market Analysis:\n\n"
+            formatted_text = f"Market Sentiment Analysis:\n\n"
             
             # Extract the generated answer if available
             if data and "answer" in data and data["answer"]:
@@ -752,7 +763,7 @@ Please try again later or choose a different instrument.
             # If no answer and no results but we have response content
             if response_text and len(response_text) > 20:
                 logger.warning(f"Unusual Tavily response format, but using raw content")
-                return f"Market data:\n\n{response_text[:2000]}"
+                return f"Market sentiment data:\n\n{response_text[:2000]}"
                 
             logger.error(f"Unexpected Tavily API response format: {response_text[:200]}...")
             return None
@@ -797,7 +808,7 @@ Market Data:
 
 Your response MUST follow this EXACT format with EXACTLY this HTML formatting (keep the exact formatting with the <b> tags):
 
-<b>🎯 {instrument} Market Analysis</b>
+<b>🎯 {instrument} Market Sentiment Analysis</b>
 
 <b>Overall Sentiment:</b> [Bullish/Bearish/Neutral] [Emoji]
 
@@ -880,7 +891,7 @@ The sentiment percentages (Overall Sentiment, Bullish, Bearish, Neutral percenta
                                 logger.warning(f"Cannot find <b>🎯 tag in response to add sentiment section")
                                 
                                 # Add completely default formatted response
-                                default_response = f"""<b>🎯 {instrument} Market Analysis</b>
+                                default_response = f"""<b>🎯 {instrument} Market Sentiment Analysis</b>
 
 <b>Overall Sentiment:</b> Neutral ➡️
 
@@ -889,20 +900,20 @@ The sentiment percentages (Overall Sentiment, Bullish, Bearish, Neutral percenta
 🔴 Bearish: 50%
 ⚪️ Neutral: 0%
 
-<b>📈 Market Direction:</b>
-{instrument} is trading with a balanced sentiment pattern with no clear sentiment bias.
-
-<b>📰 Latest News & Events:</b>
+<b>📰 Key Sentiment Drivers:</b>
 • Regular market activity with no major catalysts
 • General economic factors influencing market mood
 • No significant news events driving sentiment
 
-<b>⚠️ Risk Factors:</b>
-• Market Volatility: Normal
-• Unexpected news could cause sentiment shifts
-• Monitor general economic releases
+<b>📊 Market Mood:</b>
+{instrument} is trading with a balanced sentiment pattern with no clear sentiment bias.
 
-<b>💡 Conclusion:</b>
+<b>📅 Important Events & News:</b>
+• Standard market updates with limited impact
+• No major economic releases affecting sentiment
+• Regular market fluctuations within expected ranges
+
+<b>🔮 Sentiment Outlook:</b>
 Current sentiment for {instrument} is neutral with balanced perspectives from market participants.
 """
                                 response_content = default_response
@@ -968,7 +979,7 @@ Current sentiment for {instrument} is neutral with balanced perspectives from ma
                     else:
                         logger.error(f"DeepSeek API error: {response.status}")
                         # Return a default manual analysis with correct format for parsing
-                        default_response = f"""<b>🎯 {instrument} Market Analysis</b>
+                        default_response = f"""<b>🎯 {instrument} Market Sentiment Analysis</b>
 
 <b>Overall Sentiment:</b> Neutral ➡️
 
@@ -977,20 +988,20 @@ Current sentiment for {instrument} is neutral with balanced perspectives from ma
 🔴 Bearish: 50%
 ⚪️ Neutral: 0%
 
-<b>📈 Market Direction:</b>
-{instrument} is trading with a balanced sentiment pattern with no clear sentiment bias.
-
-<b>📰 Latest News & Events:</b>
+<b>📰 Key Sentiment Drivers:</b>
 • Regular market activity with no major catalysts
 • General economic factors influencing market mood
 • No significant news events driving sentiment
 
-<b>⚠️ Risk Factors:</b>
-• Market Volatility: Normal
-• Unexpected news could cause sentiment shifts
-• Monitor general economic releases
+<b>📊 Market Mood:</b>
+{instrument} is trading with a balanced sentiment pattern with no clear sentiment bias.
 
-<b>💡 Conclusion:</b>
+<b>📅 Important Events & News:</b>
+• Standard market updates with limited impact
+• No major economic releases affecting sentiment
+• Regular market fluctuations within expected ranges
+
+<b>🔮 Sentiment Outlook:</b>
 Current sentiment for {instrument} is neutral with balanced perspectives from market participants.
 """
                         logger.info(f"Returning default sentiment analysis due to API error")
@@ -1000,7 +1011,7 @@ Current sentiment for {instrument} is neutral with balanced perspectives from ma
             logger.error(f"Error in DeepSeek formatting: {str(e)}")
             logger.exception(e)
             # Return a default manual analysis with correct format for parsing
-            default_response = f"""<b>🎯 {instrument} Market Analysis</b>
+            default_response = f"""<b>🎯 {instrument} Market Sentiment Analysis</b>
 
 <b>Overall Sentiment:</b> Neutral ➡️
 
@@ -1009,20 +1020,20 @@ Current sentiment for {instrument} is neutral with balanced perspectives from ma
 🔴 Bearish: 50%
 ⚪️ Neutral: 0%
 
-<b>📈 Market Direction:</b>
-{instrument} is trading with a balanced sentiment pattern with no clear sentiment bias.
-
-<b>📰 Latest News & Events:</b>
+<b>📰 Key Sentiment Drivers:</b>
 • Regular market activity with no major catalysts
 • General economic factors influencing market mood
 • No significant news events driving sentiment
 
-<b>⚠️ Risk Factors:</b>
-• Market Volatility: Normal
-• Unexpected news could cause sentiment shifts
-• Monitor general economic releases
+<b>📊 Market Mood:</b>
+{instrument} is trading with a balanced sentiment pattern with no clear sentiment bias.
 
-<b>💡 Conclusion:</b>
+<b>📅 Important Events & News:</b>
+• Standard market updates with limited impact
+• No major economic releases affecting sentiment
+• Regular market fluctuations within expected ranges
+
+<b>🔮 Sentiment Outlook:</b>
 Current sentiment for {instrument} is neutral with balanced perspectives from market participants.
 """
             logger.info(f"Returning default sentiment analysis due to exception: {str(e)}")
@@ -1067,38 +1078,40 @@ Current sentiment for {instrument} is neutral with balanced perspectives from ma
             headlines = [
                 f"Positive economic outlook boosts {instrument}",
                 f"Institutional investors increase {instrument} positions",
-                f"Technical indicators suggest upward momentum for {instrument}"
+                f"Optimistic market sentiment for {instrument}"
             ]
         else:
             headlines = [
                 f"Economic concerns weigh on {instrument}",
                 f"Profit taking leads to {instrument} pressure",
-                f"Technical resistance level limits {instrument} upside"
+                f"Cautious market sentiment for {instrument}"
             ]
         
         # Generate mock analysis text
-        analysis_text = f"""<b>🎯 {instrument} Market Analysis</b>
+        analysis_text = f"""<b>🎯 {instrument} Market Sentiment Analysis</b>
 
-<b>Market Sentiment:</b>
-Bullish: {bullish_percentage}%
-Bearish: {bearish_percentage}%
-Neutral: 0%
+<b>Overall Sentiment:</b> {"Bullish 📈" if is_bullish else "Bearish 📉"}
 
-<b>📈 Market Direction:</b>
-The {instrument} is currently showing a {"bullish" if is_bullish else "bearish"} trend. Technical indicators suggest {"upward momentum" if is_bullish else "downward pressure"} in the near term.
+<b>Market Sentiment Breakdown:</b>
+🟢 Bullish: {bullish_percentage}%
+🔴 Bearish: {bearish_percentage}%
+⚪️ Neutral: 0%
 
-<b>📰 Latest News & Events:</b>
-• {"Positive economic data supporting price" if is_bullish else "Recent economic indicators adding pressure"}
-• {"Increased buying interest from institutional investors" if is_bullish else "Technical resistance levels limiting upside potential"}
-• Regular market fluctuations in line with broader market conditions
+<b>📰 Key Sentiment Drivers:</b>
+• {"Positive economic indicators" if is_bullish else "Negative economic outlook"}
+• {"Strong institutional interest" if is_bullish else "Increased selling pressure"}
+• Regular market fluctuations and trading activity
 
-<b>⚠️ Risk Factors:</b>
-• Market Volatility: {random.choice(['High', 'Moderate', 'Low'])}
-• Watch for unexpected news events
-• Monitor broader market conditions
+<b>📊 Market Mood:</b>
+The overall market mood for {instrument} is {"optimistic with strong buyer interest" if is_bullish else "cautious with increased seller activity"}.
 
-<b>💡 Conclusion:</b>
-Based on current market conditions, the outlook for {instrument} appears {"positive" if is_bullish else "cautious"}. Traders should consider {"buy opportunities on dips" if is_bullish else "sell positions on rallies"} while maintaining proper risk management.
+<b>📅 Important Events & News:</b>
+• {"Recent economic data showing positive trends" if is_bullish else "Economic concerns affecting market sentiment"}
+• {"Institutional buying providing support" if is_bullish else "Technical resistance creating pressure"}
+• General market conditions aligning with broader trends
+
+<b>🔮 Sentiment Outlook:</b>
+Based on current market sentiment, the outlook for {instrument} appears {"positive" if is_bullish else "cautious"}.
 
 <i>Note: This is mock data for demonstration purposes only. Real trading decisions should be based on comprehensive analysis.</i>"""
         
@@ -1122,7 +1135,7 @@ Based on current market conditions, the outlook for {instrument} appears {"posit
             'volume': random.choice(['Above Average', 'Normal', 'Below Average']),
             'support_level': 'Not available',
             'resistance_level': 'Not available',
-            'recommendation': f"{'Consider long positions with appropriate risk management.' if is_bullish else 'Consider short positions with appropriate risk management.'}",
+            'recommendation': f"{'Consider appropriate risk management with the current market conditions.' if is_bullish else 'Consider appropriate risk management with the current market conditions.'}",
             'analysis': analysis_text,
             'news_headlines': headlines,
             'source': 'mock_data'
@@ -1140,29 +1153,31 @@ Based on current market conditions, the outlook for {instrument} appears {"posit
         ]
         
         # Create a neutral sentiment analysis
-        analysis_text = f"""<b>🎯 {instrument} Market Analysis</b>
+        analysis_text = f"""<b>🎯 {instrument} Market Sentiment Analysis</b>
 
-<b>Market Sentiment:</b>
-Bullish: 50%
-Bearish: 50%
-Neutral: 0%
+<b>Overall Sentiment:</b> Neutral ➡️
 
-<b>📈 Market Direction:</b>
+<b>Market Sentiment Breakdown:</b>
+🟢 Bullish: 50%
+🔴 Bearish: 50%
+⚪️ Neutral: 0%
+
+<b>📰 Key Sentiment Drivers:</b>
+• Standard market activity with no major developments
+• Technical and fundamental factors in balance
+• No significant market-moving events
+
+<b>📊 Market Mood:</b>
 The {instrument} is currently showing a neutral trend with balanced buy and sell interest.
 
-<b>📰 Latest News & Events:</b>
+<b>📅 Important Events & News:</b>
 • Standard market activity with no major developments
-• Technical factors are the primary drivers
 • Normal trading conditions observed
+• Balanced market sentiment indicators
 
-<b>⚠️ Risk Factors:</b>
-• Market Volatility: Moderate
-• Standard market risks apply
-• Always use proper risk management
-
-<b>💡 Conclusion:</b>
+<b>🔮 Sentiment Outlook:</b>
 The market sentiment for {instrument} is currently neutral with balanced indicators.
-Monitor price action and wait for clearer signals before taking positions.
+Monitor market developments for potential sentiment shifts.
 
 <i>Note: This is fallback data due to API issues. Please try again later for updated analysis.</i>"""
         
@@ -1183,7 +1198,7 @@ Monitor price action and wait for clearer signals before taking positions.
             'volume': 'Normal',
             'support_level': 'Not available',
             'resistance_level': 'Not available',
-            'recommendation': 'Wait for clearer signals before taking positions.',
+            'recommendation': 'Monitor market developments for clearer signals.',
             'analysis': analysis_text,
             'news_headlines': headlines,
             'source': 'fallback_data'
