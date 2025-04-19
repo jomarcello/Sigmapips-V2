@@ -1332,8 +1332,10 @@ CRITICAL REQUIREMENTS:
                                             return f"{number:,.0f}"  # Format large numbers with commas
                                         elif number >= 100:
                                             return f"{number:.1f}"   # One decimal for medium numbers
+                                        elif 1 <= number < 100:
+                                            return f"{number:.2f}"   # Two decimals for medium-small numbers
                                         else:
-                                            return f"{number:.2f}"   # Two decimals for small numbers
+                                            return f"{number:.4f}"   # Four decimals for forex pairs like EURUSD
                                     except:
                                         return match.group(0)  # Return original if conversion fails
                                 
