@@ -159,16 +159,15 @@ class ChartService:
                     tv_interval = self.interval_map.get(timeframe, "D") if hasattr(self, 'interval_map') else "D"
                     tradingview_link += f"&interval={tv_interval}"
             
-            # Als fullscreen = True, voeg het direct toe aan URL voor snellere verwerking
-            if fullscreen:
-                if "?" in tradingview_link:
-                    tradingview_link += "&fullscreen=true"
-                else:
-                    tradingview_link += "?fullscreen=true"
+            # ALTIJD fullscreen=true toevoegen aan URL voor consistente weergave
+            if "?" in tradingview_link:
+                tradingview_link += "&fullscreen=true"
+            else:
+                tradingview_link += "?fullscreen=true"
             
-            # Gebruik de Node.js service (sneller dan Selenium)
+            # Gebruik de Node.js service (sneller dan Selenium) - ALTIJD fullscreen=True meegeven
             try:
-                chart_image = await self.tradingview.take_screenshot_of_url(tradingview_link, fullscreen=fullscreen)
+                chart_image = await self.tradingview.take_screenshot_of_url(tradingview_link, fullscreen=True)
                 if chart_image:
                     # Cache het resultaat
                     if not hasattr(self, '_chart_cache'):
