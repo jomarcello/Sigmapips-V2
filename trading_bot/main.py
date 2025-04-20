@@ -114,7 +114,7 @@ async def startup_event():
         
         # Initialize chart service through the telegram service's initialize_services method
         await telegram_service.initialize_services()
-        logger.info("Chart service initialized through telegram service")
+        logger.info("Telegram service initialized")
         
         # Initialize the calendar service
         calendar_service = EconomicCalendarService()
