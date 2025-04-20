@@ -128,22 +128,19 @@ class MarketSentimentService:
                     🟢 Bullish: [percentage]%
                     🔴 Bearish: [percentage]%
                     ⚪️ Neutral: 0%
+                    
+                    <b>📊 Market Sentiment Analysis:</b>
+                    [One paragraph analysis of current market sentiment, including outlook]
 
                     <b>📰 Key Sentiment Drivers:</b>
                     • [First key market driver]
                     • [Second key market driver]
                     • [Third key market driver]
 
-                    <b>📊 Market Sentiment Analysis:</b>
-                    [One paragraph analysis of current market sentiment]
-
                     <b>📅 Important Events & News:</b>
                     • [Important event 1]
                     • [Important event 2] 
                     • [Important event 3]
-                    
-                    <b>🔮 Sentiment Outlook:</b>
-                    [Brief outlook based on sentiment]
                     """
                     
                     # Maak het request body
@@ -380,21 +377,18 @@ class MarketSentimentService:
 🔴 Bearish: {bearish_percentage}%
 ⚪️ Neutral: 0%
 
+<b>📊 Market Sentiment Analysis:</b>
+The {instrument} is currently showing {sentiment_text.lower()} sentiment with general market consensus. Based on current data, the outlook appears {"favorable" if is_bullish else "cautious"} for this instrument.
+
 <b>📰 Key Sentiment Drivers:</b>
 • {"Positive economic data supporting price" if is_bullish else "Recent economic indicators adding pressure"}
 • {"Increased buying interest from institutional investors" if is_bullish else "Technical resistance levels limiting upside potential"}
 • Regular market fluctuations in line with broader market conditions
 
-<b>📊 Market Sentiment Analysis:</b>
-The {instrument} is currently showing {sentiment_text.lower()} sentiment with general market consensus.
-
 <b>📅 Important Events & News:</b>
 • Regular trading activity observed
 • Standard market patterns in effect 
 • Market sentiment data updated regularly
-
-<b>🔮 Sentiment Outlook:</b>
-Based on current data, the outlook appears {"favorable" if is_bullish else "cautious"} for this instrument.
 
 {mock_reason}"""
 
