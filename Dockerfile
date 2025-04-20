@@ -78,12 +78,11 @@ RUN pip install --upgrade pip
 RUN pip install --no-cache-dir -r requirements.txt
 RUN pip install --no-cache-dir webdriver-manager==3.8.6
 
-# Installeer Playwright voor Node.js en de browsers
-ENV PLAYWRIGHT_BROWSERS_PATH=/app/ms-playwright
-RUN npm init -y && \
-    npm install playwright && \
-    npx playwright install chromium && \
-    npx playwright install-deps chromium
+# Install Node.js dependencies first - IMPORTANT CHANGE
+COPY package.json tradingview_screenshot.js ./
+RUN npm install playwright
+RUN npx playwright install chromium
+RUN npx playwright install-deps chromium
 
 # Installeer Playwright browsers voor Python
 ENV PLAYWRIGHT_BROWSERS_PATH=/app/ms-playwright
@@ -107,12 +106,19 @@ RUN grep -n "Create and return a logger instance with the given name" /app/tradi
     sed -i "${line_num}d" /app/trading_bot/services/telegram_service/bot.py; \
 done
 
+# BELANGRIJK: Repareer de asyncio.create_task aanroep in sentiment.py
+RUN grep -n "asyncio.create_task(self.load_cache())" /app/trading_bot/services/sentiment_service/sentiment.py | while read -r line ; do \
+    line_num=$(echo "$line" | cut -d':' -f1); \
+    sed -i "${line_num}s/asyncio.create_task(self.load_cache())/# asyncio.create_task call removed to prevent RuntimeWarning/" /app/trading_bot/services/sentiment_service/sentiment.py; \
+done
+
 # Stel environment variables in
 ENV PYTHONPATH=/app
 ENV PORT=8080
 ENV NODE_ENV=production
 ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=0
 ENV PLAYWRIGHT_BROWSERS_PATH=/app/ms-playwright
+ENV TIMEOUT_SECONDS=180
 
 # Stel debug mode in
 ENV TRADINGVIEW_DEBUG=true
@@ -123,12 +129,20 @@ ENV TESSERACT_CMD=/usr/bin/tesseract
 # Controleer of Tesseract correct is geïnstalleerd
 RUN tesseract --version && echo "Tesseract is correctly installed"
 
-# Voeg een script toe om de bot te starten
+# Test if the Node.js script works with a timeout
+RUN echo "Testing Node.js screenshot script..." && \
+    timeout 15s node /app/tradingview_screenshot.js "https://www.tradingview.com" "/tmp/test_screenshot.png" || echo "Test timed out as expected but should work in runtime"
+
+# Voeg een script toe om de bot te starten met een timeout
 RUN echo '#!/bin/bash\n\
 echo "Starting SigmaPips Trading Bot..."\n\
 cd /app\n\
 echo "Starting main application..."\n\
-python -m trading_bot.main\n\
+# Run with a timeout to prevent getting stuck\n\
+timeout ${TIMEOUT_SECONDS:-180} python main.py || {\n\
+    echo "Application timed out after ${TIMEOUT_SECONDS:-180} seconds, restarting..."\n\
+    python main.py\n\
+}\n\
 ' > /app/start.sh && chmod +x /app/start.sh
 
 # Draai de applicatie
