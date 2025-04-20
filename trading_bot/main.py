@@ -108,10 +108,10 @@ async def startup_event():
         # The log shows "Successfully connected to Supabase" already
         logger.info("Database initialized")
         
-        # Initialize chart service through the telegram service's initialize_services method
-        # This is the only service we need to initialize eagerly
-        await telegram_service.initialize_services()
-        logger.info("Chart service initialized through telegram service")
+        # Initialize only the critical components of the telegram service, 
+        # but don't initialize other services like calendar and sentiment yet
+        await telegram_service.initialize_services(lazy_load=True)
+        logger.info("Telegram service initialized with lazy loading")
         
         # Log environment variables
         webhook_url = os.getenv("WEBHOOK_URL", "")
