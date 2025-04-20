@@ -683,7 +683,7 @@ class TelegramService:
         # Initialize API services
         self.chart_service = ChartService()  # Initialize chart service
         self.calendar_service = EconomicCalendarService()  # Economic calendar service
-        self.sentiment_service = MarketSentimentService()  # Market sentiment service
+        self.sentiment_service = None  # Will be initialized in initialize_services
         
         # Don't use asyncio.create_task here - it requires a running event loop
         # We'll initialize chart service later when the event loop is running
@@ -785,6 +785,8 @@ class TelegramService:
                 logger.info("Initializing sentiment service...")
                 from trading_bot.services.sentiment_service.sentiment import MarketSentimentService
                 self.sentiment_service = MarketSentimentService()
+                # Explicitly load the cache asynchronously
+                await self.sentiment_service.load_cache()
                 logger.info("Sentiment service initialized")
             except Exception as e:
                 logger.error(f"Failed to initialize sentiment service: {str(e)}")
@@ -3540,7 +3542,10 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         try:
             # Initialize sentiment service if needed
             if not hasattr(self, 'sentiment_service') or self.sentiment_service is None:
+                from trading_bot.services.sentiment_service.sentiment import MarketSentimentService
                 self.sentiment_service = MarketSentimentService()
+                # Explicitly load the cache asynchronously
+                await self.sentiment_service.load_cache()
             
             # Get sentiment data using clean instrument name
             sentiment_data = await self.sentiment_service.get_sentiment(clean_instrument)
