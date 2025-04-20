@@ -4752,32 +4752,49 @@ Based on current data, the outlook appears {"favorable" if bullish > bearish els
             self.user_signals = {}
             
     async def run(self):
-        """Set up and start the Telegram bot"""
+        """Start the bot."""
         try:
-            logger.info("Setting up Telegram bot...")
+            # Create a lock file to prevent multiple instances
+            lock_file = "/tmp/tradingbot.lock"
             
-            # Set up commands
+            # Check if another instance is running
+            try:
+                # Try to create the lock file - will fail if it exists and another process has it locked
+                import os
+                if os.path.exists(lock_file):
+                    # Check if the file is stale (older than 5 minutes)
+                    import time
+                    file_age = time.time() - os.path.getmtime(lock_file)
+                    if file_age < 300:  # 5 minutes in seconds
+                        logger.warning(f"Another bot instance appears to be running (lock file exists and is recent). If this is incorrect, delete {lock_file}")
+                        # Continue anyway, but with a warning
+                    else:
+                        logger.warning(f"Found stale lock file (age: {file_age} seconds). Will remove it and continue.")
+                        os.remove(lock_file)
+                
+                # Create the lock file
+                with open(lock_file, 'w') as f:
+                    f.write(str(os.getpid()))
+                logger.info(f"Created lock file at {lock_file}")
+            except Exception as e:
+                logger.warning(f"Error managing lock file: {str(e)}")
+                # Continue anyway - this is just a safeguard
+            
+            # Initialize bot commands
             commands = [
-                BotCommand("start", "Start the bot and get the welcome message"),
-                BotCommand("menu", "Show the main menu"),
-                BotCommand("help", "Show available commands and how to use the bot")
+                BotCommand("start", "Start the bot and show the main menu"),
+                BotCommand("help", "Show help information"),
+                BotCommand("menu", "Show the main menu")
             ]
             
-            # Set the commands
+            # Set bot commands
             await self.bot.set_my_commands(commands)
             
-            # Initialize the application
-            self.application = Application.builder().bot(self.bot).build()
-            
-            # Register handlers
-            self._register_handlers(self.application)
-            
-            # Initialize the application
-            await self.application.initialize()
+            # Check for webhook URL environment variable
+            webhook_url = self.webhook_url
             
             # Check if we should use polling or webhook
             force_polling = os.getenv("FORCE_POLLING", "false").lower() == "true"
-            webhook_url = os.getenv("WEBHOOK_URL", "")
             
             if force_polling or not webhook_url:
                 logger.info("Starting bot in polling mode")
@@ -4836,3 +4853,15 @@ Based on current data, the outlook appears {"favorable" if bullish > bearish els
                 del self.telegram_sentiment_cache[key_to_remove]
                 
             logger.debug(f"Trimmed sentiment cache by removing {entries_to_remove} oldest entries")
+        finally:
+            # Clean up the lock file when shutting down
+            try:
+                import os
+                lock_file = "/tmp/tradingbot.lock"
+                if os.path.exists(lock_file):
+                    os.remove(lock_file)
+                    logger.info(f"Removed lock file at {lock_file}")
+            except Exception as e:
+                logger.warning(f"Error removing lock file: {str(e)}")
+                
+        return
