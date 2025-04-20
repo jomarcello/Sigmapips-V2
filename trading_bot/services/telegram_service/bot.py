@@ -805,119 +805,119 @@ class TelegramService:
         return self.calendar_service
 
     async def _format_calendar_events(self, calendar_data):
-        """Format the calendar data into a readable HTML message"""
-        # Check if calendar_data is a CalendarResult object
-        if hasattr(calendar_data, 'get') and callable(calendar_data.get):
-            # It's a CalendarResult object, check if it has a message
-            message = calendar_data.get('message')
-            if message:
-                self.logger.info(f"Using pre-formatted message from CalendarResult")
-                return message
-            # Extract events from CalendarResult if needed
-            calendar_data = calendar_data.get('events', [])
-            
-        self.logger.info(f"Formatting calendar data with {len(calendar_data)} events")
-        if not calendar_data:
-            return "<b>📅 Economic Calendar</b>\n\nNo economic events found for today."
-        
-        # Sort events by time
+        """Format economic calendar events for display"""
         try:
-            # Try to parse time for sorting
+            if not calendar_data or not isinstance(calendar_data, list):
+                return "No events found for the selected period."
+            
+            # Sort events by time
             def parse_time_for_sorting(event):
-                time_str = event.get('time', '')
+                time_str = event.get('time', '00:00')
+                if not time_str:
+                    return datetime.min
                 try:
-                    # Extract hour and minute if in format like "08:30 EST"
-                    if ':' in time_str:
-                        parts = time_str.split(' ')[0].split(':')
-                        hour = int(parts[0])
-                        minute = int(parts[1])
-                        return hour * 60 + minute
-                    return 0
-                except:
-                    return 0
+                    # Extract hours and minutes from format like "10:30"
+                    hours, minutes = map(int, time_str.split(':'))
+                    # Create a datetime object for today with this time
+                    today = datetime.now()
+                    return datetime(today.year, today.month, today.day, hours, minutes)
+                except Exception:
+                    return datetime.min
             
-            # Sort the events by time
             sorted_events = sorted(calendar_data, key=parse_time_for_sorting)
-        except Exception as e:
-            self.logger.error(f"Error sorting calendar events: {str(e)}")
-            sorted_events = calendar_data
-        
-        # Format the message
-        message = "<b>📅 Economic Calendar</b>\n\n"
-        
-        # Get current date
-        current_date = datetime.now().strftime("%B %d, %Y")
-        message += f"<b>Date:</b> {current_date}\n\n"
-        
-        # Add impact legend
-        message += "<b>Impact:</b> 🔴 High   🟠 Medium   🟢 Low\n\n"
-        
-        # Group events by country
-        events_by_country = {}
-        for event in sorted_events:
-            country = event.get('country', 'Unknown')
-            if country not in events_by_country:
-                events_by_country[country] = []
-            events_by_country[country].append(event)
-        
-        # Format events by country
-        for country, events in events_by_country.items():
-            country_flag = CURRENCY_FLAG.get(country, '')
-            message += f"<b>{country_flag} {country}</b>\n"
             
-            for event in events:
-                time = event.get('time', 'TBA')
-                title = event.get('title', 'Unknown Event')
+            # Format events as a list
+            event_list = []
+            for event in sorted_events:
                 impact = event.get('impact', 'Low')
-                impact_emoji = {'High': '🔴', 'Medium': '🟠', 'Low': '🟢'}.get(impact, '🟢')
+                impact_emoji = '🔴' if impact == 'High' else '🟠' if impact == 'Medium' else '🟢'
                 
-                message += f"{time} - {impact_emoji} {title}\n"
+                # Format the name and currencies
+                currency = event.get('currency', '')
+                title = event.get('title', 'Unknown Event')
+                time = event.get('time', '')
+                
+                # Format the event line
+                event_line = f"{impact_emoji} {time} {currency}: {title}"
+                event_list.append(event_line)
             
-            message += "\n"  # Add extra newline between countries
-        
-        return message
-        
-    # Utility functions that might be missing
+            # Join the events with line breaks
+            return "\n".join(event_list) if event_list else "No events found for the selected period."
+        except Exception as e:
+            logger.error(f"Error formatting calendar events: {str(e)}")
+            return "Error formatting calendar events."
+    
     async def update_message(self, query, text, keyboard=None, parse_mode=ParseMode.HTML):
-        """Utility to update a message with error handling"""
+        """
+        Update a message with proper error handling and fallbacks
+        
+        Args:
+            query: The callback query object
+            text: The new message text
+            keyboard: Optional inline keyboard markup
+            parse_mode: Message parse mode (default: HTML)
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
         try:
-            logger.info("Updating message")
-            # Try to edit message text first
             await query.edit_message_text(
                 text=text,
-                reply_markup=keyboard,
-                parse_mode=parse_mode
+                parse_mode=parse_mode,
+                reply_markup=keyboard
             )
             return True
         except Exception as e:
-            logger.warning(f"Could not update message text: {str(e)}")
-            
-            # If text update fails, try to edit caption
+            logger.warning(f"Could not edit message: {str(e)}")
             try:
-                await query.edit_message_caption(
-                    caption=text,
-                    reply_markup=keyboard,
-                    parse_mode=parse_mode
+                # Try to delete the old message
+                await query.message.delete()
+                # Send a new message
+                await query.message.reply_text(
+                    text=text,
+                    parse_mode=parse_mode,
+                    reply_markup=keyboard
                 )
                 return True
-            except Exception as e2:
-                logger.error(f"Could not update caption either: {str(e2)}")
-                
-                # As a last resort, send a new message
+            except Exception as inner_e:
+                logger.error(f"Failed to delete and resend message: {str(inner_e)}")
                 try:
-                    chat_id = query.message.chat_id
-                    await query.bot.send_message(
-                        chat_id=chat_id,
+                    # Final fallback - just reply
+                    await query.message.reply_text(
                         text=text,
-                        reply_markup=keyboard,
-                        parse_mode=parse_mode
+                        parse_mode=parse_mode,
+                        reply_markup=keyboard
                     )
                     return True
-                except Exception as e3:
-                    logger.error(f"Failed to send new message: {str(e3)}")
+                except Exception as final_e:
+                    logger.error(f"All message update methods failed: {str(final_e)}")
                     return False
     
-    # Missing handler implementations
+    async def delete_message(self, update):
+        """
+        Delete a message with proper error handling
+        
+        Args:
+            update: The update object containing the message to delete
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            # Delete the message if we have one
+            if update and update.callback_query and update.callback_query.message:
+                await update.callback_query.message.delete()
+                return True
+            elif update and update.message:
+                await update.message.delete()
+                return True
+            else:
+                logger.warning("No message to delete in update")
+                return False
+        except Exception as e:
+            logger.error(f"Error deleting message: {str(e)}")
+            return False
+                
     async def back_signals_callback(self, update: Update, context=None) -> int:
         """Handle back_signals button press"""
         query = update.callback_query
@@ -3548,34 +3548,61 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             if not sentiment_data:
                 # Determine which back button to use based on flow
                 back_callback = "back_to_signal_analysis" if is_from_signal else "back_to_analysis"
-                await query.message.reply_text(
-                    text=f"Failed to get sentiment data. Please try again.",
-                    reply_markup=InlineKeyboardMarkup([[
-                        InlineKeyboardButton("⬅️ Back", callback_data=back_callback)
-                    ]])
-                )
+                logger.info(f"Using back button callback: {back_callback} (from_signal: {is_from_signal})")
+                
+                try:
+                    await self.update_message(
+                        query,
+                        text=f"Failed to get sentiment data for {instrument}. Please try again.",
+                        keyboard=InlineKeyboardMarkup([[
+                            InlineKeyboardButton("⬅️ Back", callback_data=back_callback)
+                        ]]),
+                        parse_mode=ParseMode.HTML
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to update message with error: {str(e)}")
+                    # Try to send a new message as fallback
+                    try:
+                        await query.message.reply_text(
+                            text=f"Failed to get sentiment data for {instrument}. Please try again.",
+                            parse_mode=ParseMode.HTML,
+                            reply_markup=InlineKeyboardMarkup([[
+                                InlineKeyboardButton("⬅️ Back", callback_data=back_callback)
+                            ]])
+                        )
+                    except Exception as inner_e:
+                        logger.error(f"Even the fallback failed: {str(inner_e)}")
+                
                 return CHOOSE_ANALYSIS
             
-            # Extract data
-            bullish = sentiment_data.get('bullish', 50)
-            bearish = sentiment_data.get('bearish', 30)
-            neutral = sentiment_data.get('neutral', 20)
+            # Extract data with better error handling
+            try:
+                bullish = sentiment_data.get('bullish', 50)
+                bearish = sentiment_data.get('bearish', 30)
+                neutral = sentiment_data.get('neutral', 20)
+                
+                # Determine sentiment
+                if bullish > bearish + neutral:
+                    overall = "Bullish"
+                    emoji = "📈"
+                elif bearish > bullish + neutral:
+                    overall = "Bearish"
+                    emoji = "📉"
+                else:
+                    overall = "Neutral"
+                    emoji = "⚖️"
+                
+                # Get analysis text
+                analysis_text = ""
+                if isinstance(sentiment_data.get('analysis'), str):
+                    analysis_text = sentiment_data['analysis']
+                else:
+                    analysis_text = f"<b>🎯 {clean_instrument} Market Analysis</b>\n\nNo detailed analysis is available at this time."
             
-            # Determine sentiment
-            if bullish > bearish + neutral:
-                overall = "Bullish"
-                emoji = "📈"
-            elif bearish > bullish + neutral:
-                overall = "Bearish"
-                emoji = "📉"
-            else:
-                overall = "Neutral"
-                emoji = "⚖️"
-            
-            # Get analysis text
-            analysis_text = ""
-            if isinstance(sentiment_data.get('analysis'), str):
-                analysis_text = sentiment_data['analysis']
+            except Exception as e:
+                logger.error(f"Error extracting sentiment data: {str(e)}")
+                # Fallback to a simple error message
+                analysis_text = f"Failed to get sentiment analysis for {instrument}. Please try again later."
             
             # Check if the analysis text is already in the correct format
             # The key identifier is the presence of "Market Sentiment Analysis</b>" and all required sections
