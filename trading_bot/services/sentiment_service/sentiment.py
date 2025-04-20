@@ -4,6 +4,7 @@ import os
 import time
 import asyncio
 from typing import Dict, Any, List
+import httpx
 
 logger = logging.getLogger(__name__)
 # Verhoog log level voor sentiment service
@@ -15,7 +16,14 @@ class MarketSentimentService:
     def __init__(self):
         """Initialize the market sentiment service"""
         self.api_key = os.getenv("DEEPSEEK_API_KEY")
-        self.api_url = "https://api.deepseek.ai/v1/chat/completions"
+        self.api_url = "https://api.deepseek.com/v1/chat/completions"
+        
+        # Debug logging voor API key
+        if self.api_key:
+            logger.info(f"DeepSeek API key found: {self.api_key[:4]}...{self.api_key[-4:] if len(self.api_key) > 8 else ''}")
+        else:
+            logger.warning("DeepSeek API key not found in environment variables")
+        
         self.headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json"
@@ -62,6 +70,7 @@ class MarketSentimentService:
             # Geen geldige cache, genereer nieuwe data
             logger.debug(f"Genereren van nieuwe sentiment data voor {instrument}")
             if self.use_mock:
+                logger.info(f"Using mock data for {instrument} (api_key available: {bool(self.api_key)})")
                 # Generate sentiment based on instrument type
                 if instrument.startswith(('BTC', 'ETH')):
                     sentiment_score = random.uniform(0.6, 0.8)  # Crypto tends to be bullish
@@ -90,27 +99,93 @@ class MarketSentimentService:
                 self.sentiment_cache[cache_key] = (current_time, result)
                 logger.debug(f"Nieuwe data in cache opgeslagen voor {cache_key}")
                 return result
+            else:
+                # Gebruik de DeepSeek API om sentiment data te genereren
+                logger.info(f"Calling DeepSeek API for {instrument} sentiment analysis")
+                
+                try:
+                    # Opstellen van het prompt voor de DeepSeek API
+                    prompt = f"""You are a professional financial analyst with expertise in market sentiment analysis.
+                    Provide a detailed market sentiment analysis for {instrument}.
+                    
+                    Format your response as JSON with the following structure:
+                    {{
+                        "overall_sentiment": "bullish|bearish|neutral",
+                        "sentiment_score": 0.1-0.9 (where 0.1 is very bearish and 0.9 is very bullish),
+                        "bullish_percentage": 0-100,
+                        "trend_strength": "Strong|Moderate|Weak",
+                        "volatility": "High|Moderate|Low",
+                        "analysis": "Detailed HTML formatted analysis with <b> tags for headers"
+                    }}
+                    
+                    Ensure your analysis includes the market sentiment breakdown, key support and resistance levels, recent news impact, and a trading recommendation.
+                    """
+                    
+                    # Maak het request body
+                    payload = {
+                        "model": "deepseek-chat",
+                        "messages": [
+                            {"role": "system", "content": "You are a professional financial analyst."},
+                            {"role": "user", "content": prompt}
+                        ],
+                        "temperature": 0.7,
+                        "max_tokens": 1000
+                    }
+                    
+                    # Maak de API call
+                    async with httpx.AsyncClient(timeout=30.0) as client:
+                        response = await client.post(
+                            self.api_url,
+                            headers=self.headers,
+                            json=payload
+                        )
+                        
+                        if response.status_code == 200:
+                            response_data = response.json()
+                            # Extract the assistant's response
+                            assistant_response = response_data.get('choices', [{}])[0].get('message', {}).get('content', '')
+                            
+                            # Parse the JSON response
+                            import json
+                            try:
+                                # Extract JSON from the response (it might be wrapped in markdown)
+                                import re
+                                json_match = re.search(r'```json\n(.*?)\n```', assistant_response, re.DOTALL)
+                                if json_match:
+                                    json_str = json_match.group(1)
+                                else:
+                                    json_str = assistant_response
+                                
+                                sentiment_data = json.loads(json_str)
+                                
+                                # Ensure all required fields are present
+                                required_fields = ['overall_sentiment', 'sentiment_score', 'bullish_percentage', 'trend_strength', 'volatility', 'analysis']
+                                for field in required_fields:
+                                    if field not in sentiment_data:
+                                        logger.warning(f"Missing required field '{field}' in API response")
+                                        sentiment_data[field] = "N/A" if field != 'sentiment_score' else 0.5
+                                
+                                # Sla het resultaat op in de cache
+                                self.sentiment_cache[cache_key] = (current_time, sentiment_data)
+                                logger.info(f"DeepSeek API data successfully saved to cache for {instrument}")
+                                return sentiment_data
+                            except json.JSONDecodeError as json_err:
+                                logger.error(f"Failed to parse JSON from DeepSeek API: {str(json_err)}")
+                                logger.error(f"Response content: {assistant_response[:200]}...")
+                        else:
+                            logger.error(f"DeepSeek API request failed with status {response.status_code}: {response.text}")
+                except Exception as api_err:
+                    logger.error(f"Error calling DeepSeek API: {str(api_err)}")
+                    logger.exception(api_err)
+                
+                # Fallback to mock data if API call fails
+                logger.warning(f"Falling back to mock data for {instrument} after API failure")
+                return await self._generate_mock_data(instrument, current_time, cache_key)
             
             # Als we hier komen, was er geen mock data en geen API key
             # Genereer een standaard fallback resultaat
             logger.warning(f"No data source available for {instrument}. Using fallback data.")
-            fallback_result = {
-                'overall_sentiment': 'neutral',
-                'sentiment_score': 0.5,
-                'bullish_percentage': 50,
-                'trend_strength': 'Moderate',
-                'volatility': 'Moderate',
-                'support_level': 'See analysis for details',
-                'resistance_level': 'See analysis for details',
-                'recommendation': 'See analysis for details',
-                'analysis': f"<b>🎯 {instrument} Market Analysis</b>\n\nNo detailed market analysis is available at this time.",
-                'source': 'fallback'
-            }
-            
-            # Sla het fallback resultaat op in de cache
-            self.sentiment_cache[cache_key] = (current_time, fallback_result)
-            logger.debug(f"Fallback data in cache opgeslagen voor {cache_key}")
-            return fallback_result
+            return await self._generate_mock_data(instrument, current_time, cache_key)
                 
         except Exception as e:
             logger.error(f"Error getting market sentiment: {str(e)}")
@@ -125,6 +200,37 @@ class MarketSentimentService:
                 'analysis': f"<b>🎯 {instrument} Market Analysis</b>\n\nThere was an error retrieving market sentiment. Please try again later.",
                 'source': 'fallback'
             }
+
+    async def _generate_mock_data(self, instrument, current_time, cache_key):
+        """Generate mock data for sentiment analysis"""
+        # Generate sentiment based on instrument type
+        if instrument.startswith(('BTC', 'ETH')):
+            sentiment_score = random.uniform(0.6, 0.8)  # Crypto tends to be bullish
+        elif instrument.startswith(('XAU', 'GOLD')):
+            sentiment_score = random.uniform(0.4, 0.7)  # Commodities can be volatile
+        else:
+            sentiment_score = random.uniform(0.3, 0.7)  # Forex and indices more balanced
+        
+        bullish_percentage = int(sentiment_score * 100)
+        trend_strength = 'Strong' if abs(sentiment_score - 0.5) > 0.3 else 'Moderate' if abs(sentiment_score - 0.5) > 0.1 else 'Weak'
+        
+        result = {
+            'overall_sentiment': 'bullish' if sentiment_score > 0.6 else 'bearish' if sentiment_score < 0.4 else 'neutral',
+            'sentiment_score': round(sentiment_score, 2),
+            'bullish_percentage': bullish_percentage,
+            'trend_strength': trend_strength,
+            'volatility': random.choice(['High', 'Moderate', 'Low']),
+            'support_level': 'See analysis for details',
+            'resistance_level': 'See analysis for details',
+            'recommendation': 'See analysis for detailed trading recommendations',
+            'analysis': self._get_mock_sentiment(instrument),
+            'source': 'mock_data'
+        }
+        
+        # Sla het resultaat op in de cache met huidige timestamp
+        self.sentiment_cache[cache_key] = (current_time, result)
+        logger.debug(f"Nieuwe mock data in cache opgeslagen voor {cache_key}")
+        return result
 
     async def get_market_sentiment_html(self, instrument: str) -> str:
         """
@@ -229,6 +335,12 @@ class MarketSentimentService:
         bullish_percentage = random.randint(60, 85) if is_bullish else random.randint(15, 40)
         bearish_percentage = 100 - bullish_percentage
         
+        # Determine if we're using mock data because of a missing API key or API failure
+        if not self.api_key or self.api_key.strip() == "":
+            mock_reason = "<i>Note: Using mock data because no DeepSeek API key is configured.</i>"
+        else:
+            mock_reason = "<i>Note: Using mock data because the DeepSeek API could not be reached. Check your internet connection or API key.</i>"
+        
         # Generate a mock analysis
         return f"""<b>🎯 {instrument} Market Analysis</b>
 
@@ -253,7 +365,7 @@ The {instrument} is currently showing a {"bullish" if is_bullish else "bearish"}
 <b>💡 Conclusion:</b>
 Based on current market conditions, the outlook for {instrument} appears {"positive" if is_bullish else "cautious"}. Traders should consider {"buy opportunities on dips" if is_bullish else "sell positions on rallies"} while maintaining proper risk management.
 
-<i>Note: This is mock data for demonstration purposes only. Real trading decisions should be based on comprehensive analysis.</i>"""
+{mock_reason}"""
 
     async def debug_api_keys(self):
         """
