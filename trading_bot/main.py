@@ -1,12 +1,12 @@
 import logging
 import os
 import json
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, Request, HTTPException, Header, Depends
 from fastapi.responses import JSONResponse
 from dotenv import load_dotenv
 import stripe
 import time
-# Import telegram components only when needed to reduce startup time
+import asyncio
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler
 from telegram import BotCommand
 
@@ -17,13 +17,17 @@ logger = logging.getLogger(__name__)
 # Laad omgevingsvariabelen
 load_dotenv()
 
-# Importeer alleen de essentiële services direct - andere worden lazy-loaded
+# Importeer de benodigde services
 from trading_bot.services.database.db import Database
-from trading_bot.services.payment_service.stripe_config import STRIPE_WEBHOOK_SECRET
+from trading_bot.services.chart_service.chart import ChartService
+from trading_bot.services.sentiment_service.sentiment import MarketSentimentService
+# Import from package level to let the __init__.py handle the specific implementation
+from trading_bot.services.calendar_service import EconomicCalendarService
 
 # Import directly from the module to avoid circular imports through __init__.py
 from trading_bot.services.telegram_service.bot import TelegramService
 from trading_bot.services.payment_service.stripe_service import StripeService
+from trading_bot.services.payment_service.stripe_config import STRIPE_WEBHOOK_SECRET
 
 # Initialiseer de FastAPI app
 app = FastAPI()
@@ -31,15 +35,15 @@ app = FastAPI()
 # Initialiseer de database
 db = Database()
 
-# Initialize only the critical services immediately
+# Initialiseer de services in de juiste volgorde
 stripe_service = StripeService(db)
+telegram_service = TelegramService(db)
+chart_service = ChartService()
 
-# Initialize telegram service with lazy loading option
-telegram_service = TelegramService(db, lazy_init=True)
-
-# Connect the services - chart service will be initialized lazily
+# Voeg de services aan elkaar toe na initialisatie
 telegram_service.stripe_service = stripe_service
 stripe_service.telegram_service = telegram_service
+telegram_service.chart_service = chart_service
 
 # Voeg deze functie toe bovenaan het bestand, na de imports
 def convert_interval_to_timeframe(interval):
@@ -108,10 +112,10 @@ async def startup_event():
         # The log shows "Successfully connected to Supabase" already
         logger.info("Database initialized")
         
-        # Initialize only the critical components of the telegram service, 
-        # but don't initialize other services like calendar and sentiment yet
-        await telegram_service.initialize_services(lazy_load=True)
-        logger.info("Telegram service initialized with lazy loading")
+        # Initialize chart service through the telegram service's initialize_services method
+        # This is the only service we need to initialize eagerly
+        await telegram_service.initialize_services()
+        logger.info("Chart service initialized through telegram service")
         
         # Log environment variables
         webhook_url = os.getenv("WEBHOOK_URL", "")
