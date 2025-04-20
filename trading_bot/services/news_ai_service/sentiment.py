@@ -190,8 +190,13 @@ class MarketSentimentService:
             # In standard mode, limited semaphore
             self.request_semaphore = asyncio.Semaphore(5)
         
-        # Preload cache in background after init
-        asyncio.create_task(self.load_cache())
+        # Load existing cache if available
+        if self.use_persistent_cache:
+            try:
+                self._load_cache_from_file()
+                logger.info(f"Loaded sentiment cache from {self.cache_file}")
+            except Exception as e:
+                logger.error(f"Error loading cache during initialization: {str(e)}")
         
         # Create a frequent instruments set for quick lookups
         self.frequent_instruments = {
@@ -204,7 +209,10 @@ class MarketSentimentService:
         self._thread_local = threading.local()
         
         logger.info(f"Sentiment cache TTL set to {cache_ttl_minutes} minutes ({self.cache_ttl} seconds)")
-        logger.info(f"Persistent caching {'enabled' if self.use_persistent_cache else 'disabled'}, cache file: {self.cache_file if self.use_persistent_cache else 'N/A'}")
+        if self.use_persistent_cache:
+            logger.info(f"Persistent caching enabled, cache file: {self.cache_file}")
+        else:
+            logger.info("Persistent caching disabled")
         
         # Log API key status (without revealing full keys)
         if self.tavily_api_key:
@@ -219,9 +227,6 @@ class MarketSentimentService:
             logger.info(f"DeepSeek API key is configured: {masked_key}")
         else:
             logger.warning("No DeepSeek API key found")
-            
-        # DISABLED: Prefetch common instruments in background to warm up cache
-        # asyncio.create_task(self.prefetch_common_instruments(list(self.frequent_instruments)[:5]))
         
         # Memory optimization - add LRU cache to frequently called methods
         self._build_search_query = lru_cache(maxsize=100)(self._build_search_query)
@@ -305,84 +310,59 @@ class MarketSentimentService:
         # Check if we have a valid cached result
         cached_data = self._get_from_cache(instrument)
         if cached_data:
-            # Record cache hit
+            logger.info(f"Using cached result for {instrument} (elapsed: {time.time() - start_time:.2f}s)")
             self.metrics.record_cache_hit()
-            logger.info(f"Returning cached sentiment data for {instrument}")
             
-            # Record total time (very fast for cache hits)
-            self.metrics.record_total_request(time.time() - start_time)
-            
-            # Store in thread-local for ultra-fast repeat lookups
+            # For frequently used instruments, optimize with thread local cache
             if is_frequent:
                 if not hasattr(self._thread_local, 'recent_results'):
                     self._thread_local.recent_results = {}
+                # Store in thread local cache with timestamp
                 self._thread_local.recent_results[instrument] = {
                     'data': cached_data,
                     'timestamp': time.time()
                 }
                 
+            # Convert API response format if needed
+            if 'bullish_percentage' in cached_data and 'bullish' not in cached_data:
+                cached_data['bullish'] = cached_data['bullish_percentage']
+                cached_data['bearish'] = cached_data['bearish_percentage']
+                cached_data['neutral'] = cached_data.get('neutral_percentage', 0)
+            
+            self.metrics.record_total_request(time.time() - start_time)
             return cached_data
-        
-        # Record cache miss
-        self.metrics.record_cache_miss()
-        
-        try:
-            # For frequent instruments, prioritize fast mode and use a higher semaphore limit
-            if is_frequent and self.fast_mode:
-                # Use semaphore for concurrency control
-                async with self.request_semaphore:
-                    result = await self._get_fast_sentiment(instrument)
-            else:
-                # Use fast mode if enabled
-                if self.fast_mode:
-                    result = await self._get_fast_sentiment(instrument)
-                else:
-                    # Use the standard (slower) mode for less common instruments
-                    logger.info(f"Calling get_market_sentiment for {instrument}...")
-                    sentiment_text = await self.get_market_sentiment_text(instrument, market_type)
-                    result = await self._process_sentiment_text(instrument, sentiment_text)
             
-            # Record total request time
-            elapsed = time.time() - start_time
-            self.metrics.record_total_request(elapsed)
-            logger.info(f"Sentiment analysis for {instrument} completed in {elapsed:.2f}s")
+        # No valid cache found - use fast mode with minimal API call
+        if self.fast_mode:
+            result = await self._get_fast_sentiment(instrument)
             
-            # Store in thread-local for ultra-fast repeat lookups of frequent instruments
-            if is_frequent:
+            # If data source is from API (not fallback), add to thread local cache for frequent instruments
+            if is_frequent and result.get('source') == 'api':
                 if not hasattr(self._thread_local, 'recent_results'):
                     self._thread_local.recent_results = {}
+                # Store in thread local cache with timestamp
                 self._thread_local.recent_results[instrument] = {
                     'data': result,
                     'timestamp': time.time()
                 }
                 
+            # Record performance metrics
+            self.metrics.record_cache_miss()
+            self.metrics.record_total_request(time.time() - start_time)
             return result
             
-        except Exception as e:
-            logger.error(f"Error in get_sentiment: {str(e)}")
-            logger.exception(e)
-            
-            # Return a basic analysis message
-            error_result = {
-                'bullish': 50,
-                'bearish': 50,
-                'neutral': 0,
-                'sentiment_score': 0,
-                'technical_score': 'N/A',
-                'news_score': 'N/A',
-                'social_score': 'N/A',
-                'trend_strength': 'Moderate',
-                'volatility': 'Normal',
-                'volume': 'Normal',
-                'news_headlines': [],
-                'overall_sentiment': 'neutral',
-                'analysis': self._get_default_sentiment_text(instrument)
-            }
-            
-            # Record total request time even for errors
-            self.metrics.record_total_request(time.time() - start_time)
-            logger.error(f"Returning error result for {instrument} due to exception")
-            return error_result
+        # For non-fast mode, use full sentiment analysis pipeline
+        # Determine market type from instrument if not provided
+        if market_type is None:
+            market_type = self._guess_market_from_instrument(instrument)
+        
+        # Get sentiment using full analysis pipeline - this is slower but more comprehensive
+        data = await self.get_market_sentiment(instrument, market_type)
+        
+        # Record performance metrics
+        self.metrics.record_cache_miss()
+        self.metrics.record_total_request(time.time() - start_time)
+        return data
 
     # Add a new helper method to process sentiment text
     async def _process_sentiment_text(self, instrument: str, sentiment_text: str) -> Dict[str, Any]:
@@ -439,8 +419,9 @@ class MarketSentimentService:
             
         try:
             # Check if this is fallback/mock data - if so, don't cache it
-            if sentiment_data.get('source') in ['fallback', 'mock', 'error_fallback', 'local_fallback']:
-                logger.info(f"Not caching fallback data for {instrument}")
+            source = sentiment_data.get('source', '')
+            if source in ['fallback', 'mock', 'error_fallback', 'local_fallback']:
+                logger.info(f"Not caching fallback data for {instrument} (source: {source})")
                 return
                 
             cache_key = instrument.upper()
@@ -453,10 +434,16 @@ class MarketSentimentService:
             # Store in memory cache
             self.sentiment_cache[cache_key] = cache_data
             
-            # If persistent cache is enabled, save to file (for frequent instruments only)
-            if self.use_persistent_cache and self.cache_file and cache_key in self.frequent_instruments:
-                # Use a task to save asynchronously for better performance 
-                asyncio.create_task(self._async_save_cache())
+            # If persistent cache is enabled, save to file
+            if self.use_persistent_cache and self.cache_file:
+                try:
+                    # Use a thread to save asynchronously for better performance 
+                    threading.Thread(target=self._save_cache_to_file, daemon=True).start()
+                    logger.info(f"Started async thread to save cache for {instrument}")
+                except Exception as e:
+                    logger.error(f"Error starting cache save thread: {str(e)}")
+                    # Fallback to direct save if thread failed
+                    self._save_cache_to_file()
                 
         except Exception as e:
             logger.error(f"Error adding to sentiment cache: {str(e)}")
@@ -1909,105 +1896,25 @@ Based on current market sentiment, the outlook for {instrument} appears {"positi
 
     async def prefetch_common_instruments(self, instruments: List[str]) -> None:
         """
-        Prefetch sentiment data for commonly used instruments
+        Prefetch sentiment data for commonly used instruments - DISABLED
         
         Args:
             instruments: List of instrument symbols to prefetch
         """
-        if not instruments:
-            return
-            
-        logger.info(f"Starting prefetch for {len(instruments)} instruments")
-        
-        # Create a semaphore to limit concurrent fetches to avoid overloading
-        prefetch_semaphore = asyncio.Semaphore(3)
-        
-        async def fetch_with_semaphore(instrument):
-            """Fetch an instrument with semaphore control"""
-            try:
-                async with prefetch_semaphore:
-                    # Check if already in cache first
-                    if self._get_from_cache(instrument):
-                        logger.info(f"Skipping prefetch for {instrument} - already in cache")
-                        return
-                    
-                    logger.info(f"Prefetching sentiment for {instrument}")
-                    
-                    # Use fast mode to get sentiment
-                    start_time = time.time()
-                    await self._get_fast_sentiment(instrument)
-                    elapsed = time.time() - start_time
-                    
-                    logger.info(f"Prefetched {instrument} in {elapsed:.2f}s")
-            except Exception as e:
-                logger.warning(f"Error prefetching {instrument}: {str(e)}")
-        
-        # Start prefetch tasks for all instruments with a delay between them
-        tasks = []
-        for i, instrument in enumerate(instruments):
-            # Use a small delay between starting tasks to prevent all requests at once
-            await asyncio.sleep(0.5)
-            tasks.append(asyncio.create_task(fetch_with_semaphore(instrument)))
-            
-        # Wait for all tasks to complete
-        await asyncio.gather(*tasks)
+        # This function is disabled to prevent unnecessary API calls
+        # and avoid all instruments being fetched when the user only asks for one
+        return  # Do nothing, completely disabled
 
     async def start_background_prefetch(self, popular_instruments: List[str], interval_minutes: int = 60) -> None:
         """
-        Start a background task to periodically prefetch sentiment data
+        Start a background task to periodically prefetch sentiment data - DISABLED
         
         Args:
             popular_instruments: List of popular instruments to prefetch
             interval_minutes: How often to run the prefetch in minutes
         """
-        logger.info(f"Starting background prefetch for {len(popular_instruments)} instruments every {interval_minutes} minutes")
-        
-        # Prioritize frequently accessed instruments
-        ordered_instruments = sorted(
-            popular_instruments,
-            key=lambda x: 1 if x in self.frequent_instruments else 2
-        )
-        
-        async def prefetch_loop():
-            """Background loop to prefetch sentiment data periodically"""
-            try:
-                while True:
-                    # Sleep first to allow initial startup to complete
-                    await asyncio.sleep(60)  # Wait 1 minute after startup before prefetching
-                    
-                    # Get the current time for logging
-                    current_time = datetime.now().strftime("%H:%M:%S")
-                    logger.info(f"Running scheduled prefetch at {current_time}")
-                    
-                    # Prefetch in smaller batches to distribute load
-                    batch_size = 3  # Process 3 instruments per batch
-                    
-                    for i in range(0, len(ordered_instruments), batch_size):
-                        batch = ordered_instruments[i:i+batch_size]
-                        logger.info(f"Prefetching batch {i//batch_size + 1}: {batch}")
-                        
-                        try:
-                            await self.prefetch_common_instruments(batch)
-                        except Exception as e:
-                            logger.error(f"Error in prefetch batch: {str(e)}")
-                        
-                        # Add a delay between batches
-                        await asyncio.sleep(30)
-                    
-                    # Only cleanup expired cache occasionally to reduce disk I/O
-                    self.cleanup_expired_cache()
-                    
-                    # Wait for the specified interval before next prefetch
-                    logger.info(f"Prefetch complete, next run in {interval_minutes} minutes")
-                    await asyncio.sleep(interval_minutes * 60)
-            except asyncio.CancelledError:
-                logger.info("Background prefetch task cancelled")
-            except Exception as e:
-                logger.error(f"Error in prefetch loop: {str(e)}")
-                logger.exception(e)
-        
-        # Start the prefetch loop as a background task
-        asyncio.create_task(prefetch_loop())
+        # This function is disabled to prevent unnecessary API calls
+        return  # Do nothing, completely disabled
 
     def get_performance_metrics(self) -> Dict[str, Any]:
         """
@@ -2140,10 +2047,11 @@ Based on current market sentiment, the outlook for {instrument} appears {"positi
             payload = {
                 'model': "deepseek-chat",
                 'messages': [
-                    {'role': 'system', 'content': 'You are a financial market sentiment analyzer.'},
+                    {'role': 'system', 'content': 'You are a financial market sentiment analyzer. Respond with valid JSON only.'},
                     {'role': 'user', 'content': prompt}
                 ],
-                'temperature': 0.1  # Lower temperature for more consistent results
+                'temperature': 0.1,  # Lower temperature for more consistent results
+                'response_format': {'type': 'json_object'}  # Request JSON format explicitly
             }
             
             # Make the API request with timeout
@@ -2163,6 +2071,13 @@ Based on current market sentiment, the outlook for {instrument} appears {"positi
                     
             # Extract the content from the response
             content = response_data.get('choices', [{}])[0].get('message', {}).get('content', '{}')
+            
+            # Clean up any JSON formatting issues
+            content = content.strip()
+            if content.startswith("```json"):
+                content = content.replace("```json", "", 1).strip()
+            if content.endswith("```"):
+                content = content.rsplit("```", 1)[0].strip()
             
             try:
                 # Try to parse as JSON first
@@ -2245,11 +2160,11 @@ Based on current market sentiment, the outlook for {instrument} appears {"positi
         
         prompt = f"""Analyze current market sentiment for {instrument} ({market_type}).
 
-Provide ONLY this JSON format: 
+Provide ONLY this JSON format without any additional content:
 {{
-    "bullish_percentage": XX,  // Integer percentage of bullish sentiment (0-100)
-    "bearish_percentage": YY,  // Integer percentage of bearish sentiment (0-100)
-    "neutral_percentage": ZZ   // Integer percentage of neutral sentiment (0-100)
+    "bullish_percentage": XX,
+    "bearish_percentage": YY,
+    "neutral_percentage": ZZ
 }}
 
 Your percentages must add up to 100. Return ONLY the JSON above. DO NOT include ANY explanations, reasoning or other text.
@@ -2493,6 +2408,35 @@ Your percentages must add up to 100. Return ONLY the JSON above. DO NOT include 
         except Exception as e:
             logger.error(f"Error loading sentiment cache from file: {str(e)}")
             self.sentiment_cache = {}
+
+    def _save_cache_to_file(self) -> None:
+        """Save the sentiment cache to a persistent file with proper locking"""
+        if not self.use_persistent_cache or not self.cache_file:
+            return  # Nothing to do if persistent cache is disabled
+            
+        # Use a lock to prevent concurrent writes
+        with self._cache_lock:
+            try:
+                # Filter out any items that shouldn't be cached persistently
+                clean_cache = {}
+                for key, data in self.sentiment_cache.items():
+                    if data.get('source') not in ['fallback', 'mock', 'error_fallback', 'local_fallback']:
+                        clean_cache[key] = data
+                
+                # Make directory if it doesn't exist
+                os.makedirs(os.path.dirname(self.cache_file), exist_ok=True)
+                
+                # Write to a temporary file first, then rename to avoid corruption
+                temp_file = f"{self.cache_file}.tmp"
+                with open(temp_file, 'w', encoding='utf-8') as f:
+                    json.dump(clean_cache, f, ensure_ascii=False, indent=2)
+                
+                # Atomic rename to final file
+                os.replace(temp_file, self.cache_file)
+                logger.info(f"Successfully saved {len(clean_cache)} sentiment cache entries to {self.cache_file}")
+                
+            except Exception as e:
+                logger.error(f"Error saving sentiment cache to file: {str(e)}")
 
 class TavilyClient:
     """A simple wrapper for the Tavily API that handles errors properly"""
