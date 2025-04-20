@@ -602,10 +602,10 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
 
 # API keys with robust sanitization
 PERPLEXITY_API_KEY = os.getenv("PERPLEXITY_API_KEY", "").strip()
-DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "72df8ae1c5dd4d95b6a54c09bcf1b39e").strip()
+DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "").strip()
 
 # Ensure the Tavily API key is properly formatted with 'tvly-' prefix and sanitized
-raw_tavily_key = os.getenv("TAVILY_API_KEY", "KbIKVL3UfDfnxRx3Ruw6XhL3OB9qSF9l").strip()
+raw_tavily_key = os.getenv("TAVILY_API_KEY", "").strip()
 TAVILY_API_KEY = raw_tavily_key.replace('\n', '').replace('\r', '')  # Remove any newlines/carriage returns
 
 # If the key doesn't start with "tvly-", add the prefix
