@@ -4751,6 +4751,60 @@ Based on current data, the outlook appears {"favorable" if bullish > bearish els
             # Initialize empty dict on error
             self.user_signals = {}
             
+    def _clear_old_sentiment_cache_entries(self):
+        """
+        Clear old entries from the sentiment cache to prevent memory issues.
+        Removes expired entries and trims cache if it gets too large.
+        """
+        try:
+            if not hasattr(self, 'telegram_sentiment_cache'):
+                self.telegram_sentiment_cache = {}
+                return
+                
+            current_time = datetime.now()
+            
+            # First, clear expired entries (older than 30 minutes)
+            expired_keys = []
+            for key, cached_data in self.telegram_sentiment_cache.items():
+                cache_time = cached_data.get('timestamp')
+                if cache_time and current_time - cache_time > timedelta(minutes=30):
+                    expired_keys.append(key)
+            
+            # Remove expired entries
+            for key in expired_keys:
+                del self.telegram_sentiment_cache[key]
+                
+            logger.debug(f"Cleared {len(expired_keys)} expired entries from sentiment cache")
+            
+            # If cache is still too large, remove oldest entries
+            if hasattr(self, 'max_cache_size') and len(self.telegram_sentiment_cache) > self.max_cache_size:
+                # Sort entries by timestamp
+                sorted_entries = sorted(
+                    self.telegram_sentiment_cache.items(), 
+                    key=lambda x: x[1].get('timestamp', datetime.min)
+                )
+                
+                # Remove oldest entries until we're back to the max size
+                entries_to_remove = len(sorted_entries) - self.max_cache_size
+                for i in range(entries_to_remove):
+                    key_to_remove = sorted_entries[i][0]
+                    del self.telegram_sentiment_cache[key_to_remove]
+                    
+                logger.debug(f"Trimmed sentiment cache by removing {entries_to_remove} oldest entries")
+        except Exception as e:
+            logger.error(f"Error clearing sentiment cache: {str(e)}")
+            
+    def _cleanup_lock_file(self):
+        """Clean up the lock file when shutting down"""
+        try:
+            import os
+            lock_file = "/tmp/tradingbot.lock"
+            if os.path.exists(lock_file):
+                os.remove(lock_file)
+                logger.info(f"Removed lock file at {lock_file}")
+        except Exception as e:
+            logger.warning(f"Error removing lock file: {str(e)}")
+            
     async def run(self):
         """Start the bot."""
         try:
@@ -4797,6 +4851,7 @@ Based on current data, the outlook appears {"favorable" if bullish > bearish els
             force_polling = os.getenv("FORCE_POLLING", "false").lower() == "true"
             
             if force_polling or not webhook_url:
+                # Use polling
                 logger.info("Starting bot in polling mode")
                 await self.application.start()
                 await self.application.updater.start_polling()
@@ -4813,55 +4868,6 @@ Based on current data, the outlook appears {"favorable" if bullish > bearish els
         except Exception as e:
             logger.error(f"Error starting Telegram bot: {str(e)}")
             raise
-            
-    def _clear_old_sentiment_cache_entries(self):
-        """
-        Clear old entries from the sentiment cache to prevent memory issues.
-        Removes expired entries and trims cache if it gets too large.
-        """
-        if not hasattr(self, 'telegram_sentiment_cache'):
-            self.telegram_sentiment_cache = {}
-            return
-            
-        current_time = datetime.now()
-        
-        # First, clear expired entries (older than 30 minutes)
-        expired_keys = []
-        for key, cached_data in self.telegram_sentiment_cache.items():
-            cache_time = cached_data.get('timestamp')
-            if cache_time and current_time - cache_time > timedelta(minutes=30):
-                expired_keys.append(key)
-        
-        # Remove expired entries
-        for key in expired_keys:
-            del self.telegram_sentiment_cache[key]
-            
-        logger.debug(f"Cleared {len(expired_keys)} expired entries from sentiment cache")
-        
-        # If cache is still too large, remove oldest entries
-        if hasattr(self, 'max_cache_size') and len(self.telegram_sentiment_cache) > self.max_cache_size:
-            # Sort entries by timestamp
-            sorted_entries = sorted(
-                self.telegram_sentiment_cache.items(), 
-                key=lambda x: x[1].get('timestamp', datetime.min)
-            )
-            
-            # Remove oldest entries until we're back to the max size
-            entries_to_remove = len(sorted_entries) - self.max_cache_size
-            for i in range(entries_to_remove):
-                key_to_remove = sorted_entries[i][0]
-                del self.telegram_sentiment_cache[key_to_remove]
-                
-            logger.debug(f"Trimmed sentiment cache by removing {entries_to_remove} oldest entries")
         finally:
-            # Clean up the lock file when shutting down
-            try:
-                import os
-                lock_file = "/tmp/tradingbot.lock"
-                if os.path.exists(lock_file):
-                    os.remove(lock_file)
-                    logger.info(f"Removed lock file at {lock_file}")
-            except Exception as e:
-                logger.warning(f"Error removing lock file: {str(e)}")
-                
-        return
+            # Always clean up the lock file when shutting down
+            self._cleanup_lock_file()
