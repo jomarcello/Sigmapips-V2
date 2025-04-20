@@ -665,14 +665,11 @@ class TelegramService:
             
         logger.info(f"Bot initialized with webhook URL: {self.webhook_url} and path: {self.webhook_path}")
         
-        # Initialize API services
-        self.chart_service = ChartService()  # Initialize chart service
-        # Lazy load services only when needed
+        # Initialize chart service directly, but delay other service initialization
+        self.chart_service = ChartService() if not lazy_init else None
         self._calendar_service = None
         self._sentiment_service = None
-        
-        # Don't use asyncio.create_task here - it requires a running event loop
-        # We'll initialize chart service later when the event loop is running
+        self._lazy_init = lazy_init
         
         # Bot application initialization
         self.persistence = None
@@ -709,15 +706,44 @@ class TelegramService:
             logger.error(f"Error initializing Telegram service: {str(e)}")
             raise
 
-    async def initialize_services(self):
+    async def initialize_services(self, lazy_load: bool = False):
         """Initialize services that require an asyncio event loop"""
         try:
-            # Initialize chart service
-            await self.chart_service.initialize()
-            logger.info("Chart service initialized")
+            # Initialize or lazy initialize chart service
+            if self._lazy_init or lazy_load:
+                # In lazy mode, we initialize chart service when it's first accessed
+                logger.info("Enabling lazy loading for chart service")
+                # We'll create the property for chart_service
+                self._chart_service = None
+            else:
+                # We already created chart service in __init__, so just initialize it
+                if self.chart_service:
+                    await self.chart_service.initialize()
+                    logger.info("Chart service initialized eagerly")
+                else:
+                    self.chart_service = ChartService()
+                    await self.chart_service.initialize()
+                    logger.info("Chart service created and initialized eagerly")
         except Exception as e:
             logger.error(f"Error initializing services: {str(e)}")
             raise
+    
+    # Add chart service property for lazy loading
+    @property
+    def chart_service(self):
+        """Lazy loaded chart service"""
+        if getattr(self, '_chart_service', None) is None:
+            # Only initialize the chart service when it's first accessed
+            logger.info("Lazy loading chart service")
+            self._chart_service = ChartService()
+            # Since this is a property getter, we can't use await here
+            # The caller will need to await initialize() separately if needed
+        return self._chart_service
+    
+    @chart_service.setter
+    def chart_service(self, value):
+        """Setter for chart service"""
+        self._chart_service = value
             
     # Calendar service helpers
     @property
@@ -733,6 +759,16 @@ class TelegramService:
         """Get the calendar service instance"""
         self.logger.info("Getting calendar service")
         return self.calendar_service
+
+    # Update the sentiment service property to use fast_mode
+    @property
+    def sentiment_service(self):
+        """Lazy loaded sentiment service with fast_mode enabled"""
+        if self._sentiment_service is None:
+            # Only initialize the sentiment service when it's first accessed, with fast_mode
+            logger.info("Lazy loading sentiment service with fast_mode=True")
+            self._sentiment_service = MarketSentimentService(fast_mode=True)
+        return self._sentiment_service
 
     async def _format_calendar_events(self, calendar_data):
         """Format the calendar data into a readable HTML message"""
@@ -3188,15 +3224,6 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 pass
             
             return MENU
-
-    @property
-    def sentiment_service(self):
-        """Lazy loaded sentiment service"""
-        if self._sentiment_service is None:
-            # Only initialize the sentiment service when it's first accessed
-            logger.info("Lazy loading sentiment service")
-            self._sentiment_service = MarketSentimentService()
-        return self._sentiment_service
 
     async def show_sentiment_analysis(self, update: Update, context=None, instrument=None) -> int:
         """Show sentiment analysis for a selected instrument"""
