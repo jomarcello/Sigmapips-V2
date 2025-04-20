@@ -22,7 +22,7 @@ class MarketSentimentService:
         }
         
         # If no API key is provided, we'll use mock data
-        self.use_mock = not self.api_key
+        self.use_mock = not self.api_key or self.api_key.strip() == ""
         if self.use_mock:
             logger.warning("No DeepSeek API key found, using mock data")
             
@@ -90,6 +90,27 @@ class MarketSentimentService:
                 self.sentiment_cache[cache_key] = (current_time, result)
                 logger.debug(f"Nieuwe data in cache opgeslagen voor {cache_key}")
                 return result
+            
+            # Als we hier komen, was er geen mock data en geen API key
+            # Genereer een standaard fallback resultaat
+            logger.warning(f"No data source available for {instrument}. Using fallback data.")
+            fallback_result = {
+                'overall_sentiment': 'neutral',
+                'sentiment_score': 0.5,
+                'bullish_percentage': 50,
+                'trend_strength': 'Moderate',
+                'volatility': 'Moderate',
+                'support_level': 'See analysis for details',
+                'resistance_level': 'See analysis for details',
+                'recommendation': 'See analysis for details',
+                'analysis': f"<b>🎯 {instrument} Market Analysis</b>\n\nNo detailed market analysis is available at this time.",
+                'source': 'fallback'
+            }
+            
+            # Sla het fallback resultaat op in de cache
+            self.sentiment_cache[cache_key] = (current_time, fallback_result)
+            logger.debug(f"Fallback data in cache opgeslagen voor {cache_key}")
+            return fallback_result
                 
         except Exception as e:
             logger.error(f"Error getting market sentiment: {str(e)}")
@@ -98,6 +119,10 @@ class MarketSentimentService:
             return {
                 'overall_sentiment': 'neutral',
                 'sentiment_score': 0.5,
+                'bullish_percentage': 50,
+                'trend_strength': 'Moderate', 
+                'volatility': 'Moderate',
+                'analysis': f"<b>🎯 {instrument} Market Analysis</b>\n\nThere was an error retrieving market sentiment. Please try again later.",
                 'source': 'fallback'
             }
 
@@ -290,6 +315,26 @@ Based on current market conditions, the outlook for {instrument} appears {"posit
             # Get market sentiment
             sentiment_data = await self.get_market_sentiment(instrument)
             
+            # Check if sentiment_data is None before accessing it
+            if sentiment_data is None:
+                logger.error(f"Failed to get market sentiment data for {instrument}")
+                # Return a basic fallback response
+                return {
+                    'analysis': f"<b>🎯 {instrument} Market Analysis</b>\n\nSorry, there was an error retrieving market sentiment data. Please try again later.",
+                    'sentiment_score': 0.5,
+                    'bullish': 50,
+                    'bearish': 50,
+                    'neutral': 0,
+                    'technical_score': 'N/A',
+                    'news_score': 'N/A',
+                    'social_score': 'N/A',
+                    'trend_strength': 'Moderate',
+                    'volatility': 'Normal',
+                    'volume': 'Normal',
+                    'news_headlines': [],
+                    'overall_sentiment': 'neutral'
+                }
+            
             # Extract sentiment values
             sentiment_score = sentiment_data.get('sentiment_score', 0.5)
             bullish_percentage = sentiment_data.get('bullish_percentage', 50)
@@ -329,14 +374,18 @@ Based on current market conditions, the outlook for {instrument} appears {"posit
             # Return a basic analysis message
             return {
                 'analysis': f"<b>🎯 {instrument} Market Analysis</b>\n\nSorry, there was an error analyzing the market sentiment. Please try again later.",
-                'sentiment_score': 0,
+                'sentiment_score': 0.5,
+                'bullish': 50,
+                'bearish': 50,
+                'neutral': 0,
                 'technical_score': 'N/A',
                 'news_score': 'N/A',
                 'social_score': 'N/A',
                 'trend_strength': 'Moderate',
                 'volatility': 'Normal',
                 'volume': 'Normal',
-                'news_headlines': []
+                'news_headlines': [],
+                'overall_sentiment': 'neutral'
             }
             
     def clear_cache(self, instrument=None):
