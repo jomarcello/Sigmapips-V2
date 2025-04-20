@@ -1,12 +1,12 @@
 import logging
 import os
 import json
-from fastapi import FastAPI, Request, HTTPException, Header, Depends
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse
 from dotenv import load_dotenv
 import stripe
 import time
-import asyncio
+# Import telegram components only when needed to reduce startup time
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler
 from telegram import BotCommand
 
@@ -17,17 +17,13 @@ logger = logging.getLogger(__name__)
 # Laad omgevingsvariabelen
 load_dotenv()
 
-# Importeer de benodigde services
+# Importeer alleen de essentiële services direct - andere worden lazy-loaded
 from trading_bot.services.database.db import Database
-from trading_bot.services.chart_service.chart import ChartService
-from trading_bot.services.sentiment_service.sentiment import MarketSentimentService
-# Import from package level to let the __init__.py handle the specific implementation
-from trading_bot.services.calendar_service import EconomicCalendarService
+from trading_bot.services.payment_service.stripe_config import STRIPE_WEBHOOK_SECRET
 
 # Import directly from the module to avoid circular imports through __init__.py
 from trading_bot.services.telegram_service.bot import TelegramService
 from trading_bot.services.payment_service.stripe_service import StripeService
-from trading_bot.services.payment_service.stripe_config import STRIPE_WEBHOOK_SECRET
 
 # Initialiseer de FastAPI app
 app = FastAPI()
@@ -35,15 +31,15 @@ app = FastAPI()
 # Initialiseer de database
 db = Database()
 
-# Initialiseer de services in de juiste volgorde
+# Initialize only the critical services immediately
 stripe_service = StripeService(db)
-telegram_service = TelegramService(db)
-chart_service = ChartService()
 
-# Voeg de services aan elkaar toe na initialisatie
+# Initialize telegram service with lazy loading option
+telegram_service = TelegramService(db, lazy_init=True)
+
+# Connect the services - chart service will be initialized lazily
 telegram_service.stripe_service = stripe_service
 stripe_service.telegram_service = telegram_service
-telegram_service.chart_service = chart_service
 
 # Voeg deze functie toe bovenaan het bestand, na de imports
 def convert_interval_to_timeframe(interval):
