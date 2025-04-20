@@ -3195,7 +3195,18 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         if self._sentiment_service is None:
             # Only initialize the sentiment service when it's first accessed
             logger.info("Lazy loading sentiment service")
-            self._sentiment_service = MarketSentimentService()
+            
+            # Create with optimized parameters for better performance
+            self._sentiment_service = MarketSentimentService(
+                cache_ttl_minutes=60,  # Longer cache TTL for better performance
+                persistent_cache=True,
+                fast_mode=True
+            )
+            
+            # Start background prefetch for common instruments
+            common_instruments = ["EURUSD", "GBPUSD", "USDJPY", "BTCUSD", "XAUUSD"]
+            asyncio.create_task(self._sentiment_service.prefetch_common_instruments(common_instruments))
+            
         return self._sentiment_service
 
     async def show_sentiment_analysis(self, update: Update, context=None, instrument=None) -> int:
