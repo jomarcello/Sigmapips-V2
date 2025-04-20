@@ -5,6 +5,8 @@ import time
 from typing import Dict, Any, List
 
 logger = logging.getLogger(__name__)
+# Verhoog log level voor sentiment service
+logger.setLevel(logging.DEBUG)
 
 class MarketSentimentService:
     """Service for analyzing market sentiment"""
@@ -27,6 +29,7 @@ class MarketSentimentService:
         self.sentiment_cache = {}
         # Cache geldigheid in seconden (30 minuten)
         self.cache_ttl = 30 * 60
+        logger.debug("MarketSentimentService geïnitialiseerd met cache TTL: %s seconden", self.cache_ttl)
     
     async def get_market_sentiment(self, instrument):
         """Get market sentiment for a specific instrument"""
@@ -35,14 +38,24 @@ class MarketSentimentService:
             
             # Controleer of we een geldige cache entry hebben
             current_time = time.time()
-            if instrument in self.sentiment_cache:
-                timestamp, cached_data = self.sentiment_cache[instrument]
+            cache_key = f"market_{instrument}"  # Specifiekere key om verwarring te voorkomen
+            
+            logger.debug(f"Cache check voor {cache_key}. Cache bevat keys: {list(self.sentiment_cache.keys())}")
+            
+            if cache_key in self.sentiment_cache:
+                timestamp, cached_data = self.sentiment_cache[cache_key]
+                cache_age = current_time - timestamp
                 # Check of de cache nog geldig is (minder dan 30 minuten oud)
-                if current_time - timestamp < self.cache_ttl:
-                    logger.info(f"Using cached sentiment data for {instrument}")
+                if cache_age < self.cache_ttl:
+                    logger.debug(f"Cache hit voor {cache_key}! Leeftijd: {cache_age:.1f} seconden")
                     return cached_data
+                else:
+                    logger.debug(f"Cache verouderd voor {cache_key}. Leeftijd: {cache_age:.1f} seconden")
+            else:
+                logger.debug(f"Cache miss voor {cache_key}")
                     
             # Geen geldige cache, genereer nieuwe data
+            logger.debug(f"Genereren van nieuwe sentiment data voor {instrument}")
             if self.use_mock:
                 # Generate sentiment based on instrument type
                 if instrument.startswith(('BTC', 'ETH')):
@@ -69,7 +82,8 @@ class MarketSentimentService:
                 }
                 
                 # Sla het resultaat op in de cache met huidige timestamp
-                self.sentiment_cache[instrument] = (current_time, result)
+                self.sentiment_cache[cache_key] = (current_time, result)
+                logger.debug(f"Nieuwe data in cache opgeslagen voor {cache_key}")
                 return result
                 
         except Exception as e:
@@ -98,13 +112,22 @@ class MarketSentimentService:
             # Controleer of we een geldige cache entry hebben
             current_time = time.time()
             cache_key = f"html_{instrument}"
+            
+            logger.debug(f"Cache check voor {cache_key}. Cache bevat keys: {list(self.sentiment_cache.keys())}")
+            
             if cache_key in self.sentiment_cache:
                 timestamp, cached_html = self.sentiment_cache[cache_key]
+                cache_age = current_time - timestamp
                 # Check of de cache nog geldig is (minder dan 30 minuten oud)
-                if current_time - timestamp < self.cache_ttl:
-                    logger.info(f"Using cached HTML sentiment data for {instrument}")
+                if cache_age < self.cache_ttl:
+                    logger.debug(f"Cache hit voor {cache_key}! Leeftijd: {cache_age:.1f} seconden")
                     return cached_html
+                else:
+                    logger.debug(f"Cache verouderd voor {cache_key}. Leeftijd: {cache_age:.1f} seconden")
+            else:
+                logger.debug(f"Cache miss voor {cache_key}")
             
+            logger.debug(f"Genereren van nieuwe HTML sentiment data voor {instrument}")
             # Hier zou je normaal gesproken een externe API aanroepen
             # Voor nu gebruiken we een mock implementatie
             
@@ -150,6 +173,7 @@ class MarketSentimentService:
             
             # Sla het resultaat op in de cache met huidige timestamp
             self.sentiment_cache[cache_key] = (current_time, sentiment_html)
+            logger.debug(f"Nieuwe HTML data in cache opgeslagen voor {cache_key}")
             
             logger.info(f"Sentiment analyse gegenereerd voor {instrument}")
             return sentiment_html
@@ -221,6 +245,7 @@ Based on current market conditions, the outlook for {instrument} appears {"posit
         # Cache status
         cache_size = len(self.sentiment_cache)
         debug_info.append(f"Cache size: {cache_size} items")
+        debug_info.append(f"Cache contents: {list(self.sentiment_cache.keys())}")
         
         return "\n".join(debug_info)
         
@@ -235,13 +260,22 @@ Based on current market conditions, the outlook for {instrument} appears {"posit
             # Controleer of we een geldige cache entry hebben
             current_time = time.time()
             cache_key = f"sentiment_{instrument}"
+            
+            logger.debug(f"Cache check voor {cache_key}. Cache bevat keys: {list(self.sentiment_cache.keys())}")
+            
             if cache_key in self.sentiment_cache:
                 timestamp, cached_data = self.sentiment_cache[cache_key]
+                cache_age = current_time - timestamp
                 # Check of de cache nog geldig is (minder dan 30 minuten oud)
-                if current_time - timestamp < self.cache_ttl:
-                    logger.info(f"Using cached sentiment analysis for {instrument}")
+                if cache_age < self.cache_ttl:
+                    logger.debug(f"Cache hit voor {cache_key}! Leeftijd: {cache_age:.1f} seconden")
                     return cached_data
+                else:
+                    logger.debug(f"Cache verouderd voor {cache_key}. Leeftijd: {cache_age:.1f} seconden")
+            else:
+                logger.debug(f"Cache miss voor {cache_key}")
             
+            logger.debug(f"Genereren van nieuwe sentiment data voor {instrument}")
             # Get market sentiment
             sentiment_data = await self.get_market_sentiment(instrument)
             
@@ -275,6 +309,7 @@ Based on current market conditions, the outlook for {instrument} appears {"posit
             
             # Sla het resultaat op in de cache met huidige timestamp
             self.sentiment_cache[cache_key] = (current_time, result)
+            logger.debug(f"Nieuwe sentiment data in cache opgeslagen voor {cache_key}")
             return result
                 
         except Exception as e:
@@ -315,3 +350,23 @@ Based on current market conditions, the outlook for {instrument} appears {"posit
             # Wis de gehele cache
             self.sentiment_cache.clear()
             logger.info("Volledige cache gewist")
+            
+    # Een helper functie om cache status te tonen
+    def get_cache_status(self):
+        """
+        Geeft informatie over de huidige status van de cache
+        
+        Returns:
+            str: Debug informatie over cache
+        """
+        output = []
+        output.append(f"Aantal items in cache: {len(self.sentiment_cache)}")
+        
+        current_time = time.time()
+        
+        for key, (timestamp, _) in self.sentiment_cache.items():
+            cache_age = current_time - timestamp
+            expired = cache_age > self.cache_ttl
+            output.append(f"Key: {key}, Leeftijd: {cache_age:.1f}s, Verlopen: {expired}")
+            
+        return "\n".join(output)
