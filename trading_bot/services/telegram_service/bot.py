@@ -758,6 +758,20 @@ class TelegramService:
         # Show a confirmation
         logger.info("Callback constants validation complete")
 
+    def _register_handlers(self, application):
+        """Register all command and callback handlers"""
+        logger.info("Registering handlers...")
+        
+        # Command handlers
+        application.add_handler(CommandHandler("start", self.show_main_menu))
+        application.add_handler(CommandHandler("menu", self.menu_command))
+        application.add_handler(CommandHandler("help", self.help_command))
+        
+        # Callback query handler - handles all button presses
+        application.add_handler(CallbackQueryHandler(self.button_callback))
+        
+        logger.info("All handlers registered")
+
     async def initialize_services(self):
         """Initialize services like chart service"""
         # Initialize chart_service connection if not initialized yet
@@ -787,7 +801,6 @@ class TelegramService:
         if not hasattr(self, 'sentiment_service') or self.sentiment_service is None:
             try:
                 logger.info("Initializing sentiment service...")
-                from trading_bot.services.sentiment_service.sentiment import MarketSentimentService
                 self.sentiment_service = MarketSentimentService()
                 logger.info("Sentiment service initialized")
             except Exception as e:
