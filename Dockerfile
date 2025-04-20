@@ -138,11 +138,29 @@ RUN echo '#!/bin/bash\n\
 echo "Starting SigmaPips Trading Bot..."\n\
 cd /app\n\
 echo "Starting main application..."\n\
-# Run with a timeout to prevent getting stuck\n\
-timeout ${TIMEOUT_SECONDS:-180} python main.py || {\n\
-    echo "Application timed out after ${TIMEOUT_SECONDS:-180} seconds, restarting..."\n\
-    python main.py\n\
-}\n\
+# Check if were using the old structure (trading_bot/main.py) or new structure (main.py in root)\n\
+if [ -f "trading_bot/main.py" ]; then\n\
+    echo "Found main.py in trading_bot directory"\n\
+    # Run with a timeout to prevent getting stuck\n\
+    timeout ${TIMEOUT_SECONDS:-180} python -m trading_bot.main || {\n\
+        echo "Application timed out after ${TIMEOUT_SECONDS:-180} seconds, restarting..."\n\
+        python -m trading_bot.main\n\
+    }\n\
+elif [ -f "main.py" ]; then\n\
+    echo "Found main.py in root directory"\n\
+    # Run with a timeout to prevent getting stuck\n\
+    timeout ${TIMEOUT_SECONDS:-180} python main.py || {\n\
+        echo "Application timed out after ${TIMEOUT_SECONDS:-180} seconds, restarting..."\n\
+        python main.py\n\
+    }\n\
+else\n\
+    echo "main.py not found in either location, falling back to trading_bot.main module"\n\
+    # Fall back to the module-based import\n\
+    timeout ${TIMEOUT_SECONDS:-180} python -m trading_bot.main || {\n\
+        echo "Application timed out after ${TIMEOUT_SECONDS:-180} seconds, restarting..."\n\
+        python -m trading_bot.main\n\
+    }\n\
+fi\n\
 ' > /app/start.sh && chmod +x /app/start.sh
 
 # Draai de applicatie
