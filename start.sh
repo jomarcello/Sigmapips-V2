@@ -23,6 +23,13 @@ PORT=${PORT:-8080}
 FORCE_POLLING=${FORCE_POLLING:-"false"}
 EOL
 
+# Check and install essential missing packages
+echo "Checking for essential packages..."
+python -c "import tavily" 2>/dev/null || {
+    echo "Installing missing tavily package..."
+    pip install tavily-python
+}
+
 # Check if we're using the old structure (trading_bot/main.py) or new structure (main.py in root)
 if [ -f "trading_bot/main.py" ]; then
     echo "Found main.py in trading_bot directory"
