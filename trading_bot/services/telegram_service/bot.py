@@ -32,7 +32,6 @@ import telegram.error  # Add this import for BadRequest error handling
 from trading_bot.services.database.db import Database
 from trading_bot.services.chart_service.chart import ChartService
 from trading_bot.services.sentiment_service.sentiment import MarketSentimentService
-from trading_bot.services.sentiment_service.cached_sentiment_service import CachedSentimentService
 from trading_bot.services.calendar_service import EconomicCalendarService
 from trading_bot.services.payment_service.stripe_service import StripeService
 from trading_bot.services.payment_service.stripe_config import get_subscription_features
@@ -616,7 +615,7 @@ os.environ["DEEPSEEK_API_KEY"] = DEEPSEEK_API_KEY
 os.environ["TAVILY_API_KEY"] = TAVILY_API_KEY
 
 class TelegramService:
-    def __init__(self, db: Database, stripe_service=None, bot_token: Optional[str] = None, proxy_url: Optional[str] = None, lazy_init: bool = False):
+    def __init__(self, db: Database, stripe_service=None, bot_token: Optional[str] = None, proxy_url: Optional[str] = None):
         """Initialize the bot with given database and config."""
         # Database connection
         self.db = db
@@ -666,11 +665,14 @@ class TelegramService:
             
         logger.info(f"Bot initialized with webhook URL: {self.webhook_url} and path: {self.webhook_path}")
         
-        # Initialize chart service directly, but delay other service initialization
-        self.chart_service = ChartService() if not lazy_init else None
+        # Initialize API services
+        self.chart_service = ChartService()  # Initialize chart service
+        # Lazy load services only when needed
         self._calendar_service = None
         self._sentiment_service = None
-        self._lazy_init = lazy_init
+        
+        # Don't use asyncio.create_task here - it requires a running event loop
+        # We'll initialize chart service later when the event loop is running
         
         # Bot application initialization
         self.persistence = None
@@ -707,44 +709,15 @@ class TelegramService:
             logger.error(f"Error initializing Telegram service: {str(e)}")
             raise
 
-    async def initialize_services(self, lazy_load: bool = False):
+    async def initialize_services(self):
         """Initialize services that require an asyncio event loop"""
         try:
-            # Initialize or lazy initialize chart service
-            if self._lazy_init or lazy_load:
-                # In lazy mode, we initialize chart service when it's first accessed
-                logger.info("Enabling lazy loading for chart service")
-                # We'll create the property for chart_service
-                self._chart_service = None
-            else:
-                # We already created chart service in __init__, so just initialize it
-                if self.chart_service:
-                    await self.chart_service.initialize()
-                    logger.info("Chart service initialized eagerly")
-                else:
-                    self.chart_service = ChartService()
-                    await self.chart_service.initialize()
-                    logger.info("Chart service created and initialized eagerly")
+            # Initialize chart service
+            await self.chart_service.initialize()
+            logger.info("Chart service initialized")
         except Exception as e:
             logger.error(f"Error initializing services: {str(e)}")
             raise
-    
-    # Add chart service property for lazy loading
-    @property
-    def chart_service(self):
-        """Lazy loaded chart service"""
-        if getattr(self, '_chart_service', None) is None:
-            # Only initialize the chart service when it's first accessed
-            logger.info("Lazy loading chart service")
-            self._chart_service = ChartService()
-            # Since this is a property getter, we can't use await here
-            # The caller will need to await initialize() separately if needed
-        return self._chart_service
-    
-    @chart_service.setter
-    def chart_service(self, value):
-        """Setter for chart service"""
-        self._chart_service = value
             
     # Calendar service helpers
     @property
@@ -760,20 +733,6 @@ class TelegramService:
         """Get the calendar service instance"""
         self.logger.info("Getting calendar service")
         return self.calendar_service
-
-    # Update the sentiment service property to use fast_mode
-    @property
-    def sentiment_service(self):
-        """Lazy loaded sentiment service with caching for 30 minutes"""
-        if self._sentiment_service is None:
-            # Only initialize the sentiment service when it's first accessed
-            logger.info("Lazy loading cached sentiment service with 30-minute TTL")
-            self._sentiment_service = CachedSentimentService(
-                ttl_minutes=30,  # 30-minute cache TTL
-                persistent_cache=True,
-                fast_mode=True
-            )
-        return self._sentiment_service
 
     async def _format_calendar_events(self, calendar_data):
         """Format the calendar data into a readable HTML message"""
@@ -3230,8 +3189,28 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             
             return MENU
 
+    @property
+    def sentiment_service(self):
+        """Lazy loaded sentiment service"""
+        if self._sentiment_service is None:
+            # Only initialize the sentiment service when it's first accessed
+            logger.info("Lazy loading sentiment service")
+            
+            # Create with optimized parameters for better performance
+            self._sentiment_service = MarketSentimentService(
+                cache_ttl_minutes=60,  # Longer cache TTL for better performance
+                persistent_cache=True,
+                fast_mode=True
+            )
+            
+            # Start background prefetch for common instruments
+            common_instruments = ["EURUSD", "GBPUSD", "USDJPY", "BTCUSD", "XAUUSD"]
+            asyncio.create_task(self._sentiment_service.prefetch_common_instruments(common_instruments))
+            
+        return self._sentiment_service
+
     async def show_sentiment_analysis(self, update: Update, context=None, instrument=None) -> int:
-        """Show sentiment analysis for a selected instrument with 30-minute caching"""
+        """Show sentiment analysis for a selected instrument"""
         query = update.callback_query
         await query.answer()
         
@@ -3263,8 +3242,38 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         # Clean instrument name (without _SELL_4h etc)
         clean_instrument = instrument.split('_')[0] if '_' in instrument else instrument
         
+        # Check if we already have a loading message from context
+        loading_message = None
+        if context and hasattr(context, 'user_data'):
+            loading_message = context.user_data.get('loading_message')
+        
+        # If we don't have a loading message from context, create one
+        if not loading_message:
+            # Toon loading message met GIF
+            loading_text = "Generating sentiment analysis..."
+            loading_gif = "https://media.giphy.com/media/dpjUltnOPye7azvAhH/giphy.gif"
+            
+            try:
+                # Probeer de loading GIF te tonen
+                await query.edit_message_media(
+                    media=InputMediaAnimation(
+                        media=loading_gif,
+                        caption=loading_text
+                    )
+                )
+            except Exception as e:
+                logger.warning(f"Could not show loading GIF: {str(e)}")
+                # Fallback naar tekstupdate
+                try:
+                    await query.edit_message_text(text=loading_text)
+                except Exception as inner_e:
+                    try:
+                        await query.edit_message_caption(caption=loading_text)
+                    except Exception as inner_e2:
+                        logger.error(f"Could not update loading message: {str(inner_e2)}")
+        
         try:
-            # Get sentiment data using clean instrument name - uses cached data if available
+            # Get sentiment data using clean instrument name - property will lazily initialize the service
             sentiment_data = await self.sentiment_service.get_sentiment(clean_instrument)
             
             if not sentiment_data:
