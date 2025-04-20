@@ -151,6 +151,9 @@ class MarketSentimentService:
         # Fast mode flag
         self.fast_mode = fast_mode
         
+        # Explicitly enable caching
+        self.cache_enabled = True
+        
         # Initialize cache settings
         self.cache_ttl = cache_ttl_minutes * 60  # Convert minutes to seconds
         self.use_persistent_cache = persistent_cache
@@ -2088,7 +2091,7 @@ Monitor market developments for potential sentiment shifts.
 
     def _add_to_cache(self, instrument: str, sentiment_data: Dict[str, Any]) -> None:
         """Add sentiment data to cache with TTL"""
-        if not hasattr(self, 'cache_enabled') or not self.cache_enabled:
+        if hasattr(self, 'cache_enabled') and not self.cache_enabled:
             return  # Cache is disabled
             
         try:
@@ -2111,7 +2114,7 @@ Monitor market developments for potential sentiment shifts.
     
     def _get_from_cache(self, instrument: str) -> Optional[Dict[str, Any]]:
         """Get sentiment data from cache if available and not expired"""
-        if not hasattr(self, 'cache_enabled') or not self.cache_enabled:
+        if hasattr(self, 'cache_enabled') and not self.cache_enabled:
             return None  # Cache is disabled
             
         try:
