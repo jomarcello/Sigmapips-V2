@@ -17,6 +17,12 @@ logger = logging.getLogger(__name__)
 # Laad omgevingsvariabelen
 load_dotenv()
 
+# Debug logging voor belangrijke omgevingsvariabelen
+logger.info(f"DEEPSEEK_API_KEY set: {bool(os.getenv('DEEPSEEK_API_KEY'))}")
+logger.info(f"TELEGRAM_BOT_TOKEN set: {bool(os.getenv('TELEGRAM_BOT_TOKEN'))}")
+logger.info(f"SUPABASE_URL set: {bool(os.getenv('SUPABASE_URL'))}")
+logger.info(f"SUPABASE_KEY set: {bool(os.getenv('SUPABASE_KEY'))}")
+
 # Importeer de benodigde services
 from trading_bot.services.database.db import Database
 from trading_bot.services.chart_service.chart import ChartService
