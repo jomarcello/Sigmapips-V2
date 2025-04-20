@@ -220,8 +220,8 @@ class MarketSentimentService:
         else:
             logger.warning("No DeepSeek API key found")
             
-        # Prefetch common instruments in background to warm up cache
-        asyncio.create_task(self.prefetch_common_instruments(list(self.frequent_instruments)[:5]))
+        # DISABLED: Prefetch common instruments in background to warm up cache
+        # asyncio.create_task(self.prefetch_common_instruments(list(self.frequent_instruments)[:5]))
         
         # Memory optimization - add LRU cache to frequently called methods
         self._build_search_query = lru_cache(maxsize=100)(self._build_search_query)
@@ -438,6 +438,11 @@ class MarketSentimentService:
             return  # Cache is disabled
             
         try:
+            # Check if this is fallback/mock data - if so, don't cache it
+            if sentiment_data.get('source') in ['fallback', 'mock', 'error_fallback', 'local_fallback']:
+                logger.info(f"Not caching fallback data for {instrument}")
+                return
+                
             cache_key = instrument.upper()
             
             # Use shallow copy for better performance, deepcopy is slow
