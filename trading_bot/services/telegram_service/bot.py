@@ -3203,9 +3203,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 fast_mode=True
             )
             
-            # DISABLED: Start background prefetch for common instruments
-            # common_instruments = ["EURUSD", "GBPUSD", "USDJPY", "BTCUSD", "XAUUSD"]
-            # asyncio.create_task(self._sentiment_service.prefetch_common_instruments(common_instruments))
+            # Completely remove any prefetch functionality
             
         return self._sentiment_service
 
@@ -3288,9 +3286,9 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 return CHOOSE_ANALYSIS
             
             # Extract data
-            bullish = sentiment_data.get('bullish', 50)
-            bearish = sentiment_data.get('bearish', 30)
-            neutral = sentiment_data.get('neutral', 20)
+            bullish = sentiment_data.get('bullish', sentiment_data.get('bullish_percentage', 50))
+            bearish = sentiment_data.get('bearish', sentiment_data.get('bearish_percentage', 30))
+            neutral = sentiment_data.get('neutral', sentiment_data.get('neutral_percentage', 20))
             
             # Determine sentiment
             if bullish > bearish + neutral:
@@ -3307,6 +3305,8 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             analysis_text = ""
             if isinstance(sentiment_data.get('analysis'), str):
                 analysis_text = sentiment_data['analysis']
+            elif isinstance(sentiment_data.get('sentiment_text'), str):
+                analysis_text = sentiment_data['sentiment_text']
             
             # Prepare the message format without relying on regex
             # This will help avoid HTML parsing errors
