@@ -602,10 +602,10 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
 
 # API keys with robust sanitization
 PERPLEXITY_API_KEY = os.getenv("PERPLEXITY_API_KEY", "").strip()
-DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "").strip()
+DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "72df8ae1c5dd4d95b6a54c09bcf1b39e").strip()
 
 # Ensure the Tavily API key is properly formatted with 'tvly-' prefix and sanitized
-raw_tavily_key = os.getenv("TAVILY_API_KEY", "").strip()
+raw_tavily_key = os.getenv("TAVILY_API_KEY", "KbIKVL3UfDfnxRx3Ruw6XhL3OB9qSF9l").strip()
 TAVILY_API_KEY = raw_tavily_key.replace('\n', '').replace('\r', '')  # Remove any newlines/carriage returns
 
 # If the key doesn't start with "tvly-", add the prefix
@@ -628,11 +628,7 @@ os.environ["TAVILY_API_KEY"] = TAVILY_API_KEY
 class TelegramService:
     def __init__(self, db: Database, stripe_service=None, bot_token: Optional[str] = None, proxy_url: Optional[str] = None):
         """Initialize the bot with given database and config."""
-        
-        # Validate callback constants to ensure consistency
-        self._validate_callback_constants()
-        
-        # Store database reference
+        # Database connection
         self.db = db
         
         # Setup configuration 
@@ -683,7 +679,7 @@ class TelegramService:
         # Initialize API services
         self.chart_service = ChartService()  # Initialize chart service
         self.calendar_service = EconomicCalendarService()  # Economic calendar service
-        self.sentiment_service = None  # Will be initialized in initialize_services
+        self.sentiment_service = MarketSentimentService()  # Market sentiment service
         
         # Don't use asyncio.create_task here - it requires a running event loop
         # We'll initialize chart service later when the event loop is running
@@ -723,37 +719,6 @@ class TelegramService:
             logger.error(f"Error initializing Telegram service: {str(e)}")
             raise
 
-    def _validate_callback_constants(self):
-        """Validate that callback constants are consistent across the module"""
-        # Log all callback constants for debugging
-        logger.info("Validating callback constants...")
-        
-        # Important callback constants to check
-        crucial_constants = {
-            "CALLBACK_MENU_ANALYSE": CALLBACK_MENU_ANALYSE,
-            "CALLBACK_MENU_SIGNALS": CALLBACK_MENU_SIGNALS,
-            "CALLBACK_ANALYSIS_TECHNICAL": CALLBACK_ANALYSIS_TECHNICAL,
-            "CALLBACK_ANALYSIS_SENTIMENT": CALLBACK_ANALYSIS_SENTIMENT,
-            "CALLBACK_ANALYSIS_CALENDAR": CALLBACK_ANALYSIS_CALENDAR,
-            "CALLBACK_SIGNALS_ADD": CALLBACK_SIGNALS_ADD,
-            "CALLBACK_SIGNALS_MANAGE": CALLBACK_SIGNALS_MANAGE,
-            "CALLBACK_BACK_MENU": CALLBACK_BACK_MENU
-        }
-        
-        # Log all constants
-        for name, value in crucial_constants.items():
-            logger.info(f"  {name} = \"{value}\"")
-            
-        # Verify keyboard constants match the global constants
-        if hasattr(self, 'START_KEYBOARD'):
-            for row in START_KEYBOARD:
-                for button in row:
-                    if button.callback_data in crucial_constants.values():
-                        logger.info(f"  Button with text \"{button.text}\" has callback_data \"{button.callback_data}\"")
-        
-        # Show a confirmation
-        logger.info("Callback constants validation complete")
-
     async def initialize_services(self):
         """Initialize services like chart service"""
         # Initialize chart_service connection if not initialized yet
@@ -785,8 +750,6 @@ class TelegramService:
                 logger.info("Initializing sentiment service...")
                 from trading_bot.services.sentiment_service.sentiment import MarketSentimentService
                 self.sentiment_service = MarketSentimentService()
-                # Explicitly load the cache asynchronously
-                await self.sentiment_service.load_cache()
                 logger.info("Sentiment service initialized")
             except Exception as e:
                 logger.error(f"Failed to initialize sentiment service: {str(e)}")
@@ -1258,18 +1221,6 @@ class TelegramService:
         application.add_handler(CommandHandler("set_subscription", self.set_subscription_command))
         application.add_handler(CommandHandler("set_payment_failed", self.set_payment_failed_command))
         
-        # Log callback constanten voor debugging
-        logger.info(f"DEBUG CONSTANTS: CALLBACK_MENU_ANALYSE={CALLBACK_MENU_ANALYSE}, CALLBACK_ANALYSIS_TECHNICAL={CALLBACK_ANALYSIS_TECHNICAL}, CALLBACK_SIGNALS_ADD={CALLBACK_SIGNALS_ADD}")
-        
-        # Add explicit handlers for common callbacks - gebruik exacte string patronen met ^ en $
-        logger.info("Registering explicit handlers for common patterns")
-        application.add_handler(CallbackQueryHandler(self.menu_analyse_callback, pattern=f"^{CALLBACK_MENU_ANALYSE}$"))
-        application.add_handler(CallbackQueryHandler(self.menu_signals_callback, pattern=f"^{CALLBACK_MENU_SIGNALS}$"))
-        application.add_handler(CallbackQueryHandler(self.signals_add_callback, pattern=f"^{CALLBACK_SIGNALS_ADD}$"))
-        application.add_handler(CallbackQueryHandler(self.analysis_technical_callback, pattern=f"^{CALLBACK_ANALYSIS_TECHNICAL}$"))
-        application.add_handler(CallbackQueryHandler(self.analysis_sentiment_callback, pattern=f"^{CALLBACK_ANALYSIS_SENTIMENT}$"))
-        application.add_handler(CallbackQueryHandler(self.analysis_calendar_callback, pattern=f"^{CALLBACK_ANALYSIS_CALENDAR}$"))
-        
         # Add specific handlers for back buttons
         logger.info("Registering callback handlers for back navigation buttons")
         
@@ -1573,11 +1524,6 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         query = update.callback_query
         await query.answer()
         
-        # Debug logging
-        logger.info(f"DEBUG: menu_analyse_callback called with data: {query.data}")
-        logger.info(f"DEBUG: Is CALLBACK_MENU_ANALYSE? {query.data == CALLBACK_MENU_ANALYSE}")
-        logger.info(f"DEBUG: CALLBACK_MENU_ANALYSE value: {CALLBACK_MENU_ANALYSE}")
-        
         # Gebruik de juiste analyse GIF URL
         gif_url = "https://media.giphy.com/media/gSzIKNrqtotEYrZv7i/giphy.gif"
         
@@ -1762,12 +1708,6 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         """Handle analysis_technical button press"""
         query = update.callback_query
         await query.answer()
-        
-        # Debug logging
-        logger.info(f"DEBUG: analysis_technical_callback called with data: {query.data}")
-        logger.info(f"DEBUG: Context user_data before: {context.user_data if (context and hasattr(context, 'user_data')) else 'No context data'}")
-        logger.info(f"DEBUG: Is CALLBACK_ANALYSIS_TECHNICAL? {query.data == CALLBACK_ANALYSIS_TECHNICAL}")
-        logger.info(f"DEBUG: CALLBACK_ANALYSIS_TECHNICAL value: {CALLBACK_ANALYSIS_TECHNICAL}")
         
         # Check if signal-specific data is present in callback data
         if context and hasattr(context, 'user_data'):
@@ -2735,67 +2675,48 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Log the callback data
             logger.info(f"Button callback opgeroepen met data: {callback_data}")
             
-            # Debug logging
-            logger.info(f"DEBUG: Button callback data: {callback_data}, type: {type(callback_data)}")
-            
             # Answer the callback query to stop the loading indicator
             await query.answer()
             
-            # Log voor debugging
-            logger.info("DEBUG: Evaluating callback conditions...")
-            
             # Handle analyze from signal button
             if callback_data.startswith("analyze_from_signal_"):
-                logger.info("DEBUG: Matched analyze_from_signal_ pattern")
                 return await self.analyze_from_signal_callback(update, context)
                 
             # Help button
             if callback_data == "help":
-                logger.info("DEBUG: Matched help pattern")
                 await self.help_command(update, context)
                 return MENU
                 
             # Menu navigation
             if callback_data == CALLBACK_MENU_ANALYSE:
-                logger.info(f"DEBUG: Matched CALLBACK_MENU_ANALYSE pattern: {CALLBACK_MENU_ANALYSE}")
                 return await self.menu_analyse_callback(update, context)
             elif callback_data == CALLBACK_MENU_SIGNALS:
-                logger.info(f"DEBUG: Matched CALLBACK_MENU_SIGNALS pattern: {CALLBACK_MENU_SIGNALS}")
                 return await self.menu_signals_callback(update, context)
             
             # Analysis type selection
             elif callback_data == CALLBACK_ANALYSIS_TECHNICAL or callback_data == "analysis_technical":
-                logger.info(f"DEBUG: Matched CALLBACK_ANALYSIS_TECHNICAL pattern: {CALLBACK_ANALYSIS_TECHNICAL}")
                 return await self.analysis_technical_callback(update, context)
             elif callback_data == CALLBACK_ANALYSIS_SENTIMENT or callback_data == "analysis_sentiment":
-                logger.info(f"DEBUG: Matched CALLBACK_ANALYSIS_SENTIMENT pattern: {CALLBACK_ANALYSIS_SENTIMENT}")
                 return await self.analysis_sentiment_callback(update, context)
             elif callback_data == CALLBACK_ANALYSIS_CALENDAR or callback_data == "analysis_calendar":
-                logger.info(f"DEBUG: Matched CALLBACK_ANALYSIS_CALENDAR pattern: {CALLBACK_ANALYSIS_CALENDAR}")
                 return await self.analysis_calendar_callback(update, context)
                 
             # Signal type selection
             elif callback_data == "signal_technical":
-                logger.info("DEBUG: Matched signal_technical pattern")
                 return await self.signal_technical_callback(update, context)
             elif callback_data == "signal_sentiment":
-                logger.info("DEBUG: Matched signal_sentiment pattern")
                 return await self.signal_sentiment_callback(update, context)
             elif callback_data == "signal_calendar":
-                logger.info("DEBUG: Matched signal_calendar pattern")
                 return await self.signal_calendar_callback(update, context)
             
             # Back to signal handler
             elif callback_data == "back_to_signal":
-                logger.info("DEBUG: Matched back_to_signal pattern")
                 return await self.back_to_signal_callback(update, context)
             elif callback_data == "back_to_signal_analysis":
-                logger.info("DEBUG: Matched back_to_signal_analysis pattern")
                 return await self.back_to_signal_analysis_callback(update, context)
                 
             # Direct instrument_timeframe callbacks  
-            elif "_timeframe_" in callback_data:
-                logger.info("DEBUG: Matched _timeframe_ pattern")
+            if "_timeframe_" in callback_data:
                 # Format: instrument_EURUSD_timeframe_H1
                 parts = callback_data.split("_")
                 instrument = parts[1]
@@ -2803,47 +2724,37 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 return await self.show_technical_analysis(update, context, instrument=instrument, timeframe=timeframe)
             
             # Verwerk instrument keuzes met specifiek type (chart, sentiment, calendar)
-            elif "_chart" in callback_data or "_sentiment" in callback_data or "_calendar" in callback_data:
+            if "_chart" in callback_data or "_sentiment" in callback_data or "_calendar" in callback_data:
                 # Direct doorsturen naar de instrument_callback methode
-                logger.info(f"DEBUG: Matched specific instrument type in: {callback_data}")
+                logger.info(f"Specifiek instrument type gedetecteerd in: {callback_data}")
                 return await self.instrument_callback(update, context)
             
             # Handle instrument signal choices
-            elif "_signals" in callback_data and callback_data.startswith("instrument_"):
-                logger.info(f"DEBUG: Matched signal instrument selection: {callback_data}")
+            if "_signals" in callback_data and callback_data.startswith("instrument_"):
+                logger.info(f"Signal instrument selection detected: {callback_data}")
                 return await self.instrument_signals_callback(update, context)
             
             # Speciale afhandeling voor markt keuzes
-            elif callback_data.startswith("market_"):
-                logger.info(f"DEBUG: Matched market pattern: {callback_data}")
+            if callback_data.startswith("market_"):
                 return await self.market_callback(update, context)
             
             # Signals handlers
-            elif callback_data == "signals_add" or callback_data == CALLBACK_SIGNALS_ADD:
-                logger.info(f"DEBUG: Matched signals_add pattern: {callback_data}")
+            if callback_data == "signals_add" or callback_data == CALLBACK_SIGNALS_ADD:
                 return await self.signals_add_callback(update, context)
                 
             # Manage signals handler
-            elif callback_data == "signals_manage" or callback_data == CALLBACK_SIGNALS_MANAGE:
-                logger.info(f"DEBUG: Matched signals_manage pattern: {callback_data}")
+            if callback_data == "signals_manage" or callback_data == CALLBACK_SIGNALS_MANAGE:
                 return await self.signals_manage_callback(update, context)
             
             # Back navigation handlers
-            elif callback_data == "back_menu" or callback_data == CALLBACK_BACK_MENU:
-                logger.info(f"DEBUG: Matched back_menu pattern: {callback_data}")
+            if callback_data == "back_menu" or callback_data == CALLBACK_BACK_MENU:
                 return await self.back_menu_callback(update, context)
             elif callback_data == "back_analysis" or callback_data == CALLBACK_BACK_ANALYSIS:
-                logger.info(f"DEBUG: Matched back_analysis pattern: {callback_data}")
                 return await self.analysis_callback(update, context)
             elif callback_data == "back_signals" or callback_data == CALLBACK_BACK_SIGNALS:
-                logger.info(f"DEBUG: Matched back_signals pattern: {callback_data}")
                 return await self.back_signals_callback(update, context)
             elif callback_data == "back_market" or callback_data == CALLBACK_BACK_MARKET:
-                logger.info(f"DEBUG: Matched back_market pattern: {callback_data}")
                 return await self.back_market_callback(update, context)
-            elif callback_data == "back_instrument":
-                logger.info(f"DEBUG: Matched back_instrument pattern: {callback_data}")
-                return await self.back_instrument_callback(update, context)
                 
             # Handle delete signal
             if callback_data.startswith("delete_signal_"):
@@ -3354,15 +3265,17 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             if not timeframe:
                 timeframe = "1h"
             
-            # Check if user has existing loading message or we need to create new
-            loading_message = None
-            if context and hasattr(context, 'user_data') and 'loading_message' in context.user_data:
-                loading_message = context.user_data.get('loading_message')
-                logger.info(f"Retrieved existing loading message from context: {loading_message.message_id if loading_message else None}")
+            # Get chart URL
+            logger.info(f"Getting technical analysis chart for {instrument} on {timeframe} timeframe")
             
-            # Show loading message with GIF or text
+            # Check if we have a loading message in context.user_data
+            loading_message = None
+            if context and hasattr(context, 'user_data'):
+                loading_message = context.user_data.get('loading_message')
+            
+            # If no loading message in context or not in signal flow, create one
             if not loading_message:
-                # Toon een loading message om de gebruiker te laten weten dat we bezig zijn
+                # Show loading message with GIF - similar to sentiment analysis
                 loading_text = f"Loading {instrument} chart..."
                 loading_gif = "https://media.giphy.com/media/dpjUltnOPye7azvAhH/giphy.gif"
                 
@@ -3394,24 +3307,15 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             if not hasattr(self, 'chart_service') or not self.chart_service:
                 from trading_bot.services.chart_service.chart import ChartService
                 self.chart_service = ChartService()
-                logger.info("Initialized ChartService")
             
             # Get the chart image and analysis text
-            try:
-                chart_image, analysis_text = await self.chart_service.get_technical_analysis(instrument, timeframe)
-                logger.info(f"Successfully retrieved chart and analysis for {instrument}")
-            except Exception as e:
-                logger.error(f"Error retrieving chart and analysis: {str(e)}")
-                await query.edit_message_text(
-                    text=f"Error retrieving chart for {instrument}. Please try again later.",
-                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
-                )
-                return MENU
+            chart_image, analysis_text = await self.chart_service.get_technical_analysis(instrument, timeframe)
             
             if not chart_image:
                 # Fallback to error message
+                error_text = f"Failed to generate chart for {instrument}. Please try again later."
                 await query.edit_message_text(
-                    text=f"Failed to generate chart for {instrument}. Please try again later.",
+                    text=error_text,
                     reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
                 )
                 return MENU
@@ -3442,10 +3346,6 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 await query.delete_message()
                 logger.info("Original message deleted successfully")
                 
-                # Clear loading message from context if it exists
-                if context and hasattr(context, 'user_data') and 'loading_message' in context.user_data:
-                    del context.user_data['loading_message']
-                
                 return SHOW_RESULT
                 
             except Exception as e:
@@ -3453,18 +3353,23 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 
                 # Fallback error handling
                 try:
-                    await query.edit_message_text(
-                        text=f"Error sending chart for {instrument}. Please try again later.",
-                        reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
-                    )
-                except Exception as edit_error:
-                    logger.error(f"Failed to edit message: {str(edit_error)}")
+                    if loading_message:
+                        await loading_message.edit_text(
+                            text=f"Error sending chart for {instrument}. Please try again later.",
+                            reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
+                        )
+                    else:
+                        await query.edit_message_text(
+                            text=f"Error sending chart for {instrument}. Please try again later.",
+                            reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
+                        )
+                except Exception:
+                    pass
                 
                 return MENU
         
         except Exception as e:
             logger.error(f"Error in show_technical_analysis: {str(e)}")
-            logger.error(traceback.format_exc())
             # Error recovery
             try:
                 await query.edit_message_text(
@@ -3542,10 +3447,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         try:
             # Initialize sentiment service if needed
             if not hasattr(self, 'sentiment_service') or self.sentiment_service is None:
-                from trading_bot.services.sentiment_service.sentiment import MarketSentimentService
                 self.sentiment_service = MarketSentimentService()
-                # Explicitly load the cache asynchronously
-                await self.sentiment_service.load_cache()
             
             # Get sentiment data using clean instrument name
             sentiment_data = await self.sentiment_service.get_sentiment(clean_instrument)
@@ -3581,83 +3483,6 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             analysis_text = ""
             if isinstance(sentiment_data.get('analysis'), str):
                 analysis_text = sentiment_data['analysis']
-            
-            # Check if the analysis text is already in the correct format
-            # The key identifier is the presence of "Market Sentiment Analysis</b>" and all required sections
-            if analysis_text and "Market Sentiment Analysis</b>" in analysis_text:
-                # Check if it has all the required sections
-                required_sections = [
-                    "<b>Overall Sentiment:</b>",
-                    "<b>Market Sentiment Breakdown:</b>",
-                    "🟢 Bullish:",
-                    "🔴 Bearish:",
-                    "⚪️ Neutral:",
-                    "<b>📰 Key Sentiment Drivers:</b>",
-                    "<b>📊 Market Mood:</b>",
-                    "<b>📅 Important Events & News:</b>",
-                    "<b>🔮 Sentiment Outlook:</b>"
-                ]
-                
-                all_sections_present = all(section in analysis_text for section in required_sections)
-                
-                if all_sections_present:
-                    logger.info(f"Analysis text for {clean_instrument} is already in the correct format, using it directly")
-                    
-                    # Use the existing properly formatted text directly
-                    full_message = analysis_text
-                    
-                    # Create reply markup with back button - use correct back button based on flow
-                    back_callback = "back_to_signal_analysis" if is_from_signal else "back_to_analysis"
-                    logger.info(f"Using back button callback: {back_callback} (from_signal: {is_from_signal})")
-                    reply_markup = InlineKeyboardMarkup([[
-                        InlineKeyboardButton("⬅️ Back", callback_data=back_callback)
-                    ]])
-                    
-                    # Send the message
-                    try:
-                        # First try to edit the existing message when possible
-                        try:
-                            await query.edit_message_text(
-                                text=full_message,
-                                parse_mode=ParseMode.HTML,
-                                reply_markup=reply_markup
-                            )
-                            logger.info("Successfully edited existing message with sentiment analysis")
-                        except Exception as edit_error:
-                            logger.warning(f"Could not edit message, will create new one: {str(edit_error)}")
-                            
-                            # If editing fails, delete and create new message
-                            try:
-                                deleted = await self.delete_message(update)
-                                if deleted:
-                                    logger.info("Deleted previous message")
-                                else:
-                                    logger.warning("Could not delete previous message")
-                            except Exception as del_error:
-                                logger.warning(f"Error deleting previous message: {str(del_error)}")
-                            
-                            try:
-                                sent_message = await update.effective_chat.send_message(
-                                    text=full_message,
-                                    parse_mode=ParseMode.HTML,
-                                    reply_markup=reply_markup
-                                )
-                                logger.info("Created new message with sentiment analysis after deleting old one")
-                            except Exception as send_error:
-                                logger.error(f"Error sending new message: {str(send_error)}")
-                                raise send_error
-                    except Exception as e:
-                        logger.error(f"Error updating message with sentiment analysis: {str(e)}")
-                        # Attempt a simple text update as fallback
-                        try:
-                            await query.message.reply_text(
-                                text=f"<b>Error displaying sentiment analysis for {clean_instrument}.</b>\nPlease try again later.",
-                                parse_mode=ParseMode.HTML
-                            )
-                        except Exception as reply_error:
-                            logger.error(f"Even fallback failed: {str(reply_error)}")
-                    
-                    return CHOOSE_ANALYSIS
             
             # Prepare the message format without relying on regex
             # This will help avoid HTML parsing errors
@@ -4693,7 +4518,6 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             logger.info(f"Successfully sent signal {signal_id} to {sent_count}/{len(subscribers)} subscribers")
             return True
             
-            
         except Exception as e:
             logger.error(f"Error processing signal: {str(e)}")
             logger.exception(e)
@@ -5229,10 +5053,6 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         """Handle signals_add button press to add new signal subscriptions"""
         query = update.callback_query
         await query.answer()
-        
-        # Debug logging
-        logger.info(f"DEBUG: signals_add_callback called with data: {query.data}")
-        logger.info(f"DEBUG: Context user_data before: {context.user_data if (context and hasattr(context, 'user_data')) else 'No context data'}")
         
         logger.info("signals_add_callback called")
         
