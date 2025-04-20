@@ -10,17 +10,6 @@ import re
 import time
 import random
 
-def get_logger(name: str) -> logging.Logger:
-    """Create and return a logger instance with the given name."""
-    logger = logging.getLogger(name)
-    if not logger.handlers:
-        handler = logging.StreamHandler()
-        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-        handler.setFormatter(formatter)
-        logger.addHandler(handler)
-        logger.setLevel(logging.INFO)
-    return logger
-
 from fastapi import FastAPI, Request, HTTPException, status
 from telegram import Bot, Update, BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery, InputMediaPhoto, InputMediaAnimation, InputMediaDocument, ReplyKeyboardMarkup, ReplyKeyboardRemove, InputFile
 from telegram.constants import ParseMode
@@ -56,7 +45,7 @@ from trading_bot.services.telegram_service.states import (
 import trading_bot.services.telegram_service.gif_utils as gif_utils
 
 # Initialize logger
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 # Major currencies to focus on
 MAJOR_CURRENCIES = ["USD", "EUR", "GBP", "JPY", "CHF", "AUD", "NZD", "CAD"]
@@ -628,11 +617,7 @@ os.environ["TAVILY_API_KEY"] = TAVILY_API_KEY
 class TelegramService:
     def __init__(self, db: Database, stripe_service=None, bot_token: Optional[str] = None, proxy_url: Optional[str] = None):
         """Initialize the bot with given database and config."""
-        
-        # Validate callback constants to ensure consistency
-        self._validate_callback_constants()
-        
-        # Store database reference
+        # Database connection
         self.db = db
         
         # Setup configuration 
@@ -682,8 +667,9 @@ class TelegramService:
         
         # Initialize API services
         self.chart_service = ChartService()  # Initialize chart service
-        self.calendar_service = EconomicCalendarService()  # Economic calendar service
-        self.sentiment_service = MarketSentimentService()  # Market sentiment service
+        # Lazy load services only when needed
+        self._calendar_service = None
+        self._sentiment_service = None
         
         # Don't use asyncio.create_task here - it requires a running event loop
         # We'll initialize chart service later when the event loop is running
@@ -723,82 +709,26 @@ class TelegramService:
             logger.error(f"Error initializing Telegram service: {str(e)}")
             raise
 
-    def _validate_callback_constants(self):
-        """Validate that callback constants are consistent across the module"""
-        # Log all callback constants for debugging
-        logger.info("Validating callback constants...")
-        
-        # Important callback constants to check
-        crucial_constants = {
-            "CALLBACK_MENU_ANALYSE": CALLBACK_MENU_ANALYSE,
-            "CALLBACK_MENU_SIGNALS": CALLBACK_MENU_SIGNALS,
-            "CALLBACK_ANALYSIS_TECHNICAL": CALLBACK_ANALYSIS_TECHNICAL,
-            "CALLBACK_ANALYSIS_SENTIMENT": CALLBACK_ANALYSIS_SENTIMENT,
-            "CALLBACK_ANALYSIS_CALENDAR": CALLBACK_ANALYSIS_CALENDAR,
-            "CALLBACK_SIGNALS_ADD": CALLBACK_SIGNALS_ADD,
-            "CALLBACK_SIGNALS_MANAGE": CALLBACK_SIGNALS_MANAGE,
-            "CALLBACK_BACK_MENU": CALLBACK_BACK_MENU
-        }
-        
-        # Log all constants
-        for name, value in crucial_constants.items():
-            logger.info(f"  {name} = \"{value}\"")
-            
-        # Verify keyboard constants match the global constants
-        if hasattr(self, 'START_KEYBOARD'):
-            for row in START_KEYBOARD:
-                for button in row:
-                    if button.callback_data in crucial_constants.values():
-                        logger.info(f"  Button with text \"{button.text}\" has callback_data \"{button.callback_data}\"")
-        
-        # Show a confirmation
-        logger.info("Callback constants validation complete")
-
     async def initialize_services(self):
-        """Initialize services like chart service"""
-        # Initialize chart_service connection if not initialized yet
-        if not hasattr(self, 'chart_service') or self.chart_service is None:
-            try:
-                # Log more detailed info on what we're trying to do
-                logger.info("Initializing chart service...")
-                
-                from trading_bot.services.chart_service.chart import ChartService
-                self.chart_service = ChartService()
-                
-                logger.info("Chart service initialized")
-            except Exception as e:
-                logger.error(f"Failed to initialize chart service: {str(e)}")
-                logger.error(traceback.format_exc())
-                
-        # Initialize calendar service
-        if not hasattr(self, 'calendar_service') or self.calendar_service is None:
-            try:
-                logger.info("Initializing calendar service...")
-                self.calendar_service = self._get_calendar_service()
-                logger.info("Calendar service initialized")
-            except Exception as e:
-                logger.error(f"Failed to initialize calendar service: {str(e)}")
-                
-        # Initialize sentiment service
-        if not hasattr(self, 'sentiment_service') or self.sentiment_service is None:
-            try:
-                logger.info("Initializing sentiment service...")
-                from trading_bot.services.sentiment_service.sentiment import MarketSentimentService
-                self.sentiment_service = MarketSentimentService()
-                logger.info("Sentiment service initialized")
-            except Exception as e:
-                logger.error(f"Failed to initialize sentiment service: {str(e)}")
-                
-        # Load signals
+        """Initialize services that require an asyncio event loop"""
         try:
-            logger.info("Loading signals...")
-            await self._load_signals()
-            logger.info("Signals loaded successfully")
+            # Initialize chart service
+            await self.chart_service.initialize()
+            logger.info("Chart service initialized")
         except Exception as e:
-            logger.error(f"Error loading signals: {str(e)}")
-            logger.error(traceback.format_exc())
+            logger.error(f"Error initializing services: {str(e)}")
+            raise
             
     # Calendar service helpers
+    @property
+    def calendar_service(self):
+        """Lazy loaded calendar service"""
+        if self._calendar_service is None:
+            # Only initialize the calendar service when it's first accessed
+            self.logger.info("Lazy loading calendar service")
+            self._calendar_service = EconomicCalendarService()
+        return self._calendar_service
+        
     def _get_calendar_service(self):
         """Get the calendar service instance"""
         self.logger.info("Getting calendar service")
@@ -806,16 +736,6 @@ class TelegramService:
 
     async def _format_calendar_events(self, calendar_data):
         """Format the calendar data into a readable HTML message"""
-        # Check if calendar_data is a CalendarResult object
-        if hasattr(calendar_data, 'get') and callable(calendar_data.get):
-            # It's a CalendarResult object, check if it has a message
-            message = calendar_data.get('message')
-            if message:
-                self.logger.info(f"Using pre-formatted message from CalendarResult")
-                return message
-            # Extract events from CalendarResult if needed
-            calendar_data = calendar_data.get('events', [])
-            
         self.logger.info(f"Formatting calendar data with {len(calendar_data)} events")
         if not calendar_data:
             return "<b>📅 Economic Calendar</b>\n\nNo economic events found for today."
@@ -1246,72 +1166,87 @@ class TelegramService:
             return f"New {signal_data.get('instrument', 'Unknown')} {signal_data.get('direction', 'Unknown')} Signal"
 
     def _register_handlers(self, application):
-        """Register all handlers for this bot"""
-        logger.info("Registering command handlers")
-        
-        # Command handlers
-        application.add_handler(CommandHandler("start", self.start_command))
-        application.add_handler(CommandHandler("menu", self.menu_command))
-        application.add_handler(CommandHandler("help", self.help_command))
-        application.add_handler(CommandHandler("set_subscription", self.set_subscription_command))
-        application.add_handler(CommandHandler("set_payment_failed", self.set_payment_failed_command))
-        
-        # Log callback constanten voor debugging
-        logger.info(f"DEBUG CONSTANTS: CALLBACK_MENU_ANALYSE={CALLBACK_MENU_ANALYSE}, CALLBACK_ANALYSIS_TECHNICAL={CALLBACK_ANALYSIS_TECHNICAL}, CALLBACK_SIGNALS_ADD={CALLBACK_SIGNALS_ADD}")
-        
-        # Add explicit handlers for common callbacks - gebruik exacte string patronen met ^ en $
-        logger.info("Registering explicit handlers for common patterns")
-        application.add_handler(CallbackQueryHandler(self.menu_analyse_callback, pattern=f"^{CALLBACK_MENU_ANALYSE}$"))
-        application.add_handler(CallbackQueryHandler(self.menu_signals_callback, pattern=f"^{CALLBACK_MENU_SIGNALS}$"))
-        application.add_handler(CallbackQueryHandler(self.signals_add_callback, pattern=f"^{CALLBACK_SIGNALS_ADD}$"))
-        application.add_handler(CallbackQueryHandler(self.analysis_technical_callback, pattern=f"^{CALLBACK_ANALYSIS_TECHNICAL}$"))
-        application.add_handler(CallbackQueryHandler(self.analysis_sentiment_callback, pattern=f"^{CALLBACK_ANALYSIS_SENTIMENT}$"))
-        application.add_handler(CallbackQueryHandler(self.analysis_calendar_callback, pattern=f"^{CALLBACK_ANALYSIS_CALENDAR}$"))
-        
-        # Add specific handlers for back buttons
-        logger.info("Registering callback handlers for back navigation buttons")
-        
-        # Dictionary of patterns and their corresponding handlers for better readability
-        back_button_handlers = {
-            "back_to_signal_analysis": self.back_to_signal_analysis_callback,
-            "back_to_analysis": self.analysis_callback,
-            "back_signals": self.back_signals_callback,
-            "back_menu": self.back_menu_callback,
-            "back_market": self.back_market_callback,
-            "back_analysis": self.analysis_callback,
-            "back_to_signal": self.back_to_signal_callback,
-            "back_instrument": self.back_instrument_callback
-        }
-        
-        # Register each handler
-        logger.info("Registering back button handlers")
-        for pattern, handler in back_button_handlers.items():
-            # Make the pattern less strict - match anywhere in the string
-            pattern_regex = f"{pattern}"
-            logger.info(f"Registering handler for pattern: {pattern_regex}")
-            application.add_handler(CallbackQueryHandler(handler, pattern=pattern_regex))
+        """Register event handlers for bot commands and callback queries"""
+        try:
+            logger.info("Registering command handlers")
             
-        # Add signal callback handlers - needed for the signal flow
-        logger.info("Registering signal-specific callback handlers")
-        signal_handlers = {
-            "signal_technical": self.signal_technical_callback,
-            "signal_sentiment": self.signal_sentiment_callback,
-            "signal_calendar": self.signal_calendar_callback
-        }
-        
-        # Register each signal handler
-        for pattern, handler in signal_handlers.items():
-            # Make the pattern less strict - match anywhere in the string
-            pattern_regex = f"{pattern}"
-            logger.info(f"Registering signal handler for pattern: {pattern_regex}")
-            application.add_handler(CallbackQueryHandler(handler, pattern=pattern_regex))
-        
-        # Generic button callback handler - needs to be last
-        logger.info("Registering generic button callback handler")
-        application.add_handler(CallbackQueryHandler(self.button_callback))
-        
-        # Instead of loading signals directly, we'll do it at startup or when needed
-        # Don't call self._load_signals() here as it's async and needs to be awaited
+            # Initialize the application without using run_until_complete
+            try:
+                # Instead of using loop.run_until_complete, directly call initialize 
+                # which will be properly awaited by the caller
+                self.init_task = application.initialize()
+                logger.info("Telegram application initialization ready to be awaited")
+            except Exception as init_e:
+                logger.error(f"Error during application initialization: {str(init_e)}")
+                logger.exception(init_e)
+                
+            # Set bot commands for menu
+            commands = [
+                BotCommand("start", "Start the bot and get the welcome message"),
+                BotCommand("menu", "Show the main menu"),
+                BotCommand("help", "Show available commands and how to use the bot")
+            ]
+            
+            # Store the set_commands task to be awaited later
+            try:
+                # Instead of asyncio.create_task, we will await this in the startup event
+                self.set_commands_task = self.bot.set_my_commands(commands)
+                logger.info("Bot commands ready to be set")
+            except Exception as cmd_e:
+                logger.error(f"Error preparing bot commands: {str(cmd_e)}")
+            
+            # Register command handlers
+            application.add_handler(CommandHandler("start", self.start_command))
+            application.add_handler(CommandHandler("menu", self.menu_command))
+            application.add_handler(CommandHandler("help", self.help_command))
+            
+            # Register callback handlers
+            application.add_handler(CallbackQueryHandler(self.menu_analyse_callback, pattern="^menu_analyse$"))
+            application.add_handler(CallbackQueryHandler(self.menu_signals_callback, pattern="^menu_signals$"))
+            application.add_handler(CallbackQueryHandler(self.signals_add_callback, pattern="^signals_add$"))
+            application.add_handler(CallbackQueryHandler(self.signals_manage_callback, pattern="^signals_manage$"))
+            application.add_handler(CallbackQueryHandler(self.market_callback, pattern="^market_"))
+            application.add_handler(CallbackQueryHandler(self.instrument_callback, pattern="^instrument_(?!.*_signals)"))
+            application.add_handler(CallbackQueryHandler(self.instrument_signals_callback, pattern="^instrument_.*_signals$"))
+            
+            # Add handler for back buttons
+            application.add_handler(CallbackQueryHandler(self.back_market_callback, pattern="^back_market$"))
+            application.add_handler(CallbackQueryHandler(self.back_instrument_callback, pattern="^back_instrument$"))
+            application.add_handler(CallbackQueryHandler(self.back_signals_callback, pattern="^back_signals$"))
+            application.add_handler(CallbackQueryHandler(self.back_menu_callback, pattern="^back_menu$"))
+            
+            # Analysis handlers for regular flow
+            application.add_handler(CallbackQueryHandler(self.analysis_technical_callback, pattern="^analysis_technical$"))
+            application.add_handler(CallbackQueryHandler(self.analysis_sentiment_callback, pattern="^analysis_sentiment$"))
+            application.add_handler(CallbackQueryHandler(self.analysis_calendar_callback, pattern="^analysis_calendar$"))
+            
+            # Analysis handlers for signal flow - with instrument embedded in callback
+            application.add_handler(CallbackQueryHandler(self.analysis_technical_callback, pattern="^analysis_technical_signal_.*$"))
+            application.add_handler(CallbackQueryHandler(self.analysis_sentiment_callback, pattern="^analysis_sentiment_signal_.*$"))
+            application.add_handler(CallbackQueryHandler(self.analysis_calendar_callback, pattern="^analysis_calendar_signal_.*$"))
+            
+            # Signal analysis flow handlers
+            application.add_handler(CallbackQueryHandler(self.signal_technical_callback, pattern="^signal_technical$"))
+            application.add_handler(CallbackQueryHandler(self.signal_sentiment_callback, pattern="^signal_sentiment$"))
+            application.add_handler(CallbackQueryHandler(self.signal_calendar_callback, pattern="^signal_calendar$"))
+            application.add_handler(CallbackQueryHandler(self.signal_calendar_callback, pattern="^signal_flow_calendar_.*$"))
+            application.add_handler(CallbackQueryHandler(self.back_to_signal_callback, pattern="^back_to_signal$"))
+            application.add_handler(CallbackQueryHandler(self.back_to_signal_analysis_callback, pattern="^back_to_signal_analysis$"))
+            
+            # Signal from analysis
+            application.add_handler(CallbackQueryHandler(self.analyze_from_signal_callback, pattern="^analyze_from_signal_.*$"))
+            
+            # Catch-all handler for any other callbacks
+            application.add_handler(CallbackQueryHandler(self.button_callback))
+            
+            # Load signals
+            self._load_signals()
+            
+            logger.info("Bot setup completed successfully")
+            
+        except Exception as e:
+            logger.error(f"Error setting up bot handlers: {str(e)}")
+            logger.exception(e)
 
     @property
     def signals_enabled(self):
@@ -1571,11 +1506,6 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         query = update.callback_query
         await query.answer()
         
-        # Debug logging
-        logger.info(f"DEBUG: menu_analyse_callback called with data: {query.data}")
-        logger.info(f"DEBUG: Is CALLBACK_MENU_ANALYSE? {query.data == CALLBACK_MENU_ANALYSE}")
-        logger.info(f"DEBUG: CALLBACK_MENU_ANALYSE value: {CALLBACK_MENU_ANALYSE}")
-        
         # Gebruik de juiste analyse GIF URL
         gif_url = "https://media.giphy.com/media/gSzIKNrqtotEYrZv7i/giphy.gif"
         
@@ -1760,12 +1690,6 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         """Handle analysis_technical button press"""
         query = update.callback_query
         await query.answer()
-        
-        # Debug logging
-        logger.info(f"DEBUG: analysis_technical_callback called with data: {query.data}")
-        logger.info(f"DEBUG: Context user_data before: {context.user_data if (context and hasattr(context, 'user_data')) else 'No context data'}")
-        logger.info(f"DEBUG: Is CALLBACK_ANALYSIS_TECHNICAL? {query.data == CALLBACK_ANALYSIS_TECHNICAL}")
-        logger.info(f"DEBUG: CALLBACK_ANALYSIS_TECHNICAL value: {CALLBACK_ANALYSIS_TECHNICAL}")
         
         # Check if signal-specific data is present in callback data
         if context and hasattr(context, 'user_data'):
@@ -2386,185 +2310,101 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         query = update.callback_query
         await query.answer()
         
-        # Improved logging
-        logger.info("back_to_signal_callback called")
-        logger.info(f"Query data: {query.data}")
-        if context and hasattr(context, 'user_data'):
-            logger.info(f"Context user_data: {context.user_data}")
-        
         try:
             # Get the current signal being viewed
             user_id = update.effective_user.id
-            user_id_str = str(user_id)
             
-            # If we don't yet have user_signals or need to reload it
-            if not hasattr(self, 'user_signals') or not self.user_signals:
-                logger.info("Loading signals because user_signals not initialized")
-                await self._load_signals()
-            
-            # First try to get the original signal message from context
-            original_signal_message = None
+            # First try to get signal data from backup in context
             signal_instrument = None
-            signal_id = None
+            signal_direction = None
+            signal_timeframe = None
             
             if context and hasattr(context, 'user_data'):
-                # Check if we have saved the original message
-                original_signal_message = context.user_data.get('original_signal_message')
-                if original_signal_message:
-                    logger.info(f"Found original signal message in context: {original_signal_message[:50]}...")
-                
-                # If not, check if we have a signal message stored in the signal data
-                if not original_signal_message:
-                    original_signal_message = context.user_data.get('signal_message')
-                    if original_signal_message:
-                        logger.info(f"Found signal message from signal data: {original_signal_message[:50]}...")
-                
-                # Get other signal info from context
-                signal_instrument = context.user_data.get('signal_instrument_backup') or context.user_data.get('instrument')
-                signal_id = context.user_data.get('signal_id_backup') or context.user_data.get('signal_id')
+                # Try to get from backup fields first (these are more reliable after navigation)
+                signal_instrument = context.user_data.get('signal_instrument_backup') or context.user_data.get('signal_instrument')
+                signal_direction = context.user_data.get('signal_direction_backup') or context.user_data.get('signal_direction')
+                signal_timeframe = context.user_data.get('signal_timeframe_backup') or context.user_data.get('signal_timeframe')
                 
                 # Reset signal flow flags but keep the signal info
                 context.user_data['from_signal'] = True
                 
-                logger.info(f"Retrieved signal data from context: instrument={signal_instrument}, signal_id={signal_id}")
+                # Log retrieved values for debugging
+                logger.info(f"Retrieved signal data from context: instrument={signal_instrument}, direction={signal_direction}, timeframe={signal_timeframe}")
             
-            # If we don't have the original message, try to get it from user_signals
-            if not original_signal_message and signal_id and hasattr(self, 'user_signals') and user_id_str in self.user_signals and signal_id in self.user_signals[user_id_str]:
-                signal_data = self.user_signals[user_id_str][signal_id]
-                if 'message' in signal_data:
-                    original_signal_message = signal_data['message']
-                    logger.info(f"Found signal message from user_signals: {original_signal_message[:50]}...")
+            # Find the most recent signal for this user based on context data
+            signal_data = None
+            signal_id = None
             
-            # Fallback if we still don't have a message but we have instrument
-            if not original_signal_message and signal_instrument:
-                # Try to find any signal with this instrument
-                if hasattr(self, 'user_signals') and user_id_str in self.user_signals:
-                    user_signal_dict = self.user_signals[user_id_str]
-                    # Find signals matching instrument
-                    matching_signals = []
+            # Find matching signal based on instrument and direction
+            if str(user_id) in self.user_signals:
+                user_signal_dict = self.user_signals[str(user_id)]
+                # Find signals matching instrument, direction and timeframe
+                matching_signals = []
+                
+                for sig_id, sig in user_signal_dict.items():
+                    instrument_match = sig.get('instrument') == signal_instrument
+                    direction_match = True  # Default to true if we don't have direction data
+                    timeframe_match = True  # Default to true if we don't have timeframe data
                     
+                    if signal_direction:
+                        direction_match = sig.get('direction') == signal_direction
+                    if signal_timeframe:
+                        timeframe_match = sig.get('interval') == signal_timeframe
+                    
+                    if instrument_match and direction_match and timeframe_match:
+                        matching_signals.append((sig_id, sig))
+                
+                # Sort by timestamp, newest first
+                if matching_signals:
+                    matching_signals.sort(key=lambda x: x[1].get('timestamp', ''), reverse=True)
+                    signal_id, signal_data = matching_signals[0]
+                    logger.info(f"Found matching signal with ID: {signal_id}")
+                else:
+                    logger.warning(f"No matching signals found for instrument={signal_instrument}, direction={signal_direction}, timeframe={signal_timeframe}")
+                    # If no exact match, try with just the instrument
+                    matching_signals = []
                     for sig_id, sig in user_signal_dict.items():
                         if sig.get('instrument') == signal_instrument:
                             matching_signals.append((sig_id, sig))
                     
-                    # Sort by timestamp, newest first
                     if matching_signals:
                         matching_signals.sort(key=lambda x: x[1].get('timestamp', ''), reverse=True)
                         signal_id, signal_data = matching_signals[0]
-                        if 'message' in signal_data:
-                            original_signal_message = signal_data['message']
-                            logger.info(f"Found signal message from matching signal: {original_signal_message[:50]}...")
+                        logger.info(f"Found signal with just instrument match, ID: {signal_id}")
             
-            # If we still don't have a message, create a minimal one using available info
-            if not original_signal_message and signal_instrument:
-                logger.warning(f"No original message found, creating basic message for {signal_instrument}")
-                signal_direction = ""
-                signal_timeframe = ""
-                
-                if context and hasattr(context, 'user_data'):
-                    signal_direction = context.user_data.get('signal_direction_backup') or context.user_data.get('signal_direction') or ""
-                    signal_timeframe = context.user_data.get('signal_timeframe_backup') or context.user_data.get('signal_timeframe') or ""
-                
-                # Create a simple message with the info we have
-                original_signal_message = f"<b>🎯 Trading Signal 🎯</b>\n\n<b>Instrument:</b> {signal_instrument}"
-                
-                if signal_direction:
-                    original_signal_message += f"\n<b>Action:</b> {signal_direction}"
-                
-                if signal_timeframe:
-                    original_signal_message += f"\n\n<b>Timeframe:</b> {signal_timeframe}"
-            
-            # If we still don't have a message and instrument, show error
-            if not original_signal_message and not signal_instrument:
-                logger.warning("No signal information found, going back to menu")
+            if not signal_data:
+                # Fallback message if signal not found
                 await query.edit_message_text(
-                    text="Signal information not found. Please use the main menu to continue.",
+                    text="Signal not found. Please use the main menu to continue.",
                     reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
                 )
                 return MENU
             
+            # Show the signal details with analyze button
             # Prepare analyze button with signal info embedded
-            callback_data = f"analyze_from_signal_{signal_instrument}"
-            if signal_id:
-                callback_data = f"analyze_from_signal_{signal_instrument}_{signal_id}"
-            
             keyboard = [
-                [InlineKeyboardButton("🔍 Analyze Market", callback_data=callback_data)]
+                [InlineKeyboardButton("🔍 Analyze Market", callback_data=f"analyze_from_signal_{signal_instrument}_{signal_id}")]
             ]
             
-            # Check if the message has photo/media
-            has_photo = False
-            if query and query.message:
-                has_photo = bool(query.message.photo) or query.message.animation is not None
-                logger.info(f"Message has photo: {has_photo}")
+            # Get the formatted message from the signal
+            signal_message = signal_data.get('message', "Signal details not available.")
             
-            if has_photo:
-                # For photo/media messages, try to delete and create new
-                try:
-                    # Store message info before deletion
-                    chat_id = update.effective_chat.id
-                    message_id = query.message.message_id
-                    
-                    # Try to delete current message
-                    logger.info(f"Attempting to delete message {message_id}")
-                    await query.message.delete()
-                    
-                    # Send new message
-                    logger.info("Sending new message with signal details")
-                    await context.bot.send_message(
-                        chat_id=chat_id,
-                        text=original_signal_message,
-                        reply_markup=InlineKeyboardMarkup(keyboard),
-                        parse_mode=ParseMode.HTML
-                    )
-                except Exception as e:
-                    logger.error(f"Error deleting/sending message: {str(e)}")
-                    # Try to edit as fallback
-                    try:
-                        await query.edit_message_caption(
-                            caption=original_signal_message,
-                            reply_markup=InlineKeyboardMarkup(keyboard),
-                            parse_mode=ParseMode.HTML
-                        )
-                    except Exception as caption_e:
-                        logger.error(f"Error editing caption: {str(caption_e)}")
-                        # Last resort - send new message
-                        await context.bot.send_message(
-                            chat_id=update.effective_chat.id,
-                            text=original_signal_message,
-                            reply_markup=InlineKeyboardMarkup(keyboard),
-                            parse_mode=ParseMode.HTML
-                        )
-            else:
-                # No photo, just edit the text
-                try:
-                    # Edit current message to show signal
-                    await query.edit_message_text(
-                        text=original_signal_message,
-                        reply_markup=InlineKeyboardMarkup(keyboard),
-                        parse_mode=ParseMode.HTML
-                    )
-                except Exception as e:
-                    logger.error(f"Error editing message: {str(e)}")
-                    # Last resort - send new message
-                    await context.bot.send_message(
-                        chat_id=update.effective_chat.id,
-                        text=original_signal_message,
-                        reply_markup=InlineKeyboardMarkup(keyboard),
-                        parse_mode=ParseMode.HTML
-                    )
+            # Edit current message to show signal
+            await query.edit_message_text(
+                text=signal_message,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode=ParseMode.HTML
+            )
             
             return SIGNAL_DETAILS
             
         except Exception as e:
             logger.error(f"Error in back_to_signal_callback: {str(e)}")
-            logger.exception(e)  # Log full traceback
             
             # Error recovery
             try:
-                await context.bot.send_message(
-                    chat_id=update.effective_chat.id,
-                    text="An error occurred returning to signal. Please use /menu to restart.",
+                await query.edit_message_text(
+                    text="An error occurred. Please try again from the main menu.",
                     reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
                 )
             except Exception:
@@ -2584,30 +2424,10 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Format: analyze_from_signal_INSTRUMENT_SIGNALID
             if len(parts) >= 4:
                 instrument = parts[3]
-                
-                # Get the signal ID
-                # In some cases the signal ID might contain underscores, so we have to join
-                # the remaining parts to get the full signal ID
-                signal_id = '_'.join(parts[4:]) if len(parts) >= 5 else None
-                
-                # Save the original signal message if available
-                if query and query.message:
-                    original_message = query.message.text or query.message.caption
-                    if original_message and context and hasattr(context, 'user_data'):
-                        context.user_data['original_signal_message'] = original_message
-                        logger.info(f"Saved original signal message: {original_message[:50]}...")
-                
-                # Improved logging
-                logger.info(f"Extracted instrument: {instrument}, signal_id: {signal_id}")
-                
-                # If we don't yet have user_signals or need to reload it
-                if not hasattr(self, 'user_signals') or not self.user_signals:
-                    logger.info("Loading signals because user_signals not initialized")
-                    await self._load_signals()
+                signal_id = parts[4] if len(parts) >= 5 else None
                 
                 # Store in context for other handlers
                 if context and hasattr(context, 'user_data'):
-                    # Store both the instrument and signal ID
                     context.user_data['instrument'] = instrument
                     if signal_id:
                         context.user_data['signal_id'] = signal_id
@@ -2617,63 +2437,16 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     if signal_id:
                         context.user_data['signal_id_backup'] = signal_id
                     
-                    # Mark explicitly that we're in signal flow
-                    context.user_data['from_signal'] = True
-                    context.user_data['is_signals_context'] = True
-                    
                     # Also store info from the actual signal if available
-                    user_id = str(update.effective_user.id)
-                    if hasattr(self, 'user_signals') and user_id in self.user_signals and signal_id in self.user_signals[user_id]:
-                        signal = self.user_signals[user_id][signal_id]
+                    if str(update.effective_user.id) in self.user_signals and signal_id in self.user_signals[str(update.effective_user.id)]:
+                        signal = self.user_signals[str(update.effective_user.id)][signal_id]
                         if signal:
-                            # Store all relevant signal data
                             context.user_data['signal_direction'] = signal.get('direction')
-                            context.user_data['signal_timeframe'] = signal.get('timeframe')
-                            context.user_data['signal_entry'] = signal.get('entry')
-                            context.user_data['signal_stop_loss'] = signal.get('stop_loss')
-                            context.user_data['signal_take_profit'] = signal.get('take_profit')
-                            
-                            # Store the complete signal message
-                            if 'message' in signal:
-                                context.user_data['signal_message'] = signal.get('message')
-                                logger.info(f"Stored signal message from signal data")
-                            
+                            context.user_data['signal_timeframe'] = signal.get('interval')
                             # Backup copies
                             context.user_data['signal_direction_backup'] = signal.get('direction')
-                            context.user_data['signal_timeframe_backup'] = signal.get('timeframe')
-                            
-                            logger.info(f"Stored signal details: direction={signal.get('direction')}, timeframe={signal.get('timeframe')}")
-                    else:
-                        # Log warning and try to recover
-                        logger.warning(f"Signal not found in user_signals. User: {user_id}, Signal ID: {signal_id}")
-                        # Try to find a matching signal for this instrument
-                        if hasattr(self, 'user_signals') and user_id in self.user_signals:
-                            # Find signals for this instrument
-                            matching_signals = []
-                            for s_id, signal in self.user_signals[user_id].items():
-                                if signal.get('instrument') == instrument:
-                                    matching_signals.append((s_id, signal))
-                            
-                            # If we found matching signals, use the most recent one
-                            if matching_signals:
-                                # Sort by timestamp, newest first
-                                matching_signals.sort(key=lambda x: x[1].get('timestamp', ''), reverse=True)
-                                recovered_id, recovered_signal = matching_signals[0]
-                                
-                                # Update context with recovered signal
-                                context.user_data['signal_id'] = recovered_id
-                                context.user_data['signal_id_backup'] = recovered_id
-                                context.user_data['signal_direction'] = recovered_signal.get('direction')
-                                context.user_data['signal_timeframe'] = recovered_signal.get('timeframe')
-                                context.user_data['signal_direction_backup'] = recovered_signal.get('direction')
-                                context.user_data['signal_timeframe_backup'] = recovered_signal.get('timeframe')
-                                
-                                # Store the complete signal message
-                                if 'message' in recovered_signal:
-                                    context.user_data['signal_message'] = recovered_signal.get('message')
-                                    logger.info(f"Stored signal message from recovered signal")
-                                
-                                logger.info(f"Recovered signal with ID: {recovered_id}")
+                            context.user_data['signal_timeframe_backup'] = signal.get('interval')
+                            logger.info(f"Stored signal details: direction={signal.get('direction')}, timeframe={signal.get('interval')}")
             else:
                 # Legacy support - just extract the instrument
                 instrument = parts[3] if len(parts) >= 4 else None
@@ -2681,21 +2454,16 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 if instrument and context and hasattr(context, 'user_data'):
                     context.user_data['instrument'] = instrument
                     context.user_data['signal_instrument_backup'] = instrument
-                    # Mark explicitly that we're in signal flow
-                    context.user_data['from_signal'] = True
-                    context.user_data['is_signals_context'] = True
             
             # Show analysis options for this instrument
+            # Format message
             # Use the SIGNAL_ANALYSIS_KEYBOARD for consistency
             keyboard = SIGNAL_ANALYSIS_KEYBOARD
-            
-            # Log for debugging
-            logger.info(f"Using signal analysis keyboard: {keyboard}")
             
             # Try to edit the message text
             try:
                 await query.edit_message_text(
-                    text=f"<b>📊 Signal Analysis for {instrument}</b>\n\nSelect your analysis type:",
+                    text=f"Select your analysis type:",
                     reply_markup=InlineKeyboardMarkup(keyboard),
                     parse_mode=ParseMode.HTML
                 )
@@ -2703,7 +2471,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 logger.error(f"Error in analyze_from_signal_callback: {str(e)}")
                 # Fall back to sending a new message
                 await query.message.reply_text(
-                    text=f"<b>📊 Signal Analysis for {instrument}</b>\n\nSelect your analysis type:",
+                    text=f"Select your analysis type:",
                     reply_markup=InlineKeyboardMarkup(keyboard),
                     parse_mode=ParseMode.HTML
                 )
@@ -2733,67 +2501,34 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Log the callback data
             logger.info(f"Button callback opgeroepen met data: {callback_data}")
             
-            # Debug logging
-            logger.info(f"DEBUG: Button callback data: {callback_data}, type: {type(callback_data)}")
-            
             # Answer the callback query to stop the loading indicator
             await query.answer()
             
-            # Log voor debugging
-            logger.info("DEBUG: Evaluating callback conditions...")
-            
             # Handle analyze from signal button
             if callback_data.startswith("analyze_from_signal_"):
-                logger.info("DEBUG: Matched analyze_from_signal_ pattern")
                 return await self.analyze_from_signal_callback(update, context)
                 
             # Help button
             if callback_data == "help":
-                logger.info("DEBUG: Matched help pattern")
                 await self.help_command(update, context)
                 return MENU
                 
             # Menu navigation
             if callback_data == CALLBACK_MENU_ANALYSE:
-                logger.info(f"DEBUG: Matched CALLBACK_MENU_ANALYSE pattern: {CALLBACK_MENU_ANALYSE}")
                 return await self.menu_analyse_callback(update, context)
             elif callback_data == CALLBACK_MENU_SIGNALS:
-                logger.info(f"DEBUG: Matched CALLBACK_MENU_SIGNALS pattern: {CALLBACK_MENU_SIGNALS}")
                 return await self.menu_signals_callback(update, context)
             
             # Analysis type selection
             elif callback_data == CALLBACK_ANALYSIS_TECHNICAL or callback_data == "analysis_technical":
-                logger.info(f"DEBUG: Matched CALLBACK_ANALYSIS_TECHNICAL pattern: {CALLBACK_ANALYSIS_TECHNICAL}")
                 return await self.analysis_technical_callback(update, context)
             elif callback_data == CALLBACK_ANALYSIS_SENTIMENT or callback_data == "analysis_sentiment":
-                logger.info(f"DEBUG: Matched CALLBACK_ANALYSIS_SENTIMENT pattern: {CALLBACK_ANALYSIS_SENTIMENT}")
                 return await self.analysis_sentiment_callback(update, context)
             elif callback_data == CALLBACK_ANALYSIS_CALENDAR or callback_data == "analysis_calendar":
-                logger.info(f"DEBUG: Matched CALLBACK_ANALYSIS_CALENDAR pattern: {CALLBACK_ANALYSIS_CALENDAR}")
                 return await self.analysis_calendar_callback(update, context)
                 
-            # Signal type selection
-            elif callback_data == "signal_technical":
-                logger.info("DEBUG: Matched signal_technical pattern")
-                return await self.signal_technical_callback(update, context)
-            elif callback_data == "signal_sentiment":
-                logger.info("DEBUG: Matched signal_sentiment pattern")
-                return await self.signal_sentiment_callback(update, context)
-            elif callback_data == "signal_calendar":
-                logger.info("DEBUG: Matched signal_calendar pattern")
-                return await self.signal_calendar_callback(update, context)
-            
-            # Back to signal handler
-            elif callback_data == "back_to_signal":
-                logger.info("DEBUG: Matched back_to_signal pattern")
-                return await self.back_to_signal_callback(update, context)
-            elif callback_data == "back_to_signal_analysis":
-                logger.info("DEBUG: Matched back_to_signal_analysis pattern")
-                return await self.back_to_signal_analysis_callback(update, context)
-                
             # Direct instrument_timeframe callbacks  
-            elif "_timeframe_" in callback_data:
-                logger.info("DEBUG: Matched _timeframe_ pattern")
+            if "_timeframe_" in callback_data:
                 # Format: instrument_EURUSD_timeframe_H1
                 parts = callback_data.split("_")
                 instrument = parts[1]
@@ -2801,47 +2536,37 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 return await self.show_technical_analysis(update, context, instrument=instrument, timeframe=timeframe)
             
             # Verwerk instrument keuzes met specifiek type (chart, sentiment, calendar)
-            elif "_chart" in callback_data or "_sentiment" in callback_data or "_calendar" in callback_data:
+            if "_chart" in callback_data or "_sentiment" in callback_data or "_calendar" in callback_data:
                 # Direct doorsturen naar de instrument_callback methode
-                logger.info(f"DEBUG: Matched specific instrument type in: {callback_data}")
+                logger.info(f"Specifiek instrument type gedetecteerd in: {callback_data}")
                 return await self.instrument_callback(update, context)
             
             # Handle instrument signal choices
-            elif "_signals" in callback_data and callback_data.startswith("instrument_"):
-                logger.info(f"DEBUG: Matched signal instrument selection: {callback_data}")
+            if "_signals" in callback_data and callback_data.startswith("instrument_"):
+                logger.info(f"Signal instrument selection detected: {callback_data}")
                 return await self.instrument_signals_callback(update, context)
             
             # Speciale afhandeling voor markt keuzes
-            elif callback_data.startswith("market_"):
-                logger.info(f"DEBUG: Matched market pattern: {callback_data}")
+            if callback_data.startswith("market_"):
                 return await self.market_callback(update, context)
             
             # Signals handlers
-            elif callback_data == "signals_add" or callback_data == CALLBACK_SIGNALS_ADD:
-                logger.info(f"DEBUG: Matched signals_add pattern: {callback_data}")
+            if callback_data == "signals_add" or callback_data == CALLBACK_SIGNALS_ADD:
                 return await self.signals_add_callback(update, context)
                 
             # Manage signals handler
-            elif callback_data == "signals_manage" or callback_data == CALLBACK_SIGNALS_MANAGE:
-                logger.info(f"DEBUG: Matched signals_manage pattern: {callback_data}")
+            if callback_data == "signals_manage" or callback_data == CALLBACK_SIGNALS_MANAGE:
                 return await self.signals_manage_callback(update, context)
             
             # Back navigation handlers
-            elif callback_data == "back_menu" or callback_data == CALLBACK_BACK_MENU:
-                logger.info(f"DEBUG: Matched back_menu pattern: {callback_data}")
+            if callback_data == "back_menu" or callback_data == CALLBACK_BACK_MENU:
                 return await self.back_menu_callback(update, context)
             elif callback_data == "back_analysis" or callback_data == CALLBACK_BACK_ANALYSIS:
-                logger.info(f"DEBUG: Matched back_analysis pattern: {callback_data}")
                 return await self.analysis_callback(update, context)
             elif callback_data == "back_signals" or callback_data == CALLBACK_BACK_SIGNALS:
-                logger.info(f"DEBUG: Matched back_signals pattern: {callback_data}")
                 return await self.back_signals_callback(update, context)
             elif callback_data == "back_market" or callback_data == CALLBACK_BACK_MARKET:
-                logger.info(f"DEBUG: Matched back_market pattern: {callback_data}")
                 return await self.back_market_callback(update, context)
-            elif callback_data == "back_instrument":
-                logger.info(f"DEBUG: Matched back_instrument pattern: {callback_data}")
-                return await self.back_instrument_callback(update, context)
                 
             # Handle delete signal
             if callback_data.startswith("delete_signal_"):
@@ -2889,10 +2614,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     logger.error(f"Error deleting all signal subscriptions: {str(e)}")
                     await query.answer("Error removing signal subscriptions")
                     return await self.signals_manage_callback(update, context)
-            
-            # Handle back_instrument specifically        
-            elif callback_data == "back_instrument":
-                return await self.back_instrument_callback(update, context)
+                    
                     
             # Default handling if no specific callback found, go back to menu
             logger.warning(f"Unhandled callback_data: {callback_data}")
@@ -3352,15 +3074,17 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             if not timeframe:
                 timeframe = "1h"
             
-            # Check if user has existing loading message or we need to create new
-            loading_message = None
-            if context and hasattr(context, 'user_data') and 'loading_message' in context.user_data:
-                loading_message = context.user_data.get('loading_message')
-                logger.info(f"Retrieved existing loading message from context: {loading_message.message_id if loading_message else None}")
+            # Get chart URL
+            logger.info(f"Getting technical analysis chart for {instrument} on {timeframe} timeframe")
             
-            # Show loading message with GIF or text
+            # Check if we have a loading message in context.user_data
+            loading_message = None
+            if context and hasattr(context, 'user_data'):
+                loading_message = context.user_data.get('loading_message')
+            
+            # If no loading message in context or not in signal flow, create one
             if not loading_message:
-                # Toon een loading message om de gebruiker te laten weten dat we bezig zijn
+                # Show loading message with GIF - similar to sentiment analysis
                 loading_text = f"Loading {instrument} chart..."
                 loading_gif = "https://media.giphy.com/media/dpjUltnOPye7azvAhH/giphy.gif"
                 
@@ -3392,24 +3116,15 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             if not hasattr(self, 'chart_service') or not self.chart_service:
                 from trading_bot.services.chart_service.chart import ChartService
                 self.chart_service = ChartService()
-                logger.info("Initialized ChartService")
             
-            # Get the chart image and analysis text
-            try:
-                chart_image, analysis_text = await self.chart_service.get_technical_analysis(instrument, timeframe)
-                logger.info(f"Successfully retrieved chart and analysis for {instrument}")
-            except Exception as e:
-                logger.error(f"Error retrieving chart and analysis: {str(e)}")
-                await query.edit_message_text(
-                    text=f"Error retrieving chart for {instrument}. Please try again later.",
-                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
-                )
-                return MENU
+            # Get the chart image
+            chart_image = await self.chart_service.get_chart(instrument, timeframe)
             
             if not chart_image:
                 # Fallback to error message
+                error_text = f"Failed to generate chart for {instrument}. Please try again later."
                 await query.edit_message_text(
-                    text=f"Failed to generate chart for {instrument}. Please try again later.",
+                    text=error_text,
                     reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
                 )
                 return MENU
@@ -3430,19 +3145,14 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 await context.bot.send_photo(
                     chat_id=update.effective_chat.id,
                     photo=chart_image,
-                    caption=analysis_text,
-                    reply_markup=InlineKeyboardMarkup(keyboard),
-                    parse_mode=ParseMode.HTML
+                    caption=f"{instrument} Technical Analysis",
+                    reply_markup=InlineKeyboardMarkup(keyboard)
                 )
                 
                 # Delete the original message (the one with the loading indicator)
                 logger.info(f"Deleting original message {query.message.message_id}")
                 await query.delete_message()
                 logger.info("Original message deleted successfully")
-                
-                # Clear loading message from context if it exists
-                if context and hasattr(context, 'user_data') and 'loading_message' in context.user_data:
-                    del context.user_data['loading_message']
                 
                 return SHOW_RESULT
                 
@@ -3451,18 +3161,23 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 
                 # Fallback error handling
                 try:
-                    await query.edit_message_text(
-                        text=f"Error sending chart for {instrument}. Please try again later.",
-                        reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
-                    )
-                except Exception as edit_error:
-                    logger.error(f"Failed to edit message: {str(edit_error)}")
+                    if loading_message:
+                        await loading_message.edit_text(
+                            text=f"Error sending chart for {instrument}. Please try again later.",
+                            reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
+                        )
+                    else:
+                        await query.edit_message_text(
+                            text=f"Error sending chart for {instrument}. Please try again later.",
+                            reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
+                        )
+                except Exception:
+                    pass
                 
                 return MENU
         
         except Exception as e:
             logger.error(f"Error in show_technical_analysis: {str(e)}")
-            logger.error(traceback.format_exc())
             # Error recovery
             try:
                 await query.edit_message_text(
@@ -3473,6 +3188,15 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 pass
             
             return MENU
+
+    @property
+    def sentiment_service(self):
+        """Lazy loaded sentiment service"""
+        if self._sentiment_service is None:
+            # Only initialize the sentiment service when it's first accessed
+            logger.info("Lazy loading sentiment service")
+            self._sentiment_service = MarketSentimentService()
+        return self._sentiment_service
 
     async def show_sentiment_analysis(self, update: Update, context=None, instrument=None) -> int:
         """Show sentiment analysis for a selected instrument"""
@@ -3538,11 +3262,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                         logger.error(f"Could not update loading message: {str(inner_e2)}")
         
         try:
-            # Initialize sentiment service if needed
-            if not hasattr(self, 'sentiment_service') or self.sentiment_service is None:
-                self.sentiment_service = MarketSentimentService()
-            
-            # Get sentiment data using clean instrument name
+            # Get sentiment data using clean instrument name - property will lazily initialize the service
             sentiment_data = await self.sentiment_service.get_sentiment(clean_instrument)
             
             if not sentiment_data:
@@ -3576,83 +3296,6 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             analysis_text = ""
             if isinstance(sentiment_data.get('analysis'), str):
                 analysis_text = sentiment_data['analysis']
-            
-            # Check if the analysis text is already in the correct format
-            # The key identifier is the presence of "Market Sentiment Analysis</b>" and all required sections
-            if analysis_text and "Market Sentiment Analysis</b>" in analysis_text:
-                # Check if it has all the required sections
-                required_sections = [
-                    "<b>Overall Sentiment:</b>",
-                    "<b>Market Sentiment Breakdown:</b>",
-                    "🟢 Bullish:",
-                    "🔴 Bearish:",
-                    "⚪️ Neutral:",
-                    "<b>📰 Key Sentiment Drivers:</b>",
-                    "<b>📊 Market Mood:</b>",
-                    "<b>📅 Important Events & News:</b>",
-                    "<b>🔮 Sentiment Outlook:</b>"
-                ]
-                
-                all_sections_present = all(section in analysis_text for section in required_sections)
-                
-                if all_sections_present:
-                    logger.info(f"Analysis text for {clean_instrument} is already in the correct format, using it directly")
-                    
-                    # Use the existing properly formatted text directly
-                    full_message = analysis_text
-                    
-                    # Create reply markup with back button - use correct back button based on flow
-                    back_callback = "back_to_signal_analysis" if is_from_signal else "back_to_analysis"
-                    logger.info(f"Using back button callback: {back_callback} (from_signal: {is_from_signal})")
-                    reply_markup = InlineKeyboardMarkup([[
-                        InlineKeyboardButton("⬅️ Back", callback_data=back_callback)
-                    ]])
-                    
-                    # Send the message
-                    try:
-                        # First try to edit the existing message when possible
-                        try:
-                            await query.edit_message_text(
-                                text=full_message,
-                                parse_mode=ParseMode.HTML,
-                                reply_markup=reply_markup
-                            )
-                            logger.info("Successfully edited existing message with sentiment analysis")
-                        except Exception as edit_error:
-                            logger.warning(f"Could not edit message, will create new one: {str(edit_error)}")
-                            
-                            # If editing fails, delete and create new message
-                            try:
-                                deleted = await self.delete_message(update)
-                                if deleted:
-                                    logger.info("Deleted previous message")
-                                else:
-                                    logger.warning("Could not delete previous message")
-                            except Exception as del_error:
-                                logger.warning(f"Error deleting previous message: {str(del_error)}")
-                            
-                            try:
-                                sent_message = await update.effective_chat.send_message(
-                                    text=full_message,
-                                    parse_mode=ParseMode.HTML,
-                                    reply_markup=reply_markup
-                                )
-                                logger.info("Created new message with sentiment analysis after deleting old one")
-                            except Exception as send_error:
-                                logger.error(f"Error sending new message: {str(send_error)}")
-                                raise send_error
-                    except Exception as e:
-                        logger.error(f"Error updating message with sentiment analysis: {str(e)}")
-                        # Attempt a simple text update as fallback
-                        try:
-                            await query.message.reply_text(
-                                text=f"<b>Error displaying sentiment analysis for {clean_instrument}.</b>\nPlease try again later.",
-                                parse_mode=ParseMode.HTML
-                            )
-                        except Exception as reply_error:
-                            logger.error(f"Even fallback failed: {str(reply_error)}")
-                    
-                    return CHOOSE_ANALYSIS
             
             # Prepare the message format without relying on regex
             # This will help avoid HTML parsing errors
@@ -4268,123 +3911,80 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             instrument = None
             if context and hasattr(context, 'user_data'):
                 instrument = context.user_data.get('instrument')
-                logger.info(f"Instrument from context: {instrument}")
             
             # Check if message has photo or animation
-            has_photo = False
-            if query and query.message:
-                has_photo = bool(query.message.photo) or query.message.animation is not None
-                logger.info(f"Message has photo or animation: {has_photo}")
+            has_photo = bool(query.message.photo) or query.message.animation is not None
             
             # Use the standard SIGNAL_ANALYSIS_KEYBOARD
             keyboard = SIGNAL_ANALYSIS_KEYBOARD
             
-            # Format the message text with instrument name if available
-            text = f"<b>📊 Signal Analysis</b>\n\nSelect your analysis type:"
-            if instrument:
-                text = f"<b>📊 Signal Analysis for {instrument}</b>\n\nSelect your analysis type:"
+            # Format the message text
+            text = f"Select your analysis type:"
             
-            # First try to delete message and send new one (most reliable)
-            try:
-                # Store message info before deletion
-                chat_id = update.effective_chat.id
-                message_id = query.message.message_id
-                
-                # Try to delete current message
-                logger.info(f"Attempting to delete message {message_id}")
-                await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
-                
-                # Send new message
-                logger.info("Sending new message with signal analysis menu")
-                sent_message = await context.bot.send_message(
-                    chat_id=chat_id,
-                    text=text,
-                    reply_markup=InlineKeyboardMarkup(keyboard),
-                    parse_mode=ParseMode.HTML
-                )
-                logger.info(f"New message sent successfully with id: {sent_message.message_id}")
-                return SIGNAL_DETAILS
-            except Exception as delete_error:
-                logger.warning(f"Could not delete message: {str(delete_error)}")
-                
-                # If deletion fails, try updating based on message type
-                if has_photo:
-                    # If message has media, try to replace with a GIF
-                    try:
-                        # Use transparent GIF
-                        transparent_gif_url = "https://upload.wikimedia.org/wikipedia/commons/c/ca/1x1.png"
-                        logger.info("Attempting to replace media with transparent GIF")
-                        await query.edit_message_media(
-                            media=InputMediaAnimation(
-                                media=transparent_gif_url,
-                                caption=text
-                            ),
-                            reply_markup=InlineKeyboardMarkup(keyboard)
-                        )
-                        logger.info("Successfully replaced media")
-                        return SIGNAL_DETAILS
-                    except Exception as media_error:
-                        logger.error(f"Could not replace media: {str(media_error)}")
-                        
-                        # Try to just edit the caption
-                        try:
-                            logger.info("Attempting to edit caption")
-                            await query.edit_message_caption(
-                                caption=text,
-                                reply_markup=InlineKeyboardMarkup(keyboard),
-                                parse_mode=ParseMode.HTML
-                            )
-                            logger.info("Successfully edited caption")
-                            return SIGNAL_DETAILS
-                        except Exception as caption_error:
-                            logger.error(f"Could not edit caption: {str(caption_error)}")
-                else:
-                    # No photo, try to edit message text
-                    try:
-                        logger.info("Attempting to edit message text")
-                        await query.edit_message_text(
-                            text=text,
-                            reply_markup=InlineKeyboardMarkup(keyboard),
-                            parse_mode=ParseMode.HTML
-                        )
-                        logger.info("Successfully edited message text")
-                        return SIGNAL_DETAILS
-                    except Exception as text_error:
-                        logger.error(f"Could not edit message text: {str(text_error)}")
-                
-                # Last resort - send a completely new message without deleting old one
+            if has_photo:
+                # Try to delete the message first (if possible)
                 try:
-                    logger.info("Last resort: sending new message without deleting old one")
+                    await query.message.delete()
                     await context.bot.send_message(
                         chat_id=update.effective_chat.id,
                         text=text,
                         reply_markup=InlineKeyboardMarkup(keyboard),
                         parse_mode=ParseMode.HTML
                     )
-                    logger.info("Successfully sent new message")
                     return SIGNAL_DETAILS
-                except Exception as send_error:
-                    logger.error(f"Could not send new message: {str(send_error)}")
+                except Exception as delete_error:
+                    logger.error(f"Could not delete message: {str(delete_error)}")
+                    
+                    # Try to replace the photo with a transparent GIF
+                    try:
+                        transparent_gif_url = "https://upload.wikimedia.org/wikipedia/commons/c/ca/1x1.png"
+                        await query.message.edit_media(
+                            media=InputMediaAnimation(
+                                media=transparent_gif_url,
+                                caption=text
+                            ),
+                            reply_markup=InlineKeyboardMarkup(keyboard)
+                        )
+                        return SIGNAL_DETAILS
+                    except Exception as e:
+                        logger.error(f"Could not replace photo: {str(e)}")
+                        
+                        # Final fallback - try to edit the caption
+                        try:
+                            await query.message.edit_caption(
+                                caption=text,
+                                reply_markup=InlineKeyboardMarkup(keyboard),
+                                parse_mode=ParseMode.HTML
+                            )
+                        except Exception as caption_error:
+                            logger.error(f"Could not edit caption: {str(caption_error)}")
+                            # Just log the error, will try to edit the message text next
+            else:
+                # No photo, just edit the message text
+                try:
+                    await query.edit_message_text(
+                        text=text,
+                        reply_markup=InlineKeyboardMarkup(keyboard),
+                        parse_mode=ParseMode.HTML
+                    )
+                except Exception as e:
+                    logger.error(f"Error updating message: {str(e)}")
             
-            # If we get here, all attempts failed
-            logger.error("All attempts to update/send message failed")
             return SIGNAL_DETAILS
             
         except Exception as e:
             logger.error(f"Error in back_to_signal_analysis_callback: {str(e)}")
-            logger.exception(e)  # Log full traceback
             
-            # Error recovery - try to send error message
+            # Error recovery - return to signal menu
             try:
-                await context.bot.send_message(
-                    chat_id=update.effective_chat.id,
-                    text="An error occurred. Please use /menu to restart.",
-                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
+                await query.edit_message_text(
+                    text="An error occurred. Please try again from the signals menu.",
+                    reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD)
                 )
             except Exception:
                 pass
             
-            return MENU
+            return CHOOSE_SIGNALS
 
     async def handle_subscription_callback(self, update: Update, context=None) -> int:
         """Handle subscription button press"""
@@ -4688,7 +4288,6 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             logger.info(f"Successfully sent signal {signal_id} to {sent_count}/{len(subscribers)} subscribers")
             return True
             
-            
         except Exception as e:
             logger.error(f"Error processing signal: {str(e)}")
             logger.exception(e)
@@ -4758,143 +4357,27 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Initialize user_signals dictionary if it doesn't exist
             if not hasattr(self, 'user_signals'):
                 self.user_signals = {}
-            
-            signals_loaded = False
                 
             # If we have a database connection, load signals from there
             if self.db:
-                try:
-                    # Get all active signals from the database
-                    signals = await self.db.get_active_signals()
+                # Get all active signals from the database
+                signals = await self.db.get_active_signals()
+                
+                # Organize signals by user_id for quick access
+                for signal in signals:
+                    user_id = str(signal.get('user_id'))
+                    signal_id = signal.get('id')
                     
-                    if signals:
-                        # Organize signals by user_id for quick access
-                        for signal in signals:
-                            user_id = str(signal.get('user_id'))
-                            signal_id = signal.get('id')
-                            
-                            # Initialize user dictionary if needed
-                            if user_id not in self.user_signals:
-                                self.user_signals[user_id] = {}
-                            
-                            # Store the signal
-                            self.user_signals[user_id][signal_id] = signal
-                        
-                        logger.info(f"Loaded {len(signals)} signals from database for {len(self.user_signals)} users")
-                        signals_loaded = True
-                    else:
-                        logger.warning("No signals found in database")
-                except Exception as db_error:
-                    logger.error(f"Error loading signals from database: {str(db_error)}")
+                    # Initialize user dictionary if needed
+                    if user_id not in self.user_signals:
+                        self.user_signals[user_id] = {}
+                    
+                    # Store the signal
+                    self.user_signals[user_id][signal_id] = signal
+                
+                logger.info(f"Loaded {len(signals)} signals for {len(self.user_signals)} users")
             else:
                 logger.warning("No database connection available for loading signals")
-            
-            # If we couldn't load signals from the database or didn't find any, try loading from files
-            if not signals_loaded and hasattr(self, 'signals_dir'):
-                logger.info(f"Attempting to load signals from files in {self.signals_dir}")
-                
-                # Make sure directory exists
-                if os.path.exists(self.signals_dir):
-                    # Get all JSON files
-                    signal_files = [f for f in os.listdir(self.signals_dir) if f.endswith('.json')]
-                    
-                    if signal_files:
-                        file_count = 0
-                        
-                        # We'll add these to all users who receive signals
-                        admin_user_ids = []
-                        
-                        # If we have admin users, we'll make sure they get all signals
-                        if hasattr(self, 'admin_users') and self.admin_users:
-                            admin_user_ids = [str(uid) for uid in self.admin_users]
-                            logger.info(f"Adding signals to admin users: {admin_user_ids}")
-                            
-                            # Initialize dictionaries for admin users
-                            for admin_id in admin_user_ids:
-                                if admin_id not in self.user_signals:
-                                    self.user_signals[admin_id] = {}
-                        
-                        # Always include hard-coded test user IDs for debugging
-                        test_user_ids = ['123456789']
-                        for test_id in test_user_ids:
-                            if test_id not in self.user_signals:
-                                self.user_signals[test_id] = {}
-                        
-                        # Load each signal file
-                        for file_name in signal_files:
-                            try:
-                                file_path = os.path.join(self.signals_dir, file_name)
-                                with open(file_path, 'r') as f:
-                                    signal_data = json.load(f)
-                                
-                                signal_id = signal_data.get('id')
-                                if not signal_id:
-                                    # If no ID in the file, use the filename without extension
-                                    signal_id = os.path.splitext(file_name)[0]
-                                    signal_data['id'] = signal_id
-                                
-                                # Add to all admin users
-                                for admin_id in admin_user_ids:
-                                    self.user_signals[admin_id][signal_id] = signal_data
-                                
-                                # Add to test users
-                                for test_id in test_user_ids:
-                                    self.user_signals[test_id][signal_id] = signal_data
-                                
-                                file_count += 1
-                            except Exception as file_error:
-                                logger.error(f"Error loading signal file {file_name}: {str(file_error)}")
-                        
-                        logger.info(f"Loaded {file_count} signals from files for {len(admin_user_ids) + len(test_user_ids)} users")
-                        signals_loaded = True
-                    else:
-                        logger.warning(f"No signal files found in {self.signals_dir}")
-                else:
-                    logger.warning(f"Signals directory {self.signals_dir} does not exist")
-            
-            # If we still haven't loaded any signals, create some mock data for testing
-            if not signals_loaded and hasattr(self, 'admin_users') and self.admin_users:
-                logger.info("Creating mock signals for testing")
-                
-                # Test instruments
-                instruments = ['EURUSD', 'GBPUSD', 'BTCUSD', 'ETHUSD', 'XAUUSD']
-                directions = ['BUY', 'SELL']
-                timeframes = ['15m', '1h', '4h']
-                
-                # Create a few mock signals
-                for i in range(3):
-                    instrument = random.choice(instruments)
-                    direction = random.choice(directions)
-                    timeframe = random.choice(timeframes)
-                    
-                    # Create unique signal ID
-                    signal_id = f"{instrument}_{direction}_{timeframe}_{int(time.time() - i*3600)}"
-                    
-                    # Basic signal data
-                    signal_data = {
-                        'id': signal_id,
-                        'instrument': instrument,
-                        'direction': direction,
-                        'timeframe': timeframe,
-                        'entry': '1.2345',
-                        'stop_loss': '1.2300',
-                        'take_profit': '1.2400',
-                        'timestamp': (datetime.now() - timedelta(hours=i)).isoformat(),
-                        'message': f"Mock {instrument} {direction} signal for testing"
-                    }
-                    
-                    # Add to admin users
-                    for admin_id in [str(uid) for uid in self.admin_users]:
-                        if admin_id not in self.user_signals:
-                            self.user_signals[admin_id] = {}
-                        
-                        self.user_signals[admin_id][signal_id] = signal_data
-                
-                logger.info(f"Created {3} mock signals for testing")
-            
-            # Log summary
-            total_signals = sum(len(signals) for signals in self.user_signals.values())
-            logger.info(f"Total loaded signals: {total_signals} for {len(self.user_signals)} users")
                 
         except Exception as e:
             logger.error(f"Error loading signals: {str(e)}")
@@ -5225,10 +4708,6 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         query = update.callback_query
         await query.answer()
         
-        # Debug logging
-        logger.info(f"DEBUG: signals_add_callback called with data: {query.data}")
-        logger.info(f"DEBUG: Context user_data before: {context.user_data if (context and hasattr(context, 'user_data')) else 'No context data'}")
-        
         logger.info("signals_add_callback called")
         
         # Make sure we're in the signals flow context
@@ -5347,11 +4826,6 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         """Handle back button to return to instrument selection"""
         query = update.callback_query
         await query.answer()
-        
-        # Debug logging
-        logger.info("back_instrument_callback aangeroepen")
-        if context and hasattr(context, 'user_data'):
-            logger.info(f"Context user_data: {context.user_data}")
         
         try:
             # Clear style/timeframe data but keep instrument
