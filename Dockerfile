@@ -77,6 +77,8 @@ COPY requirements.txt .
 RUN pip install --upgrade pip
 RUN pip install --no-cache-dir -r requirements.txt
 RUN pip install --no-cache-dir webdriver-manager==3.8.6
+# Ensure tavily is explicitly installed
+RUN pip install --no-cache-dir tavily-python==0.2.2
 
 # Install Node.js dependencies first - IMPORTANT CHANGE
 COPY package.json tradingview_screenshot.js ./
