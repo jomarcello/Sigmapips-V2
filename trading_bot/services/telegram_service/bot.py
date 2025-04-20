@@ -615,7 +615,7 @@ os.environ["DEEPSEEK_API_KEY"] = DEEPSEEK_API_KEY
 os.environ["TAVILY_API_KEY"] = TAVILY_API_KEY
 
 class TelegramService:
-    def __init__(self, db: Database, stripe_service=None, bot_token: Optional[str] = None, proxy_url: Optional[str] = None):
+    def __init__(self, db: Database, stripe_service=None, bot_token: Optional[str] = None, proxy_url: Optional[str] = None, lazy_init: bool = False):
         """Initialize the bot with given database and config."""
         # Database connection
         self.db = db
@@ -709,12 +709,15 @@ class TelegramService:
             logger.error(f"Error initializing Telegram service: {str(e)}")
             raise
 
-    async def initialize_services(self):
+    async def initialize_services(self, lazy_load: bool = False):
         """Initialize services that require an asyncio event loop"""
         try:
             # Initialize chart service
-            await self.chart_service.initialize()
-            logger.info("Chart service initialized")
+            if not lazy_load:
+                await self.chart_service.initialize()
+                logger.info("Chart service initialized")
+            else:
+                logger.info("Lazy loading enabled, skipping immediate chart service initialization")
         except Exception as e:
             logger.error(f"Error initializing services: {str(e)}")
             raise
