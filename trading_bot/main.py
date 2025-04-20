@@ -8,7 +8,7 @@ import stripe
 import time
 import asyncio
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler
-from telegram import BotCommand
+from telegram import BotCommand, Update
 
 # Configureer logging
 logging.basicConfig(level=logging.INFO)
@@ -154,13 +154,44 @@ async def startup_event():
         # Initialize the application and start in polling mode
         await telegram_service.application.initialize()
         await telegram_service.application.start()
-        await telegram_service.application.updater.start_polling()
-        telegram_service.polling_started = True
-        
+
+        # Controleer of we polling of webhook moeten gebruiken
+        force_polling = os.getenv("FORCE_POLLING", "false").lower() == "true"
+        if force_polling:
+            # Start in polling mode
+            await telegram_service.application.updater.start_polling()
+            telegram_service.polling_started = True
+            logger.info("Telegram bot initialized successfully in polling mode")
+        else:
+            # Start in webhook mode
+            webhook_path = os.getenv("WEBHOOK_PATH", "/webhook")
+            
+            if not webhook_url:
+                logger.warning("WEBHOOK_URL not set, defaulting to polling mode")
+                await telegram_service.application.updater.start_polling()
+                telegram_service.polling_started = True
+                logger.info("Telegram bot initialized in polling mode (fallback)")
+            else:
+                # Set up webhook instead of polling to prevent multiple instances
+                await telegram_service.application.bot.set_webhook(url=webhook_url)
+                logger.info(f"Telegram bot initialized successfully in webhook mode with URL: {webhook_url}")
+                
+                # Add webhook handler route
+                @app.post(webhook_path)
+                async def telegram_webhook(request: Request):
+                    """Process Telegram webhook updates"""
+                    try:
+                        data = await request.json()
+                        update = Update.de_json(data=data, bot=telegram_service.bot)
+                        await telegram_service.application.process_update(update)
+                        return {"status": "success"}
+                    except Exception as e:
+                        logger.error(f"Error processing Telegram webhook: {str(e)}")
+                        logger.exception(e)
+                        return {"status": "error", "message": str(e)}
+
         # Set the commands
         await telegram_service.bot.set_my_commands(commands)
-        
-        logger.info("Telegram bot initialized successfully in polling mode")
         
         # Manually register signal endpoints
         @app.post("/signal")
