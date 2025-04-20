@@ -1,74 +1,66 @@
+#!/usr/bin/env python3
+import logging
+import os
 import sys
-import json
-import time
-from datetime import datetime
+import asyncio
 
-# Import the bot module
-from bot import Bot
-from sentiment import get_sentiment_analysis
+# Set up logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
-def process_request(request_string):
-    try:
-        # Parse the request as JSON
-        request = json.loads(request_string)
-        
-        # Extract the command
-        command = request.get('command', '')
-        
-        if command == 'get_bot_response':
-            # Extract user message
-            user_message = request.get('user_message', '')
-            
-            # Create a bot instance and get response
-            bot = Bot()
-            response = bot.get_response(user_message)
-            
-            # Return the response
-            return json.dumps({
-                'status': 'success',
-                'response': response
-            })
-            
-        elif command == 'get_sentiment_analysis':
-            # Extract instrument name
-            instrument = request.get('instrument', '')
-            
-            if not instrument:
-                return json.dumps({
-                    'status': 'error',
-                    'message': 'Missing instrument parameter'
-                })
-            
-            # Get sentiment analysis with caching
-            sentiment_analysis = get_sentiment_analysis(instrument)
-            
-            # Return the sentiment analysis
-            return json.dumps({
-                'status': 'success',
-                'sentiment_analysis': sentiment_analysis
-            })
-            
-        else:
-            return json.dumps({
-                'status': 'error',
-                'message': 'Unknown command'
-            })
+logger.info("Starting SigmaPips Trading Bot...")
+
+# Add the current directory to the path so we can import from trading_bot
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+try:
+    # Import the proper bot class
+    from trading_bot.services.telegram_service.bot import TelegramService
+    from trading_bot.services.database.db import Database
+    from trading_bot.services.payment_service.stripe_service import StripeService
     
-    except Exception as e:
-        return json.dumps({
-            'status': 'error',
-            'message': str(e)
-        })
+    logger.info("Imports successful")
+    
+    # Create a function to run the bot
+    async def main():
+        logger.info("Initializing services...")
+        
+        # Initialize database
+        db = Database()
+        logger.info("Database initialized")
+        
+        # Initialize Stripe service
+        stripe_service = StripeService(db)
+        logger.info("Stripe service initialized")
+        
+        # Initialize Telegram service with database and Stripe service
+        telegram_service = TelegramService(db, stripe_service)
+        logger.info("Telegram service initialized")
+        
+        # Initialize services
+        await telegram_service.initialize_services()
+        logger.info("Services initialized")
+        
+        # Start the bot
+        await telegram_service.run()
+        logger.info("Bot started successfully")
+        
+        # Keep the script running
+        while True:
+            await asyncio.sleep(60)
+    
+    # Run the main function
+    if __name__ == "__main__":
+        logger.info("Starting main application...")
+        asyncio.run(main())
+        
+except ImportError as e:
+    logger.error(f"Import error: {e}")
+    raise
 
-# Main entry point for the script
-if __name__ == '__main__':
-    # Check if a request was provided as an argument
-    if len(sys.argv) > 1:
-        request_string = sys.argv[1]
-        response = process_request(request_string)
-        print(response)
-    else:
-        print(json.dumps({
-            'status': 'error',
-            'message': 'No request provided'
-        }))
+except Exception as e:
+    logger.error(f"Error starting the bot: {e}")
+    raise 
