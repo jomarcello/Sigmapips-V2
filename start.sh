@@ -17,11 +17,14 @@ WEBHOOK_URL=${WEBHOOK_URL:-"$PUBLIC_URL/webhook"}
 WEBHOOK_PATH=${WEBHOOK_PATH:-"/webhook"}
 PORT=${PORT:-8080}
 
-# Force polling mode als je wilt testen zonder webhook
-FORCE_POLLING=${FORCE_POLLING:-"true"}
+# Force polling mode als je wilt testen zonder webhook (standaard uit voor Railway)
+FORCE_POLLING=${FORCE_POLLING:-"false"}
 EOL
 
-echo "Starting FastAPI application..."
-# Start de FastAPI applicatie
-cd /app
-uvicorn trading_bot.main:app --host 0.0.0.0 --port ${PORT:-8080} 
+echo "Starting main application..."
+
+# Run with a timeout to prevent getting stuck
+timeout ${TIMEOUT_SECONDS:-180} python main.py || {
+    echo "Application timed out after ${TIMEOUT_SECONDS:-180} seconds, restarting..."
+    python main.py
+}
