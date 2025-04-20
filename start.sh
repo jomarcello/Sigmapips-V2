@@ -1,5 +1,15 @@
 #!/bin/bash
 
+# Stop any existing bot instances
+echo "Checking for existing bot instances..."
+python3 stop_existing_bots.py
+
+# Load environment variables from .env file if it exists
+if [ -f .env ]; then
+    echo "Loading environment variables from .env file..."
+    export $(grep -v '^#' .env | xargs)
+fi
+
 echo "Starting SigmaPips Trading Bot..."
 cd /app
 echo "Starting main application..."
