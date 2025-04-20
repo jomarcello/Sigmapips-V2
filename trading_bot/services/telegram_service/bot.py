@@ -32,6 +32,7 @@ import telegram.error  # Add this import for BadRequest error handling
 from trading_bot.services.database.db import Database
 from trading_bot.services.chart_service.chart import ChartService
 from trading_bot.services.sentiment_service.sentiment import MarketSentimentService
+from trading_bot.services.sentiment_service.cached_sentiment_service import CachedSentimentService
 from trading_bot.services.calendar_service import EconomicCalendarService
 from trading_bot.services.payment_service.stripe_service import StripeService
 from trading_bot.services.payment_service.stripe_config import get_subscription_features
@@ -763,11 +764,15 @@ class TelegramService:
     # Update the sentiment service property to use fast_mode
     @property
     def sentiment_service(self):
-        """Lazy loaded sentiment service with fast_mode enabled"""
+        """Lazy loaded sentiment service with caching for 30 minutes"""
         if self._sentiment_service is None:
-            # Only initialize the sentiment service when it's first accessed, with fast_mode
-            logger.info("Lazy loading sentiment service with fast_mode=True")
-            self._sentiment_service = MarketSentimentService(fast_mode=True)
+            # Only initialize the sentiment service when it's first accessed
+            logger.info("Lazy loading cached sentiment service with 30-minute TTL")
+            self._sentiment_service = CachedSentimentService(
+                ttl_minutes=30,  # 30-minute cache TTL
+                persistent_cache=True,
+                fast_mode=True
+            )
         return self._sentiment_service
 
     async def _format_calendar_events(self, calendar_data):
@@ -3226,7 +3231,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             return MENU
 
     async def show_sentiment_analysis(self, update: Update, context=None, instrument=None) -> int:
-        """Show sentiment analysis for a selected instrument"""
+        """Show sentiment analysis for a selected instrument with 30-minute caching"""
         query = update.callback_query
         await query.answer()
         
@@ -3258,38 +3263,8 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         # Clean instrument name (without _SELL_4h etc)
         clean_instrument = instrument.split('_')[0] if '_' in instrument else instrument
         
-        # Check if we already have a loading message from context
-        loading_message = None
-        if context and hasattr(context, 'user_data'):
-            loading_message = context.user_data.get('loading_message')
-        
-        # If we don't have a loading message from context, create one
-        if not loading_message:
-            # Toon loading message met GIF
-            loading_text = "Generating sentiment analysis..."
-            loading_gif = "https://media.giphy.com/media/dpjUltnOPye7azvAhH/giphy.gif"
-            
-            try:
-                # Probeer de loading GIF te tonen
-                await query.edit_message_media(
-                    media=InputMediaAnimation(
-                        media=loading_gif,
-                        caption=loading_text
-                    )
-                )
-            except Exception as e:
-                logger.warning(f"Could not show loading GIF: {str(e)}")
-                # Fallback naar tekstupdate
-                try:
-                    await query.edit_message_text(text=loading_text)
-                except Exception as inner_e:
-                    try:
-                        await query.edit_message_caption(caption=loading_text)
-                    except Exception as inner_e2:
-                        logger.error(f"Could not update loading message: {str(inner_e2)}")
-        
         try:
-            # Get sentiment data using clean instrument name - property will lazily initialize the service
+            # Get sentiment data using clean instrument name - uses cached data if available
             sentiment_data = await self.sentiment_service.get_sentiment(clean_instrument)
             
             if not sentiment_data:
