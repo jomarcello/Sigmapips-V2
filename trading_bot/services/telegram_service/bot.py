@@ -861,12 +861,38 @@ class TelegramService:
             bool: True if successful, False otherwise
         """
         try:
-            await query.edit_message_text(
-                text=text,
-                parse_mode=parse_mode,
-                reply_markup=keyboard
-            )
-            return True
+            # Check if the current message contains media (photo, animation, etc.)
+            message = query.message
+            has_media = bool(message.photo) or message.animation is not None or message.document is not None
+            
+            if has_media:
+                logger.info("Message contains media, using delete and resend approach")
+                # For media messages, we need to delete and create new
+                try:
+                    await message.delete()
+                    await message.chat.send_message(
+                        text=text,
+                        parse_mode=parse_mode,
+                        reply_markup=keyboard
+                    )
+                    return True
+                except Exception as media_err:
+                    logger.error(f"Error replacing media message: {str(media_err)}")
+                    # Fallback: just create a new message without deleting
+                    await message.reply_text(
+                        text=text,
+                        parse_mode=parse_mode,
+                        reply_markup=keyboard
+                    )
+                    return True
+            else:
+                # Standard text messages can be edited directly
+                await query.edit_message_text(
+                    text=text,
+                    parse_mode=parse_mode,
+                    reply_markup=keyboard
+                )
+                return True
         except Exception as e:
             logger.warning(f"Could not edit message: {str(e)}")
             try:
@@ -3639,27 +3665,56 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     try:
                         # First try to edit the existing message when possible
                         try:
-                            await query.edit_message_text(
-                                text=full_message,
-                                parse_mode=ParseMode.HTML,
-                                reply_markup=reply_markup
-                            )
-                            logger.info("Successfully edited existing message with sentiment analysis")
+                            # Check if the message has media (animation/photo)
+                            has_media = False
+                            if query and query.message:
+                                has_media = bool(query.message.photo) or query.message.animation is not None
+                            
+                            if has_media:
+                                # If it's a media message, we can't directly edit to text
+                                # So delete it and create a new text message
+                                logger.info("Message contains media, deleting and creating new text message")
+                                try:
+                                    await query.message.delete()
+                                    
+                                    # Send a new message with the analysis text
+                                    await context.bot.send_message(
+                                        chat_id=update.effective_chat.id,
+                                        text=full_message,
+                                        parse_mode=ParseMode.HTML,
+                                        reply_markup=reply_markup
+                                    )
+                                    logger.info("Successfully created new message with sentiment analysis after handling media")
+                                except Exception as del_error:
+                                    logger.warning(f"Error deleting message with media: {str(del_error)}")
+                                    
+                                    # Try to reply with a new message if deletion fails
+                                    await query.message.reply_text(
+                                        text=full_message,
+                                        parse_mode=ParseMode.HTML,
+                                        reply_markup=reply_markup
+                                    )
+                                    logger.info("Created new message as reply after media handling failed")
+                            else:
+                                # If it's a text message, we can edit it directly
+                                await query.edit_message_text(
+                                    text=full_message,
+                                    parse_mode=ParseMode.HTML,
+                                    reply_markup=reply_markup
+                                )
+                                logger.info("Successfully edited existing text message with sentiment analysis")
                         except Exception as edit_error:
                             logger.warning(f"Could not edit message, will create new one: {str(edit_error)}")
                             
                             # If editing fails, delete and create new message
                             try:
-                                deleted = await self.delete_message(update)
-                                if deleted:
-                                    logger.info("Deleted previous message")
-                                else:
-                                    logger.warning("Could not delete previous message")
+                                await query.message.delete()
                             except Exception as del_error:
                                 logger.warning(f"Error deleting previous message: {str(del_error)}")
                             
                             try:
-                                sent_message = await update.effective_chat.send_message(
+                                await context.bot.send_message(
+                                    chat_id=update.effective_chat.id,
                                     text=full_message,
                                     parse_mode=ParseMode.HTML,
                                     reply_markup=reply_markup
@@ -3668,16 +3723,32 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                             except Exception as send_error:
                                 logger.error(f"Error sending new message: {str(send_error)}")
                                 raise send_error
-                    except Exception as e:
-                        logger.error(f"Error updating message with sentiment analysis: {str(e)}")
-                        # Attempt a simple text update as fallback
-                        try:
-                            await query.message.reply_text(
-                                text=f"<b>Error displaying sentiment analysis for {clean_instrument}.</b>\nPlease try again later.",
-                                parse_mode=ParseMode.HTML
-                            )
-                        except Exception as reply_error:
-                            logger.error(f"Even fallback failed: {str(reply_error)}")
+                    except Exception as msg_error:
+                        logger.error(f"Error sending message: {str(msg_error)}")
+                        # Try without HTML parsing if that's the issue
+                        if "Can't parse entities" in str(msg_error):
+                            try:
+                                # Try to edit first
+                                await query.edit_message_text(
+                                    text=re.sub(r'<[^>]+>', '', full_message),  # Strip HTML tags
+                                    reply_markup=reply_markup
+                                )
+                            except Exception:
+                                # If editing fails, send new message
+                                await context.bot.send_message(
+                                    chat_id=update.effective_chat.id,
+                                    text=re.sub(r'<[^>]+>', '', full_message),  # Strip HTML tags
+                                    reply_markup=reply_markup
+                                )
+                        
+                        # If editing fails, send new message
+                        await context.bot.send_message(
+                            chat_id=update.effective_chat.id,
+                            text=full_message,
+                            parse_mode=ParseMode.HTML,
+                            reply_markup=reply_markup
+                        )
+                        logger.info("Successfully sent new message with sentiment analysis")
                     
                     return CHOOSE_ANALYSIS
             
