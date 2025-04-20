@@ -696,6 +696,10 @@ class TelegramService:
         self.sentiment_cache = {}
         self.sentiment_cache_ttl = 60 * 60  # 1 hour in seconds
         
+        # New cache for rendered sentiment analysis messages
+        self.telegram_sentiment_cache = {}
+        self.max_cache_size = 100  # Maximum number of cached results to store
+        
         # Start the bot
         try:
             # Check for bot token
@@ -3532,14 +3536,57 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         
         # Clean instrument name (without _SELL_4h etc)
         clean_instrument = instrument.split('_')[0] if '_' in instrument else instrument
+
+        # Check if we have a cached result - look in local cache first
+        # This new cache is specific to the TelegramService for rendered messages
+        cache_key = f"rendered_sentiment_{clean_instrument}"
+        current_time = datetime.now()
         
-        # Check if we already have a loading message from context
+        # Clear old cache entries first to prevent memory issues
+        self._clear_old_sentiment_cache_entries()
+        
+        # Check if we have this result cached locally for this specific user session
+        has_cached_result = False
+        cached_result = None
+        
+        # Create a sentiment_cache dict in this instance if it doesn't exist yet
+        if not hasattr(self, 'telegram_sentiment_cache'):
+            self.telegram_sentiment_cache = {}
+        
+        if cache_key in self.telegram_sentiment_cache:
+            cached_data = self.telegram_sentiment_cache[cache_key]
+            cache_time = cached_data.get('timestamp')
+            
+            # Check if cache is still valid (less than 30 minutes old)
+            if current_time - cache_time < timedelta(minutes=30):
+                logger.info(f"Using cached rendered sentiment analysis for {clean_instrument} (cached {(current_time - cache_time).total_seconds()/60:.1f} minutes ago)")
+                has_cached_result = True
+                cached_result = cached_data.get('result')
+                
+                # Create reply markup with back button based on flow
+                back_callback = "back_to_signal_analysis" if is_from_signal else "back_to_analysis"
+                reply_markup = InlineKeyboardMarkup([[
+                    InlineKeyboardButton("⬅️ Back", callback_data=back_callback)
+                ]])
+                
+                # Send the cached result directly
+                try:
+                    await query.edit_message_text(
+                        text=cached_result,
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=reply_markup
+                    )
+                    return CHOOSE_ANALYSIS
+                except Exception as e:
+                    logger.warning(f"Could not use cached result, will proceed with new analysis: {str(e)}")
+                    # Continue with normal flow if we can't use the cached result
+        
+        # If we don't have a loading message from context, create one
         loading_message = None
         if context and hasattr(context, 'user_data'):
             loading_message = context.user_data.get('loading_message')
-        
-        # If we don't have a loading message from context, create one
-        if not loading_message:
+            
+        if not loading_message and not has_cached_result:
             # Toon loading message met GIF
             loading_text = "Generating sentiment analysis..."
             loading_gif = "https://media.giphy.com/media/dpjUltnOPye7azvAhH/giphy.gif"
@@ -3663,6 +3710,12 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     reply_markup = InlineKeyboardMarkup([[
                         InlineKeyboardButton("⬅️ Back", callback_data=back_callback)
                     ]])
+                    
+                    # Cache the formatted result for future use
+                    self.telegram_sentiment_cache[cache_key] = {
+                        'result': full_message,
+                        'timestamp': current_time
+                    }
                     
                     # Send the message
                     try:
@@ -3790,6 +3843,12 @@ The {clean_instrument} is currently showing {overall.lower()} sentiment with gen
 
 <b>🔮 Sentiment Outlook:</b>
 Based on current data, the outlook appears {"favorable" if bullish > bearish else "cautious"} for this instrument."""
+            
+            # Cache the formatted result for future use
+            self.telegram_sentiment_cache[cache_key] = {
+                'result': full_message,
+                'timestamp': current_time
+            }
             
             # Create reply markup with back button - use correct back button based on flow
             back_callback = "back_to_signal_analysis" if is_from_signal else "back_to_analysis"
@@ -5435,3 +5494,39 @@ Based on current data, the outlook appears {"favorable" if bullish > bearish els
                     keyboard=None
                 )
                 return ConversationHandler.END
+
+    def _clear_old_sentiment_cache_entries(self):
+        """
+        Clear old entries from the sentiment cache to prevent memory issues.
+        Removes expired entries and trims cache if it gets too large.
+        """
+        current_time = datetime.now()
+        
+        # First, clear expired entries (older than 30 minutes)
+        expired_keys = []
+        for key, cached_data in self.telegram_sentiment_cache.items():
+            cache_time = cached_data.get('timestamp')
+            if cache_time and current_time - cache_time > timedelta(minutes=30):
+                expired_keys.append(key)
+        
+        # Remove expired entries
+        for key in expired_keys:
+            del self.telegram_sentiment_cache[key]
+            
+        logger.debug(f"Cleared {len(expired_keys)} expired entries from sentiment cache")
+        
+        # If cache is still too large, remove oldest entries
+        if len(self.telegram_sentiment_cache) > self.max_cache_size:
+            # Sort entries by timestamp
+            sorted_entries = sorted(
+                self.telegram_sentiment_cache.items(), 
+                key=lambda x: x[1].get('timestamp', datetime.min)
+            )
+            
+            # Remove oldest entries until we're back to the max size
+            entries_to_remove = len(sorted_entries) - self.max_cache_size
+            for i in range(entries_to_remove):
+                key_to_remove = sorted_entries[i][0]
+                del self.telegram_sentiment_cache[key_to_remove]
+                
+            logger.debug(f"Trimmed sentiment cache by removing {entries_to_remove} oldest entries")
