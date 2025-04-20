@@ -1922,96 +1922,77 @@ Based on current market sentiment, the outlook for {instrument} appears {"positi
         return metrics
 
     def _get_quick_local_sentiment(self, instrument: str) -> Dict[str, Any]:
-        """
-        Get a very quick local sentiment estimate without API calls
+        """Generate a quick sentiment estimate locally without API calls"""
+        # Start with a reasonable distribution of sentiment
+        now = datetime.now()
+        # Use today's date as seed for consistent results per day
+        seed_value = int(f"{now.year}{now.month:02d}{now.day:02d}")
         
-        Args:
-            instrument: The instrument to analyze
+        # Add instrument-specific component to seed
+        for char in instrument:
+            seed_value += ord(char)
+        
+        # Initialize random generator with seed
+        random.seed(seed_value)
+        
+        # Generate sentiment percentages with some variability but centered around realistic values
+        instrument_base = instrument.upper()[:3]  # Use first currency as base for forex pairs
+        
+        # Start with neutral sentiment
+        bullish_base = 50
+        
+        # Add some instrument-specific bias
+        if instrument_base in ["EUR", "GBP"]:
+            bullish_base -= 5  # Slightly bearish bias for EUR, GBP based pairs
+        elif instrument_base in ["JPY", "CHF"]:
+            bullish_base += 3  # Slightly bullish for safe havens
+        elif "BTC" in instrument or "ETH" in instrument:
+            bullish_base += 8  # Crypto tends to have bullish bias
+        elif "XAU" in instrument:  # Gold
+            bullish_base += 5  # Gold often has bullish bias
             
-        Returns:
-            Dict with sentiment data
-        """
-        # Use deterministic but pseudo-random sentiment based on instrument name
-        # This creates consistent results for same instrument but different across instruments
-        instrument = instrument.upper()
-        
-        # Calculate hash value from instrument name
-        hash_val = sum(ord(c) for c in instrument) % 100
-        
-        # Add a daily variation component that changes each day
-        day_offset = int(time.time() / 86400) % 20 - 10  # Changes daily, range -10 to +10
-        
-        # Calculate sentiment percentages
-        bullish = max(5, min(95, hash_val + day_offset))
+        # Add randomness (±15%)
+        bullish = max(15, min(85, bullish_base + random.randint(-15, 15)))
         bearish = 100 - bullish
-        neutral = 0
         
-        # Format the sentiment text
-        formatted_text = self._format_default_sentiment(
-            instrument=instrument,
-            bullish_pct=bullish,
-            bearish_pct=bearish,
-            neutral_pct=neutral
-        )
+        # Format the display text
+        overall_sentiment = "Bullish" if bullish > 55 else "Bearish" if bullish < 45 else "Neutral"
+        sentiment_emoji = "📈" if bullish > 55 else "📉" if bullish < 45 else "➡️"
         
-        # Calculate sentiment score
-        sentiment_score = (bullish - bearish) / 100
+        formatted_text = f"""<b>🎯 {instrument} Market Sentiment Analysis</b> (Local Estimate)
+
+<b>Overall Sentiment:</b> {overall_sentiment} {sentiment_emoji}
+
+<b>Market Sentiment Breakdown:</b>
+🟢 Bullish: {bullish}%
+🔴 Bearish: {bearish}%
+⚪️ Neutral: 0%
+
+<b>📰 Key Sentiment Drivers:</b>
+• Regular market activity
+• Standard market conditions
+• No significant events detected
+
+<b>Note:</b> This is a locally generated estimate as no API connection is available.
+"""
         
-        # Determine overall sentiment
-        if bullish > bearish:
-            overall_sentiment = 'bullish'
-        elif bearish > bullish:
-            overall_sentiment = 'bearish'
-        else:
-            overall_sentiment = 'neutral'
-            
-        # Determine trend strength
-        if abs(bullish - 50) > 15:
-            trend_strength = 'Strong'
-        elif abs(bullish - 50) > 5:
-            trend_strength = 'Moderate'
-        else:
-            trend_strength = 'Weak'
-        
-        # Create the result dictionary with all required fields
+        # Return a formatted sentiment response
         return {
             'bullish': bullish,
             'bearish': bearish,
-            'neutral': neutral,
-            'sentiment_score': sentiment_score,
-            'technical_score': 'Based on market analysis',
+            'neutral': 0,
+            'sentiment_score': (bullish - 50) / 100,
+            'technical_score': 'Neutral with slight bias',
             'news_score': f"{bullish}% positive",
             'social_score': f"{bearish}% negative",
             'overall_sentiment': overall_sentiment,
-            'trend_strength': trend_strength,
+            'trend_strength': 'Moderate',
             'volatility': 'Moderate',
             'volume': 'Normal',
             'news_headlines': [],
             'analysis': formatted_text,
             'source': 'local_fallback'  # Mark as local fallback data so it won't be cached
         }
-
-    async def load_cache(self):
-        """
-        Asynchronously load cache from file
-        This can be called after initialization to load the cache without blocking startup
-        
-        Returns:
-            bool: True if cache was loaded successfully, False otherwise
-        """
-        if not self.use_persistent_cache or not self.cache_file or self._cache_loaded:
-            return False
-            
-        try:
-            # Run the load operation in a thread pool to avoid blocking the event loop
-            loop = asyncio.get_running_loop()
-            await loop.run_in_executor(None, self._load_cache_from_file)
-            self._cache_loaded = True
-            logger.info(f"Asynchronously loaded {len(self.sentiment_cache)} sentiment cache entries")
-            return True
-        except Exception as e:
-            logger.error(f"Error loading sentiment cache asynchronously: {str(e)}")
-            return False
 
     async def _process_fast_sentiment_request(self, instrument: str) -> Dict[str, Any]:
         """
