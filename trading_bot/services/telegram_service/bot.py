@@ -3198,14 +3198,14 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             
             # Create with optimized parameters for better performance
             self._sentiment_service = MarketSentimentService(
-                cache_ttl_minutes=60,  # Longer cache TTL for better performance
+                cache_ttl_minutes=30,  # Set to 30 minutes cache TTL
                 persistent_cache=True,
                 fast_mode=True
             )
             
-            # Start background prefetch for common instruments
-            common_instruments = ["EURUSD", "GBPUSD", "USDJPY", "BTCUSD", "XAUUSD"]
-            asyncio.create_task(self._sentiment_service.prefetch_common_instruments(common_instruments))
+            # DISABLED: Start background prefetch for common instruments
+            # common_instruments = ["EURUSD", "GBPUSD", "USDJPY", "BTCUSD", "XAUUSD"]
+            # asyncio.create_task(self._sentiment_service.prefetch_common_instruments(common_instruments))
             
         return self._sentiment_service
 
