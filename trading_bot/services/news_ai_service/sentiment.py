@@ -190,7 +190,7 @@ class MarketSentimentService:
             # In standard mode, limited semaphore
             self.request_semaphore = asyncio.Semaphore(5)
         
-        # Load existing cache if available
+        # Load existing cache if available - use synchronous load during init
         if self.use_persistent_cache:
             try:
                 self._load_cache_from_file()
