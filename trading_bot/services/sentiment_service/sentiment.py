@@ -115,10 +115,35 @@ class MarketSentimentService:
                         "bullish_percentage": 0-100,
                         "trend_strength": "Strong|Moderate|Weak",
                         "volatility": "High|Moderate|Low",
-                        "analysis": "Detailed HTML formatted analysis with <b> tags for headers"
+                        "analysis": "HTML formatted analysis with the EXACT format below (including all emojis and section titles)"
                     }}
                     
-                    Ensure your analysis includes the market sentiment breakdown, key support and resistance levels, recent news impact, and a trading recommendation.
+                    For the "analysis" field, use EXACTLY this format (with HTML tags):
+                    
+                    <b>🎯 {instrument} Market Analysis</b>
+
+                    <b>Overall Sentiment:</b> [Bullish|Bearish|Neutral] [📈|📉|⚖️]
+
+                    <b>Market Sentiment Breakdown:</b>
+                    🟢 Bullish: [percentage]%
+                    🔴 Bearish: [percentage]%
+                    ⚪️ Neutral: 0%
+
+                    <b>📰 Key Sentiment Drivers:</b>
+                    • [First key market driver]
+                    • [Second key market driver]
+                    • [Third key market driver]
+
+                    <b>📊 Market Sentiment Analysis:</b>
+                    [One paragraph analysis of current market sentiment]
+
+                    <b>📅 Important Events & News:</b>
+                    • [Important event 1]
+                    • [Important event 2] 
+                    • [Important event 3]
+                    
+                    <b>🔮 Sentiment Outlook:</b>
+                    [Brief outlook based on sentiment]
                     """
                     
                     # Maak het request body
@@ -335,35 +360,41 @@ class MarketSentimentService:
         bullish_percentage = random.randint(60, 85) if is_bullish else random.randint(15, 40)
         bearish_percentage = 100 - bullish_percentage
         
+        # Determine sentiment emoji and text
+        sentiment_text = "Bullish" if is_bullish else "Bearish"
+        sentiment_emoji = "📈" if is_bullish else "📉"
+        
         # Determine if we're using mock data because of a missing API key or API failure
         if not self.api_key or self.api_key.strip() == "":
             mock_reason = "<i>Note: Using mock data because no DeepSeek API key is configured.</i>"
         else:
             mock_reason = "<i>Note: Using mock data because the DeepSeek API could not be reached. Check your internet connection or API key.</i>"
         
-        # Generate a mock analysis
+        # Generate a mock analysis with the requested format
         return f"""<b>🎯 {instrument} Market Analysis</b>
 
-<b>Market Sentiment:</b>
-Bullish: {bullish_percentage}%
-Bearish: {bearish_percentage}%
-Neutral: 0%
+<b>Overall Sentiment:</b> {sentiment_text} {sentiment_emoji}
 
-<b>📈 Market Direction:</b>
-The {instrument} is currently showing a {"bullish" if is_bullish else "bearish"} trend. Technical indicators suggest {"upward momentum" if is_bullish else "downward pressure"} in the near term.
+<b>Market Sentiment Breakdown:</b>
+🟢 Bullish: {bullish_percentage}%
+🔴 Bearish: {bearish_percentage}%
+⚪️ Neutral: 0%
 
-<b>📰 Latest News & Events:</b>
+<b>📰 Key Sentiment Drivers:</b>
 • {"Positive economic data supporting price" if is_bullish else "Recent economic indicators adding pressure"}
 • {"Increased buying interest from institutional investors" if is_bullish else "Technical resistance levels limiting upside potential"}
 • Regular market fluctuations in line with broader market conditions
 
-<b>⚠️ Risk Factors:</b>
-• Market Volatility: {random.choice(['High', 'Moderate', 'Low'])}
-• Watch for unexpected news events
-• Monitor broader market conditions
+<b>📊 Market Sentiment Analysis:</b>
+The {instrument} is currently showing {sentiment_text.lower()} sentiment with general market consensus.
 
-<b>💡 Conclusion:</b>
-Based on current market conditions, the outlook for {instrument} appears {"positive" if is_bullish else "cautious"}. Traders should consider {"buy opportunities on dips" if is_bullish else "sell positions on rallies"} while maintaining proper risk management.
+<b>📅 Important Events & News:</b>
+• Regular trading activity observed
+• Standard market patterns in effect 
+• Market sentiment data updated regularly
+
+<b>🔮 Sentiment Outlook:</b>
+Based on current data, the outlook appears {"favorable" if is_bullish else "cautious"} for this instrument.
 
 {mock_reason}"""
 
