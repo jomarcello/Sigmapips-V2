@@ -615,7 +615,7 @@ os.environ["DEEPSEEK_API_KEY"] = DEEPSEEK_API_KEY
 os.environ["TAVILY_API_KEY"] = TAVILY_API_KEY
 
 class TelegramService:
-    def __init__(self, db: Database, stripe_service=None, bot_token: Optional[str] = None, proxy_url: Optional[str] = None):
+    def __init__(self, db: Database, stripe_service=None, bot_token: Optional[str] = None, proxy_url: Optional[str] = None, lazy_init: bool = False):
         """Initialize the bot with given database and config."""
         # Database connection
         self.db = db
