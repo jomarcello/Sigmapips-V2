@@ -2447,10 +2447,9 @@ De percentages moeten optellen tot 100. Geef alleen de JSON terug zonder extra t
         # Format the sentiment text
         formatted_text = self._format_fast_sentiment_text(
             instrument=instrument,
-            bullish=bullish,
-            bearish=bearish,
-            neutral=neutral,
-            reasoning=f"Local sentiment estimate for {instrument} based on market trends"
+            bullish_pct=bullish,
+            bearish_pct=bearish,
+            neutral_pct=neutral
         )
         
         return {
