@@ -3640,10 +3640,9 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     "🟢 Bullish:",
                     "🔴 Bearish:",
                     "⚪️ Neutral:",
-                    "<b>📰 Key Sentiment Drivers:</b>",
                     "<b>📊 Market Sentiment Analysis:</b>",
-                    "<b>📅 Important Events & News:</b>",
-                    "<b>🔮 Sentiment Outlook:</b>"
+                    "<b>📰 Key Sentiment Drivers:</b>",
+                    "<b>📅 Important Events & News:</b>"
                 ]
                 
                 # Check for at least 5 of the required sections to be lenient with formatting variations
@@ -3776,13 +3775,13 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
 🔴 Bearish: {bearish}%
 ⚪️ Neutral: {neutral}%
 
+<b>📊 Market Sentiment Analysis:</b>
+The {clean_instrument} is currently showing {overall.lower()} sentiment with general market consensus. Based on current data, the outlook appears {"favorable" if bullish > bearish else "cautious"} for this instrument.
+
 <b>📰 Key Sentiment Drivers:</b>
 • Market sentiment driven by technical factors
 • Current market positioning and sentiment
 • Recent market developments
-
-<b>📊 Market Sentiment Analysis:</b>
-The {clean_instrument} is currently showing {overall.lower()} sentiment with general market consensus.
 
 <b>📅 Important Events & News:</b>
 • Regular trading activity observed
@@ -4680,7 +4679,7 @@ Based on current data, the outlook appears {"favorable" if bullish > bearish els
                             
                         admin_str_id = str(admin_id)
                         if admin_str_id not in self.user_signals:
-                            self.user_signals[admin_str_id] = {}
+                            self.user_signals[admin_id] = {}
                         
                         self.user_signals[admin_str_id][signal_id] = normalized_data
                 except Exception as e:
