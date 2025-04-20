@@ -113,9 +113,12 @@ async def startup_event():
         logger.info("Database initialized")
         
         # Initialize chart service through the telegram service's initialize_services method
-        # This is the only service we need to initialize eagerly
         await telegram_service.initialize_services()
         logger.info("Chart service initialized through telegram service")
+        
+        # Initialize the calendar service
+        calendar_service = EconomicCalendarService()
+        logger.info("Calendar service initialized")
         
         # Log environment variables
         webhook_url = os.getenv("WEBHOOK_URL", "")
@@ -134,10 +137,12 @@ async def startup_event():
         telegram_service.application.add_handler(CommandHandler("help", telegram_service.help_command))
         telegram_service.application.add_handler(CommandHandler("set_subscription", telegram_service.set_subscription_command))
         telegram_service.application.add_handler(CommandHandler("set_payment_failed", telegram_service.set_payment_failed_command))
+        # Deze command bestaat niet, daarom commentarieer ik het uit
+        # telegram_service.application.add_handler(CommandHandler("debug_sentiment", telegram_service.debug_sentiment_command))
         telegram_service.application.add_handler(CallbackQueryHandler(telegram_service.button_callback))
         
-        # Load signals
-        telegram_service._load_signals()
+        # Load signals properly with await
+        await telegram_service._load_signals()
         
         # Set bot commands
         commands = [
