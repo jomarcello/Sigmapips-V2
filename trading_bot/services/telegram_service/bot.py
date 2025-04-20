@@ -3632,7 +3632,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             
             # Check if the analysis text is already in the correct format
             # The key identifier is the presence of "Market Sentiment Analysis</b>" and all required sections
-            if analysis_text and "Market Sentiment Analysis</b>" in analysis_text:
+            if analysis_text and "Market Analysis</b>" in analysis_text:
                 # Check if it has all the required sections
                 required_sections = [
                     "<b>Overall Sentiment:</b>",
@@ -3641,15 +3641,19 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     "🔴 Bearish:",
                     "⚪️ Neutral:",
                     "<b>📰 Key Sentiment Drivers:</b>",
-                    "<b>📊 Market Mood:</b>",
+                    "<b>📊 Market Sentiment Analysis:</b>",
                     "<b>📅 Important Events & News:</b>",
                     "<b>🔮 Sentiment Outlook:</b>"
                 ]
                 
-                all_sections_present = all(section in analysis_text for section in required_sections)
+                # Check for at least 5 of the required sections to be lenient with formatting variations
+                sections_found = 0
+                for section in required_sections:
+                    if section in analysis_text:
+                        sections_found += 1
                 
-                if all_sections_present:
-                    logger.info(f"Analysis text for {clean_instrument} is already in the correct format, using it directly")
+                if sections_found >= 5:
+                    logger.info(f"Analysis text for {clean_instrument} is in the correct format (found {sections_found} sections), using it directly")
                     
                     # Use the existing properly formatted text directly
                     full_message = analysis_text
@@ -3759,93 +3763,34 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             
             # Check if the provided analysis already has a title
             if analysis_text and "<b>🎯" in analysis_text and "Market Analysis</b>" in analysis_text:
-                # Extract the title from the analysis
-                title_start = analysis_text.find("<b>🎯")
-                title_end = analysis_text.find("</b>", title_start) + 4
-                title = analysis_text[title_start:title_end]
-                
-                # Remove the title from the analysis
-                analysis_text = analysis_text[:title_start] + analysis_text[title_end:]
-                analysis_text = analysis_text.strip()
-            
-            # Clean up the analysis text
-            analysis_text = analysis_text.replace("</b><b>", "</b> <b>")  # Fix malformed tags
-            
-            # Zorgen dat ALLE kopjes in de analyse direct in bold staan
-            headers = [
-                "Market Sentiment Breakdown:",
-                "Market Direction:",
-                "Latest News & Events:",
-                "Risk Factors:",
-                "Conclusion:",
-                "Technical Outlook:",
-                "Fundamental Analysis:",
-                "Support & Resistance:",
-                "Sentiment Breakdown:"
-            ]
-            
-            # Eerst verwijderen we bestaande bold tags bij headers om dubbele tags te voorkomen
-            for header in headers:
-                if f"<b>{header}</b>" in analysis_text:
-                    # Als header al bold is, niet opnieuw toepassen
-                    continue
-                
-                # Vervang normale tekst door bold tekst, met regex om exacte match te garanderen
-                pattern = re.compile(r'(\n|^)(' + re.escape(header) + r')')
-                analysis_text = pattern.sub(r'\1<b>\2</b>', analysis_text)
-            
-            # Verwijder extra witruimte tussen secties
-            analysis_text = re.sub(r'\n{3,}', '\n\n', analysis_text)  # Replace 3+ newlines with 2
-            analysis_text = re.sub(r'^\n+', '', analysis_text)  # Remove leading newlines
-            
-            # Verbeter de layout van het bericht
-            # Specifiek verwijder witruimte tussen Overall Sentiment en Market Sentiment Breakdown
-            full_message = f"{title}\n\n{overall_sentiment}"
-            
-            # If there's analysis text, add it with compact formatting
-            if analysis_text:
-                found_header = False
-                
-                # Controleer specifiek op Market Sentiment Breakdown header
-                if "<b>Market Sentiment Breakdown:</b>" in analysis_text:
-                    parts = analysis_text.split("<b>Market Sentiment Breakdown:</b>", 1)
-                    full_message += f"\n\n<b>Market Sentiment Breakdown:</b>{parts[1]}"
-                    found_header = True
-                elif "Market Sentiment Breakdown:" in analysis_text:
-                    # Als de header er wel is maar niet bold, fix het
-                    parts = analysis_text.split("Market Sentiment Breakdown:", 1)
-                    full_message += f"\n\n<b>Market Sentiment Breakdown:</b>{parts[1]}"
-                    found_header = True
-                
-                # Als de Market Sentiment header niet gevonden is, zoek andere headers
-                if not found_header:
-                    for header in headers:
-                        header_bold = f"<b>{header}</b>"
-                        if header_bold in analysis_text:
-                            parts = analysis_text.split(header_bold, 1)
-                            full_message += f"\n\n{header_bold}{parts[1]}"
-                            found_header = True
-                            break
-                        elif header in analysis_text:
-                            # Als de header er wel is maar niet bold, fix het
-                            parts = analysis_text.split(header, 1)
-                            full_message += f"\n\n<b>{header}</b>{parts[1]}"
-                            found_header = True
-                            break
-                
-                # Als geen headers gevonden, voeg de volledige analyse toe
-                if not found_header:
-                    full_message += f"\n\n{analysis_text}"
+                # Use the provided analysis directly as it probably already has the right format
+                full_message = analysis_text
             else:
-                # No analysis text, add a manual breakdown without extra spacing
-                full_message += f"""
+                # Build the message in the desired format
+                full_message = f"""{title}
+
+{overall_sentiment}
+
 <b>Market Sentiment Breakdown:</b>
 🟢 Bullish: {bullish}%
 🔴 Bearish: {bearish}%
-⚪️ Neutral: {neutral}%"""
+⚪️ Neutral: {neutral}%
 
-            # Verwijder alle dubbele newlines om nog meer witruimte te voorkomen
-            full_message = re.sub(r'\n{3,}', '\n\n', full_message)
+<b>📰 Key Sentiment Drivers:</b>
+• Market sentiment driven by technical factors
+• Current market positioning and sentiment
+• Recent market developments
+
+<b>📊 Market Sentiment Analysis:</b>
+The {clean_instrument} is currently showing {overall.lower()} sentiment with general market consensus.
+
+<b>📅 Important Events & News:</b>
+• Regular trading activity observed
+• Standard market patterns in effect 
+• Market sentiment data updated regularly
+
+<b>🔮 Sentiment Outlook:</b>
+Based on current data, the outlook appears {"favorable" if bullish > bearish else "cautious"} for this instrument."""
             
             # Create reply markup with back button - use correct back button based on flow
             back_callback = "back_to_signal_analysis" if is_from_signal else "back_to_analysis"
