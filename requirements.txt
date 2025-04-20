@@ -44,4 +44,4 @@ requests
 
 # AI Services
 # Uncomment and provide API keys in .env file to use these services
-# tavily-python==0.2.2  # for web search via Tavily API
+tavily-python==0.2.2  # for web search via Tavily API
