@@ -2383,8 +2383,20 @@ Monitor market developments for potential sentiment shifts.
             # Check cache first
             cached_result = self._get_from_cache(instrument)
             if cached_result:
-                logger.info(f"Using cached sentiment for {instrument} (elapsed: {time.time() - start_time:.2f}s)")
-                return cached_result
+                # Ensure cached result has all required sections
+                if 'sentiment_text' in cached_result:
+                    if ("<b>📊 Market Sentiment Analysis:</b>" not in cached_result['sentiment_text'] or
+                        "<b>📰 Key Sentiment Drivers:</b>" not in cached_result['sentiment_text'] or
+                        "<b>📅 Important Events & News:</b>" not in cached_result['sentiment_text']):
+                        
+                        logger.warning(f"Cached sentiment for {instrument} has incomplete format, regenerating")
+                        self.clear_cache(instrument)
+                    else:
+                        logger.info(f"Using cached sentiment for {instrument} (elapsed: {time.time() - start_time:.2f}s)")
+                        return cached_result
+                else:
+                    logger.warning(f"Cached sentiment for {instrument} missing sentiment_text, regenerating")
+                    self.clear_cache(instrument)
             
             # Market type detection
             market_type = self._guess_market_from_instrument(instrument)
@@ -2411,7 +2423,16 @@ Monitor market developments for potential sentiment shifts.
             if not self.api_key:
                 logger.warning(f"No DeepSeek API key available. Using local sentiment estimate for {instrument}")
                 result = self._get_quick_local_sentiment(instrument)
+                # Verify the format one last time
+                if ("<b>📊 Market Sentiment Analysis:</b>" not in result['sentiment_text'] or
+                    "<b>📰 Key Sentiment Drivers:</b>" not in result['sentiment_text'] or
+                    "<b>📅 Important Events & News:</b>" not in result['sentiment_text']):
+                    logger.warning(f"Local sentiment has incomplete format, using default template")
+                    # Use the default sentiment text with the percentages from our estimation
+                    result['sentiment_text'] = self._get_default_sentiment_text(instrument)
+                
                 self._add_to_cache(instrument, result)
+                logger.info(f"Local sentiment generated for {instrument} (elapsed: {time.time() - start_time:.2f}s)")
                 return result
             
             # Use semaphore to limit concurrent requests
@@ -2428,13 +2449,13 @@ Monitor market developments for potential sentiment shifts.
                 bearish_pct = response_data.get('bearish_percentage', 0)
                 neutral_pct = response_data.get('neutral_percentage', 0)
                 
-                # Format the sentiment text using the comprehensive format
-                # If DeepSeek provided formatted text, use it; otherwise generate it
-                sentiment_text = response_data.get('formatted_text')
-                if not sentiment_text:
-                    sentiment_text = self._format_fast_sentiment_text(
-                        instrument, bullish_pct, bearish_pct, neutral_pct
-                    )
+                # Get formatted text (this should always be present from _process_sentiment_request)
+                sentiment_text = response_data.get('formatted_text', '')
+                if not sentiment_text or ("<b>📊 Market Sentiment Analysis:</b>" not in sentiment_text or
+                                          "<b>📰 Key Sentiment Drivers:</b>" not in sentiment_text or
+                                          "<b>📅 Important Events & News:</b>" not in sentiment_text):
+                    logger.warning(f"API response missing complete sentiment text for {instrument}, using default")
+                    sentiment_text = self._get_default_sentiment_text(instrument)
                 
                 # Create the result dictionary
                 result = {
@@ -2455,13 +2476,38 @@ Monitor market developments for potential sentiment shifts.
                 # Fallback to local sentiment if API fails
                 logger.warning(f"API request failed for {instrument}. Using local fallback.")
                 result = self._get_quick_local_sentiment(instrument)
+                
+                # Verify the format one last time
+                if ("<b>📊 Market Sentiment Analysis:</b>" not in result['sentiment_text'] or
+                    "<b>📰 Key Sentiment Drivers:</b>" not in result['sentiment_text'] or
+                    "<b>📅 Important Events & News:</b>" not in result['sentiment_text']):
+                    logger.warning(f"Local fallback has incomplete format, using default template")
+                    # Use the default sentiment text with the percentages from our estimation
+                    result['sentiment_text'] = self._get_default_sentiment_text(instrument)
+                
                 self._add_to_cache(instrument, result)
+                logger.info(f"Local fallback used for {instrument} (elapsed: {time.time() - start_time:.2f}s)")
                 return result
                 
         except Exception as e:
             logger.error(f"Error getting fast sentiment for {instrument}: {str(e)}")
-            # Fallback to local sentiment estimation
-            result = self._get_quick_local_sentiment(instrument)
+            logger.exception(e)
+            # Fallback to default sentiment
+            bullish_pct = 50
+            bearish_pct = 50
+            neutral_pct = 0
+            sentiment_text = self._get_default_sentiment_text(instrument)
+            
+            result = {
+                'instrument': instrument,
+                'bullish_percentage': bullish_pct,
+                'bearish_percentage': bearish_pct,
+                'neutral_percentage': neutral_pct,
+                'sentiment_text': sentiment_text,
+                'source': 'error_fallback'
+            }
+            
+            logger.error(f"Error fallback used for {instrument} due to exception")
             return result
     
     def _prepare_enhanced_sentiment_prompt(self, instrument: str, market_type: str, search_data: Optional[str] = None) -> str:
@@ -2571,13 +2617,16 @@ Make sure the percentages add up to 100%. The formatted text MUST include all se
                 'temperature': 0.2  # Lower temperature for more consistent results
             }
             
+            # Use a longer timeout to ensure we get a complete response
+            api_timeout = aiohttp.ClientTimeout(total=20)  # Increase from 10 to 20 seconds
+            
             # Make the API request with timeout
             async with aiohttp.ClientSession() as session:
                 async with session.post(
                     self.api_url,
                     headers=headers,
                     json=payload,
-                    timeout=self.api_timeout
+                    timeout=api_timeout
                 ) as response:
                     if response.status != 200:
                         logger.error(f"API error: {response.status}, {await response.text()}")
@@ -2597,8 +2646,19 @@ Make sure the percentages add up to 100%. The formatted text MUST include all se
                     logger.error(f"Invalid sentiment data format: {sentiment_data}")
                     return None
                 
-                # Verify that formatted_text contains all required sections
+                # Get the formatted text or create it if not provided
                 formatted_text = sentiment_data.get('formatted_text', '')
+                if not formatted_text:
+                    logger.warning(f"No formatted_text provided in API response for {instrument}, creating one")
+                    formatted_text = self._format_fast_sentiment_text(
+                        instrument, 
+                        sentiment_data.get('bullish_percentage', 50),
+                        sentiment_data.get('bearish_percentage', 50),
+                        sentiment_data.get('neutral_percentage', 0)
+                    )
+                    sentiment_data['formatted_text'] = formatted_text
+                
+                # Verify that formatted_text contains all required sections
                 required_sections = [
                     "<b>🎯", "Market Sentiment Analysis</b>",
                     "<b>Overall Sentiment:</b>",
@@ -2613,13 +2673,63 @@ Make sure the percentages add up to 100%. The formatted text MUST include all se
                 missing_sections = [sect for sect in required_sections if sect not in formatted_text]
                 if missing_sections:
                     logger.warning(f"Missing sections in formatted text: {missing_sections}")
-                    # If missing sections, we'll generate a formatted text using our method
-                    sentiment_data['formatted_text'] = self._format_fast_sentiment_text(
+                    # Use our default formatter to ensure all sections are included
+                    default_text = self._get_default_sentiment_text(instrument)
+                    
+                    # Try to extract numbers from API response
+                    formatted_text = self._format_fast_sentiment_text(
                         instrument, 
                         sentiment_data.get('bullish_percentage', 50),
                         sentiment_data.get('bearish_percentage', 50),
                         sentiment_data.get('neutral_percentage', 0)
                     )
+                    sentiment_data['formatted_text'] = formatted_text
+                
+                # Final verification - ensure text has all required sections with full content
+                # This is a critical check to make sure the telegram output is complete
+                final_text = sentiment_data.get('formatted_text', '')
+                
+                # Check for minimal length in each section to ensure content is proper
+                section_checks = {
+                    "Market Sentiment Analysis:</b>": 30,  # Expect at least 30 chars of content
+                    "Key Sentiment Drivers:</b>": 30,
+                    "Important Events & News:</b>": 30
+                }
+                
+                incomplete_sections = []
+                for section, min_length in section_checks.items():
+                    if section in final_text:
+                        section_start = final_text.find(section) + len(section)
+                        next_section = final_text.find("<b>", section_start)
+                        if next_section == -1:
+                            next_section = len(final_text)
+                        
+                        section_content = final_text[section_start:next_section].strip()
+                        if len(section_content) < min_length:
+                            incomplete_sections.append(section)
+                
+                if incomplete_sections:
+                    logger.warning(f"Sections with insufficient content: {incomplete_sections}")
+                    # Use our built-in formatter for most consistent output
+                    formatted_text = self._format_fast_sentiment_text(
+                        instrument, 
+                        sentiment_data.get('bullish_percentage', 50),
+                        sentiment_data.get('bearish_percentage', 50),
+                        sentiment_data.get('neutral_percentage', 0)
+                    )
+                    sentiment_data['formatted_text'] = formatted_text
+                
+                # Make one final check to ensure our expected sections are present
+                final_check = sentiment_data.get('formatted_text', '')
+                if ("<b>📊 Market Sentiment Analysis:</b>" not in final_check or
+                    "<b>📰 Key Sentiment Drivers:</b>" not in final_check or
+                    "<b>📅 Important Events & News:</b>" not in final_check):
+                    logger.error(f"Critical sections still missing after all corrections!")
+                    # Use get_default_sentiment_text as our final fallback
+                    sentiment_data['formatted_text'] = self._get_default_sentiment_text(instrument)
+                
+                # Update the sentiment_text entry to use the same content
+                sentiment_data['sentiment_text'] = sentiment_data['formatted_text']
                 
                 return sentiment_data
             except json.JSONDecodeError:
@@ -2714,13 +2824,30 @@ The percentages must add up to 100. Only return the JSON with no additional text
         bearish_pct = max(5, min(95, 100 - bullish_pct - 10))  # Ensure some neutrality
         neutral_pct = 100 - bullish_pct - bearish_pct
         
-        # Format the sentiment text using the comprehensive format
-        formatted_text = self._format_fast_sentiment_text(
-            instrument=instrument,
-            bullish_pct=bullish_pct,
-            bearish_pct=bearish_pct,
-            neutral_pct=neutral_pct
-        )
+        # Use the default sentiment text to guarantee proper format
+        # This ensures we always have all the required sections
+        formatted_text = self._get_default_sentiment_text(instrument)
+        
+        # Update the percentages in the text
+        # Replace default values with our calculated ones
+        formatted_text = formatted_text.replace("Bullish: 50%", f"Bullish: {bullish_pct:.0f}%")
+        formatted_text = formatted_text.replace("Bearish: 50%", f"Bearish: {bearish_pct:.0f}%")
+        formatted_text = formatted_text.replace("Neutral: 0%", f"Neutral: {neutral_pct:.0f}%")
+        
+        # Determine overall sentiment based on percentages
+        if bullish_pct > bearish_pct + 20:
+            sentiment = "Bullish 📈"
+        elif bullish_pct > bearish_pct + 5:
+            sentiment = "Slightly Bullish 📈"
+        elif bearish_pct > bullish_pct + 20:
+            sentiment = "Bearish 📉"
+        elif bearish_pct > bullish_pct + 5:
+            sentiment = "Slightly Bearish 📉"
+        else:
+            sentiment = "Neutral ➡️"
+        
+        # Update overall sentiment
+        formatted_text = formatted_text.replace("Neutral ➡️", sentiment)
         
         return {
             'instrument': instrument,
