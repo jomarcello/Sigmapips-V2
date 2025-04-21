@@ -155,6 +155,9 @@ class MarketSentimentService:
         self.cache_ttl = cache_ttl_minutes * 60  # Convert minutes to seconds
         self.use_persistent_cache = persistent_cache
         
+        # Explicitly enable caching
+        self.cache_enabled = True
+        
         # Performance metrics
         self.metrics = PerformanceMetrics()
         
@@ -263,12 +266,16 @@ class MarketSentimentService:
         # Start timing the total request
         start_time = time.time()
         
+        # Ensure cache is loaded if persistent cache is enabled
+        if self.use_persistent_cache and not self.cache_loaded:
+            await self.load_cache()
+        
         # Check if we have a valid cached result
         cached_data = self._get_from_cache(instrument)
         if cached_data:
             # Record cache hit
             self.metrics.record_cache_hit()
-            logger.info(f"Returning cached sentiment data for {instrument}")
+            logger.info(f"Cache HIT: Returning cached sentiment data for {instrument}")
             
             # Record total time (very fast for cache hits)
             self.metrics.record_total_request(time.time() - start_time)
@@ -276,6 +283,7 @@ class MarketSentimentService:
         
         # Record cache miss
         self.metrics.record_cache_miss()
+        logger.info(f"Cache MISS: Fetching new sentiment data for {instrument}")
         
         try:
             # Use fast mode if enabled
@@ -2087,118 +2095,161 @@ Monitor market developments for potential sentiment shifts.
 """
 
     def _add_to_cache(self, instrument: str, sentiment_data: Dict[str, Any]) -> None:
-        """Add sentiment data to cache with TTL"""
-        if not hasattr(self, 'cache_enabled') or not self.cache_enabled:
-            return  # Cache is disabled
-            
+        """
+        Add sentiment data to the cache
+        
+        Args:
+            instrument: The instrument name
+            sentiment_data: Sentiment data to cache
+        """
+        # Always cache regardless of whether hasattr or not
+        # Remove the old condition that was bypassing the cache
         try:
-            cache_key = instrument.upper()
-            
-            # Make a copy to avoid reference issues
-            cache_data = copy.deepcopy(sentiment_data)
-            # Add timestamp for TTL check
-            cache_data['timestamp'] = time.time()
-            
-            # Store in memory cache
-            self.sentiment_cache[cache_key] = cache_data
-            
-            # If persistent cache is enabled, save to file
-            if self.cache_file:
-                self._save_cache_to_file()
+            with self._cache_lock:
+                # Normalize the instrument name to lowercase
+                instrument = instrument.upper()
                 
-        except Exception as e:
-            logger.error(f"Error adding to sentiment cache: {str(e)}")
-    
-    def _get_from_cache(self, instrument: str) -> Optional[Dict[str, Any]]:
-        """Get sentiment data from cache if available and not expired"""
-        if not hasattr(self, 'cache_enabled') or not self.cache_enabled:
-            return None  # Cache is disabled
-            
-        try:
-            cache_key = instrument.upper()
-            
-            # Check if in memory cache
-            if cache_key in self.sentiment_cache:
-                cache_data = self.sentiment_cache[cache_key]
+                # Add to cache with a timestamp
+                self.sentiment_cache[instrument] = {
+                    "data": sentiment_data,
+                    "timestamp": time.time()
+                }
                 
-                # Check if expired
-                current_time = time.time()
-                cache_time = cache_data.get('timestamp', 0)
-                
-                if current_time - cache_time < self.cache_ttl:
-                    # Make a copy to avoid reference issues
-                    result = copy.deepcopy(cache_data)
-                    # Remove timestamp as it's internal
-                    if 'timestamp' in result:
-                        del result['timestamp']
-                    return result
-                else:
-                    # Expired, remove from cache
-                    del self.sentiment_cache[cache_key]
+                # If persistent caching is enabled, save to disk
+                if self.use_persistent_cache:
+                    # Use a background thread to save cache to disk
+                    threading.Thread(target=self._save_cache_to_file).start()
                     
-            return None
-            
+                logger.info(f"Added sentiment data for {instrument} to cache")
         except Exception as e:
-            logger.error(f"Error getting from sentiment cache: {str(e)}")
+            logger.error(f"Error adding to cache: {str(e)}")
+            logger.exception(e)
+            
+    def _get_from_cache(self, instrument: str) -> Optional[Dict[str, Any]]:
+        """
+        Get sentiment data from the cache if it exists and is not expired
+        
+        Args:
+            instrument: The instrument name
+            
+        Returns:
+            The cached sentiment data or None if not found or expired
+        """
+        # Always try to get from cache regardless of whether hasattr or not
+        # Remove the old condition that was bypassing the cache
+        try:
+            with self._cache_lock:
+                # Normalize the instrument name to lowercase
+                instrument = instrument.upper()
+                
+                # Load cache from disk if it hasn't been loaded yet
+                if not self.cache_loaded and self.use_persistent_cache:
+                    logger.info(f"Cache not yet loaded, attempting to load for {instrument}")
+                    self._load_cache_from_file()
+                
+                # Check if instrument is in cache
+                if instrument in self.sentiment_cache:
+                    cache_entry = self.sentiment_cache[instrument]
+                    
+                    # Check if cache entry is expired
+                    cache_age = time.time() - cache_entry.get("timestamp", 0)
+                    if cache_age < self.cache_ttl:
+                        logger.info(f"Found valid cache entry for {instrument} (age: {cache_age:.1f}s)")
+                        return cache_entry["data"]
+                    else:
+                        logger.info(f"Cache entry for {instrument} is expired (age: {cache_age:.1f}s)")
+                else:
+                    logger.info(f"No cache entry found for {instrument}")
+                
+                return None
+        except Exception as e:
+            logger.error(f"Error getting from cache: {str(e)}")
+            logger.exception(e)
             return None
     
     def _save_cache_to_file(self) -> None:
-        """Save the in-memory cache to the persistent file"""
-        if not hasattr(self, 'cache_file') or not self.cache_file:
-            return  # No cache file configured
+        """Save the sentiment cache to a file"""
+        if not self.use_persistent_cache or not self.cache_file:
+            return
             
         try:
-            # Create directory if it doesn't exist
-            os.makedirs(os.path.dirname(self.cache_file), exist_ok=True)
-            
-            # Filter out expired items
-            current_time = time.time()
-            valid_cache = {}
-            
-            for key, data in self.sentiment_cache.items():
-                cache_time = data.get('timestamp', 0)
-                if current_time - cache_time < self.cache_ttl:
-                    valid_cache[key] = data
-            
-            # Save to file
-            with open(self.cache_file, 'w', encoding='utf-8') as f:
-                json.dump(valid_cache, f, indent=2)
+            with self._cache_lock:
+                # Create a serializable version of the cache
+                serializable_cache = {}
+                for instrument, cache_entry in self.sentiment_cache.items():
+                    # Store the data and timestamp in a serializable format
+                    serializable_cache[instrument] = {
+                        "data": cache_entry["data"],
+                        "timestamp": cache_entry["timestamp"]
+                    }
                 
+                # Get file path - make sure it's absolute
+                cache_path = str(self.cache_file)
+                # Handle case where cache_file is a relative path
+                if not os.path.isabs(cache_path):
+                    cache_path = os.path.join(os.getcwd(), cache_path)
+                
+                # Create parent directory if it doesn't exist
+                parent_dir = os.path.dirname(cache_path)
+                if parent_dir:  # Only try to create if there is a parent directory
+                    os.makedirs(parent_dir, exist_ok=True)
+                
+                # Write cache to file with pretty formatting
+                with open(cache_path, 'w') as f:
+                    json.dump(serializable_cache, f, indent=2)
+                    
+                logger.info(f"Sentiment cache saved to {cache_path} ({len(self.sentiment_cache)} entries)")
         except Exception as e:
             logger.error(f"Error saving sentiment cache to file: {str(e)}")
-    
+            logger.exception(e)
+            
     def _load_cache_from_file(self) -> None:
-        """Load the cache from the persistent file"""
-        if not hasattr(self, 'cache_file') or not self.cache_file:
-            return  # No cache file configured
+        """Load the sentiment cache from a file"""
+        if not self.use_persistent_cache or not self.cache_file:
+            return
             
         try:
             # Check if file exists
             if not os.path.exists(self.cache_file):
-                self.sentiment_cache = {}
+                logger.info(f"Cache file {self.cache_file} not found, starting with empty cache")
+                self.cache_loaded = True
                 return
                 
-            # Load from file
-            with open(self.cache_file, 'r', encoding='utf-8') as f:
+            # Read cache from file
+            with open(self.cache_file, 'r') as f:
                 loaded_cache = json.load(f)
-            
-            # Filter out expired items
+                
+            # Process loaded cache - clean up any expired entries
             current_time = time.time()
-            valid_cache = {}
+            valid_entries = 0
+            expired_entries = 0
             
-            for key, data in loaded_cache.items():
-                cache_time = data.get('timestamp', 0)
-                if current_time - cache_time < self.cache_ttl:
-                    valid_cache[key] = data
-            
-            self.sentiment_cache = valid_cache
-            
-            logger.info(f"Loaded {len(valid_cache)} sentiment cache entries from file")
-            
+            with self._cache_lock:
+                for instrument, cache_entry in loaded_cache.items():
+                    # Skip entries without proper format
+                    if not isinstance(cache_entry, dict) or "data" not in cache_entry or "timestamp" not in cache_entry:
+                        logger.warning(f"Skipping invalid cache entry for {instrument}")
+                        continue
+                        
+                    # Check if expired
+                    cache_age = current_time - cache_entry["timestamp"]
+                    if cache_age < self.cache_ttl:
+                        # Add to memory cache
+                        self.sentiment_cache[instrument] = cache_entry
+                        valid_entries += 1
+                    else:
+                        # Skip expired entries
+                        expired_entries += 1
+                        
+                self.cache_loaded = True
+                
+            logger.info(f"Loaded sentiment cache from {self.cache_file}: {valid_entries} valid entries, {expired_entries} expired entries")
         except Exception as e:
             logger.error(f"Error loading sentiment cache from file: {str(e)}")
-            self.sentiment_cache = {}
-
+            logger.exception(e)
+            # Set cache as loaded even if there was an error, to avoid repeated load attempts
+            self.cache_loaded = True
+    
     def clear_cache(self, instrument: Optional[str] = None) -> None:
         """
         Clear cache entries for a specific instrument or all instruments
@@ -2540,10 +2591,9 @@ De percentages moeten optellen tot 100. Geef alleen de JSON terug zonder extra t
         # Format the sentiment text
         formatted_text = self._format_fast_sentiment_text(
             instrument=instrument,
-            bullish=bullish,
-            bearish=bearish,
-            neutral=neutral,
-            reasoning=f"Local sentiment estimate for {instrument} based on market trends"
+            bullish_pct=bullish,
+            bearish_pct=bearish,
+            neutral_pct=neutral
         )
         
         return {
@@ -2564,25 +2614,33 @@ De percentages moeten optellen tot 100. Geef alleen de JSON terug zonder extra t
 
     async def load_cache(self):
         """
-        Asynchronously load cache from file
-        This can be called after initialization to load the cache without blocking startup
-        
-        Returns:
-            bool: True if cache was loaded successfully, False otherwise
+        Load the sentiment cache from disk (if available)
+        This method can be called externally to preload the cache at startup
         """
-        if not self.use_persistent_cache or not self.cache_file or self.cache_loaded:
-            return False
+        if not self.use_persistent_cache or not self.cache_file:
+            logger.info("Persistent cache not enabled, skipping cache load")
+            self.cache_loaded = True
+            return
+            
+        if self.cache_loaded:
+            logger.info("Cache already loaded, skipping")
+            return
             
         try:
-            # Run the load operation in a thread pool to avoid blocking the event loop
-            loop = asyncio.get_running_loop()
-            await loop.run_in_executor(None, self._load_cache_from_file)
+            logger.info(f"Loading sentiment cache from {self.cache_file}")
+            self._load_cache_from_file()
+            
+            # Log cache statistics after loading
+            cache_size = len(self.sentiment_cache)
+            logger.info(f"Cache loaded with {cache_size} entries")
+            
+            # Set status even if errors occurred, to prevent repeated load attempts
             self.cache_loaded = True
-            logger.info(f"Asynchronously loaded {len(self.sentiment_cache)} sentiment cache entries")
-            return True
         except Exception as e:
-            logger.error(f"Error loading sentiment cache asynchronously: {str(e)}")
-            return False
+            logger.error(f"Error loading cache at startup: {str(e)}")
+            logger.exception(e)
+            # Set cache as loaded even if there was an error
+            self.cache_loaded = True
 
 class TavilyClient:
     """A simple wrapper for the Tavily API that handles errors properly"""
