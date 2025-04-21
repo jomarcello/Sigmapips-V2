@@ -6,7 +6,15 @@ MAX_ATTEMPTS=3
 
 echo "Running syntax error fixers..."
 
-# First try the specific health_check fix script
+# Run our comprehensive fix_all_issues.sh script first
+echo "Running comprehensive fix_all_issues.sh script..."
+bash /app/fix_all_issues.sh
+
+# Run our specific fix_health_check.py script
+echo "Running specific fix_health_check.py script for health_check function..."
+python3 /app/fix_health_check.py /app/trading_bot/main.py
+
+# Then try the specific health_check fix script
 echo "Attempt 1: Running fix_syntax_error.py for specific health_check function..."
 python3 /app/fix_syntax_error.py /app/trading_bot/main.py
 
