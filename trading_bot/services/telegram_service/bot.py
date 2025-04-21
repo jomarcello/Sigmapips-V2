@@ -720,12 +720,11 @@ class TelegramService:
                 # Use asyncio.create_task to properly handle the coroutine
                 asyncio.create_task(self._load_signals())
             else:
-                # When using lazy init, we should also create the background task properly
-                try:
-                    self._background_tasks.append(asyncio.create_task(self._load_signals()))
-                    logger.info("Created background task for loading signals")
-                except Exception as e:
-                    logger.error(f"Error creating background task for loading signals: {str(e)}")
+                # When using lazy init, we should not create a background task as there's no event loop
+                # Instead, log that signals will be loaded on first use
+                logger.info("Signals will be loaded on first use (lazy_init=True)")
+                # Store the signals load status
+                self._signals_loaded = False
             
             logger.info("Bot setup completed successfully")
             logger.info("Telegram service initialized")
@@ -4531,10 +4530,12 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
     def signals(self):
         """Lazily load signals when needed"""
         if not getattr(self, '_signals_loaded', False):
-            # Create an asyncio task to load signals in the background
-            if not hasattr(self, '_loading_signals_task') or self._loading_signals_task.done():
-                logger.info("Lazy loading signals")
-                self._loading_signals_task = asyncio.create_task(self._load_signals())
+            # If we don't have an event loop running, we cannot create a task
+            # Just return an empty dict now, the signals will be loaded later
+            logger.info("Signals not yet loaded - returning empty dict for now")
+            # Set a flag so we know we need to load them at runtime
+            self._signals_need_loading = True
+            return {}
                 
         return self.user_signals
 
@@ -5030,7 +5031,22 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     webhook_full_url = f"{webhook_full_url}{self.webhook_path}"
                 
                 logger.info(f"Setting up webhook at {webhook_full_url}")
-                await self.application.bot.set_webhook(url=webhook_full_url)
+                
+                # Initialize application properly
+                logger.info("Initializing application")
+                await self.application.initialize()
+                logger.info("Starting application")
+                await self.application.start()
+                logger.info("Application started successfully")
+                
+                # Set webhook
+                logger.info("Setting webhook URL")
+                await self.bot.set_webhook(url=webhook_full_url)
+                
+                # Verify webhook was set
+                webhook_info = await self.bot.get_webhook_info()
+                logger.info(f"Webhook set to: {webhook_info.url}")
+                logger.info(f"Pending updates: {webhook_info.pending_update_count}")
                 
                 # Create FastAPI app for webhook handling
                 app = FastAPI()
@@ -5065,6 +5081,19 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                         if len(self.processed_updates) > 1000:
                             # Keep only the 500 most recent update IDs
                             self.processed_updates = set(sorted(self.processed_updates)[-500:])
+                        
+                        # Check if signals need to be loaded
+                        if not getattr(self, '_signals_loaded', False) and getattr(self, '_signals_need_loading', False):
+                            try:
+                                logger.info("Loading signals during first webhook request")
+                                await self._load_signals()
+                                self._signals_loaded = True
+                                self._signals_need_loading = False
+                                logger.info("Signals loaded successfully during webhook processing")
+                            except Exception as e:
+                                logger.error(f"Error loading signals during webhook processing: {str(e)}")
+                                logger.error(traceback.format_exc())
+                                # Continue anyway as this is not critical
                         
                         # Create Update object
                         update = Update.de_json(update_data, self.bot)
@@ -5122,4 +5151,5 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 return None
         except Exception as e:
             logger.error(f"Error running bot: {str(e)}")
+            logger.error(traceback.format_exc())
             raise
