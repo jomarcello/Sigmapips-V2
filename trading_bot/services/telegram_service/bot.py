@@ -5068,7 +5068,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                         await asyncio.sleep(60)
                 
                 # Start the keepalive task
-                asyncio.create_task(keepalive())
+                self._background_tasks.append(asyncio.create_task(keepalive()))
                 
                 return None
         except Exception as e:
