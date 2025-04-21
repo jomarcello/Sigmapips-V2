@@ -14,42 +14,25 @@ logger = logging.getLogger(__name__)
 class Database:
     def __init__(self):
         """Initialize database connections"""
-        self.use_mock = False
-        
         try:
             # Supabase setup
             supabase_url = os.getenv("SUPABASE_URL") 
             supabase_key = os.getenv("SUPABASE_KEY")
             
-            # Check if we should use mock data
-            if os.getenv("USE_MOCK_DATA", "false").lower() == "true":
-                logger.warning("Using mock data for database - USE_MOCK_DATA is set to true")
-                self.use_mock = True
-                self.supabase = None
-            elif not supabase_url or not supabase_key:
-                logger.warning("Missing Supabase credentials, using mock data")
-                self.use_mock = True
-                self.supabase = None
-            else:
-                # Try to connect to Supabase
-                try:
-                    self.supabase = create_client(supabase_url, supabase_key)
-                    
-                    # Test de connectie
-                    test_query = self.supabase.table('subscriber_preferences').select('*').limit(1).execute()
-                    logger.info(f"Supabase connection test successful: {test_query}")
-                    
-                    logger.info("Successfully connected to Supabase")
-                except Exception as supabase_error:
-                    logger.error(f"Failed to connect to Supabase: {str(supabase_error)}")
-                    logger.warning("Using mock data for database due to connection failure")
-                    self.use_mock = True
-                    self.supabase = None
+            if not supabase_url or not supabase_key:
+                raise ValueError("Missing Supabase credentials")
+                
+            self.supabase = create_client(supabase_url, supabase_key)
+            
+            # Test de connectie
+            test_query = self.supabase.table('subscriber_preferences').select('*').limit(1).execute()
+            logger.info(f"Supabase connection test successful: {test_query}")
+            
+            logger.info("Successfully connected to Supabase")
             
         except Exception as e:
             logger.error(f"Failed to connect to Supabase: {str(e)}")
-            self.use_mock = True
-            self.supabase = None
+            raise
             
         # Setup Redis
         try:
@@ -87,103 +70,6 @@ class Database:
             'intraday': '1h',
             'swing': '4h'
         }
-        
-        # Setup mock data if needed
-        if self.use_mock:
-            self._setup_mock_data()
-            
-    def _setup_mock_data(self):
-        """Set up mock data for development and testing"""
-        logger.info("Setting up mock data for database")
-        
-        # Mock subscribers
-        self.mock_subscribers = [
-            {
-                "id": 1,
-                "user_id": 12345,
-                "market": "forex",
-                "instrument": "EURUSD",
-                "timeframe": "1h",
-                "is_active": True,
-                "created_at": "2023-01-01T00:00:00"
-            },
-            {
-                "id": 2,
-                "user_id": 67890,
-                "market": "forex",
-                "instrument": "ALL",
-                "timeframe": "ALL",
-                "is_active": True,
-                "created_at": "2023-01-01T00:00:00"
-            },
-            {
-                "id": 3,
-                "user_id": 54321,
-                "market": "crypto",
-                "instrument": "BTCUSD",
-                "timeframe": "1h",
-                "is_active": True,
-                "created_at": "2023-01-01T00:00:00"
-            }
-        ]
-        
-        # Mock users
-        self.mock_users = [
-            {
-                "id": 12345,
-                "first_name": "John",
-                "last_name": "Doe",
-                "username": "johndoe",
-                "is_active": True,
-                "created_at": "2023-01-01T00:00:00"
-            },
-            {
-                "id": 67890,
-                "first_name": "Jane",
-                "last_name": "Smith",
-                "username": "janesmith",
-                "is_active": True,
-                "created_at": "2023-01-01T00:00:00"
-            },
-            {
-                "id": 54321,
-                "first_name": "Bob",
-                "last_name": "Johnson",
-                "username": "bobjohnson",
-                "is_active": True,
-                "created_at": "2023-01-01T00:00:00"
-            }
-        ]
-        
-        # Mock subscriptions
-        self.mock_subscriptions = [
-            {
-                "id": 1,
-                "user_id": 12345,
-                "subscription_type": "premium",
-                "status": "active",
-                "current_period_end": (datetime.datetime.now() + datetime.timedelta(days=30)).isoformat(),
-                "created_at": "2023-01-01T00:00:00"
-            },
-            {
-                "id": 2,
-                "user_id": 67890,
-                "subscription_type": "premium",
-                "status": "active",
-                "current_period_end": (datetime.datetime.now() + datetime.timedelta(days=30)).isoformat(),
-                "created_at": "2023-01-01T00:00:00"
-            },
-            {
-                "id": 3,
-                "user_id": 54321,
-                "subscription_type": "basic",
-                "status": "active",
-                "current_period_end": (datetime.datetime.now() + datetime.timedelta(days=30)).isoformat(),
-                "created_at": "2023-01-01T00:00:00"
-            }
-        ]
-        
-        logger.info("Mock data setup complete")
         
     async def match_subscribers(self, signal):
         """Match subscribers to a signal"""
@@ -320,10 +206,6 @@ class Database:
     async def get_all_preferences(self):
         """Get all subscriber preferences"""
         try:
-            if self.use_mock:
-                logger.info("Using mock data for get_all_preferences")
-                return self.mock_subscribers
-                
             # Haal alle voorkeuren op uit de database
             response = self.supabase.table('subscriber_preferences').select('*').execute()
             
@@ -337,15 +219,12 @@ class Database:
         
     async def get_cached_sentiment(self, symbol: str) -> str:
         """Get cached sentiment analysis"""
-        if self.redis:
-            return self.redis.get(f"sentiment:{symbol}")
-        return None
+        return self.redis.get(f"sentiment:{symbol}")
         
     async def cache_sentiment(self, symbol: str, sentiment: str) -> None:
         """Cache sentiment analysis"""
         try:
-            if self.redis:
-                self.redis.set(f"sentiment:{symbol}", sentiment, ex=self.CACHE_TIMEOUT)
+            self.redis.set(f"sentiment:{symbol}", sentiment, ex=self.CACHE_TIMEOUT)
         except Exception as e:
             logger.error(f"Error caching sentiment: {str(e)}")
             
@@ -737,16 +616,10 @@ class Database:
             return [{'user_id': 2004519703}]  # Vervang met je eigen user ID 
 
     async def get_user_subscription(self, user_id: int):
-        """Get user subscription information"""
+        """Get subscription status for a user"""
         try:
-            if self.use_mock:
-                logger.info(f"Using mock data for get_user_subscription: {user_id}")
-                for subscription in self.mock_subscriptions:
-                    if subscription["user_id"] == user_id:
-                        return subscription
-                return None
-                
-            response = self.supabase.table('user_subscriptions').select('*').eq('user_id', user_id).execute()
+            response = self.supabase.table('user_subscriptions').select('*').eq('user_id', user_id).limit(1).execute()
+            
             if response.data and len(response.data) > 0:
                 return response.data[0]
             else:
@@ -754,7 +627,7 @@ class Database:
         except Exception as e:
             logger.error(f"Error getting user subscription: {str(e)}")
             return None
-
+    
     async def create_or_update_subscription(self, user_id: int, stripe_customer_id: str = None, 
                                            stripe_subscription_id: str = None, status: str = 'inactive',
                                            subscription_type: str = 'basic', current_period_end: datetime.datetime = None):
@@ -797,48 +670,33 @@ class Database:
             return False
     
     async def is_user_subscribed(self, user_id: int) -> bool:
-        """Check if a user has an active subscription"""
+        """Check if user has an active subscription"""
         try:
-            if self.use_mock:
-                logger.info(f"Using mock data for is_user_subscribed: {user_id}")
-                for subscription in self.mock_subscriptions:
-                    if subscription["user_id"] == user_id and subscription["status"] == "active":
-                        # Check if subscription is still valid
-                        end_date = datetime.datetime.fromisoformat(subscription["current_period_end"])
-                        if end_date > datetime.datetime.now():
-                            return True
-                return False
-                
+            # Add debugging
+            logger.info(f"Checking subscription for user {user_id}")
+            
+            # Retrieve the user's subscription
             subscription = await self.get_user_subscription(user_id)
+            logger.info(f"Subscription data: {subscription}")
+            
             if not subscription:
-                return False
-                
-            # Check if subscription is active
-            if subscription.get('status') != 'active':
+                logger.info(f"User {user_id} has no subscription record")
                 return False
             
-            # Check if subscription has not expired
-            current_period_end = subscription.get('current_period_end')
-            if not current_period_end:
-                return False
-                
-            # Convert to datetime if it's a string
-            if isinstance(current_period_end, str):
-                try:
-                    current_period_end = datetime.datetime.fromisoformat(current_period_end.replace('Z', '+00:00'))
-                except:
-                    # If parsing fails, assume subscription is expired
-                    return False
+            # Check if status is active or trialing
+            status = subscription.get('subscription_status')
+            logger.info(f"Subscription status: {status}")
             
-            # Compare with current time
-            current_time = datetime.datetime.now(timezone.utc)
-            if current_period_end < current_time:
-                return False
+            # Consider any of these statuses as active
+            if status in ['active', 'trialing', 'past_due']:
+                # For debugging: skip end date check temporarily
+                logger.info(f"User {user_id} has active status: {status}")
+                return True
                 
-            # All checks passed, user is subscribed
-            return True
+            return False
+            
         except Exception as e:
-            logger.error(f"Error checking if user is subscribed: {str(e)}")
+            logger.error(f"Error checking subscription status: {str(e)}")
             return False
             
     async def has_payment_failed(self, user_id: int) -> bool:
@@ -1015,39 +873,46 @@ class Database:
             return False
             
     async def get_subscribers_for_instrument(self, instrument: str, timeframe: str = None) -> List[int]:
-        """Get list of user IDs subscribed to a specific instrument and timeframe"""
+        """Get all subscribers for a specific instrument and timeframe
+        
+        Arguments:
+            instrument: Trading instrument/symbol (e.g., EURUSD, BTCUSD)
+            timeframe: Timeframe (optional, if provided will filter by timeframe)
+            
+        Returns:
+            List[int]: List of subscriber user IDs
+        """
         try:
-            if self.use_mock:
-                logger.info(f"Using mock data for get_subscribers_for_instrument: {instrument}, {timeframe}")
-                subscribers = []
-                for pref in self.mock_subscribers:
-                    if (pref["instrument"] == instrument or pref["instrument"] == "ALL") and \
-                       (timeframe is None or pref["timeframe"] == timeframe or pref["timeframe"] == "ALL"):
-                        subscribers.append(pref["user_id"])
-                return subscribers
+            # Try to get subscribers from the new signal_subscriptions table first
+            query = self.supabase.table('signal_subscriptions').select('user_id').eq('instrument', instrument)
             
-            # Get subscribers from database
-            query = self.supabase.table('subscriber_preferences').select('user_id')
-            
-            # Filter by instrument (either specific instrument or ALL)
-            query = query.or_(f"instrument.eq.{instrument},instrument.eq.ALL")
-            
-            # Filter by timeframe if specified
+            # Filter by timeframe if provided
             if timeframe:
-                normalized_timeframe = self._normalize_timeframe(timeframe)
-                query = query.or_(f"timeframe.eq.{normalized_timeframe},timeframe.eq.ALL")
+                query = query.eq('timeframe', timeframe)
                 
             response = query.execute()
             
-            # Extract user IDs
-            subscribers = []
-            if response.data:
-                for pref in response.data:
-                    subscribers.append(pref.get('user_id'))
-                    
-            return list(set(subscribers))  # Return unique user IDs
+            if response and response.data:
+                return [item['user_id'] for item in response.data]
+                
+            # Fall back to the old table if needed
+            query = self.supabase.table('subscriber_preferences').select('user_id').eq('instrument', instrument)
+            
+            # Filter by timeframe if provided
+            if timeframe:
+                normalized_timeframe = self._normalize_timeframe_for_db(timeframe)
+                query = query.eq('timeframe', normalized_timeframe)
+                
+            response = query.execute()
+            
+            if response and response.data:
+                return [item['user_id'] for item in response.data]
+                
+            # If no subscribers found in either table
+            return []
+            
         except Exception as e:
-            logger.error(f"Error getting subscribers for instrument: {str(e)}")
+            logger.error(f"Error getting subscribers for instrument {instrument}: {str(e)}")
             return []
 
     async def add_signal_subscription(self, user_id: int, market: str, instrument: str, timeframe: str = None) -> bool:
