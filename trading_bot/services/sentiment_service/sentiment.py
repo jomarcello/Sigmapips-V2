@@ -15,6 +15,7 @@ import threading
 import pathlib
 import statistics
 import copy
+import traceback
 
 logger = logging.getLogger(__name__)
 
@@ -164,6 +165,9 @@ class MarketSentimentService:
         self.cache_ttl = cache_ttl_minutes * 60  # Convert minutes to seconds
         self.use_persistent_cache = persistent_cache
         
+        # Enable caching by default
+        self.cache_enabled = True
+        
         # Performance metrics
         self.metrics = PerformanceMetrics()
         
@@ -277,19 +281,20 @@ class MarketSentimentService:
         # Start timing the total request
         start_time = time.time()
         
-        # Check if we have a valid cached result
-        cached_data = self._get_from_cache(instrument)
-        if cached_data:
-            # Record cache hit
-            self.metrics.record_cache_hit()
-            logger.info(f"Returning cached sentiment data for {instrument}")
-            
-            # Record total time (very fast for cache hits)
-            self.metrics.record_total_request(time.time() - start_time)
-            return cached_data
-        
-        # Record cache miss
-        self.metrics.record_cache_miss()
+        # Check if we have a valid cached result using market-specific cache
+        if market_type:
+            cached_data = self._get_from_market_specific_cache(instrument, market_type)
+            if cached_data:
+                logger.info(f"Returning market-specific cached sentiment data for {instrument} ({market_type})")
+                self.metrics.record_total_request(time.time() - start_time)
+                return cached_data
+        else:
+            # Fallback to standard cache if market_type is not available
+            cached_data = self._get_from_cache(instrument)
+            if cached_data:
+                logger.info(f"Returning cached sentiment data for {instrument}")
+                self.metrics.record_total_request(time.time() - start_time)
+                return cached_data
         
         try:
             # First try the direct API approach (similar to LiveSentimentService)
@@ -298,6 +303,12 @@ class MarketSentimentService:
                     logger.info(f"Attempting direct API approach for {instrument}")
                     result = await self._get_direct_api_sentiment(instrument, market_type)
                     if result:
+                        # Cache the result with market-specific key if market type is available
+                        if market_type:
+                            self._add_market_specific_to_cache(instrument, market_type, result)
+                        else:
+                            self._add_to_cache(instrument, result)
+                        
                         # Record total request time
                         self.metrics.record_total_request(time.time() - start_time)
                         return result
@@ -309,6 +320,12 @@ class MarketSentimentService:
             # Use fast mode if enabled
             if self.fast_mode:
                 result = await self._get_fast_sentiment(instrument)
+                # Cache the result with market-specific key if market type is available
+                if market_type:
+                    self._add_market_specific_to_cache(instrument, market_type, result)
+                else:
+                    self._add_to_cache(instrument, result)
+                
                 # Record total request time
                 self.metrics.record_total_request(time.time() - start_time)
                 return result
@@ -671,6 +688,7 @@ The percentages MUST add up to 100%, and the formatted text MUST include all sec
                     # Add source information
                     data["source"] = "api"
                     data["instrument"] = instrument
+                    data["market_type"] = market_type
                     
                     # Verify the formatted text includes all required sections
                     formatted_text = data["formatted_text"]
@@ -704,11 +722,12 @@ The percentages MUST add up to 100%, and the formatted text MUST include all sec
                         'volume': 'Normal',
                         'news_headlines': [],
                         'overall_sentiment': 'bullish' if data["bullish_percentage"] > data["bearish_percentage"] else 'bearish' if data["bearish_percentage"] > data["bullish_percentage"] else 'neutral',
-                        'analysis': formatted_text
+                        'analysis': formatted_text,
+                        'market_type': market_type
                     }
                     
-                    # Cache the result
-                    self._add_to_cache(instrument, result)
+                    # Cache the result with market-specific key
+                    self._add_market_specific_to_cache(instrument, market_type, result)
                     
                     logger.info(f"Direct API sentiment analysis complete: {data['bullish_percentage']}% bullish, {data['bearish_percentage']}% bearish")
                     return result
@@ -2333,8 +2352,14 @@ Monitor market developments for potential sentiment shifts.
 """
 
     def _add_to_cache(self, instrument: str, sentiment_data: Dict[str, Any]) -> None:
-        """Add sentiment data to cache with TTL"""
-        if not hasattr(self, 'cache_enabled') or not self.cache_enabled:
+        """
+        Add sentiment data to cache with TTL
+        
+        Args:
+            instrument: The instrument to cache
+            sentiment_data: The sentiment data to cache
+        """
+        if not self.cache_enabled:
             return  # Cache is disabled
             
         try:
@@ -2349,15 +2374,17 @@ Monitor market developments for potential sentiment shifts.
             self.sentiment_cache[cache_key] = cache_data
             
             # If persistent cache is enabled, save to file
-            if self.cache_file:
+            if self.use_persistent_cache and self.cache_file:
                 self._save_cache_to_file()
+                
+            logger.debug(f"Added sentiment data to cache for {instrument}")
                 
         except Exception as e:
             logger.error(f"Error adding to sentiment cache: {str(e)}")
     
     def _get_from_cache(self, instrument: str) -> Optional[Dict[str, Any]]:
         """Get sentiment data from cache if available and not expired"""
-        if not hasattr(self, 'cache_enabled') or not self.cache_enabled:
+        if not self.cache_enabled:
             return None  # Cache is disabled
             
         try:
@@ -2377,11 +2404,17 @@ Monitor market developments for potential sentiment shifts.
                     # Remove timestamp as it's internal
                     if 'timestamp' in result:
                         del result['timestamp']
+                    
+                    # Record cache hit metric
+                    self.metrics.record_cache_hit()
+                    
                     return result
                 else:
                     # Expired, remove from cache
                     del self.sentiment_cache[cache_key]
                     
+            # Record cache miss metric
+            self.metrics.record_cache_miss()
             return None
             
         except Exception as e:
@@ -2390,7 +2423,7 @@ Monitor market developments for potential sentiment shifts.
     
     def _save_cache_to_file(self) -> None:
         """Save the in-memory cache to the persistent file"""
-        if not hasattr(self, 'cache_file') or not self.cache_file:
+        if not self.cache_file:
             return  # No cache file configured
             
         try:
@@ -2410,12 +2443,14 @@ Monitor market developments for potential sentiment shifts.
             with open(self.cache_file, 'w', encoding='utf-8') as f:
                 json.dump(valid_cache, f, indent=2)
                 
+            logger.debug(f"Saved {len(valid_cache)} cache entries to file: {self.cache_file}")
+                
         except Exception as e:
             logger.error(f"Error saving sentiment cache to file: {str(e)}")
     
     def _load_cache_from_file(self) -> None:
         """Load the cache from the persistent file"""
-        if not hasattr(self, 'cache_file') or not self.cache_file:
+        if not self.cache_file:
             return  # No cache file configured
             
         try:
@@ -2447,21 +2482,49 @@ Monitor market developments for potential sentiment shifts.
 
     def clear_cache(self, instrument: Optional[str] = None) -> None:
         """
-        Clear cache entries for a specific instrument or all instruments
+        Clear the sentiment cache for a specific instrument or all instruments
         
         Args:
-            instrument: Optional instrument to clear from cache. If None, clears all cache.
+            instrument: Instrument to clear from cache, if None clears for specific instrument
         """
         if instrument:
-            removed = self.sentiment_cache.pop(instrument, None)
-            if removed:
-                logger.info(f"Cleared cache for {instrument}")
+            instrument_key = instrument.upper()
+            if instrument_key in self.sentiment_cache:
+                del self.sentiment_cache[instrument_key]
+                logger.info(f"Cleared sentiment cache for {instrument_key}")
             else:
-                logger.info(f"No cache found for {instrument}")
+                logger.info(f"No cache entry found for {instrument_key}")
         else:
-            cache_size = len(self.sentiment_cache)
+            count = len(self.sentiment_cache)
             self.sentiment_cache.clear()
-            logger.info(f"Cleared complete sentiment cache ({cache_size} entries)")
+            logger.info(f"Cleared all {count} sentiment cache entries")
+            
+        # If persistent cache is enabled, save the changes
+        if self.use_persistent_cache and self.cache_file:
+            self._save_cache_to_file()
+            
+    def clear_cache_all(self) -> None:
+        """
+        Clear all sentiment cache entries and remove the cache file
+        
+        This is more thorough than clear_cache() as it also removes the persistent cache file
+        """
+        # Clear in-memory cache
+        count = len(self.sentiment_cache)
+        self.sentiment_cache.clear()
+        
+        # Remove the cache file if it exists
+        cache_file_removed = False
+        if self.use_persistent_cache and self.cache_file and os.path.exists(self.cache_file):
+            try:
+                os.remove(self.cache_file)
+                cache_file_removed = True
+            except Exception as e:
+                logger.error(f"Error removing cache file: {str(e)}")
+                
+        logger.info(f"Completely cleared {count} sentiment cache entries")
+        if cache_file_removed:
+            logger.info(f"Removed cache file: {self.cache_file}")
 
     def get_cache_stats(self) -> Dict[str, Any]:
         """
@@ -2606,6 +2669,111 @@ Monitor market developments for potential sentiment shifts.
         metrics['cache']['active_entries'] = cache_stats['active_entries']
         
         return metrics
+    
+    def import_external_sentiment_data(self, instrument: str, data: Dict[str, Any], market_type: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Import sentiment data from an external source and cache it
+        
+        Args:
+            instrument: Trading instrument symbol
+            data: Dictionary with sentiment data
+            market_type: Optional market type for more specific caching
+            
+        Returns:
+            Dictionary with the processed and cached sentiment data
+        """
+        logger.info(f"Importing external sentiment data for {instrument}")
+        
+        try:
+            # Validate essential fields
+            required_fields = ["bullish_percentage", "bearish_percentage", "neutral_percentage"]
+            alt_required_fields = ["bullish", "bearish", "neutral"]
+            
+            # Check if the data has percentage fields in the expected format
+            has_req_fields = all(field in data for field in required_fields)
+            has_alt_fields = all(field in data for field in alt_required_fields)
+            
+            if not has_req_fields and not has_alt_fields:
+                logger.error(f"Missing required fields in external sentiment data for {instrument}")
+                return None
+            
+            # Create standardized data structure
+            result = {}
+            
+            # Standardize keys
+            if has_req_fields:
+                result["bullish"] = data["bullish_percentage"]
+                result["bearish"] = data["bearish_percentage"]
+                result["neutral"] = data["neutral_percentage"]
+            else:
+                result["bullish"] = data["bullish"]
+                result["bearish"] = data["bearish"]
+                result["neutral"] = data["neutral"]
+            
+            # Make sure percentages are numbers
+            for key in ["bullish", "bearish", "neutral"]:
+                if isinstance(result[key], str):
+                    # Remove % sign if present and convert to float
+                    result[key] = float(result[key].replace('%', ''))
+                    
+            # Ensure percentages add up to 100
+            total = result["bullish"] + result["bearish"] + result["neutral"]
+            if abs(total - 100) > 0.01:  # Allow small floating point error
+                logger.warning(f"Percentages don't add up to 100 ({total}), adjusting")
+                # Adjust proportionally
+                result["bullish"] = round(result["bullish"] * 100 / total)
+                result["bearish"] = round(result["bearish"] * 100 / total)
+                result["neutral"] = 100 - result["bullish"] - result["bearish"]
+            
+            # Add required fields
+            result["sentiment_score"] = (result["bullish"] - result["bearish"]) / 100
+            result["overall_sentiment"] = 'bullish' if result["bullish"] > result["bearish"] else 'bearish' if result["bearish"] > result["bullish"] else 'neutral'
+            result["instrument"] = instrument
+            result["source"] = data.get("source", "external")
+            
+            # Add formatted_text or analysis if available
+            if "analysis" in data:
+                result["analysis"] = data["analysis"]
+            elif "formatted_text" in data:
+                result["analysis"] = data["formatted_text"]
+            else:
+                # Generate a simple formatted text
+                result["analysis"] = self._format_fast_sentiment_text(
+                    instrument, 
+                    result["bullish"], 
+                    result["bearish"], 
+                    result["neutral"]
+                )
+            
+            # Add other fields if available
+            for field in ["technical_score", "news_score", "social_score", "news_headlines"]:
+                if field in data:
+                    result[field] = data[field]
+            
+            # Add timestamp
+            result["timestamp"] = data.get("timestamp", time.time())
+            
+            # Determine market type if not provided
+            if not market_type and "market_type" in data:
+                market_type = data["market_type"]
+            elif not market_type:
+                market_type = self._guess_market_from_instrument(instrument)
+                
+            # Add market_type to the result
+            result["market_type"] = market_type
+            
+            # Cache the data
+            if market_type:
+                self._add_market_specific_to_cache(instrument, market_type, result)
+            else:
+                self._add_to_cache(instrument, result)
+            
+            logger.info(f"Successfully imported and cached external sentiment data for {instrument}")
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error importing external sentiment data: {str(e)}")
+            return None
 
     async def _get_fast_sentiment(self, instrument: str) -> Dict[str, Any]:
         """
@@ -3317,6 +3485,7 @@ The percentages MUST add up to 100%, and the formatted text MUST include all sec
                 # Add source information
                 data["source"] = "api"
                 data["instrument"] = instrument
+                data["market_type"] = market_type
                 
                 # Verify the formatted text includes all required sections
                 formatted_text = data["formatted_text"]
@@ -3379,11 +3548,12 @@ The percentages MUST add up to 100%, and the formatted text MUST include all sec
                     'volume': 'Normal',
                     'news_headlines': [],
                     'overall_sentiment': 'bullish' if data["bullish_percentage"] > data["bearish_percentage"] else 'bearish' if data["bearish_percentage"] > data["bullish_percentage"] else 'neutral',
-                    'analysis': formatted_text
+                    'analysis': formatted_text,
+                    'market_type': market_type
                 }
                 
-                # Cache the result
-                self._add_to_cache(instrument, result)
+                # Cache the result with market-specific key
+                self._add_market_specific_to_cache(instrument, market_type, result)
                 
                 logger.info(f"Direct API sentiment analysis complete for {instrument}: {data['bullish_percentage']}% bullish, {data['bearish_percentage']}% bearish")
                 return result
@@ -3395,6 +3565,230 @@ The percentages MUST add up to 100%, and the formatted text MUST include all sec
                 
         except Exception as e:
             logger.error(f"Error in direct API sentiment: {str(e)}")
+            return None
+
+    def set_cache_ttl(self, minutes: int) -> None:
+        """
+        Set the cache Time-To-Live (TTL) duration
+        
+        Args:
+            minutes: New TTL duration in minutes
+        """
+        if minutes < 1:
+            logger.warning(f"Invalid cache TTL value ({minutes}), minimum is 1 minute")
+            minutes = 1
+            
+        old_ttl = self.cache_ttl / 60
+        self.cache_ttl = minutes * 60  # Convert to seconds
+        
+        logger.info(f"Updated cache TTL from {old_ttl} to {minutes} minutes")
+        
+        # Clean up any expired entries with the new TTL
+        self.cleanup_expired_cache()
+        
+        # If persistent cache is enabled, save changes
+        if self.use_persistent_cache and self.cache_file:
+            self._save_cache_to_file()
+
+    def get_cache_info(self, instrument: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Get detailed information about the cache status
+        
+        Args:
+            instrument: Optional specific instrument to check. If None, returns info for all.
+            
+        Returns:
+            Dictionary with cache information including TTL settings and cached instruments
+        """
+        now = time.time()
+        
+        if not self.cache_enabled:
+            return {
+                "cache_enabled": False,
+                "message": "Cache is currently disabled"
+            }
+        
+        # If specific instrument is requested, return details for just that one
+        if instrument:
+            cache_key = instrument.upper()
+            
+            if cache_key in self.sentiment_cache:
+                entry = self.sentiment_cache[cache_key]
+                age = now - entry['timestamp']
+                expires_in = max(0, self.cache_ttl - age)
+                
+                # Create a clean copy without timestamp
+                data_copy = copy.deepcopy(entry)
+                if 'timestamp' in data_copy:
+                    del data_copy['timestamp']
+                
+                return {
+                    "cache_enabled": True,
+                    "instrument": cache_key,
+                    "cached": True,
+                    "age_seconds": round(age),
+                    "age_minutes": round(age / 60, 1),
+                    "expires_in_seconds": round(expires_in),
+                    "expires_in_minutes": round(expires_in / 60, 1),
+                    "expired": age > self.cache_ttl,
+                    "cache_ttl_minutes": self.cache_ttl / 60,
+                    "data": data_copy
+                }
+            else:
+                return {
+                    "cache_enabled": True,
+                    "instrument": cache_key,
+                    "cached": False,
+                    "message": f"No cache entry found for {cache_key}"
+                }
+        
+        # Get information about all cached instruments
+        cached_instruments = []
+        for key, entry in self.sentiment_cache.items():
+            age = now - entry['timestamp']
+            expires_in = max(0, self.cache_ttl - age)
+            
+            cached_instruments.append({
+                "instrument": key,
+                "age_seconds": round(age),
+                "age_minutes": round(age / 60, 1),
+                "expires_in_seconds": round(expires_in),
+                "expires_in_minutes": round(expires_in / 60, 1),
+                "expired": age > self.cache_ttl,
+                "bullish_percentage": entry.get("bullish_percentage", entry.get("bullish", 0)),
+                "bearish_percentage": entry.get("bearish_percentage", entry.get("bearish", 0)),
+                "source": entry.get("source", "unknown")
+            })
+        
+        # Sort by expiration time (soonest first)
+        cached_instruments.sort(key=lambda x: x["expires_in_seconds"])
+        
+        # Calculate cache statistics
+        total_entries = len(self.sentiment_cache)
+        active_entries = sum(1 for i in cached_instruments if not i["expired"])
+        expired_entries = total_entries - active_entries
+        
+        return {
+            "cache_enabled": True,
+            "cache_ttl_minutes": self.cache_ttl / 60,
+            "persistent_cache": self.use_persistent_cache,
+            "cache_file": str(self.cache_file) if self.cache_file else None,
+            "total_entries": total_entries,
+            "active_entries": active_entries,
+            "expired_entries": expired_entries,
+            "instruments": cached_instruments
+        }
+
+    def _get_market_specific_cache_key(self, instrument: str, market_type: str) -> str:
+        """
+        Generate a market-specific cache key
+        
+        Args:
+            instrument: Trading instrument symbol
+            market_type: Market type (forex, crypto, etc.)
+            
+        Returns:
+            Cache key in format INSTRUMENT_MARKETTYPE
+        """
+        instrument = instrument.upper()
+        market_type = market_type.lower() if market_type else "unknown"
+        return f"{instrument}_{market_type}"
+    
+    def _add_market_specific_to_cache(self, instrument: str, market_type: str, sentiment_data: Dict[str, Any]) -> None:
+        """
+        Add sentiment data to cache with market-specific key
+        
+        Args:
+            instrument: Trading instrument symbol
+            market_type: Market type (forex, crypto, etc.)
+            sentiment_data: Sentiment data to cache
+        """
+        if not self.cache_enabled:
+            return  # Cache is disabled
+            
+        try:
+            # Generate market-specific cache key
+            cache_key = self._get_market_specific_cache_key(instrument, market_type)
+            
+            # Make a copy to avoid reference issues
+            cache_data = copy.deepcopy(sentiment_data)
+            # Add timestamp for TTL check
+            cache_data['timestamp'] = time.time()
+            # Add market info
+            cache_data['market_type'] = market_type
+            
+            # Store in memory cache
+            self.sentiment_cache[cache_key] = cache_data
+            
+            # Also store with standard key for backward compatibility
+            standard_key = instrument.upper()
+            self.sentiment_cache[standard_key] = cache_data
+            
+            # If persistent cache is enabled, save to file
+            if self.use_persistent_cache and self.cache_file:
+                self._save_cache_to_file()
+                
+        except Exception as e:
+            logger.error(f"Error adding to market-specific sentiment cache: {str(e)}")
+    
+    def _get_from_market_specific_cache(self, instrument: str, market_type: str) -> Optional[Dict[str, Any]]:
+        """
+        Get sentiment data from cache using market-specific key
+        
+        Args:
+            instrument: Trading instrument symbol
+            market_type: Market type (forex, crypto, etc.)
+            
+        Returns:
+            Dictionary with sentiment data or None if not in cache or expired
+        """
+        if not self.cache_enabled:
+            return None  # Cache is disabled
+            
+        try:
+            # Try with market-specific key first
+            cache_key = self._get_market_specific_cache_key(instrument, market_type)
+            
+            # If not found with market-specific key, try standard key
+            if cache_key not in self.sentiment_cache:
+                cache_key = instrument.upper()
+                
+                # If still not found, return None
+                if cache_key not in self.sentiment_cache:
+                    self.metrics.record_cache_miss()
+                    return None
+            
+            cache_data = self.sentiment_cache[cache_key]
+            
+            # Check if expired
+            current_time = time.time()
+            cache_time = cache_data.get('timestamp', 0)
+            
+            if current_time - cache_time < self.cache_ttl:
+                # Make a copy to avoid reference issues
+                result = copy.deepcopy(cache_data)
+                # Remove timestamp as it's internal
+                if 'timestamp' in result:
+                    del result['timestamp']
+                
+                # Record cache hit metric
+                self.metrics.record_cache_hit()
+                
+                return result
+            else:
+                # Expired, remove from cache
+                del self.sentiment_cache[cache_key]
+                
+                # Also remove standard key if it exists and has same timestamp
+                standard_key = instrument.upper()
+                if standard_key in self.sentiment_cache and self.sentiment_cache[standard_key].get('timestamp') == cache_time:
+                    del self.sentiment_cache[standard_key]
+                
+            self.metrics.record_cache_miss()
+            return None
+            
+        except Exception as e:
+            logger.error(f"Error getting from market-specific sentiment cache: {str(e)}")
             return None
 
 class TavilyClient:
