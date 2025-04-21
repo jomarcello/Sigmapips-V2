@@ -4,6 +4,13 @@ import logging
 import os
 import sys
 import time
+import traceback
+
+# Configure logging to be more verbose
+logging.basicConfig(
+    level=logging.DEBUG,  # Set to DEBUG for more detailed logs
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 
 # Add the current directory to the path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -46,6 +53,19 @@ async def telegram_webhook(request: Request):
         update_id = update_data.get('update_id')
         logger.info(f"Received webhook update: {update_id}")
         
+        # Check if signals need to be loaded
+        if hasattr(telegram_service, '_signals_need_loading') and telegram_service._signals_need_loading:
+            try:
+                logger.info("Loading signals during first webhook request")
+                await telegram_service._load_signals()
+                telegram_service._signals_loaded = True
+                telegram_service._signals_need_loading = False
+                logger.info("Signals loaded successfully during webhook processing")
+            except Exception as e:
+                logger.error(f"Error loading signals during webhook processing: {str(e)}")
+                logger.error(traceback.format_exc())
+                # Continue anyway, as this might not be fatal
+        
         # Process the update through telegram
         from telegram import Update
         update = Update.de_json(update_data, telegram_service.bot)
@@ -55,7 +75,6 @@ async def telegram_webhook(request: Request):
         return {"success": True}
     except Exception as e:
         logger.error(f"Error processing webhook: {str(e)}")
-        import traceback
         logger.error(traceback.format_exc())
         return {"success": False, "error": str(e)}
 
@@ -69,21 +88,42 @@ async def startup_event():
         # Direct implementation to start the bot without importing main
         logger.info("Starting bot directly within asgi.py")
         
-        # Import required modules
-        from trading_bot.services.telegram_service.bot import TelegramService
-        from trading_bot.services.database.db import Database
-        from trading_bot.services.payment_service.stripe_service import StripeService
-        
         # Create and start services
         async def start_bot():
             global telegram_service, initialization_complete
             
             try:
+                # Log Python version and environment information
+                logger.info(f"Python version: {sys.version}")
+                logger.info(f"Current working directory: {os.getcwd()}")
+                logger.info(f"PYTHONPATH: {os.environ.get('PYTHONPATH', 'Not set')}")
+                
+                # Import required modules with detailed error logging
+                try:
+                    logger.info("Importing Database class")
+                    from trading_bot.services.database.db import Database
+                    logger.info("Database class imported successfully")
+                    
+                    logger.info("Importing StripeService class")
+                    from trading_bot.services.payment_service.stripe_service import StripeService
+                    logger.info("StripeService class imported successfully")
+                    
+                    logger.info("Importing TelegramService class")
+                    from trading_bot.services.telegram_service.bot import TelegramService
+                    logger.info("TelegramService class imported successfully")
+                except ImportError as ie:
+                    logger.error(f"Import error: {str(ie)}")
+                    logger.error(traceback.format_exc())
+                    initialization_complete = False
+                    return
+                
                 # Initialize database
+                logger.info("Initializing Database")
                 db = Database()
                 logger.info("Database initialized")
                 
                 # Initialize Stripe service
+                logger.info("Initializing StripeService")
                 stripe_service = StripeService(db)
                 logger.info("Stripe service initialized")
                 
@@ -93,9 +133,16 @@ async def startup_event():
                     logger.warning("No TELEGRAM_BOT_TOKEN found in environment, using default token")
                 
                 # Create the Telegram service with lazy initialization
-                start_time = time.time()
-                telegram_service = TelegramService(db, stripe_service, bot_token=bot_token, lazy_init=True)
-                logger.info(f"Telegram service created in {time.time() - start_time:.2f} seconds")
+                try:
+                    logger.info("Creating TelegramService instance")
+                    start_time = time.time()
+                    telegram_service = TelegramService(db, stripe_service, bot_token=bot_token, lazy_init=True)
+                    logger.info(f"Telegram service created in {time.time() - start_time:.2f} seconds")
+                except Exception as e:
+                    logger.error(f"Error creating TelegramService: {str(e)}")
+                    logger.error(traceback.format_exc())
+                    initialization_complete = False
+                    return
                 
                 # Controleer of we in Railway draaien en stel webhook in indien nodig
                 railway_url = os.getenv("RAILWAY_PUBLIC_DOMAIN")
@@ -111,27 +158,58 @@ async def startup_event():
                 logger.info(f"Setting webhook URL to: {webhook_url}")
                 
                 # Initialize the application
-                await telegram_service.application.initialize()
-                await telegram_service.application.start()
+                try:
+                    logger.info("Initializing Telegram application")
+                    await telegram_service.application.initialize()
+                    logger.info("Telegram application initialized")
+                    
+                    logger.info("Starting Telegram application")
+                    await telegram_service.application.start()
+                    logger.info("Telegram application started")
+                except Exception as e:
+                    logger.error(f"Error initializing/starting Telegram application: {str(e)}")
+                    logger.error(traceback.format_exc())
+                    initialization_complete = False
+                    return
                 
                 # Set the webhook
-                await telegram_service.bot.delete_webhook()  # Delete existing webhook
-                await telegram_service.bot.set_webhook(url=webhook_url)
+                try:
+                    logger.info("Deleting existing webhook")
+                    await telegram_service.bot.delete_webhook()
+                    logger.info("Setting new webhook")
+                    await telegram_service.bot.set_webhook(url=webhook_url)
+                    logger.info("Webhook set successfully")
+                except Exception as e:
+                    logger.error(f"Error setting webhook: {str(e)}")
+                    logger.error(traceback.format_exc())
+                    # Continue anyway, as this might not be fatal
                 
                 # Set the commands
-                from telegram import BotCommand
-                commands = [
-                    BotCommand("start", "Start the bot and get the welcome message"),
-                    BotCommand("menu", "Show the main menu"),
-                    BotCommand("help", "Show available commands and how to use the bot")
-                ]
-                await telegram_service.bot.set_my_commands(commands)
-                logger.info("Bot commands set")
+                try:
+                    logger.info("Setting bot commands")
+                    from telegram import BotCommand
+                    commands = [
+                        BotCommand("start", "Start the bot and get the welcome message"),
+                        BotCommand("menu", "Show the main menu"),
+                        BotCommand("help", "Show available commands and how to use the bot")
+                    ]
+                    await telegram_service.bot.set_my_commands(commands)
+                    logger.info("Bot commands set")
+                except Exception as e:
+                    logger.error(f"Error setting bot commands: {str(e)}")
+                    logger.error(traceback.format_exc())
+                    # Continue anyway, as this might not be fatal
                 
                 # Verify webhook was set
-                webhook_info = await telegram_service.bot.get_webhook_info()
-                logger.info(f"Webhook set to: {webhook_info.url}")
-                logger.info(f"Pending updates: {webhook_info.pending_update_count}")
+                try:
+                    logger.info("Verifying webhook")
+                    webhook_info = await telegram_service.bot.get_webhook_info()
+                    logger.info(f"Webhook set to: {webhook_info.url}")
+                    logger.info(f"Pending updates: {webhook_info.pending_update_count}")
+                except Exception as e:
+                    logger.error(f"Error verifying webhook: {str(e)}")
+                    logger.error(traceback.format_exc())
+                    # Continue anyway, as this might not be fatal
                 
                 # Mark initialization as complete
                 initialization_complete = True
@@ -146,7 +224,6 @@ async def startup_event():
                     
             except Exception as e:
                 logger.error(f"Error in start_bot task: {str(e)}")
-                import traceback
                 logger.error(traceback.format_exc())
                 
                 # Clear telegram_service if initialization failed
@@ -154,12 +231,16 @@ async def startup_event():
                 initialization_complete = False
         
         # Start in background
-        asyncio.create_task(start_bot())
-        logger.info("Bot startup task created")
-        
+        try:
+            task = asyncio.create_task(start_bot())
+            logger.info("Bot startup task created")
+        except Exception as e:
+            logger.error(f"Error creating startup task: {str(e)}")
+            logger.error(traceback.format_exc())
+            
     except Exception as e:
         logger.error(f"Error starting bot: {str(e)}")
-        logger.exception(e)
+        logger.error(traceback.format_exc())
         # Clear telegram_service if initialization failed
         telegram_service = None
         initialization_complete = False 
