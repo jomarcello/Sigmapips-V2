@@ -643,11 +643,8 @@ class TelegramService:
         self.gif_utils = gif_utils  # Initialize gif_utils as an attribute
         
         # Telegram Bot configuratie
-        self.bot_token = bot_token or os.getenv("TELEGRAM_BOT_TOKEN", "")
-        if not self.bot_token or len(self.bot_token) < 30:  # Validate token length
-            # Default bot token as fallback
-            self.bot_token = "7328581013:AAFMGu8mz746nbj1eh6BuOp0erKl4Nb_-QQ"
-            logger.info("Using default bot token")
+        self.bot_token = "7328581013:AAFMGu8mz746nbj1eh6BuOp0erKl4Nb_-QQ"  # Direct use the hardcoded token
+        logger.info(f"Using hardcoded bot token: {self.bot_token[:10]}...")
         self.token = self.bot_token  # Aliased for backward compatibility
         self.proxy_url = proxy_url or os.getenv("TELEGRAM_PROXY_URL", "")
         
@@ -698,6 +695,9 @@ class TelegramService:
             # Check for bot token
             if not self.bot_token:
                 raise ValueError("Missing Telegram bot token")
+            
+            # Zorg ervoor dat we een geldige token hebben
+            logger.info(f"Using bot token: {self.bot_token[:10]}...")
             
             # Initialize the bot only once with connection pool settings
             self.bot = Bot(token=self.bot_token, request=request)
