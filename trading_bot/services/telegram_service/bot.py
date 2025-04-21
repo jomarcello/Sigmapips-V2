@@ -4997,7 +4997,6 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 return ConversationHandler.END
 
     async def run(self):
-        """Run the bot with webhook or polling based on configuration."""
         try:
             if self.webhook_url:
                 logger.info(f"Setting up webhook at {self.webhook_url}{self.webhook_path}")
@@ -5061,16 +5060,17 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 else:
                     logger.info("Skipping services initialization due to lazy_init=True")
                 
+                # Voeg hier de keepalive task toe
+                async def keepalive():
+                    """Keep the application active to prevent Railway from timing out"""
+                    while True:
+                        logger.debug("Keepalive ping")
+                        await asyncio.sleep(60)
+                
+                # Start the keepalive task
+                asyncio.create_task(keepalive())
+                
                 return None
         except Exception as e:
             logger.error(f"Error running bot: {str(e)}")
             raise
-
-async def keepalive():
-    """Keep the application active to prevent Railway from timing out"""
-    while True:
-        logger.debug("Keepalive ping")
-        await asyncio.sleep(60)
-
-# Voeg na het starten van de bot toe:
-asyncio.create_task(keepalive())
