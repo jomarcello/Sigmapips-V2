@@ -9,6 +9,338 @@ import copy
 import re
 import time
 import random
+import functools
+
+from fastapi import FastAPI, Request, HTTPException, status
+from telegram import Bot, Update, BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery, InputMediaPhoto, InputMediaAnimation, InputMediaDocument, ReplyKeyboardMarkup, ReplyKeyboardRemove, InputFile
+from telegram.constants import ParseMode
+from telegram.request import HTTPXRequest
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    CallbackQueryHandler,
+    ConversationHandler,
+    ContextTypes,
+    CallbackContext,
+    MessageHandler,
+    filters,
+    PicklePersistence
+)
+from telegram.error import TelegramError, BadRequest
+import httpx
+import telegram.error  # Add this import for BadRequest error handling
+
+from trading_bot.services.database.db import Database
+# Lazy imports - these will be imported when needed
+
+# Initialize logger
+logger = logging.getLogger(__name__)
+
+# Major currencies to focus on
+MAJOR_CURRENCIES = ["USD", "EUR", "GBP", "JPY", "CHF", "AUD", "NZD", "CAD"]
+
+# Currency to flag emoji mapping
+CURRENCY_FLAG = {
+    "USD": "🇺🇸",
+    "EUR": "🇪🇺",
+    "GBP": "🇬🇧",
+    "JPY": "🇯🇵",
+    "CHF": "🇨🇭",
+    "AUD": "🇦🇺",
+    "NZD": "🇳🇿",
+    "CAD": "🇨🇦"
+}
+
+# Map of instruments to their corresponding currencies
+INSTRUMENT_CURRENCY_MAP = {
+    # Special case for global view
+    "GLOBAL": MAJOR_CURRENCIES,
+    
+    # Forex
+    "EURUSD": ["EUR", "USD"],
+    "GBPUSD": ["GBP", "USD"],
+    "USDJPY": ["USD", "JPY"],
+    "USDCHF": ["USD", "CHF"],
+    "AUDUSD": ["AUD", "USD"],
+    "NZDUSD": ["NZD", "USD"],
+    "USDCAD": ["USD", "CAD"],
+    "EURGBP": ["EUR", "GBP"],
+    "EURJPY": ["EUR", "JPY"],
+    "GBPJPY": ["GBP", "JPY"],
+    
+    # Indices (mapped to their related currencies)
+    "US30": ["USD"],
+    "US100": ["USD"],
+    "US500": ["USD"],
+    "UK100": ["GBP"],
+    "GER40": ["EUR"],
+    "FRA40": ["EUR"],
+    "ESP35": ["EUR"],
+    "JP225": ["JPY"],
+    "AUS200": ["AUD"],
+    
+    # Commodities (mapped to USD primarily)
+    "XAUUSD": ["USD", "XAU"],  # Gold
+    "XAGUSD": ["USD", "XAG"],  # Silver
+    "USOIL": ["USD"],          # Oil (WTI)
+    "UKOIL": ["USD", "GBP"],   # Oil (Brent)
+    
+    # Crypto
+    "BTCUSD": ["USD", "BTC"],
+    "ETHUSD": ["USD", "ETH"],
+    "LTCUSD": ["USD", "LTC"],
+    "XRPUSD": ["USD", "XRP"]
+}
+
+# Callback data constants
+CALLBACK_ANALYSIS_TECHNICAL = "analysis_technical"
+CALLBACK_ANALYSIS_SENTIMENT = "analysis_sentiment"
+CALLBACK_ANALYSIS_CALENDAR = "analysis_calendar"
+CALLBACK_BACK_MENU = "back_menu"
+CALLBACK_BACK_ANALYSIS = "back_to_analysis"
+CALLBACK_BACK_MARKET = "back_market"
+CALLBACK_BACK_INSTRUMENT = "back_instrument"
+CALLBACK_BACK_SIGNALS = "back_signals"
+CALLBACK_SIGNALS_ADD = "signals_add"
+CALLBACK_SIGNALS_MANAGE = "signals_manage"
+CALLBACK_MENU_ANALYSE = "menu_analyse"
+CALLBACK_MENU_SIGNALS = "menu_signals"
+
+# States
+MENU = 0
+CHOOSE_ANALYSIS = 1
+CHOOSE_SIGNALS = 2
+CHOOSE_MARKET = 3
+CHOOSE_INSTRUMENT = 4
+CHOOSE_STYLE = 5
+SHOW_RESULT = 6
+CHOOSE_TIMEFRAME = 7
+SIGNAL_DETAILS = 8
+SIGNAL = 9
+SUBSCRIBE = 10
+BACK_TO_MENU = 11
+
+# Messages
+WELCOME_MESSAGE = """
+🚀 <b>Sigmapips AI - Main Menu</b> 🚀
+
+Choose an option to access advanced trading support:
+
+📊 Services:
+• <b>Technical Analysis</b> – Real-time chart analysis and key levels
+
+• <b>Market Sentiment</b> – Understand market trends and sentiment
+
+• <b>Economic Calendar</b> – Stay updated on market-moving events
+
+• <b>Trading Signals</b> – Get precise entry/exit points for your favorite pairs
+
+Select your option to continue:
+"""
+
+# Abonnementsbericht voor nieuwe gebruikers
+SUBSCRIPTION_WELCOME_MESSAGE = """
+🚀 <b>Welcome to Sigmapips AI!</b> 🚀
+
+To access all features, you need a subscription:
+
+📊 <b>Trading Signals Subscription - $29.99/month</b>
+• Access to all trading signals (Forex, Crypto, Commodities, Indices)
+• Advanced timeframe analysis (1m, 15m, 1h, 4h)
+• Detailed chart analysis for each signal
+
+Click the button below to subscribe:
+"""
+
+MENU_MESSAGE = """
+Welcome to Sigmapips AI!
+
+Choose a command:
+
+/start - Set up new trading pairs
+Add new market/instrument/timeframe combinations to receive signals
+
+/manage - Manage your preferences
+View, edit or delete your saved trading pairs
+
+Need help? Use /help to see all available commands.
+"""
+
+HELP_MESSAGE = """
+Available commands:
+/menu - Show main menu
+/start - Set up new trading pairs
+/help - Show this help message
+"""
+
+# Start menu keyboard
+START_KEYBOARD = [
+    [InlineKeyboardButton("🔍 Analyze Market", callback_data=CALLBACK_MENU_ANALYSE)],
+    [InlineKeyboardButton("📊 Trading Signals", callback_data=CALLBACK_MENU_SIGNALS)]
+]
+
+# Analysis menu keyboard
+ANALYSIS_KEYBOARD = [
+    [InlineKeyboardButton("📈 Technical Analysis", callback_data=CALLBACK_ANALYSIS_TECHNICAL)],
+    [InlineKeyboardButton("🧠 Market Sentiment", callback_data=CALLBACK_ANALYSIS_SENTIMENT)],
+    [InlineKeyboardButton("📅 Economic Calendar", callback_data=CALLBACK_ANALYSIS_CALENDAR)],
+    [InlineKeyboardButton("⬅️ Back", callback_data=CALLBACK_BACK_MENU)]
+]
+
+
+# Lazy loading decorator
+def lazy_load(func):
+    """Decorator to lazy load resources on first call"""
+    _resource = None
+    
+    @functools.wraps(func)
+    def wrapper(self, *args, **kwargs):
+        nonlocal _resource
+        if _resource is None:
+            start_time = time.time()
+            _resource = func(self, *args, **kwargs)
+            logger.info(f"Lazy loaded {func.__name__} in {time.time() - start_time:.2f}s")
+        return _resource
+    
+    return wrapper
+
+
+class TelegramService:
+    """Service for handling Telegram bot interactions"""
+    
+    def __init__(self, db: Database, lazy_init: bool = True):
+        """
+        Initialize the Telegram service
+        
+        Args:
+            db: Database instance
+            lazy_init: Whether to use lazy initialization for services
+        """
+        self.db = db
+        
+        # Get Telegram token
+        self.telegram_token = os.getenv("TELEGRAM_TOKEN")
+        if not self.telegram_token:
+            logger.error("No Telegram token found in environment variables")
+            raise ValueError("No Telegram token found")
+            
+        # Create bot instance with optimized connection pool settings
+        request = HTTPXRequest(
+            connection_pool_size=8,  # Increase connection pool for better parallelism
+            read_timeout=10.0,      # Slightly reduce timeout
+            write_timeout=10.0,
+            connect_timeout=7.0,
+            pool_timeout=3.0,
+        )
+        
+        # Initialize bot with optimized request parameters
+        self.bot = Bot(token=self.telegram_token, request=request)
+        
+        # Application will be initialized later
+        self.application = None
+        
+        # Flag to track if polling is started
+        self.polling_started = False
+        
+        # Initialize empty services - they will be loaded on demand
+        self._chart_service = None
+        self._sentiment_service = None
+        self._calendar_service = None
+        
+        # References to other services
+        self.stripe_service = None
+        
+        # Services initialization status
+        self._services_initialized = False
+        
+        # Only initialize the services eagerly if lazy_init is False
+        if not lazy_init:
+            asyncio.create_task(self.initialize_services())
+    
+    @property
+    @lazy_load
+    def chart_service(self):
+        """Lazy-loaded chart service"""
+        from trading_bot.services.chart_service.chart import ChartService
+        logger.info("Initializing ChartService (lazy loading)")
+        return ChartService()
+    
+    @property
+    @lazy_load
+    def sentiment_service(self):
+        """Lazy-loaded sentiment service"""
+        from trading_bot.services.sentiment_service.sentiment import MarketSentimentService
+        logger.info("Initializing MarketSentimentService (lazy loading)")
+        # Enable fast mode by default for better performance
+        return MarketSentimentService(fast_mode=True)
+    
+    @property
+    @lazy_load
+    def calendar_service(self):
+        """Lazy-loaded calendar service"""
+        from trading_bot.services.calendar_service import EconomicCalendarService
+        logger.info("Initializing EconomicCalendarService (lazy loading)")
+        return EconomicCalendarService()
+    
+    async def initialize_services(self):
+        """Initialize all services asynchronously in parallel"""
+        if self._services_initialized:
+            logger.info("Services already initialized, skipping")
+            return
+        
+        try:
+            # Create tasks for initializing services in parallel
+            tasks = []
+            
+            # These property accesses will trigger the lazy loading if not already done
+            # We define functions to capture the loading in async tasks
+            async def init_chart():
+                _ = self.chart_service  # Access triggers lazy loading
+                return "Chart service initialized"
+                
+            async def init_sentiment():
+                _ = self.sentiment_service  # Access triggers lazy loading
+                return "Sentiment service initialized"
+            
+            # Only add tasks for services that are not yet initialized
+            if self._chart_service is None:
+                tasks.append(asyncio.create_task(init_chart()))
+            if self._sentiment_service is None:
+                tasks.append(asyncio.create_task(init_sentiment()))
+                
+            if tasks:  # Only wait if there are tasks to complete
+                logger.info(f"Starting parallel initialization of {len(tasks)} services")
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+                for i, result in enumerate(results):
+                    if isinstance(result, Exception):
+                        logger.error(f"Service initialization failed: {str(result)}")
+                    else:
+                        logger.info(f"Service initialized: {result}")
+            
+            self._services_initialized = True
+            logger.info("All services initialized")
+            
+        except Exception as e:
+            logger.error(f"Error initializing services: {str(e)}")
+            logger.exception(e)
+    
+    def _load_signals(self):
+        """Load saved signals from database"""
+        # Only implement actual loading if needed immediately, otherwise defer
+        logger.info("Signal loading deferred until needed")
+        return True
+
+# Additional class implementations would follow hereimport os
+import json
+import asyncio
+import traceback
+from typing import Dict, Any, List, Optional
+from datetime import datetime, timedelta
+import logging
+import copy
+import re
+import time
+import random
 
 from fastapi import FastAPI, Request, HTTPException, status
 from telegram import Bot, Update, BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery, InputMediaPhoto, InputMediaAnimation, InputMediaDocument, ReplyKeyboardMarkup, ReplyKeyboardRemove, InputFile
