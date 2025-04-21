@@ -617,6 +617,9 @@ os.environ["TAVILY_API_KEY"] = TAVILY_API_KEY
 class TelegramService:
     def __init__(self, db: Database, stripe_service=None, bot_token: Optional[str] = None, proxy_url: Optional[str] = None, lazy_init: bool = False):
         """Initialize the bot with given database and config."""
+        # Start timing the initialization
+        init_start_time = time.time()
+        
         # Database connection
         self.db = db
         
@@ -628,6 +631,10 @@ class TelegramService:
         self.polling_started = False
         self.admin_users = [1093307376]  # Add your Telegram ID here for testing
         self._signals_enabled = True  # Enable signals by default
+        
+        # Store the lazy_init flag
+        self.lazy_init = lazy_init
+        logger.info(f"Initializing TelegramService with lazy_init={lazy_init}")
         
         # Setup logger
         self.logger = logging.getLogger(__name__)
@@ -665,22 +672,25 @@ class TelegramService:
             
         logger.info(f"Bot initialized with webhook URL: {self.webhook_url} and path: {self.webhook_path}")
         
-        # Initialize API services
-        self.chart_service = ChartService()  # Initialize chart service
-        # Lazy load services only when needed
+        # Initialize API services - all with deferred/lazy loading
+        self._chart_service = None  # Defer chart service initialization 
         self._calendar_service = None
         self._sentiment_service = None
         
-        # Don't use asyncio.create_task here - it requires a running event loop
-        # We'll initialize chart service later when the event loop is running
+        # Configure sentiment service with optimized settings when using lazy loading
+        self._sentiment_service_config = {
+            'fast_mode': True,  # Always enable fast mode for better performance
+            'cache_ttl_minutes': 120 if lazy_init else 60,  # Longer cache TTL for lazy loading
+            'persistent_cache': True
+        }
         
         # Bot application initialization
         self.persistence = None
         self.bot_started = False
         
-        # Cache for sentiment analysis
+        # Cache for sentiment analysis - optimize caching when using lazy loading
         self.sentiment_cache = {}
-        self.sentiment_cache_ttl = 60 * 60  # 1 hour in seconds
+        self.sentiment_cache_ttl = 120 * 60 if lazy_init else 60 * 60  # 2 hours or 1 hour in seconds
         
         # Start the bot
         try:
@@ -697,13 +707,18 @@ class TelegramService:
             # Register the handlers
             self._register_handlers(self.application)
             
-            # Load stored signals
-            self._load_signals()
-        
+            # Only load signals if not using lazy initialization
+            if not lazy_init:
+                self._load_signals()
+            
             logger.info("Telegram service initialized")
             
             # Keep track of processed updates
             self.processed_updates = set()
+            
+            # Log the initialization time
+            init_time = time.time() - init_start_time
+            logger.info(f"TelegramService initialization completed in {init_time:.2f} seconds")
             
         except Exception as e:
             logger.error(f"Error initializing Telegram service: {str(e)}")
@@ -712,21 +727,60 @@ class TelegramService:
     async def initialize_services(self):
         """Initialize services that require an asyncio event loop"""
         try:
-            # Initialize chart service
-            await self.chart_service.initialize()
-            logger.info("Chart service initialized")
+            if getattr(self, 'lazy_init', False):
+                # Skip initialization when lazy_init is enabled
+                logger.info("Services configured for lazy initialization - deferring service setup until first use")
+                return
+                
+            # For backward compatibility, initialize services here when lazy_init is False
+            logger.info("Initializing services upfront (lazy_init=False)")
+            
+            # Initialize chart service if not already initialized
+            if self._chart_service is None:
+                self._chart_service = ChartService()
+                logger.info("Chart service initialized")
+                
+            # Initialize sentiment service if not already initialized
+            if self._sentiment_service is None:
+                self._sentiment_service = MarketSentimentService(
+                    fast_mode=self._sentiment_service_config['fast_mode'],
+                    cache_ttl_minutes=self._sentiment_service_config['cache_ttl_minutes'],
+                    persistent_cache=self._sentiment_service_config['persistent_cache']
+                )
+                logger.info("Sentiment service initialized")
+                
+            # Initialize calendar service if not already initialized
+            if self._calendar_service is None:
+                self._calendar_service = EconomicCalendarService()
+                logger.info("Calendar service initialized")
+                
         except Exception as e:
             logger.error(f"Error initializing services: {str(e)}")
             raise
             
+    @property
+    def chart_service(self):
+        """Lazy loaded chart service"""
+        if self._chart_service is None:
+            # Only initialize the chart service when it's first accessed
+            init_start_time = time.time()
+            logger.info("Lazy loading chart service")
+            self._chart_service = ChartService()
+            init_time = time.time() - init_start_time
+            logger.info(f"Chart service initialized in {init_time:.2f} seconds")
+        return self._chart_service
+        
     # Calendar service helpers
     @property
     def calendar_service(self):
         """Lazy loaded calendar service"""
         if self._calendar_service is None:
             # Only initialize the calendar service when it's first accessed
-            self.logger.info("Lazy loading calendar service")
+            init_start_time = time.time()
+            logger.info("Lazy loading calendar service")
             self._calendar_service = EconomicCalendarService()
+            init_time = time.time() - init_start_time
+            logger.info(f"Calendar service initialized in {init_time:.2f} seconds")
         return self._calendar_service
         
     def _get_calendar_service(self):
@@ -1045,15 +1099,13 @@ class TelegramService:
                         )
                         logger.info(f"Test signal sent to admin {admin_id}")
                         
-                        # Store signal reference for quick access
-                        if not hasattr(self, 'user_signals'):
-                            self.user_signals = {}
-                            
+                        # Store signal reference for quick access - use the signals property indirectly
                         admin_str_id = str(admin_id)
-                        if admin_str_id not in self.user_signals:
-                            self.user_signals[admin_str_id] = {}
+                        user_signals = self.signals  # This will trigger lazy loading if needed
+                        if admin_str_id not in user_signals:
+                            user_signals[admin_str_id] = {}
                         
-                        self.user_signals[admin_str_id][signal_id] = normalized_data
+                        user_signals[admin_str_id][signal_id] = normalized_data
                 except Exception as e:
                     logger.error(f"Error sending test signal to admin: {str(e)}")
             
@@ -3022,8 +3074,25 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         return CHOOSE_INSTRUMENT
 
     async def show_technical_analysis(self, update: Update, context=None, instrument=None, timeframe=None) -> int:
-        """Show technical analysis for a specific instrument and timeframe"""
+        """Show technical analysis for a selected instrument"""
         query = update.callback_query
+        await query.answer()
+        
+        logger.info(f"Starting show_technical_analysis for {instrument}")
+        
+        # Ensure chart_service is fully initialized
+        if self._chart_service and not hasattr(self._chart_service, '_initialized'):
+            logger.info("Initializing chart service on first use")
+            await self._chart_service.initialize()
+            self._chart_service._initialized = True
+            logger.info("Chart service initialization completed")
+        
+        # Get instrument and timeframe from parameters or context
+        if not instrument and context and hasattr(context, 'user_data'):
+            instrument = context.user_data.get('instrument')
+            
+        if not timeframe and context and hasattr(context, 'user_data'):
+            timeframe = context.user_data.get('timeframe')
         
         try:
             # Add detailed debug logging
@@ -3194,9 +3263,45 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         """Lazy loaded sentiment service"""
         if self._sentiment_service is None:
             # Only initialize the sentiment service when it's first accessed
+            init_start_time = time.time()
             logger.info("Lazy loading sentiment service")
-            self._sentiment_service = MarketSentimentService()
+            
+            # Configure the sentiment service with optimized settings
+            self._sentiment_service = MarketSentimentService(
+                fast_mode=self._sentiment_service_config['fast_mode'],
+                cache_ttl_minutes=self._sentiment_service_config['cache_ttl_minutes'],
+                persistent_cache=self._sentiment_service_config['persistent_cache']
+            )
+            
+            # Schedule asynchronous cache loading to happen in the background
+            # This doesn't block but ensures cache is ready for subsequent requests
+            if self._sentiment_service_config['persistent_cache']:
+                asyncio.create_task(self._load_sentiment_cache_async())
+            
+            init_time = time.time() - init_start_time
+            logger.info(f"Sentiment service initialized in {init_time:.2f} seconds with fast_mode={self._sentiment_service_config['fast_mode']}")
+        
         return self._sentiment_service
+        
+    async def _load_sentiment_cache_async(self):
+        """Load sentiment cache asynchronously in the background"""
+        try:
+            # Only proceed if sentiment service is initialized
+            if self._sentiment_service is None:
+                return
+                
+            logger.info("Starting background loading of sentiment cache")
+            start_time = time.time()
+            
+            # Use the load_cache method if it exists
+            if hasattr(self._sentiment_service, 'load_cache'):
+                await self._sentiment_service.load_cache()
+                
+            load_time = time.time() - start_time
+            logger.info(f"Sentiment cache loaded in background after {load_time:.2f} seconds")
+        except Exception as e:
+            logger.error(f"Error loading sentiment cache in background: {str(e)}")
+            # Don't re-raise, as this is a background task
 
     async def show_sentiment_analysis(self, update: Update, context=None, instrument=None) -> int:
         """Show sentiment analysis for a selected instrument"""
@@ -4231,15 +4336,13 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                         )
                         logger.info(f"Test signal sent to admin {admin_id}")
                         
-                        # Store signal reference for quick access
-                        if not hasattr(self, 'user_signals'):
-                            self.user_signals = {}
-                            
+                        # Store signal reference for quick access - use the signals property indirectly
                         admin_str_id = str(admin_id)
-                        if admin_str_id not in self.user_signals:
-                            self.user_signals[admin_str_id] = {}
+                        user_signals = self.signals  # This will trigger lazy loading if needed
+                        if admin_str_id not in user_signals:
+                            user_signals[admin_str_id] = {}
                         
-                        self.user_signals[admin_str_id][signal_id] = normalized_data
+                        user_signals[admin_str_id][signal_id] = normalized_data
                 except Exception as e:
                     logger.error(f"Error sending test signal to admin: {str(e)}")
             
@@ -4352,38 +4455,63 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             return f"New {signal_data.get('instrument', 'Unknown')} {signal_data.get('direction', 'Unknown')} Signal"
 
     async def _load_signals(self):
-        """Load and cache previously saved signals"""
+        """Load signal data from storage"""
         try:
-            # Initialize user_signals dictionary if it doesn't exist
+            start_time = time.time()
+            logger.info("Loading signal data from storage")
+            
+            # Create signals directory if it doesn't exist
+            if not os.path.exists(self.signals_dir):
+                os.makedirs(self.signals_dir, exist_ok=True)
+                
+            # Load signal data
+            signal_files = os.listdir(self.signals_dir)
+            logger.info(f"Found {len(signal_files)} signal files")
+            
+            # Only load recent signals (last 100 files) for performance
+            signal_files = sorted(signal_files, reverse=True)[:100]
+            
+            # Initialize user_signals if needed
             if not hasattr(self, 'user_signals'):
                 self.user_signals = {}
                 
-            # If we have a database connection, load signals from there
-            if self.db:
-                # Get all active signals from the database
-                signals = await self.db.get_active_signals()
-                
-                # Organize signals by user_id for quick access
-                for signal in signals:
-                    user_id = str(signal.get('user_id'))
-                    signal_id = signal.get('id')
-                    
-                    # Initialize user dictionary if needed
-                    if user_id not in self.user_signals:
-                        self.user_signals[user_id] = {}
-                    
-                    # Store the signal
-                    self.user_signals[user_id][signal_id] = signal
-                
-                logger.info(f"Loaded {len(signals)} signals for {len(self.user_signals)} users")
-            else:
-                logger.warning("No database connection available for loading signals")
-                
+            # Load signals
+            for signal_file in signal_files:
+                if signal_file.endswith('.json'):
+                    try:
+                        with open(os.path.join(self.signals_dir, signal_file), 'r') as f:
+                            signal_data = json.load(f)
+                            
+                        signal_id = signal_data.get('id')
+                        if signal_id:
+                            # Store signal data
+                            for user_id in self.admin_users:
+                                user_str_id = str(user_id)
+                                if user_str_id not in self.user_signals:
+                                    self.user_signals[user_str_id] = {}
+                                
+                                self.user_signals[user_str_id][signal_id] = signal_data
+                    except Exception as e:
+                        logger.error(f"Error loading signal {signal_file}: {str(e)}")
+                        
+            # Track that signals have been loaded
+            self._signals_loaded = True
+            load_time = time.time() - start_time
+            
+            logger.info(f"Loaded {len(signal_files)} signals in {load_time:.2f} seconds")
         except Exception as e:
             logger.error(f"Error loading signals: {str(e)}")
-            logger.exception(e)
-            # Initialize empty dict on error
-            self.user_signals = {}
+            
+    @property
+    def signals(self):
+        """Lazily load signals when needed"""
+        if not getattr(self, '_signals_loaded', False):
+            # Create an asyncio task to load signals in the background
+            if not hasattr(self, '_loading_signals_task') or self._loading_signals_task.done():
+                logger.info("Lazy loading signals")
+                self._loading_signals_task = asyncio.create_task(self._load_signals())
+                
+        return self.user_signals
 
     async def back_signals_callback(self, update: Update, context=None) -> int:
         """Handle back_signals button press"""
@@ -4867,3 +4995,73 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     keyboard=None
                 )
                 return ConversationHandler.END
+
+    async def run(self):
+        """Run the bot with webhook or polling based on configuration."""
+        try:
+            if self.webhook_url:
+                logger.info(f"Setting up webhook at {self.webhook_url}{self.webhook_path}")
+                await self.application.bot.set_webhook(url=f"{self.webhook_url}{self.webhook_path}")
+                
+                # Create FastAPI app for webhook handling
+                app = FastAPI()
+                
+                @app.post(self.webhook_path)
+                async def telegram_webhook(request: Request):
+                    """Handle Telegram webhook requests."""
+                    # Get the request data
+                    try:
+                        update_data = await request.json()
+                        
+                        # Check if we've already processed this update
+                        update_id = update_data.get('update_id')
+                        if update_id in self.processed_updates:
+                            logger.warning(f"Duplicate update {update_id} - skipping")
+                            return {"success": True, "message": "Update already processed"}
+                            
+                        # Mark this update as processed
+                        self.processed_updates.add(update_id)
+                        
+                        # Limit the size of processed_updates to prevent memory growth
+                        if len(self.processed_updates) > 1000:
+                            # Keep only the 500 most recent update IDs
+                            self.processed_updates = set(sorted(self.processed_updates)[-500:])
+                        
+                        # Create Update object
+                        update = Update.de_json(update_data, self.bot)
+                        
+                        # Process the update
+                        await self.application.process_update(update)
+                        
+                        # Log success
+                        logger.info(f"Successfully processed update {update_id}")
+                        
+                        return {"success": True}
+                    except Exception as e:
+                        logger.error(f"Error processing webhook: {str(e)}")
+                        return {"success": False, "error": str(e)}
+                        
+                # Return the FastAPI app for ASGI server
+                return app
+            else:
+                # No webhook URL, use long polling
+                logger.info("Starting bot with long polling")
+                
+                # Start the bot without blocking
+                await self.application.initialize()
+                await self.application.start()
+                self.bot_started = True
+                
+                # Extra log for debugging or monitoring during development
+                logger.info("Bot started with polling successfully")
+                
+                # Start services only if not using lazy initialization
+                if not getattr(self, 'lazy_init', False):
+                    await self.initialize_services()
+                else:
+                    logger.info("Skipping services initialization due to lazy_init=True")
+                
+                return None
+        except Exception as e:
+            logger.error(f"Error running bot: {str(e)}")
+            raise
