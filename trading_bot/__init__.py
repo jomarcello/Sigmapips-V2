@@ -4,6 +4,14 @@
 # Define version
 __version__ = '2.0.0'
 
+# Import the FastAPI app for direct access
+try:
+    from trading_bot.main import app
+except ImportError:
+    # Provide fallback for testing or when main isn't available
+    import logging
+    logging.warning("Could not import app from trading_bot.main")
+
 # Import hack for backward compatibility only, do not use these imports in new code
 from trading_bot.services.chart_service.tradingview_selenium import TradingViewSeleniumService
 from trading_bot.services.chart_service.tradingview_playwright import TradingViewPlaywrightService
