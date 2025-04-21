@@ -1,20 +1,4 @@
-#!/usr/bin/env python3
-import asyncio
-import logging
-import os
-import sys
-
-# Set up logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
-
-async def patch_asgi():
-    """Create a fixed version of asgi.py with proper webhook handling"""
-    # Define new asgi.py content
-    new_asgi_content = '''from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request
 import asyncio
 import logging
 import os
@@ -28,14 +12,14 @@ app = FastAPI()
 
 logger = logging.getLogger(__name__)
 
+# Global telegram service reference
+telegram_service = None
+
 # Basic health check endpoint
 @app.get("/health")
 async def health_check():
     """Health check endpoint for Railway's healthcheck."""
     return {"status": "ok", "message": "Bot is running"}
-
-# Global telegram service reference
-telegram_service = None
 
 # Webhook endpoint - this is the critical part that was missing
 @app.post("/webhook")
@@ -149,38 +133,3 @@ async def startup_event():
     except Exception as e:
         logger.error(f"Error starting bot: {str(e)}")
         logger.exception(e) 
-'''
-
-    # Write the new file
-    output_path = "fixed_asgi.py"
-    with open(output_path, 'w') as f:
-        f.write(new_asgi_content)
-    
-    logger.info(f"Created fixed asgi file at {output_path}")
-    logger.info("To use this file, upload it to your Railway project and rename to asgi.py")
-    
-    return output_path
-
-def backup_existing_file():
-    """Backup the existing asgi.py file if it exists"""
-    try:
-        if os.path.exists("asgi.py"):
-            backup_path = "asgi_backup.py"
-            import shutil
-            shutil.copy("asgi.py", backup_path)
-            logger.info(f"Backed up existing asgi.py to {backup_path}")
-    except Exception as e:
-        logger.error(f"Error backing up asgi.py: {str(e)}")
-
-if __name__ == "__main__":
-    # Backup existing file
-    backup_existing_file()
-    
-    # Create patched file
-    asyncio.run(patch_asgi())
-    
-    print("\n== Instructions ==")
-    print("1. Deploy fixed_asgi.py to your Railway project")
-    print("2. Rename it to asgi.py")
-    print("3. Redeploy your application")
-    print("4. The webhook should now work correctly") 
