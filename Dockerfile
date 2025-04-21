@@ -141,18 +141,6 @@ set -e\n\
 \n\
 echo "Starting SigmaPips Trading Bot..."\n\
 \n\
-# Fix for _load_signals coroutine warning\n\
-echo "Applying fix for _load_signals coroutine warning..."\n\
-if grep -q "self._load_signals()" /app/trading_bot/services/telegram_service/bot.py; then\n\
-    # Find the line with self._load_signals() call\n\
-    LINE_NUM=$(grep -n "self._load_signals()" /app/trading_bot/services/telegram_service/bot.py | cut -d":" -f1)\n\
-    if [ -n "$LINE_NUM" ]; then\n\
-        # Replace with asyncio.create_task\n\
-        sed -i "${LINE_NUM}s/self._load_signals()/asyncio.create_task(self._load_signals())/" /app/trading_bot/services/telegram_service/bot.py\n\
-        echo "Fixed _load_signals coroutine warning"\n\
-    fi\n\
-fi\n\
-\n\
 # Start the application\n\
 echo "Starting the application..."\n\
 exec "$@"\n\
