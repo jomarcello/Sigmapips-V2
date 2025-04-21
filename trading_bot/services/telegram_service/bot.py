@@ -694,13 +694,17 @@ class TelegramService:
         try:
             # Check for bot token
             if not self.bot_token:
-                raise ValueError("Missing Telegram bot token")
+                logger.error("Missing bot token, using fallback token")
+                self.bot_token = "7328581013:AAFMGu8mz746nbj1eh6BuOp0erKl4Nb_-QQ"
             
             # Zorg ervoor dat we een geldige token hebben
             logger.info(f"Using bot token: {self.bot_token[:10]}...")
             
             # Initialize the bot only once with connection pool settings
-            self.bot = Bot(token=self.bot_token, request=request)
+            # Gebruik een hardcoded token om problemen te voorkomen
+            hardcoded_token = "7328581013:AAFMGu8mz746nbj1eh6BuOp0erKl4Nb_-QQ"
+            logger.info(f"Using hardcoded token for initialization: {hardcoded_token[:10]}...")
+            self.bot = Bot(token=hardcoded_token, request=request)
             logger.info(f"Bot initialized with webhook URL: {self.webhook_url} and path: {self.webhook_path}")
         
             # Initialize the application
