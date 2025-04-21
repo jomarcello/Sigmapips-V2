@@ -5065,3 +5065,12 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         except Exception as e:
             logger.error(f"Error running bot: {str(e)}")
             raise
+
+async def keepalive():
+    """Keep the application active to prevent Railway from timing out"""
+    while True:
+        logger.debug("Keepalive ping")
+        await asyncio.sleep(60)
+
+# Voeg na het starten van de bot toe:
+asyncio.create_task(keepalive())
