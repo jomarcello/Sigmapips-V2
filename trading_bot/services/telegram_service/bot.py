@@ -5006,6 +5006,12 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 # Create FastAPI app for webhook handling
                 app = FastAPI()
                 
+                @app.get("/health")
+                async def health_check():
+                    """Health check endpoint for Railway's healthcheck."""
+                    logger.debug("Health check endpoint called")
+                    return {"status": "ok", "message": "Bot is running"}
+                
                 @app.post(self.webhook_path)
                 async def telegram_webhook(request: Request):
                     """Handle Telegram webhook requests."""
