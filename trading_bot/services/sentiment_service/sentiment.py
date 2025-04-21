@@ -2368,7 +2368,7 @@ Monitor market developments for potential sentiment shifts.
 
     async def _get_fast_sentiment(self, instrument: str) -> Dict[str, Any]:
         """
-        Get a quick sentiment analysis for a trading instrument with minimal processing
+        Get a quick sentiment analysis for a trading instrument with more comprehensive formatting
         
         Args:
             instrument: The trading instrument to analyze (e.g., 'EURUSD')
@@ -2385,17 +2385,42 @@ Monitor market developments for potential sentiment shifts.
             if cached_result:
                 logger.info(f"Using cached sentiment for {instrument} (elapsed: {time.time() - start_time:.2f}s)")
                 return cached_result
-                
+            
+            # Market type detection
+            market_type = self._guess_market_from_instrument(instrument)
+            logger.info(f"Detected market type: {market_type} for {instrument}")
+            
+            # Check if Tavily API key is available - we'll use it to get real market data
+            search_data = None
+            if self.tavily_api_key:
+                try:
+                    # Build query for the instrument
+                    search_query = self._build_search_query(instrument, market_type)
+                    logger.info(f"Running Tavily search for {instrument} with query: {search_query}")
+                    
+                    # Get search data with a timeout to keep it fast
+                    search_data_task = self._get_tavily_news(search_query)
+                    search_data = await asyncio.wait_for(search_data_task, timeout=6.0)
+                    logger.info(f"Received Tavily search data for {instrument}: {len(search_data) if search_data else 0} bytes")
+                except asyncio.TimeoutError:
+                    logger.warning(f"Tavily search timed out for {instrument}, proceeding without search data")
+                except Exception as e:
+                    logger.error(f"Error getting Tavily search data for {instrument}: {str(e)}")
+            
             # Check if we have a DeepSeek API key
-            if not self.deepseek_api_key:
+            if not self.api_key:
                 logger.warning(f"No DeepSeek API key available. Using local sentiment estimate for {instrument}")
                 result = self._get_quick_local_sentiment(instrument)
                 self._add_to_cache(instrument, result)
                 return result
-                
+            
             # Use semaphore to limit concurrent requests
             async with self.request_semaphore:
-                response_data = await self._process_fast_sentiment_request(instrument)
+                # Build a better prompt that includes search data if available
+                enhanced_prompt = self._prepare_enhanced_sentiment_prompt(instrument, market_type, search_data)
+                
+                # Get sentiment from DeepSeek
+                response_data = await self._process_sentiment_request(instrument, enhanced_prompt)
                 
             if response_data:
                 # Process the response to extract sentiment percentages
@@ -2403,10 +2428,13 @@ Monitor market developments for potential sentiment shifts.
                 bearish_pct = response_data.get('bearish_percentage', 0)
                 neutral_pct = response_data.get('neutral_percentage', 0)
                 
-                # Format the sentiment text
-                sentiment_text = self._format_fast_sentiment_text(
-                    instrument, bullish_pct, bearish_pct, neutral_pct
-                )
+                # Format the sentiment text using the comprehensive format
+                # If DeepSeek provided formatted text, use it; otherwise generate it
+                sentiment_text = response_data.get('formatted_text')
+                if not sentiment_text:
+                    sentiment_text = self._format_fast_sentiment_text(
+                        instrument, bullish_pct, bearish_pct, neutral_pct
+                    )
                 
                 # Create the result dictionary
                 result = {
@@ -2436,20 +2464,92 @@ Monitor market developments for potential sentiment shifts.
             result = self._get_quick_local_sentiment(instrument)
             return result
     
-    async def _process_fast_sentiment_request(self, instrument: str) -> Dict[str, Any]:
+    def _prepare_enhanced_sentiment_prompt(self, instrument: str, market_type: str, search_data: Optional[str] = None) -> str:
         """
-        Process a quick sentiment request to external API
+        Prepare an enhanced prompt for DeepSeek that includes search data if available
         
         Args:
             instrument: The trading instrument to analyze
+            market_type: The market type (forex, crypto, etc.)
+            search_data: Optional search data from Tavily
+            
+        Returns:
+            str: The formatted prompt
+        """
+        # Base information about the instrument
+        base_info = f"Instrument: {instrument}\nMarket type: {market_type}"
+        
+        # Add search data if available
+        data_section = ""
+        if search_data and len(search_data) > 10:
+            # Trim if too long
+            if len(search_data) > 3000:
+                search_data = search_data[:3000] + "...[truncated for brevity]"
+            data_section = f"\n\nMarket data and news:\n{search_data}"
+        
+        # Create the prompt with clear instructions
+        prompt = f"""Analyze the current market sentiment for the trading instrument {instrument} based on the following information:
+
+{base_info}{data_section}
+
+Create a DETAILED market sentiment analysis with the following sections:
+
+1. Overall market sentiment (bullish, bearish, or neutral)
+2. Percentage breakdown of bullish, bearish, and neutral sentiment
+3. Market sentiment analysis that explains the current sentiment
+4. Key sentiment drivers (factors affecting the market)
+5. Important events and news affecting the instrument
+
+Your response MUST include BOTH:
+
+1. A JSON section with the sentiment percentages:
+{{
+    "bullish_percentage": [percentage of bullish sentiment, 0-100],
+    "bearish_percentage": [percentage of bearish sentiment, 0-100],
+    "neutral_percentage": [percentage of neutral sentiment, 0-100],
+    "formatted_text": "Your full formatted HTML text here with all the required sections"
+}}
+
+2. In the "formatted_text" field, include a complete HTML-formatted analysis with this EXACT format:
+
+<b>🎯 {instrument} Market Sentiment Analysis</b>
+
+<b>Overall Sentiment:</b> [Bullish/Bearish/Neutral with emoji]
+
+<b>Market Sentiment Breakdown:</b>
+🟢 Bullish: XX%
+🔴 Bearish: YY%
+⚪️ Neutral: ZZ%
+
+<b>📊 Market Sentiment Analysis:</b>
+[Detailed analysis of current market sentiment for {instrument}]
+
+<b>📰 Key Sentiment Drivers:</b>
+• [Key factor 1]
+• [Key factor 2]
+• [Key factor 3]
+
+<b>📅 Important Events & News:</b>
+• [Event/news 1]
+• [Event/news 2]
+• [Event/news 3]
+
+Make sure the percentages add up to 100%. The formatted text MUST include all sections with the exact HTML tags shown.
+"""
+        return prompt
+        
+    async def _process_sentiment_request(self, instrument: str, prompt: str) -> Dict[str, Any]:
+        """
+        Process a sentiment request to the DeepSeek API with the enhanced prompt
+        
+        Args:
+            instrument: The trading instrument to analyze
+            prompt: The enhanced prompt with all instructions
             
         Returns:
             Dict with sentiment data or None if request failed
         """
         try:
-            # Prepare the prompt for sentiment analysis
-            prompt = self._prepare_fast_sentiment_prompt(instrument)
-            
             # Check if API key is available
             if not self.api_key:
                 logger.error(f"No API key available for {instrument}")
@@ -2464,11 +2564,11 @@ Monitor market developments for potential sentiment shifts.
             payload = {
                 'model': self.api_model,
                 'messages': [
-                    {'role': 'system', 'content': 'You are a financial market sentiment analyzer.'},
+                    {'role': 'system', 'content': 'You are a financial market analyst specializing in sentiment analysis. You provide detailed, accurate analysis of market sentiment based on available data.'},
                     {'role': 'user', 'content': prompt}
                 ],
                 'response_format': {'type': 'json_object'},
-                'temperature': 0.1  # Lower temperature for more consistent results
+                'temperature': 0.2  # Lower temperature for more consistent results
             }
             
             # Make the API request with timeout
@@ -2491,6 +2591,36 @@ Monitor market developments for potential sentiment shifts.
             try:
                 # Parse the JSON content
                 sentiment_data = json.loads(content)
+                
+                # Validate the sentiment data
+                if 'bullish_percentage' not in sentiment_data or 'bearish_percentage' not in sentiment_data:
+                    logger.error(f"Invalid sentiment data format: {sentiment_data}")
+                    return None
+                
+                # Verify that formatted_text contains all required sections
+                formatted_text = sentiment_data.get('formatted_text', '')
+                required_sections = [
+                    "<b>🎯", "Market Sentiment Analysis</b>",
+                    "<b>Overall Sentiment:</b>",
+                    "<b>Market Sentiment Breakdown:</b>",
+                    "🟢 Bullish:", 
+                    "🔴 Bearish:",
+                    "<b>📊 Market Sentiment Analysis:</b>",
+                    "<b>📰 Key Sentiment Drivers:</b>",
+                    "<b>📅 Important Events & News:</b>"
+                ]
+                
+                missing_sections = [sect for sect in required_sections if sect not in formatted_text]
+                if missing_sections:
+                    logger.warning(f"Missing sections in formatted text: {missing_sections}")
+                    # If missing sections, we'll generate a formatted text using our method
+                    sentiment_data['formatted_text'] = self._format_fast_sentiment_text(
+                        instrument, 
+                        sentiment_data.get('bullish_percentage', 50),
+                        sentiment_data.get('bearish_percentage', 50),
+                        sentiment_data.get('neutral_percentage', 0)
+                    )
+                
                 return sentiment_data
             except json.JSONDecodeError:
                 logger.error(f"Failed to parse sentiment response: {content}")
@@ -2502,37 +2632,74 @@ Monitor market developments for potential sentiment shifts.
         except Exception as e:
             logger.error(f"Error in API request for {instrument}: {str(e)}")
             return None
-            
+    
     def _format_fast_sentiment_text(self, instrument: str, bullish_pct: float, 
                                   bearish_pct: float, neutral_pct: float) -> str:
         """Format sentiment text based on percentages"""
-        sentiment_text = f"Marktsentiment voor {instrument}: "
-        
+        # Determine overall sentiment
         if bullish_pct > bearish_pct + 20:
-            sentiment_text += f"Sterk bullish ({bullish_pct:.1f}% bullish, {bearish_pct:.1f}% bearish)"
+            overall_sentiment = "Bullish ↗️"
         elif bullish_pct > bearish_pct + 5:
-            sentiment_text += f"Gematigd bullish ({bullish_pct:.1f}% bullish, {bearish_pct:.1f}% bearish)"
+            overall_sentiment = "Slightly Bullish ↗️"
         elif bearish_pct > bullish_pct + 20:
-            sentiment_text += f"Sterk bearish ({bearish_pct:.1f}% bearish, {bullish_pct:.1f}% bullish)"
+            overall_sentiment = "Bearish ↘️"
         elif bearish_pct > bullish_pct + 5:
-            sentiment_text += f"Gematigd bearish ({bearish_pct:.1f}% bearish, {bullish_pct:.1f}% bullish)"
+            overall_sentiment = "Slightly Bearish ↘️"
         else:
-            sentiment_text += f"Neutraal ({neutral_pct:.1f}% neutraal, {bullish_pct:.1f}% bullish, {bearish_pct:.1f}% bearish)"
-            
+            overall_sentiment = "Neutral ⚖️"
+        
+        # Generate analysis text based on sentiment
+        if bullish_pct > bearish_pct + 10:
+            analysis = f"{instrument} is currently showing positive momentum with bullish signals dominating. Market participants are generally optimistic about future price movements."
+        elif bearish_pct > bullish_pct + 10:
+            analysis = f"{instrument} is currently under selling pressure with bearish signals dominating. Market participants are generally concerned about future price movements."
+        else:
+            analysis = f"{instrument} is currently showing mixed signals with no clear sentiment bias. The market shows balanced sentiment with no strong directional bias at this time."
+        
+        # Format the full sentiment text with all required sections
+        sentiment_text = f"""<b>🎯 {instrument} Market Sentiment Analysis</b>
+
+<b>Overall Sentiment:</b> {overall_sentiment}
+
+<b>Market Sentiment Breakdown:</b>
+🟢 Bullish: {bullish_pct:.0f}%
+🔴 Bearish: {bearish_pct:.0f}%
+⚪️ Neutral: {neutral_pct:.0f}%
+
+<b>📊 Market Sentiment Analysis:</b>
+{analysis}
+
+<b>📰 Key Sentiment Drivers:</b>
+• Current market conditions and technical analysis
+• Recent price action and volume patterns
+• Market participant positioning
+
+<b>📅 Important Events & News:</b>
+• Recent market developments affecting {instrument}
+• Economic data releases impacting sentiment
+• Overall market trends and correlations
+"""
         return sentiment_text
         
     def _prepare_fast_sentiment_prompt(self, instrument: str) -> str:
         """Prepare the prompt for sentiment analysis"""
-        prompt = f"""Analyseer het huidige marktsentiment voor het handelsinstrument {instrument}.
-        
-Geef je antwoord in het volgende JSON-formaat:
+        prompt = f"""Analyze the current market sentiment for the trading instrument {instrument}.
+
+Include the following in your analysis:
+1. Overall market sentiment (bullish, bearish, or neutral)
+2. Percentage breakdown of sentiment (bullish, bearish, neutral percentages)
+3. Brief market analysis
+4. Key sentiment drivers
+5. Important events and news affecting the instrument
+
+Return your answer in the following JSON format:
 {{
-    "bullish_percentage": [percentage bullish sentiment, 0-100],
-    "bearish_percentage": [percentage bearish sentiment, 0-100],
-    "neutral_percentage": [percentage neutral sentiment, 0-100]
+    "bullish_percentage": [percentage of bullish sentiment, 0-100],
+    "bearish_percentage": [percentage of bearish sentiment, 0-100],
+    "neutral_percentage": [percentage of neutral sentiment, 0-100]
 }}
 
-De percentages moeten optellen tot 100. Geef alleen de JSON terug zonder extra tekst."""
+The percentages must add up to 100. Only return the JSON with no additional text."""
         
         return prompt
     
@@ -2544,10 +2711,10 @@ De percentages moeten optellen tot 100. Geef alleen de JSON terug zonder extra t
         day_offset = int(time.time() / 86400) % 20 - 10  # Changes daily, range -10 to +10
         
         bullish_pct = max(5, min(95, hash_val + day_offset))
-        bearish_pct = 100 - bullish_pct
-        neutral_pct = 0
+        bearish_pct = max(5, min(95, 100 - bullish_pct - 10))  # Ensure some neutrality
+        neutral_pct = 100 - bullish_pct - bearish_pct
         
-        # Format the sentiment text
+        # Format the sentiment text using the comprehensive format
         formatted_text = self._format_fast_sentiment_text(
             instrument=instrument,
             bullish_pct=bullish_pct,
