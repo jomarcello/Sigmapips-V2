@@ -1307,7 +1307,13 @@ class TelegramService:
             application.add_handler(CallbackQueryHandler(self.button_callback))
             
             # Load signals
-            self._load_signals()
+            # self._load_signals()  # This causes the warning - remove direct call
+            # Create a background task instead
+            try:
+                self._background_tasks.append(asyncio.create_task(self._load_signals()))
+                logger.info("Created background task for loading signals")
+            except Exception as e:
+                logger.error(f"Error creating background task for loading signals: {str(e)}")
             
             logger.info("Bot setup completed successfully")
             
@@ -5031,8 +5037,9 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     logger.debug("Health check endpoint called")
                     return {"status": "ok", "message": "Bot is running"}
                 
-                # Bepaal het juiste webhook pad
-                webhook_route = self.webhook_path if self.webhook_path else "/webhook"
+                # Bepaal het juiste webhook pad - ensure it's always /webhook regardless of URL
+                webhook_route = "/webhook"
+                logger.info(f"Registering webhook handler at route: {webhook_route}")
                 
                 @app.post(webhook_route)
                 async def telegram_webhook(request: Request):
