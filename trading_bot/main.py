@@ -34,6 +34,13 @@ try:
         initialization_start_time = time.time()
         logger.info("Initializing services...")
         
+        # Read the Telegram bot token
+        bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
+        if not bot_token:
+            # Use hardcoded token instead of returning
+            bot_token = "7328581013:AAFMGu8mz746nbj1eh6BuOp0erKl4Nb_-QQ"
+            logger.info("Using hardcoded bot token")
+            
         # Initialize database
         db_start_time = time.time()
         db = Database()
@@ -49,7 +56,7 @@ try:
         # Initialize Telegram service with database and Stripe service
         # Enable lazy initialization to defer heavy service loading
         telegram_start_time = time.time()
-        telegram_service = TelegramService(db, stripe_service, lazy_init=True)
+        telegram_service = TelegramService(db, stripe_service, bot_token=bot_token, lazy_init=True)
         telegram_time = time.time() - telegram_start_time
         logger.info(f"Telegram service initialized with lazy loading in {telegram_time:.2f} seconds")
         
