@@ -4,6 +4,7 @@ import os
 import sys
 import asyncio
 import time
+import re
 
 # Set up logging
 logging.basicConfig(
@@ -18,6 +19,33 @@ logger.info("Starting SigmaPips Trading Bot...")
 
 # Add the current directory to the path so we can import from trading_bot
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+# Function to read the bot token from .env file
+def read_token_from_env_file():
+    """Read the Telegram bot token directly from the .env file"""
+    try:
+        env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')
+        if not os.path.exists(env_path):
+            logger.error(f"❌ .env bestand niet gevonden op {env_path}")
+            return None
+            
+        with open(env_path, 'r') as file:
+            for line in file:
+                # Skip comments and empty lines
+                if line.strip().startswith('#') or not line.strip():
+                    continue
+                    
+                # Look for TELEGRAM_BOT_TOKEN
+                match = re.match(r'TELEGRAM_BOT_TOKEN\s*=\s*(.+)', line)
+                if match:
+                    token = match.group(1).strip()
+                    return token
+                    
+        logger.error("❌ TELEGRAM_BOT_TOKEN niet gevonden in .env bestand")
+        return None
+    except Exception as e:
+        logger.error(f"❌ Fout bij het lezen van .env bestand: {str(e)}")
+        return None
 
 try:
     # Import the proper bot class
@@ -46,10 +74,24 @@ try:
         stripe_time = time.time() - stripe_start_time
         logger.info(f"Stripe service initialized in {stripe_time:.2f} seconds")
         
+        # Get the Telegram bot token from environment variables
+        bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
+        # If not found in env, read directly from .env file
+        if not bot_token:
+            logger.info("TELEGRAM_BOT_TOKEN niet gevonden in omgevingsvariabelen, lezen uit .env bestand...")
+            bot_token = read_token_from_env_file()
+            
+        # Ensure we have a valid token
+        if not bot_token:
+            logger.error("❌ Geen geldige TELEGRAM_BOT_TOKEN gevonden. Gebruik python check_telegram_token.py voor hulp.")
+            sys.exit(1)
+        
+        logger.info(f"Using Telegram bot token: {bot_token[:10]}...")
+        
         # Initialize Telegram service with database and Stripe service
         # Enable lazy initialization to defer heavy service loading
         telegram_start_time = time.time()
-        telegram_service = TelegramService(db, stripe_service, lazy_init=True)
+        telegram_service = TelegramService(db, stripe_service, bot_token=bot_token, lazy_init=True)
         telegram_time = time.time() - telegram_start_time
         logger.info(f"Telegram service initialized with lazy loading in {telegram_time:.2f} seconds")
         
