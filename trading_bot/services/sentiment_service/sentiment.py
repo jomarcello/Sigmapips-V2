@@ -269,6 +269,11 @@ class MarketSentimentService:
         """
         logger.info(f"get_sentiment called for {instrument}")
         
+        if market_type is None:
+            # Determine market type from instrument if not provided
+            market_type = self._guess_market_from_instrument(instrument)
+            logger.info(f"Detected market type: {market_type} for {instrument}")
+        
         # Start timing the total request
         start_time = time.time()
         
@@ -287,6 +292,20 @@ class MarketSentimentService:
         self.metrics.record_cache_miss()
         
         try:
+            # First try the direct API approach (similar to LiveSentimentService)
+            if self.deepseek_api_key and self.tavily_api_key:
+                try:
+                    logger.info(f"Attempting direct API approach for {instrument}")
+                    result = await self._get_direct_api_sentiment(instrument, market_type)
+                    if result:
+                        # Record total request time
+                        self.metrics.record_total_request(time.time() - start_time)
+                        return result
+                    logger.info(f"Direct API approach returned no result, trying fast mode")
+                except Exception as e:
+                    logger.error(f"Error with direct API approach in get_sentiment: {str(e)}")
+                    logger.info("Falling back to fast mode")
+            
             # Use fast mode if enabled
             if self.fast_mode:
                 result = await self._get_fast_sentiment(instrument)
@@ -583,14 +602,14 @@ For the "formatted_text" field, use THIS EXACT HTML FORMAT:
 [Detailed analysis of current market sentiment based on the data]
 
 <b>📰 Key Sentiment Drivers:</b>
-• [Key factor 1]
-• [Key factor 2]
-• [Key factor 3]
+• [Key sentiment factor 1]
+• [Key sentiment factor 2]
+• [Key sentiment factor 3]
 
 <b>📅 Important Events & News:</b>
-• [Event/news 1]
-• [Event/news 2]
-• [Event/news 3]
+• [News event 1]
+• [News event 2]
+• [News event 3]
 
 The percentages MUST add up to 100%, and the formatted text MUST include all sections with the exact HTML tags shown. Base your analysis ONLY on the provided market data.
 """
@@ -3118,6 +3137,265 @@ The percentages must add up to 100. Only return the JSON with no additional text
         except Exception as e:
             logger.error(f"Error loading sentiment cache asynchronously: {str(e)}")
             return False
+
+    async def _get_direct_api_sentiment(self, instrument: str, market_type: str) -> Optional[Dict[str, Any]]:
+        """
+        Get sentiment using direct API calls to Tavily and DeepSeek
+        
+        Args:
+            instrument: Trading instrument symbol
+            market_type: Market type (forex, crypto, etc.)
+            
+        Returns:
+            Dict with sentiment data or None if failed
+        """
+        try:
+            logger.info(f"Getting direct API sentiment for {instrument} ({market_type})")
+            
+            # Format instrument for better search query
+            if len(instrument) == 6 and instrument.isalpha():
+                # Likely a forex pair, add a slash
+                formatted_instrument = f"{instrument[:3]}/{instrument[3:]}"
+            else:
+                formatted_instrument = instrument
+            
+            # Get market data from Tavily
+            query = f"{formatted_instrument} market analysis current price trend news latest"
+            
+            # Prepare request for Tavily
+            headers = {
+                "Authorization": f"Bearer {self.tavily_api_key}",
+                "Content-Type": "application/json"
+            }
+            
+            payload = {
+                "query": query,
+                "search_depth": "advanced",
+                "include_answer": True,
+                "include_images": False,
+                "max_results": 5
+            }
+            
+            # Get market data
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    self.tavily_url,
+                    headers=headers,
+                    json=payload,
+                    timeout=aiohttp.ClientTimeout(total=15)
+                ) as response:
+                    if response.status != 200:
+                        logger.error(f"Tavily API returned status {response.status}: {await response.text()}")
+                        return None
+                    
+                    tavily_data = await response.json()
+            
+            # Process Tavily data
+            market_data = f"# Market Analysis for {instrument}\n\n"
+            
+            # Add the generated answer if available
+            if tavily_data.get("answer"):
+                market_data += f"## Summary\n{tavily_data['answer']}\n\n"
+            
+            # Add search results
+            if tavily_data.get("results"):
+                market_data += "## Market News and Analysis\n\n"
+                for i, item in enumerate(tavily_data["results"], 1):
+                    market_data += f"### {item.get('title', f'Source {i}')}\n"
+                    market_data += f"{item.get('content', 'No content available')}\n"
+                    market_data += f"Source: {item.get('url', 'Unknown')}\n\n"
+            
+            logger.info(f"Retrieved {len(tavily_data.get('results', []))} market data items for {instrument}")
+            
+            # Truncate market data if too long
+            if len(market_data) > 5000:
+                market_data = market_data[:5000] + "...[truncated]"
+            
+            # Create sentiment prompt for DeepSeek
+            prompt = f"""Analyze the current market sentiment for {instrument} based on the following market data:
+
+{market_data}
+
+Provide a DETAILED market sentiment analysis with the following:
+
+1. Overall market sentiment (bullish, bearish, or neutral)
+2. Precise percentage breakdown of bullish, bearish, and neutral sentiment
+3. Analysis of current market trends and sentiment drivers
+4. Key factors influencing the sentiment
+5. Important events and news affecting the instrument
+
+Your response MUST be in this exact JSON format:
+{{
+    "bullish_percentage": [percentage of bullish sentiment as a number, 0-100],
+    "bearish_percentage": [percentage of bearish sentiment as a number, 0-100],
+    "neutral_percentage": [percentage of neutral sentiment as a number, 0-100],
+    "formatted_text": "Your full formatted HTML text here with all the required sections"
+}}
+
+For the "formatted_text" field, use THIS EXACT HTML FORMAT:
+
+<b>🎯 {instrument} Market Sentiment Analysis</b>
+
+<b>Overall Sentiment:</b> [Bullish/Bearish/Neutral with emoji]
+
+<b>Market Sentiment Breakdown:</b>
+🟢 Bullish: XX%
+🔴 Bearish: YY%
+⚪️ Neutral: ZZ%
+
+<b>📊 Market Sentiment Analysis:</b>
+[Detailed analysis of current market sentiment based on the data]
+
+<b>📰 Key Sentiment Drivers:</b>
+• [Key sentiment factor 1]
+• [Key sentiment factor 2]
+• [Key sentiment factor 3]
+
+<b>📅 Important Events & News:</b>
+• [News event 1]
+• [News event 2]
+• [News event 3]
+
+The percentages MUST add up to 100%, and the formatted text MUST include all sections with the exact HTML tags shown. Base your analysis ONLY on the provided market data.
+"""
+            
+            # Prepare DeepSeek request
+            headers = {
+                "Authorization": f"Bearer {self.deepseek_api_key}",
+                "Content-Type": "application/json"
+            }
+            
+            payload = {
+                "model": self.api_model,
+                "messages": [
+                    {"role": "system", "content": "You are a financial market analyst specializing in sentiment analysis. Your task is to analyze market data and provide detailed sentiment analysis with specific percentages and sections."},
+                    {"role": "user", "content": prompt}
+                ],
+                "temperature": 0.2,
+                "max_tokens": 1500,
+                "response_format": {"type": "json_object"}
+            }
+            
+            # Get DeepSeek analysis
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    self.deepseek_url,
+                    headers=headers,
+                    json=payload,
+                    timeout=aiohttp.ClientTimeout(total=20)
+                ) as response:
+                    if response.status != 200:
+                        logger.error(f"DeepSeek API returned status {response.status}: {await response.text()}")
+                        return None
+                    
+                    deepseek_result = await response.json()
+            
+            # Extract content from response
+            content = deepseek_result.get("choices", [{}])[0].get("message", {}).get("content", "{}")
+            
+            try:
+                # Parse the JSON response
+                data = json.loads(content)
+                
+                # Validate the response has the expected structure
+                required_fields = ["bullish_percentage", "bearish_percentage", "neutral_percentage", "formatted_text"]
+                missing = [field for field in required_fields if field not in data]
+                
+                if missing:
+                    logger.error(f"Missing fields in DeepSeek response: {missing}")
+                    return None
+                
+                # Ensure percentages add up to 100
+                total = data["bullish_percentage"] + data["bearish_percentage"] + data["neutral_percentage"]
+                if abs(total - 100) > 0.01:  # Allow small floating point error
+                    logger.warning(f"Percentages don't add up to 100 ({total}), adjusting")
+                    # Adjust proportionally
+                    data["bullish_percentage"] = round(data["bullish_percentage"] * 100 / total)
+                    data["bearish_percentage"] = round(data["bearish_percentage"] * 100 / total)
+                    data["neutral_percentage"] = 100 - data["bullish_percentage"] - data["bearish_percentage"]
+                
+                # Add source information
+                data["source"] = "api"
+                data["instrument"] = instrument
+                
+                # Verify the formatted text includes all required sections
+                formatted_text = data["formatted_text"]
+                required_sections = [
+                    "<b>🎯", "Market Sentiment Analysis</b>",
+                    "<b>Overall Sentiment:</b>",
+                    "<b>Market Sentiment Breakdown:</b>",
+                    "<b>📊 Market Sentiment Analysis:</b>",
+                    "<b>📰 Key Sentiment Drivers:</b>",
+                    "<b>📅 Important Events & News:</b>"
+                ]
+                
+                for section in required_sections:
+                    if section not in formatted_text:
+                        logger.warning(f"Missing '{section}' in formatted text")
+                        # Add missing sections with defaults
+                        if "<b>📊 Market Sentiment Analysis:</b>" not in formatted_text:
+                            # Find where to insert it (after sentiment breakdown)
+                            breakdown_pos = formatted_text.find("<b>Market Sentiment Breakdown:</b>")
+                            if breakdown_pos > 0:
+                                # Find the next section after breakdown
+                                next_section_pos = formatted_text.find("<b>", breakdown_pos + 10)
+                                if next_section_pos > 0:
+                                    # Insert before next section
+                                    formatted_text = formatted_text[:next_section_pos] + "\n\n<b>📊 Market Sentiment Analysis:</b>\n" + instrument + " is currently showing " + ("bullish trends" if data["bullish_percentage"] > data["bearish_percentage"] else "bearish pressure" if data["bearish_percentage"] > data["bullish_percentage"] else "mixed signals") + " based on recent market data.\n\n" + formatted_text[next_section_pos:]
+                
+                # Make sure the title has the correct emoji
+                if "<b>🎯" not in formatted_text and "<b>" in formatted_text:
+                    formatted_text = formatted_text.replace("<b>", "<b>🎯 ", 1)
+                
+                # Ensure it has "Market Sentiment Analysis" in the title
+                if "Market Sentiment Analysis</b>" not in formatted_text and "Market Analysis</b>" in formatted_text:
+                    formatted_text = formatted_text.replace("Market Analysis</b>", "Market Sentiment Analysis</b>")
+                
+                # Add emoji to sentiment if missing
+                if "<b>Overall Sentiment:</b> Bullish" in formatted_text and "📈" not in formatted_text:
+                    formatted_text = formatted_text.replace("<b>Overall Sentiment:</b> Bullish", "<b>Overall Sentiment:</b> Bullish 📈")
+                elif "<b>Overall Sentiment:</b> Bearish" in formatted_text and "📉" not in formatted_text:
+                    formatted_text = formatted_text.replace("<b>Overall Sentiment:</b> Bearish", "<b>Overall Sentiment:</b> Bearish 📉")
+                elif "<b>Overall Sentiment:</b> Neutral" in formatted_text and "➡️" not in formatted_text:
+                    formatted_text = formatted_text.replace("<b>Overall Sentiment:</b> Neutral", "<b>Overall Sentiment:</b> Neutral ➡️")
+                
+                # Update formatted text with our corrected version
+                data["formatted_text"] = formatted_text
+                
+                # Add sentiment_text for compatibility
+                data["sentiment_text"] = formatted_text
+                
+                # Create a result in our expected format
+                result = {
+                    'bullish': data["bullish_percentage"],
+                    'bearish': data["bearish_percentage"],
+                    'neutral': data["neutral_percentage"],
+                    'sentiment_score': (data["bullish_percentage"] - data["bearish_percentage"]) / 100,
+                    'technical_score': 'Based on market analysis',
+                    'news_score': f"{data['bullish_percentage']}% positive",
+                    'social_score': f"{data['bearish_percentage']}% negative",
+                    'trend_strength': 'Strong' if abs(data["bullish_percentage"] - 50) > 15 else 'Moderate' if abs(data["bullish_percentage"] - 50) > 5 else 'Weak',
+                    'volatility': 'Moderate',
+                    'volume': 'Normal',
+                    'news_headlines': [],
+                    'overall_sentiment': 'bullish' if data["bullish_percentage"] > data["bearish_percentage"] else 'bearish' if data["bearish_percentage"] > data["bullish_percentage"] else 'neutral',
+                    'analysis': formatted_text
+                }
+                
+                # Cache the result
+                self._add_to_cache(instrument, result)
+                
+                logger.info(f"Direct API sentiment analysis complete for {instrument}: {data['bullish_percentage']}% bullish, {data['bearish_percentage']}% bearish")
+                return result
+                
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse DeepSeek response: {e}")
+                logger.error(f"Response content: {content[:500]}...")
+                return None
+                
+        except Exception as e:
+            logger.error(f"Error in direct API sentiment: {str(e)}")
+            return None
 
 class TavilyClient:
     """A simple wrapper for the Tavily API that handles errors properly"""
