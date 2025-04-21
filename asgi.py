@@ -23,12 +23,40 @@ async def health_check():
 async def startup_event():
     """Start the bot when the FastAPI app starts."""
     try:
-        # Import main app's main function directly
-        from main import main
+        # Direct implementation to start the bot without importing main
+        logger.info("Starting bot directly within asgi.py")
         
-        # Start the bot in the background
-        asyncio.create_task(main())
-        logger.info("Bot started via FastAPI app")
+        # Import required modules
+        from trading_bot.services.telegram_service.bot import TelegramService
+        from trading_bot.services.database.db import Database
+        from trading_bot.services.payment_service.stripe_service import StripeService
+        
+        # Create and start services
+        async def start_bot():
+            # Initialize database
+            db = Database()
+            logger.info("Database initialized")
+            
+            # Initialize Stripe service
+            stripe_service = StripeService(db)
+            logger.info("Stripe service initialized")
+            
+            # Initialize Telegram service with database and Stripe service
+            telegram_service = TelegramService(db, stripe_service, lazy_init=True)
+            logger.info("Telegram service initialized")
+            
+            # Start the bot
+            await telegram_service.run()
+            logger.info("Bot started successfully")
+            
+            # Keep the task running
+            while True:
+                await asyncio.sleep(60)
+        
+        # Start in background
+        asyncio.create_task(start_bot())
+        logger.info("Bot startup task created")
+        
     except Exception as e:
         logger.error(f"Error starting bot: {str(e)}")
         logger.exception(e) 
