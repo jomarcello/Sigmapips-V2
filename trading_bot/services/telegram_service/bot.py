@@ -643,8 +643,8 @@ class TelegramService:
         self.gif_utils = gif_utils  # Initialize gif_utils as an attribute
         
         # Telegram Bot configuratie
-        self.bot_token = "7328581013:AAFMGu8mz746nbj1eh6BuOp0erKl4Nb_-QQ"  # Direct use the hardcoded token
-        logger.info(f"Using hardcoded bot token: {self.bot_token[:10]}...")
+        self.bot_token = bot_token or os.getenv("TELEGRAM_BOT_TOKEN", "7328581013:AAFMGu8mz746nbj1eh6BuOp0erKl4Nb_-QQ")
+        logger.info(f"Using bot token: {self.bot_token[:10]}...")
         self.token = self.bot_token  # Aliased for backward compatibility
         self.proxy_url = proxy_url or os.getenv("TELEGRAM_PROXY_URL", "")
         
@@ -669,7 +669,10 @@ class TelegramService:
         self.webhook_path = "/webhook"  # Always use this path
         if self.webhook_url.endswith("/"):
             self.webhook_url = self.webhook_url[:-1]  # Remove trailing slash
-            
+        # Voorkom duplicatie van /webhook in de URL
+        if self.webhook_url.endswith("/webhook"):
+            self.webhook_path = ""  # Geen pad nodig als het al in de URL zit
+        
         # Initialize API services - all with deferred/lazy loading
         self._chart_service = None  # Defer chart service initialization 
         self._calendar_service = None
@@ -701,10 +704,9 @@ class TelegramService:
             logger.info(f"Using bot token: {self.bot_token[:10]}...")
             
             # Initialize the bot only once with connection pool settings
-            # Gebruik een hardcoded token om problemen te voorkomen
-            hardcoded_token = "7328581013:AAFMGu8mz746nbj1eh6BuOp0erKl4Nb_-QQ"
-            logger.info(f"Using hardcoded token for initialization: {hardcoded_token[:10]}...")
-            self.bot = Bot(token=hardcoded_token, request=request)
+            # Use the provided token from initialization
+            logger.info(f"Initializing bot with token: {self.bot_token[:10]}...")
+            self.bot = Bot(token=self.bot_token, request=request)
             logger.info(f"Bot initialized with webhook URL: {self.webhook_url} and path: {self.webhook_path}")
         
             # Initialize the application
@@ -717,6 +719,13 @@ class TelegramService:
             if not lazy_init:
                 # Use asyncio.create_task to properly handle the coroutine
                 asyncio.create_task(self._load_signals())
+            else:
+                # When using lazy init, we should also create the background task properly
+                try:
+                    self._background_tasks.append(asyncio.create_task(self._load_signals()))
+                    logger.info("Created background task for loading signals")
+                except Exception as e:
+                    logger.error(f"Error creating background task for loading signals: {str(e)}")
             
             logger.info("Bot setup completed successfully")
             logger.info("Telegram service initialized")
@@ -1241,24 +1250,22 @@ class TelegramService:
                 logger.exception(init_e)
                 
             # Set bot commands for menu
-            commands = [
+            self.commands = [
                 BotCommand("start", "Start the bot and get the welcome message"),
                 BotCommand("menu", "Show the main menu"),
-                BotCommand("help", "Show available commands and how to use the bot")
+                BotCommand("help", "Get help with using the bot"),
             ]
+            logger.info("Bot commands ready to be set")
             
-            # Store the set_commands task to be awaited later
-            try:
-                # Instead of asyncio.create_task, we will await this in the startup event
-                self.set_commands_task = self.bot.set_my_commands(commands)
-                logger.info("Bot commands ready to be set")
-            except Exception as cmd_e:
-                logger.error(f"Error preparing bot commands: {str(cmd_e)}")
-            
-            # Register command handlers
+            # Register command handlers immediately
             application.add_handler(CommandHandler("start", self.start_command))
-            application.add_handler(CommandHandler("menu", self.menu_command))
+            application.add_handler(CommandHandler("menu", self.show_main_menu))
             application.add_handler(CommandHandler("help", self.help_command))
+            
+            # Add callback query handler
+            application.add_handler(CallbackQueryHandler(self.button_callback))
+            
+            logger.info("Essential command handlers registered")
             
             # Register callback handlers
             application.add_handler(CallbackQueryHandler(self.menu_analyse_callback, pattern="^menu_analyse$"))
@@ -5007,8 +5014,13 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
     async def run(self):
         try:
             if self.webhook_url:
-                logger.info(f"Setting up webhook at {self.webhook_url}{self.webhook_path}")
-                await self.application.bot.set_webhook(url=f"{self.webhook_url}{self.webhook_path}")
+                # Construct complete webhook URL carefully
+                webhook_full_url = self.webhook_url
+                if self.webhook_path and not webhook_full_url.endswith("/webhook"):
+                    webhook_full_url = f"{webhook_full_url}{self.webhook_path}"
+                
+                logger.info(f"Setting up webhook at {webhook_full_url}")
+                await self.application.bot.set_webhook(url=webhook_full_url)
                 
                 # Create FastAPI app for webhook handling
                 app = FastAPI()
@@ -5019,7 +5031,10 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     logger.debug("Health check endpoint called")
                     return {"status": "ok", "message": "Bot is running"}
                 
-                @app.post(self.webhook_path)
+                # Bepaal het juiste webhook pad
+                webhook_route = self.webhook_path if self.webhook_path else "/webhook"
+                
+                @app.post(webhook_route)
                 async def telegram_webhook(request: Request):
                     """Handle Telegram webhook requests."""
                     # Get the request data
@@ -5063,6 +5078,15 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 # Start the bot without blocking
                 await self.application.initialize()
                 await self.application.start()
+                
+                # Set the bot commands
+                try:
+                    logger.info("Setting bot commands...")
+                    await self.bot.set_my_commands(self.commands)
+                    logger.info("Bot commands set successfully")
+                except Exception as e:
+                    logger.error(f"Error setting bot commands: {str(e)}")
+                
                 self.bot_started = True
                 
                 # Extra log for debugging or monitoring during development
