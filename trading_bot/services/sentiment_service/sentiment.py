@@ -140,10 +140,15 @@ class MarketSentimentService:
             cache_file: Path to cache file, if None uses default in user's home directory
             fast_mode: Whether to use faster, more efficient API calls (default: False)
         """
+        # API configuration
         self.deepseek_api_key = os.getenv("DEEPSEEK_API_KEY")
         self.tavily_api_key = os.getenv("TAVILY_API_KEY")
         
-        self.deepseek_url = "https://api.deepseek.com/v1/chat/completions"
+        # Configure the API parameters
+        self.api_key = self.deepseek_api_key  # Use DeepSeek as the default API
+        self.api_model = "deepseek-chat"      # Default model
+        self.api_url = "https://api.deepseek.com/v1/chat/completions"  # Default API URL
+        self.api_timeout = 10                 # Default timeout in seconds
         
         # Initialize the Tavily client
         self.tavily_client = TavilyClient(self.tavily_api_key)
@@ -2445,6 +2450,11 @@ Monitor market developments for potential sentiment shifts.
             # Prepare the prompt for sentiment analysis
             prompt = self._prepare_fast_sentiment_prompt(instrument)
             
+            # Check if API key is available
+            if not self.api_key:
+                logger.error(f"No API key available for {instrument}")
+                return None
+                
             # Build the request
             headers = {
                 'Content-Type': 'application/json',
@@ -2533,33 +2543,25 @@ De percentages moeten optellen tot 100. Geef alleen de JSON terug zonder extra t
         hash_val = sum(ord(c) for c in instrument) % 100
         day_offset = int(time.time() / 86400) % 20 - 10  # Changes daily, range -10 to +10
         
-        bullish = max(5, min(95, hash_val + day_offset))
-        bearish = 100 - bullish
-        neutral = 0
+        bullish_pct = max(5, min(95, hash_val + day_offset))
+        bearish_pct = 100 - bullish_pct
+        neutral_pct = 0
         
         # Format the sentiment text
         formatted_text = self._format_fast_sentiment_text(
             instrument=instrument,
-            bullish=bullish,
-            bearish=bearish,
-            neutral=neutral,
-            reasoning=f"Local sentiment estimate for {instrument} based on market trends"
+            bullish_pct=bullish_pct,
+            bearish_pct=bearish_pct,
+            neutral_pct=neutral_pct
         )
         
         return {
-            'bullish': bullish,
-            'bearish': bearish,
-            'neutral': neutral,
-            'sentiment_score': (bullish - bearish) / 100,
-            'technical_score': 'Based on market analysis',
-            'news_score': f"{bullish}% positive",
-            'social_score': f"{bearish}% negative",
-            'overall_sentiment': 'bullish' if bullish > bearish else 'bearish' if bearish > bullish else 'neutral',
-            'trend_strength': 'Strong' if abs(bullish - bearish) > 15 else 'Moderate' if abs(bullish - bearish) > 5 else 'Weak',
-            'volatility': 'Moderate',
-            'volume': 'Normal',
-            'news_headlines': [],
-            'analysis': formatted_text
+            'instrument': instrument,
+            'bullish_percentage': bullish_pct,
+            'bearish_percentage': bearish_pct,
+            'neutral_percentage': neutral_pct,
+            'sentiment_text': formatted_text,
+            'source': 'local'
         }
 
     async def load_cache(self):
