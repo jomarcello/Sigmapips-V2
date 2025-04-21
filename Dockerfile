@@ -77,7 +77,7 @@ COPY requirements.txt .
 RUN pip install --upgrade pip
 RUN pip install --no-cache-dir -r requirements.txt
 RUN pip install --no-cache-dir webdriver-manager==3.8.6
-# Ensure tavily is explicitly installed
+# Ensure tavily is explicitly installed and make sure we have the right version
 RUN pip install --no-cache-dir tavily-python==0.2.2
 
 # Install Node.js dependencies first - IMPORTANT CHANGE
@@ -135,13 +135,21 @@ RUN tesseract --version && echo "Tesseract is correctly installed"
 RUN echo "Testing Node.js screenshot script..." && \
     timeout 15s node /app/tradingview_screenshot.js "https://www.tradingview.com" "/tmp/test_screenshot.png" || echo "Test timed out as expected but should work in runtime"
 
-# Voeg een script toe om de bot te starten met een timeout
+# Ensure entrypoint.sh is executable
+COPY entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
+
+# Create a simple start script for the bot
 RUN echo '#!/bin/bash\n\
 echo "Starting SigmaPips Trading Bot..."\n\
 cd /app\n\
 echo "Starting main application..."\n\
+# Check if we are using uvicorn for the FastAPI app\n\
+if [ "${USE_UVICORN:-false}" = "true" ]; then\n\
+    echo "Starting with uvicorn for FastAPI health checks"\n\
+    uvicorn asgi:app --host=0.0.0.0 --port=${PORT:-8080}\n\
 # Check if were using the old structure (trading_bot/main.py) or new structure (main.py in root)\n\
-if [ -f "trading_bot/main.py" ]; then\n\
+elif [ -f "trading_bot/main.py" ]; then\n\
     echo "Found main.py in trading_bot directory"\n\
     # Run with a timeout to prevent getting stuck\n\
     timeout ${TIMEOUT_SECONDS:-180} python -m trading_bot.main || {\n\
@@ -165,5 +173,9 @@ else\n\
 fi\n\
 ' > /app/start.sh && chmod +x /app/start.sh
 
-# Draai de applicatie
+# Set entrypoint to use our fix script first
+ENTRYPOINT ["/app/entrypoint.sh"]
+
+# Run the bot application using uvicorn for Railway's health checks
+ENV USE_UVICORN=true
 CMD ["/app/start.sh"]
