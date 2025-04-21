@@ -150,6 +150,10 @@ class MarketSentimentService:
         self.api_url = "https://api.deepseek.com/v1/chat/completions"  # Default API URL
         self.api_timeout = 10                 # Default timeout in seconds
         
+        # Additional URL configurations for direct API approach
+        self.deepseek_url = "https://api.deepseek.com/v1/chat/completions"
+        self.tavily_url = "https://api.tavily.com/search"
+        
         # Initialize the Tavily client
         self.tavily_client = TavilyClient(self.tavily_api_key)
         
