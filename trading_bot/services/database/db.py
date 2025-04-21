@@ -809,7 +809,7 @@ class Database:
                 return False
                 
             # Check if subscription is active
-            if subscription.get('status') != 'active':
+            if subscription.get('subscription_status') != 'active':
                 return False
             
             # Check if subscription has not expired
