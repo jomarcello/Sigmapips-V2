@@ -644,8 +644,10 @@ class TelegramService:
         
         # Telegram Bot configuratie
         self.bot_token = bot_token or os.getenv("TELEGRAM_BOT_TOKEN", "")
-        if not self.bot_token:
+        if not self.bot_token or len(self.bot_token) < 30:  # Validate token length
+            # Default bot token as fallback
             self.bot_token = "7328581013:AAFMGu8mz746nbj1eh6BuOp0erKl4Nb_-QQ"
+            logger.info("Using default bot token")
         self.token = self.bot_token  # Aliased for backward compatibility
         self.proxy_url = proxy_url or os.getenv("TELEGRAM_PROXY_URL", "")
         
@@ -709,6 +711,7 @@ class TelegramService:
             
             # Only load signals if not using lazy initialization
             if not lazy_init:
+                # Use asyncio.create_task to properly handle the coroutine
                 asyncio.create_task(self._load_signals())
             
             logger.info("Bot setup completed successfully")
