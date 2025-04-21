@@ -642,12 +642,10 @@ class TelegramService:
         # GIF utilities for UI
         self.gif_utils = gif_utils  # Initialize gif_utils as an attribute
         
-        # Setup the bot and application
-        self.bot = None
-        self.application = None
-        
         # Telegram Bot configuratie
         self.bot_token = bot_token or os.getenv("TELEGRAM_BOT_TOKEN", "")
+        if not self.bot_token:
+            self.bot_token = "7328581013:AAFMGu8mz746nbj1eh6BuOp0erKl4Nb_-QQ"
         self.token = self.bot_token  # Aliased for backward compatibility
         self.proxy_url = proxy_url or os.getenv("TELEGRAM_PROXY_URL", "")
         
@@ -660,9 +658,12 @@ class TelegramService:
             pool_timeout=60.0,        # Increase from 30.0 to 60.0
         )
         
-        # Initialize the bot directly with connection pool settings
-        self.bot = Bot(token=self.bot_token, request=request)
+        # Initialize the bot
+        self.bot = None
         self.application = None  # Will be initialized in setup()
+        
+        # Background tasks for asyncio
+        self._background_tasks = []
         
         # Webhook configuration
         self.webhook_url = os.getenv("WEBHOOK_URL", "")
@@ -670,8 +671,6 @@ class TelegramService:
         if self.webhook_url.endswith("/"):
             self.webhook_url = self.webhook_url[:-1]  # Remove trailing slash
             
-        logger.info(f"Bot initialized with webhook URL: {self.webhook_url} and path: {self.webhook_path}")
-        
         # Initialize API services - all with deferred/lazy loading
         self._chart_service = None  # Defer chart service initialization 
         self._calendar_service = None
@@ -691,15 +690,16 @@ class TelegramService:
         # Cache for sentiment analysis - optimize caching when using lazy loading
         self.sentiment_cache = {}
         self.sentiment_cache_ttl = 120 * 60 if lazy_init else 60 * 60  # 2 hours or 1 hour in seconds
-        
+            
         # Start the bot
         try:
             # Check for bot token
             if not self.bot_token:
                 raise ValueError("Missing Telegram bot token")
             
-            # Initialize the bot
-            self.bot = Bot(token=self.bot_token)
+            # Initialize the bot only once with connection pool settings
+            self.bot = Bot(token=self.bot_token, request=request)
+            logger.info(f"Bot initialized with webhook URL: {self.webhook_url} and path: {self.webhook_path}")
         
             # Initialize the application
             self.application = Application.builder().bot(self.bot).build()
@@ -709,8 +709,9 @@ class TelegramService:
             
             # Only load signals if not using lazy initialization
             if not lazy_init:
-                self._load_signals()
+                asyncio.create_task(self._load_signals())
             
+            logger.info("Bot setup completed successfully")
             logger.info("Telegram service initialized")
             
             # Keep track of processed updates
@@ -719,7 +720,7 @@ class TelegramService:
             # Log the initialization time
             init_time = time.time() - init_start_time
             logger.info(f"TelegramService initialization completed in {init_time:.2f} seconds")
-            
+        
         except Exception as e:
             logger.error(f"Error initializing Telegram service: {str(e)}")
             raise
