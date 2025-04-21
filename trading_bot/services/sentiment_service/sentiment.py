@@ -232,16 +232,16 @@ class MarketSentimentService:
         """
         logger.info(f"Building search query for {instrument} ({market_type})")
         
-        base_query = f"{instrument} {market_type} market analysis"
+        base_query = f"{instrument} {market_type} news economic events"
         
         # Add additional context based on market type
         if market_type == 'forex':
             currency_pair = instrument[:3] + "/" + instrument[3:] if len(instrument) == 6 else instrument
-            base_query = f"{currency_pair} forex market analysis current trend technical news"
+            base_query = f"{currency_pair} forex news economic data central bank policy decisions"
         elif market_type == 'crypto':
             # For crypto, use common naming conventions
             crypto_name = instrument.replace('USD', '') if instrument.endswith('USD') else instrument
-            base_query = f"{crypto_name} cryptocurrency price analysis market sentiment current trend"
+            base_query = f"{crypto_name} cryptocurrency news regulatory developments market sentiment"
         elif market_type == 'commodities':
             commodity_name = {
                 'XAUUSD': 'gold',
@@ -249,7 +249,7 @@ class MarketSentimentService:
                 'USOIL': 'crude oil',
                 'BRENT': 'brent oil'
             }.get(instrument, instrument)
-            base_query = f"{commodity_name} commodity market analysis price trend current news"
+            base_query = f"{commodity_name} commodity news supply demand factors economic impact"
         elif market_type == 'indices':
             index_name = {
                 'US30': 'Dow Jones',
@@ -258,10 +258,10 @@ class MarketSentimentService:
                 'GER30': 'DAX',
                 'UK100': 'FTSE 100'
             }.get(instrument, instrument)
-            base_query = f"{index_name} stock index market analysis current trend technical indicators"
+            base_query = f"{index_name} stock index news economic data earnings reports policy decisions"
             
         # Add current date to get latest info
-        base_query += " latest analysis today"
+        base_query += " latest news today"
         
         logger.info(f"Search query built: {base_query}")
         return base_query
@@ -532,7 +532,7 @@ class MarketSentimentService:
                         formatted_instrument = instrument
                     
                     # Get market data from Tavily
-                    query = f"{formatted_instrument} market analysis current price trend news latest"
+                    query = f"{formatted_instrument} latest news economic events policy decisions market sentiment analysis"
                     
                     # Prepare request for Tavily
                     headers = {
@@ -1357,25 +1357,40 @@ Standard risk management practices recommended until clearer sentiment emerges.
                 "Content-Type": "application/json"
             }
             
-            # Create prompt for sentiment analysis
-            prompt = f"""Analyze the following market data for {instrument} and provide a market sentiment analysis focused ONLY on news, events, and broader market sentiment. 
+            # Create sentiment prompt for DeepSeek
+            prompt = f"""Analyze the current market sentiment for {instrument} based on the following market data:
 
-**IMPORTANT**: 
-1. You MUST include explicit percentages for bullish, bearish, and neutral sentiment in EXACTLY the format shown below. The percentages MUST be integers that sum to 100%.
-2. DO NOT include ANY specific price levels, exact numbers, technical analysis, support/resistance levels, or price targets. 
-3. DO NOT include ANY specific trading recommendations or strategies like "buy at X" or "sell at Y".
-4. DO NOT mention any specific trading indicators like RSI, EMA, MACD, or specific numerical values like percentages of price movement.
-5. Focus ONLY on general news events, market sentiment, and fundamental factors that drive sentiment.
-6. DO NOT include sections named "Market Direction", "Technical Outlook", "Support & Resistance", "Conclusion", or anything related to technical analysis.
-
-Market Data:
 {market_data}
 
-Your response MUST follow this EXACT format with EXACTLY this HTML formatting (keep the exact formatting with the <b> tags):
+Provide a DETAILED market sentiment analysis with the following:
+
+1. Overall market sentiment (bullish, bearish, or neutral)
+2. Precise percentage breakdown of bullish, bearish, and neutral sentiment
+3. Analysis of current market sentiment drivers focused ONLY on news and economic events
+4. Key news and economic factors influencing the sentiment
+5. Important events and news affecting the instrument
+
+IMPORTANT INSTRUCTIONS:
+1. DO NOT include ANY technical analysis, chart patterns, or price action
+2. DO NOT mention ANY price levels, support/resistance, or moving averages
+3. DO NOT discuss trading volumes, momentum, or technical indicators
+4. Focus EXCLUSIVELY on economic data, policy decisions, news events, and fundamental factors
+5. Avoid ALL references to price targets, entry/exit points, or trade recommendations
+6. Your analysis should be based ONLY on news, economic events, and fundamental information
+
+Your response MUST be in this exact JSON format:
+{
+    "bullish_percentage": [percentage of bullish sentiment as a number, 0-100],
+    "bearish_percentage": [percentage of bearish sentiment as a number, 0-100],
+    "neutral_percentage": [percentage of neutral sentiment as a number, 0-100],
+    "formatted_text": "Your full formatted HTML text here with all the required sections"
+}
+
+For the "formatted_text" field, use THIS EXACT HTML FORMAT:
 
 <b>🎯 {instrument} Market Sentiment Analysis</b>
 
-<b>Overall Sentiment:</b> [Bullish/Bearish/Neutral] [Emoji]
+<b>Overall Sentiment:</b> [Bullish/Bearish/Neutral with emoji]
 
 <b>Market Sentiment Breakdown:</b>
 🟢 Bullish: XX%
@@ -1383,23 +1398,19 @@ Your response MUST follow this EXACT format with EXACTLY this HTML formatting (k
 ⚪️ Neutral: ZZ%
 
 <b>📊 Market Sentiment Analysis:</b>
-[Brief description of the current market sentiment and outlook without specific price targets]
+[Detailed analysis of current market sentiment focusing ONLY on news, economic events, and fundamental factors]
 
 <b>📰 Key Sentiment Drivers:</b>
-• [Key sentiment factor 1]
-• [Key sentiment factor 2]
-• [Key sentiment factor 3]
+• [Key news or economic factor 1]
+• [Key news or economic factor 2]
+• [Key news or economic factor 3]
 
 <b>📅 Important Events & News:</b>
 • [News event 1]
 • [News event 2]
 • [News event 3]
 
-DO NOT mention any specific price levels, numeric values, resistance/support levels, or trading recommendations. Focus ONLY on NEWS, EVENTS, and SENTIMENT information.
-
-The sentiment percentages (Overall Sentiment, Bullish, Bearish, Neutral percentages) MUST be clearly indicated EXACTLY as shown in the format.
-
-I will check your output to ensure you have followed the EXACT format required. DO NOT add any additional sections beyond the ones shown above.
+The percentages MUST add up to 100%, and the formatted text MUST include all sections with the exact HTML tags shown. Base your analysis EXCLUSIVELY on news, economic events, and fundamental factors in the provided market data.
 """
 
             # Log the prompt for debugging
@@ -2338,17 +2349,17 @@ Monitor market developments for potential sentiment shifts.
 ⚪️ Neutral: 0%
 
 <b>📊 Market Sentiment Analysis:</b>
-{instrument} is currently showing mixed signals with no clear sentiment bias. The market shows balanced sentiment with no strong directional bias at this time.
+{instrument} sentiment is currently balanced with no strong directional bias based on recent economic data and news events. Market participants appear divided on the future direction.
 
 <b>📰 Key Sentiment Drivers:</b>
-• Market conditions appear normal with mixed signals
-• No clear directional bias at this time
-• Standard market activity observed
+• Recent economic data showing mixed results
+• No significant policy changes affecting the market
+• Balanced market reaction to current news flow
 
 <b>📅 Important Events & News:</b>
-• Normal market activity with no major catalysts
-• No significant economic releases impacting the market
-• General news and global trends affecting sentiment
+• No major economic releases with significant impact
+• Standard news flow with balanced market reaction
+• No unexpected announcements affecting sentiment
 """
 
     def _add_to_cache(self, instrument: str, sentiment_data: Dict[str, Any]) -> None:
@@ -3157,23 +3168,23 @@ Make sure the percentages add up to 100%. The formatted text MUST include all se
         """Format sentiment text based on percentages"""
         # Determine overall sentiment
         if bullish_pct > bearish_pct + 20:
-            overall_sentiment = "Bullish ↗️"
+            overall_sentiment = "Bullish 📈"
         elif bullish_pct > bearish_pct + 5:
-            overall_sentiment = "Slightly Bullish ↗️"
+            overall_sentiment = "Slightly Bullish 📈"
         elif bearish_pct > bullish_pct + 20:
-            overall_sentiment = "Bearish ↘️"
+            overall_sentiment = "Bearish 📉"
         elif bearish_pct > bullish_pct + 5:
-            overall_sentiment = "Slightly Bearish ↘️"
+            overall_sentiment = "Slightly Bearish 📉"
         else:
             overall_sentiment = "Neutral ⚖️"
         
         # Generate analysis text based on sentiment
         if bullish_pct > bearish_pct + 10:
-            analysis = f"{instrument} is currently showing positive momentum with bullish signals dominating. Market participants are generally optimistic about future price movements."
+            analysis = f"{instrument} sentiment is currently positive based on recent economic data and news flow. Market participants appear optimistic about future economic developments related to this instrument."
         elif bearish_pct > bullish_pct + 10:
-            analysis = f"{instrument} is currently under selling pressure with bearish signals dominating. Market participants are generally concerned about future price movements."
+            analysis = f"{instrument} sentiment is currently negative based on recent economic data and news flow. Market participants show concern about economic factors affecting this instrument."
         else:
-            analysis = f"{instrument} is currently showing mixed signals with no clear sentiment bias. The market shows balanced sentiment with no strong directional bias at this time."
+            analysis = f"{instrument} sentiment is currently balanced with no clear directional bias based on recent economic data and news events. Market participants appear divided on the future direction."
         
         # Format the full sentiment text with all required sections
         sentiment_text = f"""<b>🎯 {instrument} Market Sentiment Analysis</b>
@@ -3189,14 +3200,14 @@ Make sure the percentages add up to 100%. The formatted text MUST include all se
 {analysis}
 
 <b>📰 Key Sentiment Drivers:</b>
-• Current market conditions and technical analysis
-• Recent price action and volume patterns
-• Market participant positioning
+• Recent economic data releases and their impact
+• Policy statements from relevant financial authorities
+• News flow and its effect on market perception
 
 <b>📅 Important Events & News:</b>
-• Recent market developments affecting {instrument}
-• Economic data releases impacting sentiment
-• Overall market trends and correlations
+• Recent economic announcements affecting {instrument}
+• Policy decisions and statements from key figures
+• Market reactions to global economic developments
 """
         return sentiment_text
         
@@ -3245,34 +3256,34 @@ The percentages must add up to 100. Only return the JSON with no additional text
         # Determine overall sentiment based on percentages
         if bullish_pct > bearish_pct + 20:
             sentiment = "Bullish 📈"
-            analysis_text = f"{instrument} is currently showing positive momentum with bullish signals dominating. Market participants are generally optimistic about future price movements."
+            analysis_text = f"{instrument} sentiment is currently positive based on recent economic data and news flow. Market participants appear optimistic about future economic developments related to this instrument."
         elif bullish_pct > bearish_pct + 5:
             sentiment = "Slightly Bullish 📈"
-            analysis_text = f"{instrument} is showing mild bullish momentum with more positive than negative signals. There's cautious optimism in the market."
+            analysis_text = f"{instrument} shows mildly positive sentiment with recent economic data slightly favorable. News flow suggests cautious optimism among market participants."
         elif bearish_pct > bullish_pct + 20:
             sentiment = "Bearish 📉"
-            analysis_text = f"{instrument} is currently under selling pressure with bearish signals dominating. Market participants are showing concern about future price movements."
+            analysis_text = f"{instrument} sentiment is currently negative based on recent economic data and news flow. Market participants show concern about economic factors affecting this instrument."
         elif bearish_pct > bullish_pct + 5:
             sentiment = "Slightly Bearish 📉"
-            analysis_text = f"{instrument} is showing mild bearish pressure with more negative than positive signals. There's some caution in the market."
+            analysis_text = f"{instrument} shows mildly negative sentiment with recent economic data slightly unfavorable. News flow suggests some caution among market participants."
         else:
             sentiment = "Neutral ➡️"
-            analysis_text = f"{instrument} is currently showing mixed signals with no clear sentiment bias. The market shows balanced sentiment with no strong directional bias at this time."
+            analysis_text = f"{instrument} sentiment is currently balanced with no clear directional bias based on recent economic data and news events. Market participants appear divided on the future direction."
         
         # Update overall sentiment and analysis text
         formatted_text = formatted_text.replace("Neutral ➡️", sentiment)
-        formatted_text = formatted_text.replace(f"{instrument} is currently showing mixed signals with no clear sentiment bias. The market shows balanced sentiment with no strong directional bias at this time.", analysis_text)
+        formatted_text = formatted_text.replace(f"{instrument} sentiment is currently balanced with no strong directional bias based on recent economic data and news events. Market participants appear divided on the future direction.", analysis_text)
         
         # Update sentiment drivers based on sentiment
         if bullish_pct > 65:
-            drivers = """• Strong buying interest from institutional investors
-• Positive economic indicators supporting upward momentum
-• Favorable market conditions and sentiment"""
+            drivers = """• Positive economic data supporting sentiment
+• Favorable policy and regulatory environment
+• Encouraging statements from key market figures"""
             formatted_text = re.sub(r'<b>📰 Key Sentiment Drivers:</b>\n.*?<b>', f'<b>📰 Key Sentiment Drivers:</b>\n{drivers}\n\n<b>', formatted_text, flags=re.DOTALL)
         elif bearish_pct > 65:
-            drivers = """• Increased selling pressure from institutional investors
-• Negative economic indicators weighing on price
-• Challenging market conditions affecting sentiment"""
+            drivers = """• Concerning economic indicators in recent reports
+• Policy uncertainty affecting market confidence
+• Negative news flow impacting market sentiment"""
             formatted_text = re.sub(r'<b>📰 Key Sentiment Drivers:</b>\n.*?<b>', f'<b>📰 Key Sentiment Drivers:</b>\n{drivers}\n\n<b>', formatted_text, flags=re.DOTALL)
         
         return {
@@ -3328,7 +3339,7 @@ The percentages must add up to 100. Only return the JSON with no additional text
                 formatted_instrument = instrument
             
             # Get market data from Tavily
-            query = f"{formatted_instrument} market analysis current price trend news latest"
+            query = f"{formatted_instrument} latest news economic events policy decisions market sentiment analysis"
             
             # Prepare request for Tavily
             headers = {
