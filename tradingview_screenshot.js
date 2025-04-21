@@ -19,6 +19,31 @@ try {
     }
 }
 
+// Verify if browsers are installed
+async function checkBrowsersInstalled() {
+    const { execSync } = require('child_process');
+    try {
+        // Check if the browser binary exists
+        const checkCommand = "node -e \"const { chromium } = require('playwright'); chromium.executablePath();\"";
+        execSync(checkCommand, { timeout: 10000 });
+        return true;
+    } catch (error) {
+        console.log("Playwright browsers not installed. Attempting to install...");
+        try {
+            // Install only chromium for faster installation
+            execSync("npx playwright install chromium", {
+                stdio: 'inherit',
+                timeout: 300000 // 5 minute timeout
+            });
+            console.log("Chromium browser installed successfully");
+            return true;
+        } catch (installError) {
+            console.error("Failed to install Playwright browsers:", installError.message);
+            return false;
+        }
+    }
+}
+
 // Haal de argumenten op
 const url = process.argv[2];
 const outputPath = process.argv[3];
@@ -98,6 +123,12 @@ const tvLocalStorage = {
 (async () => {
     try {
         console.log(`Taking screenshot of ${url} and saving to ${outputPath} (fullscreen: ${fullscreen})`);
+        
+        // Check and install browsers if needed before launching
+        const browsersReady = await checkBrowsersInstalled();
+        if (!browsersReady) {
+            console.error("Could not install browsers. Screenshot may fail.");
+        }
         
         // Start een browser
         const browser = await chromium.launch({
