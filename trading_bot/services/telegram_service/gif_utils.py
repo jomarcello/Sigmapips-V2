@@ -308,3 +308,9 @@ async def update_message_with_gif(query: 'CallbackQuery', gif_url: str, text: st
             except Exception as final_error:
                 logger.error(f"Final fallback failed: {str(final_error)}")
                 return False
+
+# List of GIF URLs for use in various parts of the app
+ANALYSIS_GIFS = [
+    "https://media.giphy.com/media/gSzIKNrqtotEYrZv7i/giphy.gif",
+    "https://media.giphy.com/media/dpjUltnOPye7azvAhH/giphy.gif"
+]
