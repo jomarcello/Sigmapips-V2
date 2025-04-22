@@ -3255,6 +3255,16 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     
                     # Add as many key sections as will fit
                     remaining_chars = max_caption_length - len(caption) - 20  # Buffer
+                    
+                    # Make sure to save room for the disclaimer
+                    disclaimer_start = analysis_text.find("⚠️ <b>Disclaimer</b>")
+                    disclaimer = ""
+                    if disclaimer_start != -1:
+                        disclaimer_end = len(analysis_text)
+                        disclaimer = analysis_text[disclaimer_start:disclaimer_end]
+                        # Reduce length for other sections
+                        remaining_chars -= len(disclaimer) + 4
+                    
                     important_sections = ["📊 <b>Market Overview</b>", "🔑 <b>Key Levels</b>", "📈 <b>Technical Indicators</b>", "🤖 <b>Sigmapips AI Recommendation</b>"]
                     
                     for section_name in important_sections:
@@ -3266,8 +3276,12 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                                 section_end = len(analysis_text)
                             
                             section_text = analysis_text[section_start:section_end]
-                            if len(caption) + len(section_text) + 2 <= max_caption_length:
+                            if len(caption) + len(section_text) + 2 <= max_caption_length - len(disclaimer) - 2:
                                 caption += "\n\n" + section_text
+                    
+                    # Add the disclaimer at the end
+                    if disclaimer:
+                        caption += "\n\n" + disclaimer
                     
                     logger.info(f"Truncated caption from {len(analysis_text)} to {len(caption)} chars")
                 else:
@@ -3308,7 +3322,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                                     trend_part = trend_values[0].strip()
                         
                         # Create a shorter caption with only the most important information
-                        simple_caption = f"{instrument} - {timeframe}\n\nTrend: {trend_part}"
+                        simple_caption = f"<b>{instrument} - {timeframe}</b>\n\n<b>Trend:</b> {trend_part}"
                         
                         # Try to add the AI recommendation if possible
                         recommendation_start = analysis_text.find("🤖 <b>Sigmapips AI Recommendation</b>")
@@ -3318,8 +3332,15 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                                 recommendation_end = len(analysis_text)
                             
                             recommendation = analysis_text[recommendation_start:recommendation_end]
-                            if len(simple_caption) + len(recommendation) + 4 <= max_caption_length:
+                            if len(simple_caption) + len(recommendation) + 4 <= max_caption_length - 150:  # Reserve space for disclaimer
                                 simple_caption += "\n\n" + recommendation
+                        
+                        # Add disclaimer
+                        disclaimer_start = analysis_text.find("⚠️ <b>Disclaimer</b>")
+                        if disclaimer_start != -1:
+                            disclaimer_end = len(analysis_text)
+                            disclaimer = analysis_text[disclaimer_start:disclaimer_end]
+                            simple_caption += "\n\n" + disclaimer
                         
                         # Send chart with short caption
                         await context.bot.send_photo(
