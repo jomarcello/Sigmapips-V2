@@ -1,13 +1,16 @@
+import importlib.util
+import os
+import sys
+import logging
+
+logger = logging.getLogger(__name__)
+
+# First try the direct import
 try:
     from .bot import TelegramService
+    logger.info("Successfully imported TelegramService through normal import")
 except ImportError:
-    import os
-    import sys
-    import logging
-    import importlib.util
-    import inspect
-    
-    logger = logging.getLogger(__name__)
+    # Direct import failed, load the module from file
     logger.warning("Could not import TelegramService directly, using fallback mechanism")
     
     # Path to the bot.py file - finding the absolute path
@@ -19,77 +22,47 @@ except ImportError:
         
         # Load the module from the file path
         try:
-            # First try - direct spec load
-            spec = importlib.util.spec_from_file_location("telegram_service_bot", bot_py_path)
+            # Define a module name that won't conflict with existing modules
+            module_name = "trading_bot.services.telegram_service.bot_direct"
+            
+            # Create and load the module spec
+            spec = importlib.util.spec_from_file_location(module_name, bot_py_path)
             telegram_bot_module = importlib.util.module_from_spec(spec)
-            sys.modules["telegram_service_bot"] = telegram_bot_module
+            sys.modules[module_name] = telegram_bot_module
             spec.loader.exec_module(telegram_bot_module)
             
-            # Check if TelegramService exists in the module
-            if hasattr(telegram_bot_module, 'TelegramService'):
-                logger.info("Successfully loaded TelegramService from bot.py")
-                TelegramService = telegram_bot_module.TelegramService
+            # Look for the TelegramService class in the file content
+            with open(bot_py_path, 'r') as f:
+                content = f.read()
+                
+            if "class TelegramService:" in content or "class TelegramService(" in content:
+                # Class definition exists in the file
+                
+                # Define TelegramService manually based on what's in the file
+                class TelegramService:
+                    def __init__(self, db, stripe_service=None, bot_token=None, proxy_url=None, lazy_init=False):
+                        # Forward to the real implementation
+                        self._real_service = telegram_bot_module.TelegramService(
+                            db=db, 
+                            stripe_service=stripe_service,
+                            bot_token=bot_token,
+                            proxy_url=proxy_url,
+                            lazy_init=lazy_init
+                        )
+                    
+                    def __getattr__(self, name):
+                        # Proxy all attribute access to the real service
+                        return getattr(self._real_service, name)
+                
+                logger.info("Successfully loaded TelegramService via proxy class")
             else:
-                # Try to find any class that could be TelegramService, but be more specific
-                logger.warning("No TelegramService found in module, looking for matching class")
-                
-                # Try to find by actually looking at the source code of the module
-                with open(bot_py_path, 'r') as f:
-                    source_code = f.read()
-                
-                # Look for class definition pattern
-                if 'class TelegramService:' in source_code or 'class TelegramService(' in source_code:
-                    logger.info("Found TelegramService class definition in source code")
-                    
-                    # Now look for classes defined in the module that might match our criteria
-                    service_class = None
-                    for name in dir(telegram_bot_module):
-                        item = getattr(telegram_bot_module, name)
-                        
-                        # Skip obvious non-matches
-                        if not isinstance(item, type):
-                            continue
-                        
-                        # Skip exception classes and imported telegram API classes
-                        if name.endswith('Error') or name in ['Bot', 'Update', 'CallbackQuery']:
-                            continue
-                            
-                        # Check class attributes to see if it's likely our service class
-                        # Look for common TelegramService methods
-                        service_methods = ['run', 'initialize_services', 'process_signal', 'update_message']
-                        method_count = 0
-                        
-                        for method in service_methods:
-                            if hasattr(item, method) and callable(getattr(item, method)):
-                                method_count += 1
-                        
-                        # If class has at least 2 of our expected methods, it's likely the one
-                        if method_count >= 2:
-                            service_class = item
-                            logger.info(f"Found matching service class: {name} with {method_count} matching methods")
-                            break
-                            
-                        # Alternatively check for __init__ method with our expected parameters
-                        try:
-                            init_params = list(inspect.signature(item.__init__).parameters.keys())
-                            if 'db' in init_params and ('stripe_service' in init_params or len(init_params) >= 3):
-                                service_class = item
-                                logger.info(f"Found matching class by __init__ params: {name}")
-                                break
-                        except (ValueError, TypeError):
-                            pass
-                    
-                    # If found a match, use it
-                    if service_class:
-                        TelegramService = service_class
-                        # Also add it to the module for consistency
-                        telegram_bot_module.TelegramService = service_class
-                    else:
-                        raise ImportError("Could not identify TelegramService class in module")
-                else:
-                    raise ImportError("Could not find TelegramService class definition in source code")
+                logger.error("TelegramService class definition not found in source code")
+                raise ImportError("Could not find TelegramService class definition in source code")
         except Exception as e:
             logger.error(f"Error importing TelegramService: {str(e)}")
-            raise
+            raise ImportError(f"Could not import TelegramService: {str(e)}")
+    else:
+        logger.error(f"bot.py file not found at {bot_py_path}")
+        raise ImportError("bot.py file not found")
 
 __all__ = ['TelegramService']
