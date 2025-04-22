@@ -550,11 +550,15 @@ class TradingViewCalendarService:
 async def format_calendar_for_telegram(events: List[Dict]) -> str:
     """Format the calendar data for Telegram display"""
     if not events:
+        logger.warning("No events provided to format_calendar_for_telegram")
         return "<b>📅 Economic Calendar</b>\n\nNo economic events found for today."
     
     # Count events per type
     logger.info(f"Formatting {len(events)} events for Telegram")
     event_counts = {"total": len(events), "valid": 0, "missing_fields": 0}
+    
+    # Log all events to help diagnose issues
+    logger.info(f"Events to format: {json.dumps(events[:5], indent=2)}")
     
     # Sort events by time if not already sorted
     try:
@@ -571,10 +575,11 @@ async def format_calendar_for_telegram(events: List[Dict]) -> str:
                     return int(hours) * 60 + int(minutes)
                 return 0
             except Exception as e:
-                logger.error(f"Error parsing time for sorting: {str(e)}")
+                logger.error(f"Error parsing time for sorting: {str(e)} for time: {time_str}")
                 return 0
         
         sorted_events = sorted(events, key=parse_time_for_sorting)
+        logger.info(f"Sorted {len(sorted_events)} events by time")
     except Exception as e:
         logger.error(f"Error sorting calendar events: {str(e)}")
         sorted_events = events
@@ -582,23 +587,58 @@ async def format_calendar_for_telegram(events: List[Dict]) -> str:
     # Format the message
     message = "<b>📅 Economic Calendar</b>\n\n"
     
-    for event in sorted_events:
-        country = event.get("country", "")
-        time = event.get("time", "")
-        title = event.get("event", "")
-        impact = event.get("impact", "Low")
-        impact_emoji = IMPACT_EMOJI.get(impact, "🟢")
-        
-        # Controleer of alle benodigde velden aanwezig zijn
-        if not country or not time or not title:
-            logger.warning(f"Skipping event with missing fields: {json.dumps(event)}")
-            event_counts["missing_fields"] += 1
+    for i, event in enumerate(sorted_events):
+        try:
+            country = event.get("country", "")
+            time = event.get("time", "")
+            title = event.get("event", "")
+            impact = event.get("impact", "Low")
+            impact_emoji = IMPACT_EMOJI.get(impact, "🟢")
+            
+            # Log each event being processed for debugging
+            logger.debug(f"Processing event {i+1}: {json.dumps(event)}")
+            
+            # Controleer of alle benodigde velden aanwezig zijn
+            if not country or not time or not title:
+                missing = []
+                if not country: missing.append("country")
+                if not time: missing.append("time") 
+                if not title: missing.append("event")
+                
+                logger.warning(f"Event {i+1} missing fields: {', '.join(missing)}: {json.dumps(event)}")
+                event_counts["missing_fields"] += 1
+                continue
+            
+            # Format the line with enhanced visibility for country - in plaats van alleen bold 
+            # gebruiken we nu "「{country}」" voor betere zichtbaarheid in Telegram
+            event_line = f"{time} - 「{country}」 - {title} {impact_emoji}"
+            
+            # Add previous/forecast/actual values if available
+            values = []
+            if "previous" in event and event["previous"] is not None:
+                values.append(f"Prev: {event['previous']}")
+            if "forecast" in event and event["forecast"] is not None:
+                values.append(f"Fcst: {event['forecast']}")
+            if "actual" in event and event["actual"] is not None:
+                values.append(f"Act: {event['actual']}")
+                
+            if values:
+                event_line += f" ({', '.join(values)})"
+                
+            message += event_line + "\n"
+            event_counts["valid"] += 1
+            
+            # Log first few formatted events for debugging
+            if i < 5:
+                logger.info(f"Formatted event {i+1}: {event_line}")
+        except Exception as e:
+            logger.error(f"Error formatting event {i+1}: {str(e)}")
+            logger.error(f"Problematic event: {json.dumps(event)}")
             continue
-        
-        # Format the line with enhanced visibility for country - in plaats van alleen bold 
-        # gebruiken we nu "「{country}」" voor betere zichtbaarheid in Telegram
-        message += f"{time} - 「{country}」 - {title} {impact_emoji}\n"
-        event_counts["valid"] += 1
+    
+    if event_counts["valid"] == 0:
+        logger.warning("No valid events to display in calendar")
+        message += "No valid economic events found for today.\n"
     
     # Add legend
     message += "\n-------------------\n"
@@ -608,6 +648,7 @@ async def format_calendar_for_telegram(events: List[Dict]) -> str:
     
     # Log event counts
     logger.info(f"Telegram formatting: {event_counts['valid']} valid events, {event_counts['missing_fields']} skipped due to missing fields")
+    logger.info(f"Final message length: {len(message)} characters")
     
     return message
 
