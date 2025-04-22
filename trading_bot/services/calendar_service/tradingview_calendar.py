@@ -241,6 +241,16 @@ class TradingViewCalendarService:
                     response_text = response_text.replace('";,', '",')
                     response_text = response_text.replace('";', '"')
                     
+                    # Fix specifically for the pattern observed in logs
+                    # Handle "http://www.api.org";, pattern
+                    response_text = re.sub(r'"(http://www\.api\.org)";,', r'"\1",', response_text)
+                    # Handle "http://www.federalreserve.gov/";, pattern
+                    response_text = re.sub(r'"(http://www\.federalreserve\.gov/)";,', r'"\1",', response_text)
+                    # Handle other API URLs with trailing semicolons
+                    response_text = re.sub(r'"(https?://[^"]+\.gov[^"]*)";,', r'"\1",', response_text)
+                    response_text = re.sub(r'"(https?://[^"]+\.org[^"]*)";,', r'"\1",', response_text)
+                    response_text = re.sub(r'"(https?://[^"]+\.com[^"]*)";,', r'"\1",', response_text)
+                    
                     # Additional cleanup for invalid JSON patterns found in the logs
                     # Fix patterns like: "source_url": "http://www.site.com";,
                     response_text = re.sub(r'"source_url"\s*:\s*"(https?://[^"]+)";,', r'"source_url": "\1",', response_text)
@@ -250,10 +260,61 @@ class TradingViewCalendarService:
                     # More general pattern to catch any stray semicolons after quoted strings in the JSON
                     response_text = re.sub(r'";(\s*[,}])', r'"\1', response_text)
                     
+                    # Check for any remaining problematic URL patterns
+                    url_patterns = [
+                        r'"source_url"\s*:\s*"[^"]+";',
+                        r'"https?://[^"]+";',
+                        r'";,'
+                    ]
+                    
+                    for pattern in url_patterns:
+                        matches = re.findall(pattern, response_text)
+                        if matches:
+                            logger.warning(f"Found {len(matches)} instances of problematic pattern: {pattern}")
+                            for i, match in enumerate(matches[:3]):  # Show first 3 examples
+                                logger.warning(f"  Match {i+1}: {match}")
+                    
                     # Log cleaned response for debugging if there were issues
                     if '";' in response_text or '";,' in response_text:
                         logger.warning("Potential JSON issues still exist after cleaning, showing first 200 chars:")
                         logger.warning(f"Cleaned response: {response_text[:200]}...")
+                    
+                    # Final, extreme measure - replace all remaining semicolons after quotes with proper JSON
+                    if '";' in response_text:
+                        logger.warning("Applying extreme JSON fixing measures")
+                        # This is a last resort - it might cause data loss but it's better than failing
+                        final_fixed = re.sub(r'";([^,])', r'"\1', response_text)
+                        # Only use this if it looks like it didn't break the JSON structure
+                        if final_fixed.count('{') == response_text.count('{') and final_fixed.count('}') == response_text.count('}'):
+                            logger.info("Applied extreme measures without changing JSON structure")
+                            response_text = final_fixed
+                    
+                    # Last resort - try to fix malformed JSON with a more comprehensive approach
+                    def fix_json_urls(json_str):
+                        # This function systematically finds all URL patterns and ensures they're properly formatted
+                        # Pattern to find URL fields in JSON: "field_name": "http://...";
+                        url_pattern = re.compile(r'"([^"]+)"\s*:\s*"(https?://[^"]+)";([\s,}])')
+                        
+                        # Keep replacing until no more matches
+                        last_str = ""
+                        current_str = json_str
+                        iteration = 0
+                        max_iterations = 10  # Avoid infinite loops
+                        
+                        while last_str != current_str and iteration < max_iterations:
+                            last_str = current_str
+                            current_str = url_pattern.sub(r'"\1": "\2"\3', current_str)
+                            iteration += 1
+                        
+                        if iteration > 0 and iteration < max_iterations:
+                            logger.info(f"Fixed JSON URLs with {iteration} replacements")
+                        elif iteration == max_iterations:
+                            logger.warning("Reached maximum iterations while fixing JSON URLs")
+                        
+                        return current_str
+                    
+                    # Apply the comprehensive URL fix
+                    response_text = fix_json_urls(response_text)
                     
                     try:
                         data = json.loads(response_text)
@@ -277,10 +338,39 @@ class TradingViewCalendarService:
                         logger.error(f"Error context: {context}")
                         logger.error(f"Error position: {pointer}")
                         
-                        if HAS_CUSTOM_MOCK_DATA:
-                            logger.info("Falling back to mock calendar data")
-                            return generate_mock_calendar_data(days_ahead, min_impact)
-                        return []
+                        # Last desperate attempt - try to manually fix the JSON around the error point
+                        try:
+                            # Calculate a safer region around the error
+                            safe_start = max(0, error_pos - 200)
+                            safe_end = min(len(response_text), error_pos + 200)
+                            error_region = response_text[safe_start:safe_end]
+                            
+                            # Common patterns at error locations
+                            fixes = [
+                                (r'";,', '",'),     # Fix semicolon before comma
+                                (r'";(\s*})', '"\1'),  # Fix semicolon before closing brace
+                                (r'";(\s*$)', '"'),   # Fix trailing semicolon
+                                (r'"([^"]*);([^"]*)"', r'"\1;\2"')  # Fix semicolons within quotes
+                            ]
+                            
+                            # Apply fixes around the error location
+                            fixed_region = error_region
+                            for pattern, replacement in fixes:
+                                fixed_region = re.sub(pattern, replacement, fixed_region)
+                            
+                            # Replace the region in the full text
+                            patched_text = response_text[:safe_start] + fixed_region + response_text[safe_end:]
+                            
+                            # Try parsing again
+                            logger.info("Attempting to parse with emergency fixes")
+                            data = json.loads(patched_text)
+                            logger.info("Emergency JSON fix successful!")
+                        except Exception as e2:
+                            logger.error(f"Emergency JSON fix failed: {str(e2)}")
+                            if HAS_CUSTOM_MOCK_DATA:
+                                logger.info("Falling back to mock calendar data")
+                                return generate_mock_calendar_data(days_ahead, min_impact)
+                            return []
                     
                     if not isinstance(data, list):
                         logger.info(f"Response format is: {type(data)}")
