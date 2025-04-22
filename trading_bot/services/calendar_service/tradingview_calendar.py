@@ -296,24 +296,15 @@ class TradingViewCalendarService:
                     
                     # Transform TradingView data to our format
                     events = []
+                    skipped_events = 0
+                    unknown_countries = set()
+                    non_major_events = 0
+                    
                     for event in data:
                         try:
-                            # Map country codes to currency codes
-                            country_to_currency = {
-                                "US": "USD",
-                                "EU": "EUR",
-                                "GB": "GBP",
-                                "JP": "JPY",
-                                "CH": "CHF",
-                                "AU": "AUD",
-                                "NZ": "NZD",
-                                "CA": "CAD",
-                                "IN": "INR",  # India
-                                "CN": "CNY",  # China
-                                "RU": "RUB",  # Russia
-                                "BR": "BRL",  # Brazil
-                                "ZA": "ZAR",  # South Africa
-                            }
+                            # Gebruik de omgekeerde van CURRENCY_COUNTRY_MAP voor volledige dekking
+                            # Bouw een country-to-currency mapping op basis van de CURRENCY_COUNTRY_MAP
+                            country_to_currency = {country: currency for currency, country in CURRENCY_COUNTRY_MAP.items()}
                             
                             # Map importance levels from numeric to text
                             # Based on TradingView's numeric representation (1=low, 2=medium, 3=high)
@@ -325,8 +316,18 @@ class TradingViewCalendarService:
                             
                             country = event.get("country", "")
                             currency = country_to_currency.get(country, "")
+                            
+                            # Als de valuta onbekend is, log en sla over
                             if not currency:
-                                logger.debug(f"Skipping event with unknown country: {country}")
+                                logger.info(f"Skipping event with unknown country code: '{country}' for event: '{event.get('title', 'Unknown')}'")
+                                skipped_events += 1
+                                unknown_countries.add(country)
+                                continue
+                            
+                            # Sla alle niet-major currencies over
+                            if currency not in MAJOR_CURRENCIES:
+                                logger.debug(f"Skipping non-major currency: {currency}")
+                                non_major_events += 1
                                 continue
                             
                             # Extract the time from the date field
@@ -385,6 +386,13 @@ class TradingViewCalendarService:
                     
                     # Sort events by time
                     events.sort(key=lambda x: x["time"])
+                    
+                    # Log summary with filter statistics
+                    logger.info(f"Calendar processing summary:")
+                    logger.info(f"- Total events from API: {len(data)}")
+                    logger.info(f"- Events with unknown country codes: {skipped_events} ({', '.join(unknown_countries) if unknown_countries else 'none'})")
+                    logger.info(f"- Events with non-major currencies: {non_major_events}")
+                    logger.info(f"- Final events after filtering: {len(events)}")
                     
                     # Log success with useful information
                     logger.info(f"Successfully processed calendar data with {len(events)} events from TradingView API")
