@@ -314,8 +314,8 @@ class ChartService:
                     node_version = subprocess.check_output(["node", "--version"]).decode().strip()
                     logger.info(f"Node.js is available: {node_version}")
                     node_available = True
-                except (subprocess.SubprocessError, FileNotFoundError):
-                    logger.warning("Node.js is not available, skipping Node.js screenshot service")
+                except (subprocess.SubprocessError, FileNotFoundError) as node_error:
+                    logger.warning(f"Node.js is not available, skipping Node.js screenshot service: {str(node_error)}")
                     node_available = False
                 
                 if node_available:
@@ -323,8 +323,8 @@ class ChartService:
                     from trading_bot.services.chart_service.tradingview_node import TradingViewNodeService
                     self.tradingview = TradingViewNodeService()
                     
-                    # Run initialization with a timeout
-                    node_init_timeout = 30  # 30 seconds timeout for Node.js initialization
+                    # Run initialization with a shorter timeout
+                    node_init_timeout = 15  # Reduced from 30 to 15 seconds timeout
                     try:
                         node_init_task = asyncio.create_task(self.tradingview.initialize())
                         node_initialized = await asyncio.wait_for(node_init_task, timeout=node_init_timeout)
@@ -350,17 +350,17 @@ class ChartService:
             logger.warning("Skipping Selenium initialization due to ChromeDriver compatibility issues")
             self.tradingview_selenium = None
             
-            # Als geen van beide services is geïnitialiseerd, configureer matplotlib fallback
-            if not any_service_initialized:
-                logger.warning("Using matplotlib fallback for chart generation")
-                # Ensure matplotlib is available
-                try:
-                    import matplotlib.pyplot as plt
-                    logger.info("Matplotlib is available for fallback chart generation")
-                except ImportError:
-                    logger.error("Matplotlib is not available, chart service may not function properly")
+            # Set fallback to matplotlib, even if Node.js service was initialized
+            # This ensures we always have a fallback in case Node.js fails later
+            logger.info("Setting up matplotlib fallback for chart generation")
+            try:
+                import matplotlib.pyplot as plt
+                logger.info("Matplotlib is available for fallback chart generation")
+            except ImportError:
+                logger.error("Matplotlib is not available, chart service may not function properly")
             
             # Always return True to allow the bot to continue starting regardless of chart service status
+            logger.info("Chart service initialization completed, continuing with or without Node.js service")
             return True
         except Exception as e:
             logger.error(f"Error initializing chart service: {str(e)}")
