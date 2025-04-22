@@ -1206,7 +1206,7 @@ class TelegramService:
                     # Market selection
                     CHOOSE_MARKET: [
                         CallbackQueryHandler(self.market_callback, pattern="^market_"),
-                        CallbackQueryHandler(self.back_analysis_callback, pattern="^back_analysis$"),
+                        CallbackQueryHandler(self.analysis_callback, pattern="^back_analysis$"),
                     ],
                     # Instrument selection
                     CHOOSE_INSTRUMENT: [
@@ -4401,24 +4401,17 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
 
     async def analysis_callback(self, update: Update, context=None) -> int:
         """Handle back button from market selection to analysis menu"""
-        query = update.callback_query
-        await query.answer()
-        
-        logger.info("analysis_callback called - returning to analysis menu")
-        
-        # Determine if we have a photo or animation
-        has_photo = False
-        if query and query.message:
-            has_photo = bool(query.message.photo) or query.message.animation is not None
-            
-        # Get the analysis GIF URL
-        gif_url = "https://media.giphy.com/media/gSzIKNrqtotEYrZv7i/giphy.gif"
-        
-        # Multi-step approach to handle media messages
         try:
-            # Step 1: Try to delete the message and send a new one
+            query = update.callback_query
+            await query.answer()
+            
+            logger.info("Going back to analysis menu")
+            
             chat_id = update.effective_chat.id
             message_id = query.message.message_id
+            
+            # Get random gif for analysis menu
+            gif_url = random.choice(gif_utils.ANALYSIS_GIFS)
             
             try:
                 # Try to delete the current message
@@ -4436,58 +4429,45 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             except Exception as delete_error:
                 logger.warning(f"Could not delete message: {str(delete_error)}")
                 
-                # Step 2: If deletion fails, try replacing with a GIF or transparent GIF
+                # Fallback if we cannot delete the message
                 try:
-                    if has_photo:
-                        # Replace with the analysis GIF
-                        await query.edit_message_media(
-                            media=InputMediaAnimation(
-                                media=gif_url,
-                                caption="Select your analysis type:"
-                            ),
-                            reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
-                        )
-                    else:
-                        # Just update the text
-                        await query.edit_message_text(
-                            text="Select your analysis type:",
-                            reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
-                            parse_mode=ParseMode.HTML
-                        )
-                    logger.info("Updated message with analysis menu")
-                    return CHOOSE_ANALYSIS
-                except Exception as media_error:
-                    logger.warning(f"Could not update media: {str(media_error)}")
-                    
-                    # Step 3: As last resort, only update the caption
+                    await query.edit_message_text(
+                        text="Select your analysis type:",
+                        reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
+                    )
+                except Exception:
                     try:
+                        # If we can't edit text, try caption
                         await query.edit_message_caption(
                             caption="Select your analysis type:",
-                            reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
-                            parse_mode=ParseMode.HTML
+                            reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
                         )
-                        logger.info("Updated caption with analysis menu")
-                        return CHOOSE_ANALYSIS
-                    except Exception as caption_error:
-                        logger.error(f"Failed to update caption in analysis_callback: {str(caption_error)}")
-                        # Send a new message as absolutely last resort
+                    except Exception as e:
+                        logger.error(f"Failed to update message: {str(e)}")
+                        # As a last resort, send a new message
                         await context.bot.send_message(
                             chat_id=chat_id,
                             text="Select your analysis type:",
-                            parse_mode=ParseMode.HTML,
                             reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
                         )
+                
+                return CHOOSE_ANALYSIS
+        
         except Exception as e:
             logger.error(f"Error in analysis_callback: {str(e)}")
-            # Send a new message as fallback
-            await context.bot.send_message(
-                chat_id=update.effective_chat.id,
-                text="Select your analysis type:",
-                parse_mode=ParseMode.HTML,
-                reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
-            )
             
-        return CHOOSE_ANALYSIS
+            # Try to recover
+            if update and update.effective_chat:
+                try:
+                    await context.bot.send_message(
+                        chat_id=update.effective_chat.id,
+                        text="Something went wrong. Please try again.",
+                        reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
+                    )
+                except Exception:
+                    pass
+            
+            return MENU
 
     async def back_menu_callback(self, update: Update, context=None) -> int:
         """Handle back_menu button press to return to main menu.
