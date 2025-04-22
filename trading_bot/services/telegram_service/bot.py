@@ -2250,6 +2250,15 @@ What would you like to do today?
             # Always use polling mode, regardless of webhook URL
             logger.info("Starting bot with long polling mode")
             
+            # IMPORTANT: Make sure any existing webhook is deleted to avoid conflict
+            # This is a common cause of the "terminated by other getUpdates request" error
+            logger.info("Removing any existing webhook configuration...")
+            try:
+                await self.bot.delete_webhook(drop_pending_updates=True)
+                logger.info("Successfully deleted webhook")
+            except Exception as e:
+                logger.error(f"Error deleting webhook: {str(e)}")
+            
             # Start the bot without blocking
             await self.application.initialize()
             await self.application.start()
@@ -2268,7 +2277,7 @@ What would you like to do today?
             
             # Start polling
             logger.info("Starting polling for updates...")
-            await self.application.updater.start_polling()
+            await self.application.updater.start_polling(drop_pending_updates=True)
             self.polling_started = True
             logger.info("Polling started successfully")
             
