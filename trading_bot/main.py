@@ -22,8 +22,35 @@ load_dotenv()
 from trading_bot.services.database.db import Database
 from trading_bot.services.payment_service.stripe_config import STRIPE_WEBHOOK_SECRET
 
-# Import directly from the module to avoid circular imports through __init__.py
-from trading_bot.services.telegram_service.bot import TelegramService
+# Import TelegramService with fallback mechanisms
+try:
+    # First attempt - direct import
+    from trading_bot.services.telegram_service.bot import TelegramService
+except ImportError:
+    try:
+        # Second attempt - import from package
+        from trading_bot.services.telegram_service import TelegramService
+    except ImportError:
+        # Last resort - dynamically load the class
+        import importlib.util
+        import sys
+        
+        # Path to the bot.py file
+        bot_module_path = os.path.join(os.path.dirname(__file__), 'services', 'telegram_service', 'bot.py')
+        
+        if os.path.exists(bot_module_path):
+            print(f"Loading TelegramService directly from {bot_module_path}")
+            # Load the module from the file path
+            spec = importlib.util.spec_from_file_location("telegram_service_bot", bot_module_path)
+            telegram_bot_module = importlib.util.module_from_spec(spec)
+            sys.modules["telegram_service_bot"] = telegram_bot_module
+            spec.loader.exec_module(telegram_bot_module)
+            
+            # Get the TelegramService class from the loaded module
+            TelegramService = telegram_bot_module.TelegramService
+        else:
+            raise ImportError("Cannot import TelegramService: bot.py file not found")
+
 from trading_bot.services.payment_service.stripe_service import StripeService
 
 # Voeg deze functie toe bovenaan het bestand, na de imports
