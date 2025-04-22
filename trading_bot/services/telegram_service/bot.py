@@ -1189,6 +1189,7 @@ class TelegramService:
             application.add_handler(CallbackQueryHandler(self.back_market_callback, pattern="^back_market$"))
             application.add_handler(CallbackQueryHandler(self.back_menu_callback, pattern="^back_menu$"))
             application.add_handler(CallbackQueryHandler(self.analysis_callback, pattern="^back_analysis$"))
+            application.add_handler(CallbackQueryHandler(self.analysis_callback, pattern="^back_to_analysis$"))
             application.add_handler(CallbackQueryHandler(self.back_to_signal_analysis_callback, pattern="^back_to_signal_analysis$"))
             
             # Catch-all handler voor overige callback queries
