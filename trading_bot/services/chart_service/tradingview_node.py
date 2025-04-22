@@ -55,12 +55,29 @@ class TradingViewNodeService(TradingViewService):
                 logger.error(f"Error checking Node.js version: {str(node_error)}")
                 return False
             
-            # Check if the screenshot.js file exists
-            if not os.path.exists(self.script_path):
-                logger.error(f"screenshot.js not found at {self.script_path}")
+            # Check if the screenshot.js file exists in different potential locations
+            potential_paths = [
+                self.script_path,  # Original path
+                os.path.join(os.getcwd(), "tradingview_screenshot.js"),  # Project root
+                os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), "tradingview_screenshot.js")  # Root directory
+            ]
+            
+            script_found = False
+            for path in potential_paths:
+                if os.path.exists(path):
+                    self.script_path = path
+                    script_found = True
+                    logger.info(f"screenshot.js found at {self.script_path}")
+                    break
+            
+            if not script_found:
+                logger.error(f"screenshot.js not found in any of the potential paths")
                 return False
             
-            logger.info(f"screenshot.js found at {self.script_path}")
+            # Skip Playwright check if we've previously determined it's not available
+            if self.playwright_installed is False:
+                logger.warning("Playwright previously failed to install, skipping check")
+                return False
             
             # Controleer of Playwright al geïnstalleerd is om te vermijden dat het elke keer wordt gecontroleerd
             if self.playwright_installed is None:
@@ -69,94 +86,37 @@ class TradingViewNodeService(TradingViewService):
                     subprocess.run(["node", "-e", "require('playwright')"], 
                                   check=True, 
                                   stdout=subprocess.PIPE, 
-                                  stderr=subprocess.PIPE)
+                                  stderr=subprocess.PIPE,
+                                  timeout=5)  # Reduced timeout
                     logger.info("Playwright is already installed")
                     self.playwright_installed = True
                 except Exception:
                     # Installeer Playwright als het niet beschikbaar is
                     logger.info("Installing Playwright directly...")
                     try:
+                        # Try with shorter timeout
                         subprocess.run(["npm", "install", "playwright", "--no-save"], 
                                       check=True, 
                                       stdout=subprocess.PIPE, 
-                                      stderr=subprocess.PIPE)
+                                      stderr=subprocess.PIPE,
+                                      timeout=60)  # Reduced timeout
                         logger.info("Playwright installed successfully")
                         self.playwright_installed = True
                     except Exception as e:
                         logger.error(f"Error installing Playwright: {str(e)}")
                         self.playwright_installed = False
+                        return False
             
-            # Check if Playwright browsers are installed and install them if missing
-            if self.playwright_browsers_installed is None and self.playwright_installed:
-                try:
-                    # First try to take a test screenshot, which will reveal if browsers are missing
-                    logger.info("Testing Node.js service with TradingView URL")
-                    test_url = "https://www.tradingview.com/chart/xknpxpcr/?symbol=EURUSD&interval=1h"
-                    timestamp = int(time.time())
-                    test_screenshot_path = os.path.join(os.path.dirname(self.script_path), f"screenshot_{timestamp}.png")
-                    
-                    cmd = f"node {self.script_path} \"{test_url}\" \"{test_screenshot_path}\" \"{self.session_id}\""
-                    logger.info(f"Taking screenshot with fullscreen=False")
-                    logger.info(f"Taking screenshot of TradingView URL: {test_url}")
-                    logger.info(f"Running command: {cmd.replace(self.session_id, '****')}")
-                    
-                    process = await asyncio.create_subprocess_shell(
-                        cmd,
-                        stdout=asyncio.subprocess.PIPE,
-                        stderr=asyncio.subprocess.PIPE
-                    )
-                    
-                    stdout, stderr = await process.communicate()
-                    
-                    if stdout:
-                        logger.info(f"Node.js stdout: {stdout.decode()}")
-                    if stderr:
-                        stderr_output = stderr.decode()
-                        logger.error(f"Node.js stderr: {stderr_output}")
-                        
-                        # Check if browsers are missing based on error message
-                        if "Executable doesn't exist" in stderr_output or "Please run the following command to download new browsers" in stderr_output:
-                            logger.info("Playwright browsers are missing, installing them now")
-                            try:
-                                # Install Playwright browsers
-                                install_process = subprocess.run(
-                                    ["npx", "playwright", "install", "chromium"],
-                                    check=True,
-                                    stdout=subprocess.PIPE,
-                                    stderr=subprocess.PIPE,
-                                    timeout=300  # 5 minutes timeout for browser installation
-                                )
-                                logger.info(f"Playwright browsers installed successfully: {install_process.stdout.decode()}")
-                                self.playwright_browsers_installed = True
-                            except subprocess.CalledProcessError as e:
-                                logger.error(f"Error installing Playwright browsers: {e.stderr.decode()}")
-                                self.playwright_browsers_installed = False
-                            except Exception as e:
-                                logger.error(f"Unexpected error installing Playwright browsers: {str(e)}")
-                                self.playwright_browsers_installed = False
-                        else:
-                            # Some other error, but browsers might be installed
-                            self.playwright_browsers_installed = True
-                    
-                    # Check if the test screenshot was created
-                    if os.path.exists(test_screenshot_path):
-                        logger.info("Node.js service test successful, browsers are installed")
-                        self.playwright_browsers_installed = True
-                        # Cleanup the test screenshot
-                        try:
-                            os.remove(test_screenshot_path)
-                        except Exception:
-                            pass
-                    else:
-                        logger.error("Screenshot file not found: {test_screenshot_path}")
-                        logger.error("Node.js service test failed")
-                        # We'll still try to continue, maybe browsers will be installed
-                
-                except Exception as e:
-                    logger.error(f"Error testing Playwright browser installation: {str(e)}")
-                    # We'll still continue with initialization
+            # Skip browser check if known to be installed
+            if self.playwright_browsers_installed is True:
+                logger.info("Playwright browsers already installed, skipping check")
+                self.is_initialized = True
+                return True
             
+            # Quick test without attempting to install browsers 
+            # We'll install them later if needed
             self.is_initialized = True
+            logger.info("TradingView Node.js service initialized without browser check")
             return True
             
         except Exception as e:
