@@ -230,9 +230,9 @@ class EconomicCalendarService:
             self.tavily_service = TavilyService(api_key=api_key)
         
         # Always disable ForexFactory screenshot service
-        use_calendar_fallback = True  # Force to True to disable ForexFactory screenshot method
-        self.logger.warning("❌ Calendar fallback mode is ENABLED - ForexFactory screenshot service disabled permanently")
-        print("❌ Calendar fallback mode is ENABLED - ForexFactory screenshot service disabled permanently")
+        use_calendar_fallback = False  # Set to False to properly enable TradingView calendar
+        self.logger.info("✅ Calendar fallback mode is DISABLED - Using TradingView for economic calendar data")
+        print("✅ Calendar fallback mode is DISABLED - Using TradingView for economic calendar data")
         self.use_screenshot_method = False
         
         self.cache = {}
