@@ -3248,11 +3248,38 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             try:
                 logger.info(f"Sending chart image with analysis for {instrument} {timeframe}")
                 
-                # Try to send a new message with the chart and full analysis in caption
+                # Respect Telegram's caption length limit (1024 characters)
+                max_caption_length = 1000  # Slightly less than the actual limit to be safe
+                
+                # Create a shortened caption if necessary
+                if len(analysis_text) > max_caption_length:
+                    logger.info(f"Analysis text length ({len(analysis_text)}) exceeds Telegram limit, creating shortened version")
+                    
+                    # Split the analysis into sections
+                    sections = analysis_text.split("\n\n")
+                    
+                    # Start with the most important information (first 3 sections usually contain title, trend and zone strength)
+                    shortened_caption = "\n\n".join(sections[:3])
+                    
+                    # Find the key levels section and add if possible
+                    key_levels_section = next((s for s in sections if "🔑 Key Levels" in s), None)
+                    if key_levels_section and len(shortened_caption) + len(key_levels_section) + 2 <= max_caption_length:
+                        shortened_caption += "\n\n" + key_levels_section
+                    
+                    # Add technical indicators if space permits
+                    indicators_section = next((s for s in sections if "📈 Technical Indicators" in s), None)
+                    if indicators_section and len(shortened_caption) + len(indicators_section) + 2 <= max_caption_length:
+                        shortened_caption += "\n\n" + indicators_section
+                    
+                    caption = shortened_caption
+                else:
+                    caption = analysis_text
+                
+                # Try to send a new message with the chart and properly sized caption
                 await context.bot.send_photo(
                     chat_id=update.effective_chat.id,
                     photo=chart_image,
-                    caption=analysis_text,
+                    caption=caption,
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
                 
@@ -3266,16 +3293,38 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             except Exception as e:
                 logger.error(f"Failed to send chart: {str(e)}")
                 
+                # Try a more aggressive shortening if we still get caption too long error
+                if "caption is too long" in str(e).lower():
+                    try:
+                        logger.info("Trying with even shorter caption due to Telegram limits")
+                        # Just include the first section (title and trend)
+                        shorter_caption = analysis_text.split("\n\n")[0]
+                        if len(shorter_caption) > max_caption_length:
+                            shorter_caption = shorter_caption[:max_caption_length - 3] + "..."
+                            
+                        await context.bot.send_photo(
+                            chat_id=update.effective_chat.id,
+                            photo=chart_image,
+                            caption=shorter_caption,
+                            reply_markup=InlineKeyboardMarkup(keyboard)
+                        )
+                        
+                        # Delete the original message
+                        await query.delete_message()
+                        return SHOW_RESULT
+                    except Exception as retry_error:
+                        logger.error(f"Failed second attempt to send chart: {str(retry_error)}")
+                
                 # Fallback error handling
                 try:
                     if loading_message:
                         await loading_message.edit_text(
-                            text=f"Error sending chart for {instrument}. Analysis:\n\n{analysis_text}",
+                            text=f"Error sending chart for {instrument}. Please try again later.",
                             reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
                         )
                     else:
                         await query.edit_message_text(
-                            text=f"Error sending chart for {instrument}. Analysis:\n\n{analysis_text}",
+                            text=f"Error sending chart for {instrument}. Please try again later.",
                             reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
                         )
                 except Exception:
