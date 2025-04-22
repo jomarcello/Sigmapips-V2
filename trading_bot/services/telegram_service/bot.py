@@ -1284,6 +1284,8 @@ class TelegramService:
             application.add_handler(CallbackQueryHandler(self.back_instrument_callback, pattern="^back_instrument$"))
             application.add_handler(CallbackQueryHandler(self.back_signals_callback, pattern="^back_signals$"))
             application.add_handler(CallbackQueryHandler(self.back_menu_callback, pattern="^back_menu$"))
+            application.add_handler(CallbackQueryHandler(self.back_to_signal_analysis_callback, pattern="^back_to_signal_analysis$"))
+            application.add_handler(CallbackQueryHandler(self.back_to_signal_callback, pattern="^back_to_signal$"))
             
             # Analysis handlers for regular flow
             application.add_handler(CallbackQueryHandler(self.analysis_technical_callback, pattern="^analysis_technical$"))
@@ -2572,23 +2574,20 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         """Handle button callback queries"""
         try:
             query = update.callback_query
+            await query.answer()
             callback_data = query.data
             
-            # Log the callback data
             logger.info(f"Button callback opgeroepen met data: {callback_data}")
-            
-            # Answer the callback query to stop the loading indicator
-            await query.answer()
             
             # Handle analyze from signal button
             if callback_data.startswith("analyze_from_signal_"):
                 return await self.analyze_from_signal_callback(update, context)
-                
+                    
             # Help button
             if callback_data == "help":
                 await self.help_command(update, context)
                 return MENU
-                
+                    
             # Menu navigation
             if callback_data == CALLBACK_MENU_ANALYSE:
                 return await self.menu_analyse_callback(update, context)
@@ -2602,40 +2601,9 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 return await self.analysis_sentiment_callback(update, context)
             elif callback_data == CALLBACK_ANALYSIS_CALENDAR or callback_data == "analysis_calendar":
                 return await self.analysis_calendar_callback(update, context)
-                
-            # Direct instrument_timeframe callbacks  
-            if "_timeframe_" in callback_data:
-                # Format: instrument_EURUSD_timeframe_H1
-                parts = callback_data.split("_")
-                instrument = parts[1]
-                timeframe = parts[3] if len(parts) > 3 else "1h"  # Default to 1h
-                return await self.show_technical_analysis(update, context, instrument=instrument, timeframe=timeframe)
-            
-            # Verwerk instrument keuzes met specifiek type (chart, sentiment, calendar)
-            if "_chart" in callback_data or "_sentiment" in callback_data or "_calendar" in callback_data:
-                # Direct doorsturen naar de instrument_callback methode
-                logger.info(f"Specifiek instrument type gedetecteerd in: {callback_data}")
-                return await self.instrument_callback(update, context)
-            
-            # Handle instrument signal choices
-            if "_signals" in callback_data and callback_data.startswith("instrument_"):
-                logger.info(f"Signal instrument selection detected: {callback_data}")
-                return await self.instrument_signals_callback(update, context)
-            
-            # Speciale afhandeling voor markt keuzes
-            if callback_data.startswith("market_"):
-                return await self.market_callback(update, context)
-            
-            # Signals handlers
-            if callback_data == "signals_add" or callback_data == CALLBACK_SIGNALS_ADD:
-                return await self.signals_add_callback(update, context)
-                
-            # Manage signals handler
-            if callback_data == "signals_manage" or callback_data == CALLBACK_SIGNALS_MANAGE:
-                return await self.signals_manage_callback(update, context)
-            
+                    
             # Back navigation handlers
-            if callback_data == "back_menu" or callback_data == CALLBACK_BACK_MENU:
+            elif callback_data == "back_menu" or callback_data == CALLBACK_BACK_MENU:
                 return await self.back_menu_callback(update, context)
             elif callback_data == "back_analysis" or callback_data == CALLBACK_BACK_ANALYSIS:
                 return await self.analysis_callback(update, context)
@@ -2643,9 +2611,16 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 return await self.back_signals_callback(update, context)
             elif callback_data == "back_market" or callback_data == CALLBACK_BACK_MARKET:
                 return await self.back_market_callback(update, context)
-                
+            elif callback_data == "back_instrument":
+                logger.info("Calling back_instrument_callback from button_callback")
+                return await self.back_instrument_callback(update, context)
+            elif callback_data == "back_to_signal_analysis":
+                return await self.back_to_signal_analysis_callback(update, context)
+            elif callback_data == "back_to_signal":
+                return await self.back_to_signal_callback(update, context)
+                    
             # Handle delete signal
-            if callback_data.startswith("delete_signal_"):
+            elif callback_data.startswith("delete_signal_"):
                 # Extract signal ID from callback data
                 signal_id = callback_data.replace("delete_signal_", "")
                 
@@ -2662,37 +2637,13 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     
                     # Refresh the manage signals view
                     return await self.signals_manage_callback(update, context)
-                    
+                        
                 except Exception as e:
                     logger.error(f"Error deleting signal subscription: {str(e)}")
                     await query.answer("Error removing signal subscription")
                     return await self.signals_manage_callback(update, context)
-                    
-            # Handle delete all signals
-            if callback_data == "delete_all_signals":
-                user_id = update.effective_user.id
-                
-                try:
-                    # Delete all signal subscriptions for this user
-                    response = self.db.supabase.table('signal_subscriptions').delete().eq('user_id', user_id).execute()
-                    
-                    if response and response.data:
-                        # Successfully deleted
-                        await query.answer("All signal subscriptions removed successfully")
-                    else:
-                        # Failed to delete
-                        await query.answer("Failed to remove signal subscriptions")
-                    
-                    # Refresh the manage signals view
-                    return await self.signals_manage_callback(update, context)
-                    
-                except Exception as e:
-                    logger.error(f"Error deleting all signal subscriptions: {str(e)}")
-                    await query.answer("Error removing signal subscriptions")
-                    return await self.signals_manage_callback(update, context)
-                    
-                    
-            # Default handling if no specific callback found, go back to menu
+            
+            # Log warning for unhandled callback data
             logger.warning(f"Unhandled callback_data: {callback_data}")
             return MENU
             
@@ -5108,6 +5059,8 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         """Handle back button to return to instrument selection"""
         query = update.callback_query
         await query.answer()
+        
+        logger.info(f"back_instrument_callback aangeroepen met data: {query.data}")
         
         try:
             # Clear style/timeframe data but keep instrument
