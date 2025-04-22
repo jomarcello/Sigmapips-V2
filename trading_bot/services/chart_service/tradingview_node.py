@@ -78,24 +78,49 @@ class TradingViewNodeService(TradingViewService):
                 logger.error(f"screenshot.js not found in any of the potential paths")
                 return False
             
-            # Skip Playwright check if we've previously determined it's not available
-            if self.playwright_installed is False:
-                logger.warning("Playwright previously failed to install, skipping check")
-                return False
-            
-            # Simplify Playwright check - just test if it's available and don't try to install
+            # Playwright check verbeteren
             if self.playwright_installed is None:
                 try:
-                    # Quick test if Playwright is installed
+                    # Test if Playwright is installed
                     subprocess.run(["node", "-e", "require('playwright')"], 
                                   check=True, 
                                   stdout=subprocess.PIPE, 
                                   stderr=subprocess.PIPE,
-                                  timeout=3)  # Reduced timeout
+                                  timeout=3)
                     logger.info("Playwright is available")
-                    self.playwright_installed = True
+                    
+                    # Check if browsers are installed
+                    try:
+                        # Korte test of de browser bestaat
+                        browser_check = subprocess.run(
+                            ["node", "-e", "const { chromium } = require('playwright'); (async () => { try { const browser = await chromium.launch(); await browser.close(); console.log('true'); } catch(e) { console.log('false'); } })()"],
+                            check=True,
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE,
+                            timeout=5
+                        )
+                        browsers_installed = "true" in browser_check.stdout.decode()
+                        
+                        # Als browsers niet beschikbaar zijn, installeer ze
+                        if not browsers_installed:
+                            logger.info("Playwright browsers installeren...")
+                            subprocess.run(
+                                ["npx", "playwright", "install", "chromium"],
+                                check=True,
+                                stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE,
+                                timeout=120  # Tijdslimiet van 2 minuten voor installatie
+                            )
+                            logger.info("Playwright browsers geïnstalleerd")
+                        
+                        self.playwright_installed = True
+                        self.playwright_browsers_installed = True
+                    except Exception as browser_error:
+                        logger.error(f"Browser check/install fout: {str(browser_error)}")
+                        self.playwright_installed = True
+                        self.playwright_browsers_installed = False
                 except Exception:
-                    logger.warning("Playwright not available, service may not work correctly")
+                    logger.warning("Playwright niet beschikbaar")
                     self.playwright_installed = False
             
             # Set initialized flag
