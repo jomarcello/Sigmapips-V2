@@ -1840,7 +1840,23 @@ What would you like to do today?
                 logger.error("Could not send recovery message in show_main_menu")
 
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> None:
-            logger.error(f"Error in analysis_callback: {str(e)}")
+        """Display help information for the bot."""
+        try:
+            # Create a keyboard for help topics
+            keyboard = [
+                [InlineKeyboardButton("📈 How to Use", callback_data="help_usage")],
+                [InlineKeyboardButton("💲 Subscription", callback_data="help_subscription")],
+                [InlineKeyboardButton("⬅️ Back to Menu", callback_data="back_menu")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await update.message.reply_text(
+                text="<b>SigmaPips Help</b>\n\nSelect a help topic:",
+                parse_mode=ParseMode.HTML,
+                reply_markup=reply_markup
+            )
+        except Exception as e:
+            logger.error(f"Error in help_command: {str(e)}")
             # Send a new message as fallback
             await context.bot.send_message(
                 chat_id=update.effective_chat.id,
