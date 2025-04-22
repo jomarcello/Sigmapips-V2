@@ -3248,52 +3248,11 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             try:
                 logger.info(f"Sending chart image with analysis for {instrument} {timeframe}")
                 
-                # Create a condensed caption from the analysis text (Telegram has 1024 character limit for captions)
-                max_caption_length = 1024
-                if len(analysis_text) > max_caption_length:
-                    # Simplify the caption to fit within limits
-                    logger.info(f"Analysis text exceeds max caption length, truncating ({len(analysis_text)} chars)")
-                    
-                    # Keep the most important sections (title, trend and key information)
-                    # First, split by major sections
-                    sections = analysis_text.split("\n\n")
-                    
-                    # Always include the title and trend information (first sections)
-                    essential_sections = min(3, len(sections))
-                    caption = "\n\n".join(sections[:essential_sections])
-                    
-                    # Add a summarized version of key sections
-                    if len(sections) > essential_sections:
-                        remaining_chars = max_caption_length - len(caption) - 50  # Leave room for truncation message
-                        
-                        # Try to add important sections
-                        for section in sections[essential_sections:]:
-                            if "Key Levels" in section or "Technical Indicators" in section:
-                                if len(section) <= remaining_chars:
-                                    caption += "\n\n" + section
-                                    remaining_chars -= (len(section) + 2)
-                                else:
-                                    # Add truncated version of important sections
-                                    lines = section.split("\n")
-                                    truncated_section = lines[0] + "\n"  # Keep the section header
-                                    for line in lines[1:]:
-                                        if len(truncated_section) + len(line) + 1 <= remaining_chars:
-                                            truncated_section += line + "\n"
-                                        else:
-                                            break
-                                    caption += "\n\n" + truncated_section
-                                    remaining_chars -= len(truncated_section) + 2
-                        
-                        # Add truncation notice
-                        caption += "\n\n[Analysis truncated to fit Telegram limits]"
-                else:
-                    caption = analysis_text
-                
-                # Try to send a new message with the chart
+                # Try to send a new message with the chart and full analysis in caption
                 await context.bot.send_photo(
                     chat_id=update.effective_chat.id,
                     photo=chart_image,
-                    caption=caption,
+                    caption=analysis_text,
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
                 
