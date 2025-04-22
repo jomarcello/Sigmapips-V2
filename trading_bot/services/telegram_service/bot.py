@@ -2288,8 +2288,7 @@ What would you like to do today?
             # Start the keepalive task
             self._background_tasks.append(asyncio.create_task(keepalive()))
             
-            # Keep the updater running
-            await self.application.updater.start_polling()
+            # Wait for the application to stop
             await self.application.idle()
             
             return None
