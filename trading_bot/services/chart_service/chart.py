@@ -602,13 +602,13 @@ class ChartService:
             zone_strength = 4  # Default 4 out of 5 stars
             zone_stars = "★" * zone_strength + "☆" * (5 - zone_strength)
             
-            # Format the analysis text according to the exact desired format
+            # Format the analysis text according to the exact desired format with bold headers
             analysis_text = f"{instrument} - {timeframe}  \n\n"
             analysis_text += f"Trend - {trend}  \n\n"
             analysis_text += f"Zone Strength: {zone_stars}  \n\n"
             
             # Market overview section
-            analysis_text += f"📊 Market Overview  \n"
+            analysis_text += f"📊 **Market Overview**  \n"
             analysis_text += f"Price is currently trading near the daily {'high' if current_price > (daily_high + daily_low)/2 else 'low'} of "
             analysis_text += f"{daily_high:.5f}, showing {'bullish' if trend == 'BUY' else 'bearish' if trend == 'SELL' else 'mixed'} momentum. "
             analysis_text += f"The pair remains {'above' if current_price > ema_50 else 'below'} key EMAs, "
@@ -616,12 +616,12 @@ class ChartService:
             analysis_text += f"Volume is moderate, supporting the current price action.  \n\n"
             
             # Key levels section
-            analysis_text += f"🔑 Key Levels  \n"
+            analysis_text += f"🔑 **Key Levels**  \n"
             analysis_text += f"Support: {daily_low:.5f} (daily low), {(daily_low * 0.99):.5f}, {weekly_low:.5f} (weekly low)  \n"
             analysis_text += f"Resistance: {daily_high:.5f} (daily high), {(daily_high * 1.01):.5f}, {weekly_high:.5f} (weekly high)  \n\n"
             
             # Technical indicators section
-            analysis_text += f"📈 Technical Indicators  \n"
+            analysis_text += f"📈 **Technical Indicators**  \n"
             
             # RSI interpretation
             rsi_status = "overbought" if rsi > 70 else "oversold" if rsi < 30 else "neutral"
@@ -637,7 +637,7 @@ class ChartService:
             analysis_text += f"{'above' if current_price > ema_200 else 'below'} EMA 200 ({ema_200:.5f}), confirming {ma_status} bias.  \n\n"
             
             # AI recommendation
-            analysis_text += f"🤖 Sigmapips AI Recommendation  \n"
+            analysis_text += f"🤖 **Sigmapips AI Recommendation**  \n"
             if trend == "BUY":
                 analysis_text += f"Watch for a breakout above {daily_high:.5f} for further upside. "
                 analysis_text += f"Maintain a buy bias while price holds above {daily_low:.5f}. "
@@ -652,7 +652,7 @@ class ChartService:
                 analysis_text += f"Wait for a clear breakout before establishing a directional bias.  \n\n"
             
             # Disclaimer
-            analysis_text += "⚠️ Disclaimer: Please note that the information/analysis provided is strictly for study and educational purposes only. "
+            analysis_text += f"⚠️ **Disclaimer**: Please note that the information/analysis provided is strictly for study and educational purposes only. "
             analysis_text += "It should not be constructed as financial advice and always do your own analysis."
             
             logger.info(f"Generated technical analysis for {instrument}")
@@ -715,7 +715,7 @@ class ChartService:
             analysis_text += f"Zone Strength: {zone_stars}  \n\n"
             
             # Market overview section
-            analysis_text += f"📊 Market Overview  \n"
+            analysis_text += f"📊 **Market Overview**  \n"
             analysis_text += f"Price is currently trading near the daily {'high' if random.random() > 0.5 else 'low'} of "
             analysis_text += f"{daily_high:.5f}, showing {'bullish' if trend == 'BUY' else 'bearish' if trend == 'SELL' else 'mixed'} momentum. "
             analysis_text += f"The pair remains {'above' if trend == 'BUY' else 'below' if trend == 'SELL' else 'near'} key EMAs, "
@@ -723,12 +723,12 @@ class ChartService:
             analysis_text += f"Volume is moderate, supporting the current price action.  \n\n"
             
             # Key levels section
-            analysis_text += f"🔑 Key Levels  \n"
+            analysis_text += f"🔑 **Key Levels**  \n"
             analysis_text += f"Support: {daily_low:.5f} (daily low), {(daily_low * 0.99):.5f}, {weekly_low:.5f} (weekly low)  \n"
             analysis_text += f"Resistance: {daily_high:.5f} (daily high), {(daily_high * 1.01):.5f}, {weekly_high:.5f} (weekly high)  \n\n"
             
             # Technical indicators section
-            analysis_text += f"📈 Technical Indicators  \n"
+            analysis_text += f"📈 **Technical Indicators**  \n"
             analysis_text += f"RSI: {rsi:.2f} (neutral)  \n"
             
             macd_value = random.uniform(-0.001, 0.001)
@@ -741,7 +741,7 @@ class ChartService:
             analysis_text += f"{'above' if trend == 'BUY' else 'below' if trend == 'SELL' else 'near'} EMA 200 ({ema_200:.5f}), confirming {ma_status} bias.  \n\n"
             
             # AI recommendation
-            analysis_text += f"🤖 Sigmapips AI Recommendation  \n"
+            analysis_text += f"🤖 **Sigmapips AI Recommendation**  \n"
             if trend == "BUY":
                 analysis_text += f"Watch for a breakout above {daily_high:.5f} for further upside. "
                 analysis_text += f"Maintain a buy bias while price holds above {daily_low:.5f}. "
@@ -756,7 +756,7 @@ class ChartService:
                 analysis_text += f"Wait for a clear breakout before establishing a directional bias.  \n\n"
             
             # Disclaimer
-            analysis_text += "⚠️ Disclaimer: Please note that the information/analysis provided is strictly for study and educational purposes only. "
+            analysis_text += f"⚠️ **Disclaimer**: Please note that the information/analysis provided is strictly for study and educational purposes only. "
             analysis_text += "It should not be constructed as financial advice and always do your own analysis."
             
             return analysis_text
