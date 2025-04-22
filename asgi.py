@@ -78,6 +78,57 @@ async def telegram_webhook(request: Request):
         logger.error(traceback.format_exc())
         return {"success": False, "error": str(e)}
 
+# Add signal endpoint to handle TradingView signals
+@app.post("/signal")
+async def process_signal(request: Request):
+    """Process TradingView webhook signals."""
+    global telegram_service, initialization_complete
+    
+    try:
+        # Get the signal data from the request
+        signal_data = await request.json()
+        logger.info(f"Received TradingView webhook signal: {signal_data}")
+        
+        # Check if telegram service is initialized
+        if not initialization_complete or not telegram_service:
+            logger.warning("Telegram service not initialized, queueing signal for later processing")
+            return {"status": "pending", "message": "Signal received, but bot is still initializing"}
+        
+        # Process the signal in a background task to avoid blocking the endpoint
+        # This allows the endpoint to return quickly
+        asyncio.create_task(process_signal_background(signal_data))
+        
+        # Return success immediately - actual processing happens in background
+        return {"status": "success", "message": "Signal received and queued for processing"}
+            
+    except Exception as e:
+        logger.error(f"Error processing TradingView webhook signal: {str(e)}")
+        logger.error(traceback.format_exc())
+        return {"status": "error", "message": str(e)}
+
+# Background task for processing signals
+async def process_signal_background(signal_data: dict):
+    """Process the signal in the background."""
+    global telegram_service
+    
+    try:
+        # Make sure telegram service is initialized
+        if not telegram_service:
+            logger.error("Telegram service not available, cannot process signal")
+            return
+            
+        # Process the signal in the background
+        logger.info("Processing signal in background task")
+        success = await telegram_service.process_signal(signal_data)
+        
+        if success:
+            logger.info("Signal processed successfully in background")
+        else:
+            logger.error(f"Failed to process signal in background: {signal_data}")
+    except Exception as e:
+        logger.error(f"Error in background signal processing: {str(e)}")
+        logger.error(traceback.format_exc())
+
 # Import the bot and run it
 @app.on_event("startup")
 async def startup_event():
