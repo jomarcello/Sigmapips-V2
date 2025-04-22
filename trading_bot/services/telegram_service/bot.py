@@ -3022,45 +3022,38 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         return CHOOSE_INSTRUMENT
 
     async def show_technical_analysis(self, update: Update, context=None, instrument=None, timeframe=None) -> int:
-        """Show technical analysis for a specific instrument and timeframe"""
-        query = update.callback_query
-        
+        """Show technical analysis for an instrument"""
         try:
-            # Add detailed debug logging
-            logger.info(f"show_technical_analysis called for instrument: {instrument}, timeframe: {timeframe}")
-            if query:
-                logger.info(f"Query data: {query.data}")
+            query = update.callback_query
+            from_signal = False
             
             # Check if we're in signal flow
-            from_signal = False
-            if context and hasattr(context, 'user_data'):
-                from_signal = context.user_data.get('from_signal', False)
-                logger.info(f"From signal flow: {from_signal}")
-                logger.info(f"Context user_data: {context.user_data}")
+            if context and hasattr(context, 'user_data') and context.user_data.get('from_signal'):
+                from_signal = True
+                logger.info("In signal flow, from_signal=True")
             
-            # If no instrument is provided, try to extract it from callback data
-            if not instrument and query:
+            # Get the current user data
+            context_user_data = context.user_data if context and hasattr(context, 'user_data') else {}
+            
+            # Extract instrument and timeframe from callback data if not provided
+            if not instrument:
                 callback_data = query.data
+                logger.info(f"Processing callback: {callback_data}")
                 
-                # Extract instrument from various callback data formats
-                if callback_data.startswith("instrument_"):
-                    # Format: instrument_EURUSD_chart
-                    parts = callback_data.split("_")
-                    instrument = parts[1]
-                    
-                elif callback_data.startswith("show_ta_"):
-                    # Format: show_ta_EURUSD_1h
+                if callback_data.startswith("instrument_chart_"):
+                    # Format: instrument_chart_BTCUSD_1h
                     parts = callback_data.split("_")
                     if len(parts) >= 3:
                         instrument = parts[2]
+                        # Handle timeframe if provided in callback
                         if len(parts) >= 4:
                             timeframe = parts[3]
             
             # If still no instrument, check user data
             if not instrument and context and hasattr(context, 'user_data'):
-                instrument = context.user_data.get('instrument')
+                instrument = context_user_data.get('instrument')
                 if not timeframe:
-                    timeframe = context.user_data.get('timeframe')
+                    timeframe = context_user_data.get('timeframe')
             
             # If still no instrument, show error
             if not instrument:
@@ -3074,56 +3067,47 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             if not timeframe:
                 timeframe = "1h"
             
-            # Get chart URL
+            # Store the current information in context
+            if context and hasattr(context, 'user_data'):
+                context.user_data['instrument'] = instrument
+                context.user_data['timeframe'] = timeframe
+            
+            # Log what we're doing
             logger.info(f"Getting technical analysis chart for {instrument} on {timeframe} timeframe")
             
-            # Check if we have a loading message in context.user_data
-            loading_message = None
-            if context and hasattr(context, 'user_data'):
-                loading_message = context.user_data.get('loading_message')
+            # Show loading message - efficiently start getting the chart and analysis in parallel
+            loading_text = f"Loading {instrument} chart..."
+            loading_gif = "https://media.giphy.com/media/dpjUltnOPye7azvAhH/giphy.gif"
             
-            # If no loading message in context or not in signal flow, create one
-            if not loading_message:
-                # Show loading message with GIF - similar to sentiment analysis
-                loading_text = f"Loading {instrument} chart..."
-                loading_gif = "https://media.giphy.com/media/dpjUltnOPye7azvAhH/giphy.gif"
-                
-                try:
-                    # Try to show animated GIF for loading
-                    await query.edit_message_media(
-                        media=InputMediaAnimation(
-                            media=loading_gif,
-                            caption=loading_text
-                        )
+            try:
+                # Try to show animated GIF for loading
+                await query.edit_message_media(
+                    media=InputMediaAnimation(
+                        media=loading_gif,
+                        caption=loading_text
                     )
-                    logger.info(f"Successfully showed loading GIF for {instrument} technical analysis")
-                except Exception as gif_error:
-                    logger.warning(f"Could not show loading GIF: {str(gif_error)}")
-                    # Fallback to text loading message
-                    try:
-                        loading_message = await query.edit_message_text(
-                            text=loading_text
-                        )
-                    except Exception as e:
-                        logger.error(f"Failed to show loading message: {str(e)}")
-                        # Try to edit caption as last resort
-                        try:
-                            await query.edit_message_caption(caption=loading_text)
-                        except Exception as caption_error:
-                            logger.error(f"Failed to update caption: {str(caption_error)}")
+                )
+            except Exception as gif_error:
+                logger.warning(f"Could not show loading GIF: {str(gif_error)}")
+                # Fallback to text loading message
+                try:
+                    await query.edit_message_text(text=loading_text)
+                except Exception:
+                    pass
             
-            # Initialize the chart service if needed
+            # Start chart service initialization if needed
             if not hasattr(self, 'chart_service') or not self.chart_service:
                 from trading_bot.services.chart_service.chart import ChartService
                 self.chart_service = ChartService()
             
-            # Get the chart image
-            chart_image = await self.chart_service.get_chart(instrument, timeframe)
+            # Start both requests in parallel
+            chart_task = asyncio.create_task(self.chart_service.get_chart(instrument, timeframe))
+            analysis_task = asyncio.create_task(self.chart_service.get_technical_analysis(instrument, timeframe))
             
-            # Get the technical analysis text
-            analysis_text = await self.chart_service.get_technical_analysis(instrument, timeframe)
+            # Wait for both tasks to complete
+            chart_image, analysis_text = await asyncio.gather(chart_task, analysis_task)
             
-            # Clean up the analysis text (remove double spaces and excessive line breaks)
+            # Clean up the analysis text
             analysis_text = analysis_text.replace("  \n", "\n").strip()
             
             if not chart_image:
@@ -3144,10 +3128,9 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             else:
                 keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="back_instrument")])
             
-            # Show the chart
+            # Show the chart - directly delete and send new message which is faster than editing
             try:
-                logger.info(f"Sending chart image for {instrument} {timeframe}")
-                # Try to send a new message with the chart
+                # Send a new message with the chart
                 await context.bot.send_photo(
                     chat_id=update.effective_chat.id,
                     photo=chart_image,
@@ -3156,44 +3139,38 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
                 
-                # Delete the original message (the one with the loading indicator)
-                logger.info(f"Deleting original message {query.message.message_id}")
+                # Delete the original message
                 await query.delete_message()
-                logger.info("Original message deleted successfully")
                 
                 return SHOW_RESULT
                 
             except Exception as e:
                 logger.error(f"Failed to send chart: {str(e)}")
                 
-                # Fallback error handling
+                # Simple fallback error handling
                 try:
-                    if loading_message:
-                        await loading_message.edit_text(
-                            text=f"Error sending chart for {instrument}. Please try again later.",
-                            reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
-                        )
-                    else:
-                        await query.edit_message_text(
-                            text=f"Error sending chart for {instrument}. Please try again later.",
-                            reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
-                        )
+                    await query.edit_message_text(
+                        text=f"Error sending chart for {instrument}. Please try again later.",
+                        reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
+                    )
                 except Exception:
                     pass
                 
                 return MENU
-        
+                
         except Exception as e:
             logger.error(f"Error in show_technical_analysis: {str(e)}")
-            # Error recovery
+            
+            # Try to recover
             try:
-                await query.edit_message_text(
-                    text="An error occurred. Please try again from the main menu.",
-                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
-                )
+                if update and update.callback_query:
+                    await update.callback_query.edit_message_text(
+                        text="Sorry, an error occurred. Please try again.",
+                        reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
+                    )
             except Exception:
                 pass
-            
+                
             return MENU
 
     @property
