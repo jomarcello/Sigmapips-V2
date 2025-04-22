@@ -1,1 +1,1 @@
-web: python -m trading_bot.main 
+web: python main.py
