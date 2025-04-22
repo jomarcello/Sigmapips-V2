@@ -48,6 +48,10 @@ except ImportError:
             
             # Get the TelegramService class from the loaded module
             TelegramService = telegram_bot_module.TelegramService
+            
+            # Make sure the TelegramService class is also available via the module
+            if not hasattr(telegram_bot_module, 'TelegramService'):
+                telegram_bot_module.TelegramService = TelegramService
         else:
             raise ImportError("Cannot import TelegramService: bot.py file not found")
 
