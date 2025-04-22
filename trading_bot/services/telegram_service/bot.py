@@ -10,13 +10,7 @@ import re
 import time
 import random
 
-# Conditional import of FastAPI - only attempt to import if needed
-try:
-    from fastapi import FastAPI, Request, HTTPException, status
-except ImportError:
-    # FastAPI not installed, which is fine if we're not using webhook mode
-    pass
-
+# Telegram imports
 from telegram import Bot, Update, BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery, InputMediaPhoto, InputMediaAnimation, InputMediaDocument, ReplyKeyboardMarkup, ReplyKeyboardRemove, InputFile
 from telegram.constants import ParseMode
 from telegram.request import HTTPXRequest
@@ -670,14 +664,10 @@ class TelegramService:
         # Background tasks for asyncio
         self._background_tasks = []
         
-        # Webhook configuration
-        self.webhook_url = os.getenv("WEBHOOK_URL", "")
-        self.webhook_path = "/webhook"  # Always use this path
-        if self.webhook_url.endswith("/"):
-            self.webhook_url = self.webhook_url[:-1]  # Remove trailing slash
-        # Voorkom duplicatie van /webhook in de URL
-        if self.webhook_url.endswith("/webhook"):
-            self.webhook_path = ""  # Geen pad nodig als het al in de URL zit
+        # Remove all webhook configuration and always use polling
+        # We no longer need webhook-related attributes since we'll always use polling
+        self.webhook_url = None
+        self.webhook_path = None
         
         # Flag to track handler registration
         self._handlers_registered = False
@@ -717,7 +707,7 @@ class TelegramService:
             # Use the provided token from initialization
             logger.info(f"Initializing bot with token: {self.bot_token[:10]}...")
             self.bot = Bot(token=self.bot_token, request=request)
-            logger.info(f"Bot initialized with webhook URL: {self.webhook_url} and path: {self.webhook_path}")
+            logger.info("Bot initialized for polling mode")
         
             # Initialize the application
             self.application = Application.builder().bot(self.bot).build()
