@@ -713,7 +713,9 @@ class TelegramService:
             # Initialize the application with a unique identifier based on timestamp
             unique_id = str(uuid.uuid4())
             logger.info(f"Creating application with unique ID: {unique_id}")
-            self.application = Application.builder().bot(self.bot).application_name(f"SigmapipsBot_{unique_id}").build()
+            # Just save the unique ID as a property but don't try to set it on the application
+            self.app_instance_id = unique_id
+            self.application = Application.builder().bot(self.bot).build()
         
             # We'll register handlers later during run() instead of here,
             # to avoid racing conditions and ensure proper order
@@ -2240,6 +2242,9 @@ What would you like to do today?
     async def run(self):
         """Run the bot with polling"""
         try:
+            # Log the unique instance ID to help with debugging
+            logger.info(f"Starting bot instance with ID: {self.app_instance_id}")
+            
             # Always use polling mode, regardless of webhook URL
             logger.info("Starting bot with long polling mode")
             
