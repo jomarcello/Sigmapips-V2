@@ -2518,6 +2518,10 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 return await self.back_signals_callback(update, context)
             elif callback_data == "back_market" or callback_data == CALLBACK_BACK_MARKET:
                 return await self.back_market_callback(update, context)
+            elif callback_data == "back_instrument":
+                return await self.back_instrument_callback(update, context)
+            elif callback_data == "back_to_signal_analysis":
+                return await self.back_to_signal_analysis_callback(update, context)
                 
             # Handle delete signal
             if callback_data.startswith("delete_signal_"):
@@ -4772,12 +4776,27 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 else:
                     keyboard = MARKET_KEYBOARD
                 
-                # Update het bericht
-                await self.update_message(
-                    query, 
-                    "Select an instrument:",
-                    keyboard=keyboard
-                )
+                # Check if the current message has a photo
+                has_photo = bool(query.message.photo) or query.message.animation is not None
+                
+                if has_photo:
+                    # For messages with photos, we need to send a new message rather than editing
+                    await context.bot.send_message(
+                        chat_id=update.effective_chat.id,
+                        text="Select an instrument:",
+                        reply_markup=InlineKeyboardMarkup(keyboard),
+                        parse_mode=ParseMode.HTML
+                    )
+                    
+                    # Delete the original message with the photo
+                    await query.delete_message()
+                else:
+                    # Update the message for text messages
+                    await self.update_message(
+                        query, 
+                        "Select an instrument:",
+                        keyboard=keyboard
+                    )
                 
                 return CHOOSE_INSTRUMENT
                 
