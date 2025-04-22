@@ -4807,37 +4807,59 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             return CHOOSE_SIGNALS
         
     async def back_instrument_callback(self, update: Update, context=None) -> int:
-        """Handle back button to return to instrument selection"""
-        query = update.callback_query
-        await query.answer()
-        
+        """Handle back button from instrument selection to market selection"""
         try:
-            # Clear style/timeframe data but keep instrument
+            query = update.callback_query
+            if query:
+                await query.answer()
+                
+            logger.info("Back to instrument selection")
+            
+            # Check if we're in a signals context
+            is_signals_context = False
             if context and hasattr(context, 'user_data'):
-                keys_to_clear = ['style', 'timeframe']
-                for key in keys_to_clear:
-                    if key in context.user_data:
-                        del context.user_data[key]
+                is_signals_context = context.user_data.get('signals_context', False)
             
-            # Get market and analysis type from context
-            market = None
-            analysis_type = None
-            if context and hasattr(context, 'user_data'):
-                market = context.user_data.get('market')
-                analysis_type = context.user_data.get('analysis_type')
-                is_signals_context = context.user_data.get('is_signals_context', False)
-            
-            if not market:
-                logger.warning("No market found in context, defaulting to forex")
-                market = "forex"
-            
-            # If we're in signals context, go back to signals menu
-            if is_signals_context and hasattr(self, 'back_signals_callback'):
-                return await self.back_signals_callback(update, context)
-            
-            # Otherwise go back to market selection
-            return await self.back_market_callback(update, context)
-            
+            # Stuur gebruiker terug naar het juiste menu
+            try:
+                # Haal market uit user_data als het bestaat
+                market = None
+                if context and hasattr(context, 'user_data'):
+                    market = context.user_data.get('market')
+                
+                # Bepaal het juiste keyboard op basis van market
+                keyboard = None
+                if market == "forex":
+                    keyboard = FOREX_KEYBOARD
+                elif market == "crypto":
+                    keyboard = CRYPTO_KEYBOARD
+                elif market == "indices":
+                    keyboard = INDICES_KEYBOARD
+                elif market == "commodities":
+                    keyboard = COMMODITIES_KEYBOARD
+                else:
+                    keyboard = MARKET_KEYBOARD
+                
+                # Update het bericht
+                await self.update_message(
+                    query, 
+                    "Select an instrument:",
+                    keyboard=keyboard
+                )
+                
+                return CHOOSE_INSTRUMENT
+                
+            except Exception as e:
+                logger.error(f"Error in back_instrument_callback: {str(e)}")
+                
+                # Als alternatief stuur terug naar market selectie
+                # If we're in signals context, go back to signals menu
+                if is_signals_context and hasattr(self, 'back_signals_callback'):
+                    return await self.back_signals_callback(update, context)
+                
+                # Otherwise go back to market selection
+                return await self.back_market_callback(update, context)
+                
         except Exception as e:
             logger.error(f"Failed to handle back_instrument_callback: {str(e)}")
             # Try to recover by going to market selection
