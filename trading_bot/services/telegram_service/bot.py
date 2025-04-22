@@ -9,6 +9,7 @@ import copy
 import re
 import time
 import random
+import uuid
 
 # Telegram imports
 from telegram import Bot, Update, BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery, InputMediaPhoto, InputMediaAnimation, InputMediaDocument, ReplyKeyboardMarkup, ReplyKeyboardRemove, InputFile
@@ -709,8 +710,10 @@ class TelegramService:
             self.bot = Bot(token=self.bot_token, request=request)
             logger.info("Bot initialized for polling mode")
         
-            # Initialize the application
-            self.application = Application.builder().bot(self.bot).build()
+            # Initialize the application with a unique identifier based on timestamp
+            unique_id = str(uuid.uuid4())
+            logger.info(f"Creating application with unique ID: {unique_id}")
+            self.application = Application.builder().bot(self.bot).application_name(f"SigmapipsBot_{unique_id}").build()
         
             # We'll register handlers later during run() instead of here,
             # to avoid racing conditions and ensure proper order
@@ -2240,14 +2243,28 @@ What would you like to do today?
             # Always use polling mode, regardless of webhook URL
             logger.info("Starting bot with long polling mode")
             
-            # IMPORTANT: Make sure any existing webhook is deleted to avoid conflict
-            # This is a common cause of the "terminated by other getUpdates request" error
-            logger.info("Removing any existing webhook configuration...")
-            try:
-                await self.bot.delete_webhook(drop_pending_updates=True)
-                logger.info("Successfully deleted webhook")
-            except Exception as e:
-                logger.error(f"Error deleting webhook: {str(e)}")
+            # IMPORTANT: Ensure the webhook is deleted with retries
+            # This is critical to fix the "terminated by other getUpdates request" error
+            logger.info("Removing any existing webhook configuration with retries...")
+            delete_success = False
+            max_retries = 3
+            retry_count = 0
+            
+            while not delete_success and retry_count < max_retries:
+                try:
+                    # Use a longer timeout and ensure we drop ALL pending updates
+                    await self.bot.delete_webhook(drop_pending_updates=True)
+                    logger.info("Successfully deleted webhook and dropped pending updates")
+                    delete_success = True
+                except Exception as e:
+                    retry_count += 1
+                    logger.error(f"Error deleting webhook (attempt {retry_count}/{max_retries}): {str(e)}")
+                    if retry_count < max_retries:
+                        logger.info(f"Retrying webhook deletion in 3 seconds...")
+                        await asyncio.sleep(3)
+            
+            if not delete_success:
+                logger.warning("Failed to delete webhook after multiple attempts, continuing anyway...")
             
             # Start the bot without blocking
             await self.application.initialize()
@@ -2265,9 +2282,14 @@ What would you like to do today?
             except Exception as e:
                 logger.error(f"Error setting bot commands: {str(e)}")
             
-            # Start polling
+            # Start polling with explicit parameters to avoid conflicts
             logger.info("Starting polling for updates...")
-            await self.application.updater.start_polling(drop_pending_updates=True)
+            await self.application.updater.start_polling(
+                drop_pending_updates=True,
+                allowed_updates=["message", "callback_query", "inline_query"],
+                read_timeout=10,
+                timeout=30
+            )
             self.polling_started = True
             logger.info("Polling started successfully")
             
