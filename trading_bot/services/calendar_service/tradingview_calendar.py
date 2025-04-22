@@ -10,6 +10,7 @@ import urllib.parse
 from datetime import datetime, timedelta
 from typing import Dict, List, Any, Optional, Union
 from pathlib import Path
+import re
 
 # Import onze custom mock data generator
 try:
@@ -240,6 +241,20 @@ class TradingViewCalendarService:
                     response_text = response_text.replace('";,', '",')
                     response_text = response_text.replace('";', '"')
                     
+                    # Additional cleanup for invalid JSON patterns found in the logs
+                    # Fix patterns like: "source_url": "http://www.site.com";,
+                    response_text = re.sub(r'"source_url"\s*:\s*"(https?://[^"]+)";,', r'"source_url": "\1",', response_text)
+                    # Fix patterns like: "source_url": "http://www.site.com";
+                    response_text = re.sub(r'"source_url"\s*:\s*"(https?://[^"]+)";', r'"source_url": "\1"', response_text)
+                    
+                    # More general pattern to catch any stray semicolons after quoted strings in the JSON
+                    response_text = re.sub(r'";(\s*[,}])', r'"\1', response_text)
+                    
+                    # Log cleaned response for debugging if there were issues
+                    if '";' in response_text or '";,' in response_text:
+                        logger.warning("Potential JSON issues still exist after cleaning, showing first 200 chars:")
+                        logger.warning(f"Cleaned response: {response_text[:200]}...")
+                    
                     try:
                         data = json.loads(response_text)
                         # Log response structure for debugging
@@ -252,6 +267,16 @@ class TradingViewCalendarService:
                     except json.JSONDecodeError as je:
                         logger.error(f"Failed to parse JSON response: {str(je)}")
                         logger.error(f"Raw response content (first 200 chars): {response_text[:200]}...")
+                        
+                        # Enhanced error logging with position information
+                        error_pos = je.pos
+                        start_pos = max(0, error_pos - 50)
+                        end_pos = min(len(response_text), error_pos + 50)
+                        context = response_text[start_pos:end_pos]
+                        pointer = ' ' * (min(50, error_pos - start_pos)) + '^'
+                        logger.error(f"Error context: {context}")
+                        logger.error(f"Error position: {pointer}")
+                        
                         if HAS_CUSTOM_MOCK_DATA:
                             logger.info("Falling back to mock calendar data")
                             return generate_mock_calendar_data(days_ahead, min_impact)
