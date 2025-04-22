@@ -60,6 +60,10 @@ class CalendarResult:
         if self.error:
             return f"Error: {self.message}"
         return f"Calendar with {len(self.events)} events"
+    
+    def __len__(self):
+        """Return the length of events list to make this object compatible with len()"""
+        return len(self.events)
 
 
 # Rename class to be very explicit
