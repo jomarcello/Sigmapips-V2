@@ -587,6 +587,10 @@ async def format_calendar_for_telegram(events: List[Dict]) -> str:
     # Format the message
     message = "<b>📅 Economic Calendar</b>\n\n"
     
+    # Add impact legend
+    message += "<b>Impact:</b> 🔴 High   🟠 Medium   🟢 Low\n\n"
+    
+    # Display events in chronological order without grouping by country
     for i, event in enumerate(sorted_events):
         try:
             country = event.get("country", "")
@@ -609,8 +613,7 @@ async def format_calendar_for_telegram(events: List[Dict]) -> str:
                 event_counts["missing_fields"] += 1
                 continue
             
-            # Format the line with enhanced visibility for country - in plaats van alleen bold 
-            # gebruiken we nu "「{country}」" voor betere zichtbaarheid in Telegram
+            # Format the line with enhanced visibility for country
             event_line = f"{time} - 「{country}」 - {title} {impact_emoji}"
             
             # Add previous/forecast/actual values if available
