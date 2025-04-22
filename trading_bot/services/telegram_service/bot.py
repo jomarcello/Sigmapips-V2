@@ -185,7 +185,7 @@ Need help? Use /help to see all available commands.
 
 HELP_MESSAGE = """
 Available commands:
-/menu - Show main menu
+/menu - Show the main menu
 /start - Set up new trading pairs
 /help - Show this help message
 """
@@ -2480,6 +2480,46 @@ What would you like to do today?
                 logger.info("Sent fallback menu after error")
             except Exception:
                 logger.error("Could not send fallback menu in menu_command")
+                
+    async def analysis_callback(self, update: Update, context=None) -> int:
+        """Handle back to analysis button press."""
+        try:
+            query = update.callback_query
+            await query.answer()
+            
+            # Prepare analysis keyboard
+            analysis_keyboard = [
+                [InlineKeyboardButton("📈 Technical Analysis", callback_data="analysis_technical")],
+                [InlineKeyboardButton("🧠 Market Sentiment", callback_data="analysis_sentiment")],
+                [InlineKeyboardButton("📅 Economic Calendar", callback_data="analysis_calendar")],
+                [InlineKeyboardButton("⬅️ Back to Menu", callback_data="back_menu")]
+            ]
+            
+            # Edit message to show analysis options
+            await query.edit_message_text(
+                text="<b>Analysis Options</b>\n\nSelect the type of analysis you want to see:",
+                parse_mode=ParseMode.HTML,
+                reply_markup=InlineKeyboardMarkup(analysis_keyboard)
+            )
+            
+            return CHOOSE_ANALYSIS
+            
+        except Exception as e:
+            logger.error(f"Error in analysis_callback: {str(e)}")
+            logger.error(traceback.format_exc())
+            
+            # Fallback response
+            try:
+                await context.bot.send_message(
+                    chat_id=update.effective_chat.id,
+                    text="Select your analysis type:",
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=InlineKeyboardMarkup(analysis_keyboard)
+                )
+            except Exception:
+                logger.error("Failed to send fallback message in analysis_callback")
+            
+            return CHOOSE_ANALYSIS
 
     async def _process_callback_query_with_retry(self, update_data, max_retries=3):
         """
@@ -2661,4 +2701,114 @@ What would you like to do today?
                 )
             except Exception:
                 logger.error("Could not send error message in button_callback")
+            return MENU
+            
+    async def _load_signals(self):
+        """Load signals from the database in the background to avoid startup delays.
+        
+        This method is called during initialization as a background task.
+        """
+        try:
+            logger.info("Loading signals in background task...")
+            
+            # Add a slight delay to avoid overloading during startup
+            await asyncio.sleep(2.0)
+            
+            if not hasattr(self, 'db') or not self.db:
+                logger.warning("Database not initialized, cannot load signals")
+                return
+                
+            # Load active signal subscriptions
+            try:
+                logger.info("Loading active signal subscriptions from database...")
+                response = self.db.supabase.table('signal_subscriptions').select('*').execute()
+                
+                if response and hasattr(response, 'data'):
+                    self._signal_subscriptions = response.data
+                    logger.info(f"Loaded {len(self._signal_subscriptions)} signal subscriptions")
+                else:
+                    self._signal_subscriptions = []
+                    logger.warning("No signal subscriptions found or invalid response")
+            except Exception as e:
+                logger.error(f"Error loading signal subscriptions: {str(e)}")
+                self._signal_subscriptions = []
+            
+            # Load any active signals
+            try:
+                logger.info("Loading active signals from database...")
+                response = self.db.supabase.table('active_signals').select('*').execute()
+                
+                if response and hasattr(response, 'data'):
+                    self._active_signals = response.data
+                    logger.info(f"Loaded {len(self._active_signals)} active signals")
+                else:
+                    self._active_signals = []
+                    logger.warning("No active signals found or invalid response")
+            except Exception as e:
+                logger.error(f"Error loading active signals: {str(e)}")
+                self._active_signals = []
+                
+            # Update the signals_loaded flag
+            self._signals_loaded = True
+            logger.info("Signal loading completed successfully")
+            
+        except Exception as e:
+            logger.error(f"Error in _load_signals: {str(e)}")
+            logger.error(traceback.format_exc())
+            
+    async def back_market_callback(self, update: Update, context=None) -> int:
+        """Handle back_market button press to return to market selection."""
+        try:
+            query = update.callback_query
+            await query.answer()
+            
+            # Determine if we're in signals or analysis flow
+            is_signals_context = context.user_data.get('is_signals_context', False) if context and hasattr(context, 'user_data') else False
+            
+            # Prepare keyboard based on whether we're in signals or analysis flow
+            if is_signals_context:
+                # Signal flow keyboard
+                keyboard = [
+                    [InlineKeyboardButton("📊 Add Signal", callback_data="signals_add")],
+                    [InlineKeyboardButton("⚙️ Manage Signals", callback_data="signals_manage")],
+                    [InlineKeyboardButton("⬅️ Back to Menu", callback_data="back_menu")]
+                ]
+                text = "<b>📈 Signal Management</b>\n\nManage your trading signals"
+            else:
+                # Analysis flow keyboard
+                keyboard = [
+                    [InlineKeyboardButton("📈 Technical Analysis", callback_data="analysis_technical")],
+                    [InlineKeyboardButton("🧠 Market Sentiment", callback_data="analysis_sentiment")],
+                    [InlineKeyboardButton("📅 Economic Calendar", callback_data="analysis_calendar")],
+                    [InlineKeyboardButton("⬅️ Back to Menu", callback_data="back_menu")]
+                ]
+                text = "<b>Analysis Options</b>\n\nSelect the type of analysis you want to see:"
+            
+            # Update the message
+            await query.edit_message_text(
+                text=text,
+                parse_mode=ParseMode.HTML,
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            
+            # Return to the appropriate state
+            return SIGNALS if is_signals_context else CHOOSE_ANALYSIS
+            
+        except Exception as e:
+            logger.error(f"Error in back_market_callback: {str(e)}")
+            logger.error(traceback.format_exc())
+            
+            # Try to recover by sending a simple message
+            try:
+                keyboard = [
+                    [InlineKeyboardButton("⬅️ Back to Menu", callback_data="back_menu")]
+                ]
+                await context.bot.send_message(
+                    chat_id=update.effective_chat.id,
+                    text="Sorry, there was an error. Please try using the menu again.",
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            except Exception:
+                logger.error("Could not send recovery message in back_market_callback")
+            
             return MENU
