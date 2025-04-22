@@ -3237,47 +3237,88 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 await query.edit_message_text(
                     text=analysis_text,
                     reply_markup=InlineKeyboardMarkup(keyboard),
-                    parse_mode=None  # Ensure no parsing issues
+                    parse_mode=ParseMode.HTML  # Use HTML for bold formatting
                 )
                 return SHOW_RESULT
             
-            # STRATEGY CHANGE: First send the full analysis as a text message, then the chart without caption
+            # CORRECT APPROACH: Send chart with analysis as caption in ONE message
             try:
-                logger.info(f"Sending full analysis text for {instrument} {timeframe}")
+                logger.info(f"Sending chart with analysis caption for {instrument} {timeframe}")
                 
-                # First delete the loading message
-                if query:
-                    try:
-                        logger.info(f"Deleting loading message {query.message.message_id}")
-                        await query.delete_message()
-                        logger.info("Loading message deleted successfully")
-                    except Exception as del_error:
-                        logger.error(f"Failed to delete loading message: {str(del_error)}")
+                # Handle the caption limit (1024 characters)
+                # If analysis is too long, truncate it while keeping the most important parts
+                max_caption_length = 1024
+                if len(analysis_text) > max_caption_length:
+                    # Keep only essential sections to fit within the limit
+                    header_lines = analysis_text.split('\n\n')[:3]  # Instrument, Trend, Zone Strength
+                    caption = '\n\n'.join(header_lines)
+                    
+                    # Add as many key sections as will fit
+                    remaining_chars = max_caption_length - len(caption) - 20  # Buffer
+                    important_sections = ["Market Overview", "Key Levels", "Technical Indicators"]
+                    
+                    for section_name in important_sections:
+                        # Find the section in the full text
+                        section_start = analysis_text.find(f"**{section_name}**")
+                        if section_start != -1:
+                            section_end = analysis_text.find("\n\n", section_start + len(section_name) + 4)
+                            if section_end == -1:  # If it's the last section
+                                section_end = len(analysis_text)
+                            
+                            section_text = analysis_text[section_start:section_end]
+                            if len(caption) + len(section_text) + 2 <= max_caption_length:
+                                caption += "\n\n" + section_text
+                    
+                    logger.info(f"Truncated caption from {len(analysis_text)} to {len(caption)} chars")
+                else:
+                    caption = analysis_text
                 
-                # Now send the full analysis as plain text
-                await context.bot.send_message(
-                    chat_id=update.effective_chat.id,
-                    text=analysis_text,
-                    parse_mode=None  # Ensure no parsing issues
-                )
-                
-                # Then send the chart image with minimal caption
+                # Send the photo with the analysis as caption
                 await context.bot.send_photo(
                     chat_id=update.effective_chat.id,
                     photo=chart_image,
-                    caption=f"{instrument} chart ({timeframe})",
+                    caption=caption,
+                    parse_mode=ParseMode.HTML,  # Support for bold formatting
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
                 
-                logger.info(f"Successfully sent analysis and chart for {instrument}")
+                # Delete the original message (the one with the loading indicator)
+                if query:
+                    logger.info(f"Deleting original message {query.message.message_id}")
+                    await query.delete_message()
+                    logger.info("Original message deleted successfully")
+                
                 return SHOW_RESULT
                 
             except Exception as e:
-                logger.error(f"Failed to send analysis and chart: {str(e)}")
+                logger.error(f"Failed to send chart with analysis: {str(e)}")
                 
-                # Try alternative approach with just the chart
+                # Fallback approach if the caption was too long
+                if "caption is too long" in str(e).lower():
+                    try:
+                        logger.info("Caption too long, trying simplified format")
+                        # Use a simpler caption format
+                        simple_caption = f"{instrument} - {timeframe}\n\nTrend: {analysis_text.split('Trend -')[1].split('\n\n')[0].strip()}"
+                        
+                        # Send chart with short caption
+                        await context.bot.send_photo(
+                            chat_id=update.effective_chat.id,
+                            photo=chart_image,
+                            caption=simple_caption,
+                            reply_markup=InlineKeyboardMarkup(keyboard)
+                        )
+                        
+                        # Delete original message
+                        if query:
+                            await query.delete_message()
+                        
+                        return SHOW_RESULT
+                    except Exception as fallback_error:
+                        logger.error(f"Fallback approach failed: {str(fallback_error)}")
+                
+                # Final fallback - just send the chart without caption
                 try:
-                    logger.info("Trying alternative approach with just chart")
+                    logger.info("Trying final fallback - chart only")
                     await context.bot.send_photo(
                         chat_id=update.effective_chat.id,
                         photo=chart_image,
@@ -3285,35 +3326,15 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                         reply_markup=InlineKeyboardMarkup(keyboard)
                     )
                     
-                    # Send analysis in pieces if needed
-                    if len(analysis_text) > 4000:  # Telegram message limit is around 4096
-                        # Split into parts
-                        parts = [analysis_text[i:i+4000] for i in range(0, len(analysis_text), 4000)]
-                        for i, part in enumerate(parts):
-                            await context.bot.send_message(
-                                chat_id=update.effective_chat.id,
-                                text=f"Analysis part {i+1}/{len(parts)}:\n\n{part}",
-                                parse_mode=None
-                            )
-                    else:
-                        await context.bot.send_message(
-                            chat_id=update.effective_chat.id,
-                            text=analysis_text,
-                            parse_mode=None
-                        )
-                    
-                    # Try to delete the original message if it exists
+                    # Delete original message
                     if query:
-                        try:
-                            await query.delete_message()
-                        except Exception:
-                            pass
+                        await query.delete_message()
                     
                     return SHOW_RESULT
-                except Exception as alt_error:
-                    logger.error(f"Alternative approach also failed: {str(alt_error)}")
+                except Exception as last_error:
+                    logger.error(f"All approaches failed: {str(last_error)}")
                 
-                # Final fallback error handling
+                # If all else fails, show error message
                 try:
                     if loading_message:
                         await loading_message.edit_text(
