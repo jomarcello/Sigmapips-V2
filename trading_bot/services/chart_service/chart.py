@@ -172,84 +172,31 @@ class ChartService:
             
             logger.info(f"Using exact TradingView link: {tradingview_link}")
             
-            # Track if any screenshot service was successful
-            screenshot_success = False
-            chart_image = None
-            
-            # Probeer eerst de Node.js service te gebruiken
+            # Try to get from Node.js directly, skipping the multiple fallback attempts
+            # This reduces unnecessary fallback attempts which waste time
             if hasattr(self, 'tradingview') and self.tradingview and hasattr(self.tradingview, 'take_screenshot_of_url'):
                 try:
-                    logger.info(f"Taking screenshot with Node.js service: {tradingview_link}")
                     chart_image = await self.tradingview.take_screenshot_of_url(tradingview_link, fullscreen=True)
                     if chart_image:
-                        logger.info("Screenshot taken successfully with Node.js service")
-                        screenshot_success = True
                         return chart_image
-                    else:
-                        logger.error("Node.js screenshot is None")
+                    
+                    # If Node.js fails, immediately fall back to random chart generation
+                    logger.warning(f"Node.js screenshot failed for {instrument}, using fallback")
+                    return await self._generate_random_chart(instrument, timeframe)
                 except Exception as e:
                     logger.error(f"Error using Node.js for screenshot: {str(e)}")
-                    logger.error(traceback.format_exc())
             
-            # Als Node.js niet werkt, probeer Selenium
-            if not screenshot_success and hasattr(self, 'tradingview_selenium') and self.tradingview_selenium and self.tradingview_selenium.is_initialized:
-                try:
-                    logger.info(f"Taking screenshot with Selenium: {tradingview_link}")
-                    chart_image = await self.tradingview_selenium.get_screenshot(tradingview_link, fullscreen=True)
-                    if chart_image:
-                        logger.info("Screenshot taken successfully with Selenium")
-                        screenshot_success = True
-                        return chart_image
-                    else:
-                        logger.error("Selenium screenshot is None")
-                except Exception as e:
-                    logger.error(f"Error using Selenium for screenshot: {str(e)}")
-                    logger.error(traceback.format_exc())
-            
-            # Als beide services niet werken, gebruik een fallback methode
-            if not screenshot_success:
-                logger.warning(f"All screenshot services failed, using matplotlib fallback for {instrument}")
-                try:
-                    # Try to generate chart using real data if possible
-                    try:
-                        import matplotlib.pyplot as plt
-                        import yfinance as yf
-                        
-                        # Only try yfinance if it's available
-                        chart_bytes = await self.generate_chart(instrument, timeframe)
-                        if chart_bytes:
-                            logger.info(f"Generated chart with real data from Yahoo Finance for {instrument}")
-                            return chart_bytes
-                    except (ImportError, Exception) as e:
-                        logger.warning(f"Failed to generate chart with real data: {str(e)}")
-                
-                    # Fall back to random chart if real data fails
-                    logger.info(f"Generating random chart for {instrument}")
-                    return await self._generate_random_chart(instrument, timeframe)
-                except Exception as fallback_error:
-                    logger.error(f"Error in fallback chart generation: {str(fallback_error)}")
-                    logger.error(traceback.format_exc())
-                    # Create an absolute last-resort simple chart
-                    return await self._create_emergency_chart(instrument, timeframe)
-            
-            # We should not reach here, but just in case, return whatever we have
-            if chart_image:
-                return chart_image
-            else:
-                return await self._generate_random_chart(instrument, timeframe)
+            # If we reach here, neither service worked or were available, use fallback
+            logger.warning(f"All screenshot services failed or unavailable, using random chart for {instrument}")
+            return await self._generate_random_chart(instrument, timeframe)
         
         except Exception as e:
             logger.error(f"Error getting chart: {str(e)}")
             logger.error(traceback.format_exc())
             
-            # Als er een fout optreedt, genereer een matplotlib chart
-            try:
-                logger.warning(f"Error occurred, using fallback for {instrument}")
-                return await self._generate_random_chart(instrument, timeframe)
-            except Exception as fallback_error:
-                logger.error(f"Error in fallback chart generation: {str(fallback_error)}")
-                return await self._create_emergency_chart(instrument, timeframe)
-                
+            # Generate a simple random chart
+            return await self._generate_random_chart(instrument, timeframe)
+
     async def _create_emergency_chart(self, instrument: str, timeframe: str = "1h") -> bytes:
         """Create an emergency simple chart when all else fails"""
         try:
@@ -324,7 +271,7 @@ class ChartService:
                     self.tradingview = TradingViewNodeService()
                     
                     # Run initialization with a shorter timeout
-                    node_init_timeout = 15  # Reduced from 30 to 15 seconds timeout
+                    node_init_timeout = 10  # Reduced from 15 to 10 seconds timeout
                     try:
                         node_init_task = asyncio.create_task(self.tradingview.initialize())
                         node_initialized = await asyncio.wait_for(node_init_task, timeout=node_init_timeout)
@@ -358,6 +305,10 @@ class ChartService:
                 logger.info("Matplotlib is available for fallback chart generation")
             except ImportError:
                 logger.error("Matplotlib is not available, chart service may not function properly")
+            
+            # Initialize technical analysis cache
+            self.analysis_cache = {}
+            self.analysis_cache_ttl = 60 * 15  # 15 minutes in seconds
             
             # Always return True to allow the bot to continue starting regardless of chart service status
             logger.info("Chart service initialization completed, continuing with or without Node.js service")
@@ -523,6 +474,17 @@ class ChartService:
             # Normalize instrument name
             instrument = instrument.upper().replace("/", "")
             
+            # Check cache first
+            cache_key = f"{instrument}_{timeframe}"
+            current_time = time.time()
+            
+            if hasattr(self, 'analysis_cache') and cache_key in self.analysis_cache:
+                cached_time, cached_analysis = self.analysis_cache[cache_key]
+                # If cache is still valid (less than cache TTL seconds old)
+                if current_time - cached_time < self.analysis_cache_ttl:
+                    logger.info(f"Using cached technical analysis for {instrument}")
+                    return cached_analysis
+            
             # Map timeframe to TradingView interval
             interval_map = {
                 "1m": Interval.INTERVAL_1_MINUTE,
@@ -568,9 +530,19 @@ class ChartService:
                 interval=tv_interval
             )
             
-            # Get the analysis
+            # Get the analysis with a timeout to prevent hanging
             logger.info(f"Fetching TradingView analysis for {instrument}")
-            analysis = handler.get_analysis()
+            
+            try:
+                # Use asyncio.to_thread to move the blocking call to a thread pool
+                loop = asyncio.get_event_loop()
+                analysis = await asyncio.wait_for(
+                    loop.run_in_executor(None, handler.get_analysis),
+                    timeout=8.0  # 8 second timeout for API call
+                )
+            except asyncio.TimeoutError:
+                logger.error(f"TradingView API request timed out for {instrument}")
+                return await self._generate_default_analysis(instrument, timeframe)
             
             # Extract key indicators
             indicators = analysis.indicators
@@ -655,6 +627,10 @@ class ChartService:
             analysis_text += f"⚠️ <b>Disclaimer</b>: Please note that the information/analysis provided is strictly for study and educational purposes only. "
             analysis_text += "It should not be constructed as financial advice and always do your own analysis."
             
+            # Cache the result
+            if hasattr(self, 'analysis_cache'):
+                self.analysis_cache[cache_key] = (current_time, analysis_text)
+            
             logger.info(f"Generated technical analysis for {instrument}")
             return analysis_text
         
@@ -664,7 +640,7 @@ class ChartService:
             
             # Generate a default analysis if the API fails
             return await self._generate_default_analysis(instrument, timeframe)
-        
+
     async def _generate_default_analysis(self, instrument: str, timeframe: str) -> str:
         """Generate a fallback analysis when the API fails"""
         try:
