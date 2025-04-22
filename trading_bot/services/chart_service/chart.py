@@ -603,9 +603,9 @@ class ChartService:
             zone_stars = "★" * zone_strength + "☆" * (5 - zone_strength)
             
             # Format the analysis text according to the exact desired format with bold headers
-            analysis_text = f"{instrument} - {timeframe}  \n\n"
-            analysis_text += f"Trend - {trend}  \n\n"
-            analysis_text += f"Zone Strength: {zone_stars}  \n\n"
+            analysis_text = f"<b>{instrument} - {timeframe}</b>  \n\n"
+            analysis_text += f"<b>Trend</b> - {trend}  \n\n"
+            analysis_text += f"<b>Zone Strength:</b> {zone_stars}  \n\n"
             
             # Market overview section
             analysis_text += f"📊 <b>Market Overview</b>  \n"
@@ -710,9 +710,9 @@ class ChartService:
             
             # Format the analysis using the same format as the main method
             analysis_text = f"Could not load chart for {instrument}. Analysis:\n\n"
-            analysis_text += f"{instrument} - {timeframe}  \n\n"
-            analysis_text += f"Trend - {trend}  \n\n"
-            analysis_text += f"Zone Strength: {zone_stars}  \n\n"
+            analysis_text += f"<b>{instrument} - {timeframe}</b>  \n\n"
+            analysis_text += f"<b>Trend</b> - {trend}  \n\n"
+            analysis_text += f"<b>Zone Strength:</b> {zone_stars}  \n\n"
             
             # Market overview section
             analysis_text += f"📊 <b>Market Overview</b>  \n"
