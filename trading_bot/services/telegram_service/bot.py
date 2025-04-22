@@ -3255,13 +3255,13 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     
                     # Add as many key sections as will fit
                     remaining_chars = max_caption_length - len(caption) - 20  # Buffer
-                    important_sections = ["Market Overview", "Key Levels", "Technical Indicators"]
+                    important_sections = ["📊 <b>Market Overview</b>", "🔑 <b>Key Levels</b>", "📈 <b>Technical Indicators</b>", "🤖 <b>Sigmapips AI Recommendation</b>"]
                     
                     for section_name in important_sections:
                         # Find the section in the full text
-                        section_start = analysis_text.find(f"**{section_name}**")
+                        section_start = analysis_text.find(section_name)
                         if section_start != -1:
-                            section_end = analysis_text.find("\n\n", section_start + len(section_name) + 4)
+                            section_end = analysis_text.find("\n\n", section_start + len(section_name))
                             if section_end == -1:  # If it's the last section
                                 section_end = len(analysis_text)
                             
@@ -3307,13 +3307,26 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                                 if trend_values:
                                     trend_part = trend_values[0].strip()
                         
+                        # Create a shorter caption with only the most important information
                         simple_caption = f"{instrument} - {timeframe}\n\nTrend: {trend_part}"
+                        
+                        # Try to add the AI recommendation if possible
+                        recommendation_start = analysis_text.find("🤖 <b>Sigmapips AI Recommendation</b>")
+                        if recommendation_start != -1:
+                            recommendation_end = analysis_text.find("\n\n", recommendation_start)
+                            if recommendation_end == -1:
+                                recommendation_end = len(analysis_text)
+                            
+                            recommendation = analysis_text[recommendation_start:recommendation_end]
+                            if len(simple_caption) + len(recommendation) + 4 <= max_caption_length:
+                                simple_caption += "\n\n" + recommendation
                         
                         # Send chart with short caption
                         await context.bot.send_photo(
                             chat_id=update.effective_chat.id,
                             photo=chart_image,
                             caption=simple_caption,
+                            parse_mode=ParseMode.HTML,  # Use HTML for bold formatting
                             reply_markup=InlineKeyboardMarkup(keyboard)
                         )
                         
@@ -3332,6 +3345,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                         chat_id=update.effective_chat.id,
                         photo=chart_image,
                         caption=f"{instrument} chart ({timeframe})",
+                        parse_mode=ParseMode.HTML,
                         reply_markup=InlineKeyboardMarkup(keyboard)
                     )
                     
