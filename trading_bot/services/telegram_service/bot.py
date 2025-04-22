@@ -1800,20 +1800,25 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     calendar_result = await calendar_service.get_calendar()
                     
                     # Extract events from the calendar result
-                    # This needed to be fixed - we need to get the events from the result
-                    if isinstance(calendar_result, dict) and 'events' in calendar_result:
-                        calendar_events = calendar_result.get('events', [])
-                    elif hasattr(calendar_result, 'events'):
+                    if hasattr(calendar_result, 'events'):
+                        # If calendar_result is a CalendarResult object with events attribute
                         calendar_events = calendar_result.events
+                        self.logger.info(f"Retrieved {len(calendar_events)} calendar events from CalendarResult object")
+                        
+                        # Get the formatted message if available
+                        formatted_message = calendar_result.message if hasattr(calendar_result, 'message') else None
+                    elif isinstance(calendar_result, dict) and 'events' in calendar_result:
+                        # If calendar_result is a dict with events key
+                        calendar_events = calendar_result.get('events', [])
+                        formatted_message = calendar_result.get('message', None)
+                    elif isinstance(calendar_result, list):
+                        # If calendar_result is a list of events directly
+                        calendar_events = calendar_result
+                        formatted_message = None
                     else:
+                        # Fallback
+                        self.logger.warning(f"Unexpected calendar result type: {type(calendar_result)}")
                         calendar_events = []
-                    
-                    # Get the formatted message if available
-                    if isinstance(calendar_result, dict) and 'message' in calendar_result:
-                        formatted_message = calendar_result.get('message')
-                    elif hasattr(calendar_result, 'message'):
-                        formatted_message = calendar_result.message
-                    else:
                         formatted_message = None
                     
                     self.logger.info(f"Retrieved {len(calendar_events)} calendar events")
