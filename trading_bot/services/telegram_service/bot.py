@@ -3297,8 +3297,17 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 if "caption is too long" in str(e).lower():
                     try:
                         logger.info("Caption too long, trying simplified format")
-                        # Use a simpler caption format
-                        simple_caption = f"{instrument} - {timeframe}\n\nTrend: {analysis_text.split('Trend -')[1].split('\n\n')[0].strip()}"
+                        # Use a simpler caption format without backslashes in the f-string expression
+                        # First extract the trend part
+                        trend_part = ""
+                        if "Trend -" in analysis_text:
+                            parts = analysis_text.split("Trend -")
+                            if len(parts) > 1:
+                                trend_values = parts[1].split("\n\n")
+                                if trend_values:
+                                    trend_part = trend_values[0].strip()
+                        
+                        simple_caption = f"{instrument} - {timeframe}\n\nTrend: {trend_part}"
                         
                         # Send chart with short caption
                         await context.bot.send_photo(
