@@ -10,7 +10,13 @@ import re
 import time
 import random
 
-from fastapi import FastAPI, Request, HTTPException, status
+# Conditional import of FastAPI - only attempt to import if needed
+try:
+    from fastapi import FastAPI, Request, HTTPException, status
+except ImportError:
+    # FastAPI not installed, which is fine if we're not using webhook mode
+    pass
+
 from telegram import Bot, Update, BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery, InputMediaPhoto, InputMediaAnimation, InputMediaDocument, ReplyKeyboardMarkup, ReplyKeyboardRemove, InputFile
 from telegram.constants import ParseMode
 from telegram.request import HTTPXRequest
@@ -2291,6 +2297,150 @@ What would you like to do today?
             logger.error(f"Error running bot: {str(e)}")
             logger.error(traceback.format_exc())
             raise
+            
+    async def analysis_technical_callback(self, update: Update, context=None) -> int:
+        """Handle technical analysis selection."""
+        try:
+            query = update.callback_query
+            await query.answer()
+            
+            # Extract additional data from the callback if available
+            callback_data = query.data
+            instrument_from_callback = None
+            timeframe_from_callback = None
+            
+            # Check if callback has instrument and timeframe info
+            if callback_data.startswith("analysis_technical_signal_"):
+                parts = callback_data.replace("analysis_technical_signal_", "").split("_")
+                if len(parts) >= 2:
+                    instrument_from_callback = parts[0]
+                    timeframe_from_callback = parts[1]
+            
+            if context and hasattr(context, 'user_data'):
+                # Use callback data if available, otherwise user context
+                if instrument_from_callback:
+                    context.user_data['instrument'] = instrument_from_callback
+                    logger.info(f"Setting instrument from callback: {instrument_from_callback}")
+                
+                if timeframe_from_callback:
+                    context.user_data['timeframe'] = timeframe_from_callback
+                    logger.info(f"Setting timeframe from callback: {timeframe_from_callback}")
+                
+                # If we have both instrument and timeframe, skip to loading analysis
+                if 'instrument' in context.user_data and 'timeframe' in context.user_data:
+                    instrument = context.user_data['instrument']
+                    timeframe = context.user_data['timeframe']
+                    
+                    # Show loading message
+                    loading_msg = await context.bot.send_message(
+                        chat_id=update.effective_chat.id,
+                        text=f"⏳ <b>Analyzing {instrument} ({timeframe})</b>\n\nPlease wait while I fetch the latest data...",
+                        parse_mode=ParseMode.HTML
+                    )
+                    context.user_data['loading_message'] = loading_msg
+                    
+                    try:
+                        # Get chart image
+                        chart_service = self.chart_service
+                        chart_bytes = await chart_service.get_chart(instrument, timeframe)
+                        
+                        # Get technical analysis text
+                        analysis_text = await chart_service.get_technical_analysis(instrument, timeframe)
+                        
+                        # Send the chart with analysis
+                        await context.bot.send_photo(
+                            chat_id=update.effective_chat.id,
+                            photo=chart_bytes,
+                            caption=analysis_text,
+                            parse_mode=ParseMode.HTML,
+                            reply_markup=InlineKeyboardMarkup([
+                                [InlineKeyboardButton("⬅️ Back to Analysis", callback_data="back_to_analysis")],
+                                [InlineKeyboardButton("⬅️ Back to Menu", callback_data="back_menu")]
+                            ])
+                        )
+                        
+                        # Delete loading message
+                        if 'loading_message' in context.user_data:
+                            await context.user_data['loading_message'].delete()
+                            del context.user_data['loading_message']
+                        
+                        return SHOW_RESULT
+                        
+                    except Exception as e:
+                        logger.error(f"Error getting technical analysis: {str(e)}")
+                        logger.error(traceback.format_exc())
+                        
+                        # Delete loading message if it exists
+                        if 'loading_message' in context.user_data:
+                            await context.user_data['loading_message'].delete()
+                            del context.user_data['loading_message']
+                        
+                        # Send error message
+                        await context.bot.send_message(
+                            chat_id=update.effective_chat.id,
+                            text=f"⚠️ <b>Error</b>\n\nSorry, I couldn't get the technical analysis for {instrument}. Please try again later.",
+                            parse_mode=ParseMode.HTML,
+                            reply_markup=InlineKeyboardMarkup([
+                                [InlineKeyboardButton("⬅️ Back to Analysis", callback_data="back_to_analysis")],
+                                [InlineKeyboardButton("⬅️ Back to Menu", callback_data="back_menu")]
+                            ])
+                        )
+                        return SHOW_RESULT
+                
+                # If coming from signal flow or regular flow
+                if context.user_data.get('from_signal', False):
+                    # Show market selection for signals
+                    market_keyboard = [
+                        [InlineKeyboardButton("💱 Forex", callback_data="market_forex_signals")],
+                        [InlineKeyboardButton("💰 Crypto", callback_data="market_crypto_signals")],
+                        [InlineKeyboardButton("📈 Indices", callback_data="market_indices_signals")],
+                        [InlineKeyboardButton("🛢️ Commodities", callback_data="market_commodities_signals")],
+                        [InlineKeyboardButton("⬅️ Back to Signals", callback_data="back_signals")]
+                    ]
+                else:
+                    # Show regular market selection
+                    market_keyboard = [
+                        [InlineKeyboardButton("💱 Forex", callback_data="market_forex")],
+                        [InlineKeyboardButton("💰 Crypto", callback_data="market_crypto")],
+                        [InlineKeyboardButton("📈 Indices", callback_data="market_indices")],
+                        [InlineKeyboardButton("🛢️ Commodities", callback_data="market_commodities")],
+                        [InlineKeyboardButton("⬅️ Back to Analysis", callback_data="back_to_analysis")]
+                    ]
+                
+                await query.edit_message_text(
+                    text="Select the market type:",
+                    reply_markup=InlineKeyboardMarkup(market_keyboard)
+                )
+                
+                # Store analysis type in context
+                context.user_data['analysis_type'] = 'technical'
+                
+                return CHOOSE_MARKET
+                
+            else:
+                logger.error("No context available in technical analysis callback")
+                await self.update_message(
+                    query, 
+                    "❌ Error: Could not process your request. Please try again by typing /menu.",
+                    keyboard=[[InlineKeyboardButton("⬅️ Back to Menu", callback_data="back_menu")]]
+                )
+                return MENU
+                
+        except Exception as e:
+            logger.error(f"Error in analysis_technical_callback: {str(e)}")
+            logger.error(traceback.format_exc())
+            
+            # Fallback response
+            try:
+                if update and update.effective_chat:
+                    await update.effective_chat.send_message(
+                        "Sorry, there was an error processing your request. Please try again.",
+                        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back to Menu", callback_data="back_menu")]])
+                    )
+            except Exception:
+                logger.error("Failed to send fallback message in analysis_technical_callback")
+                
+            return MENU
 
     async def menu_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> None:
         """Show the main menu."""
@@ -2438,54 +2588,77 @@ What would you like to do today?
                     elif callback_data.startswith("analyze_from_signal_"):
                         await self.analyze_from_signal_callback(update, context)
                         break
-                    elif callback_data.startswith("delete_signal_"):
-                        # Extract signal ID and handle deletion
-                        signal_id = callback_data.replace("delete_signal_", "")
-                        
-                        try:
-                            # Delete the signal subscription
-                            response = self.db.supabase.table('signal_subscriptions').delete().eq('id', signal_id).execute()
-                            
-                            # Send answer callback
-                            await update.callback_query.answer("Signal subscription removed successfully")
-                            
-                            # Refresh the manage signals view
-                            await self.signals_manage_callback(update, context)
-                            break
-                        except Exception as e:
-                            logger.error(f"Error deleting signal subscription: {str(e)}")
-                            await update.callback_query.answer("Error removing signal subscription")
-                            await self.signals_manage_callback(update, context)
-                            break
                     else:
-                        # Fallback to standard processor for unknown callbacks
-                        logger.warning(f"Unknown callback_data in direct processor: {callback_data}")
-                        await self.button_callback(update, context)
+                        logger.warning(f"Unknown callback data in retry processor: {callback_data}")
+                        # Try fallback to general button handler
+                        if hasattr(self, 'button_callback'):
+                            await self.button_callback(update, context)
                         break
                         
                 except Exception as e:
                     retry_count += 1
                     last_error = e
-                    logger.error(f"Error processing callback {callback_data} (attempt {retry_count}): {str(e)}")
-                    logger.error(traceback.format_exc())
-                    
-                    # Short delay before retry
-                    await asyncio.sleep(0.2)
+                    logger.error(f"Error in retry {retry_count}: {str(e)}")
+                    await asyncio.sleep(0.5)  # Short delay before retry
             
-            # If we exhaust retries, log final error
-            if retry_count == max_retries:
-                logger.error(f"Failed to process callback after {max_retries} attempts: {str(last_error)}")
+            if retry_count >= max_retries:
+                logger.error(f"Max retries exceeded for callback: {callback_data}")
+                if last_error:
+                    logger.error(f"Last error: {str(last_error)}")
                 
-                # Try to send a helpful message to the user
-                try:
-                    chat_id = update.effective_chat.id
-                    await self.bot.send_message(
-                        chat_id=chat_id,
-                        text="I'm having trouble processing your request. Please try again or use /menu to start over."
-                    )
-                except Exception as msg_error:
-                    logger.error(f"Could not send error message to user: {str(msg_error)}")
-        
         except Exception as e:
             logger.error(f"Error in _process_callback_query_with_retry: {str(e)}")
             logger.error(traceback.format_exc())
+            
+    async def button_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> None:
+        """General callback handler for button presses that aren't handled by specific callbacks."""
+        try:
+            query = update.callback_query
+            callback_data = query.data
+            
+            logger.info(f"Generic button callback with data: {callback_data}")
+            await query.answer()
+            
+            # Redirect to specific handlers based on callback data
+            if callback_data == "menu_analyse":
+                return await self.menu_analyse_callback(update, context)
+            elif callback_data == "menu_signals":
+                return await self.menu_signals_callback(update, context)
+            elif callback_data == "signals_add":
+                return await self.signals_add_callback(update, context)
+            elif callback_data == "signals_manage":
+                return await self.signals_manage_callback(update, context)
+            elif callback_data == "back_menu":
+                return await self.back_menu_callback(update, context)
+            elif callback_data == "back_signals":
+                return await self.back_signals_callback(update, context)
+            elif callback_data == "back_instrument":
+                return await self.back_instrument_callback(update, context)
+            elif callback_data == "analysis_technical":
+                return await self.analysis_technical_callback(update, context)
+            elif callback_data.startswith("analysis_technical_signal_"):
+                return await self.analysis_technical_callback(update, context)
+            # Add other callback data patterns as needed
+            else:
+                logger.warning(f"Unknown callback data: {callback_data}")
+                await query.edit_message_text(
+                    text="Sorry, I don't understand that command. Please try using the main menu.",
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("⬅️ Back to Menu", callback_data="back_menu")
+                    ]])
+                )
+                return MENU
+                
+        except Exception as e:
+            logger.error(f"Error in button_callback: {str(e)}")
+            logger.error(traceback.format_exc())
+            try:
+                await update.effective_chat.send_message(
+                    "Sorry, there was an error processing your request. Please try again.",
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("⬅️ Back to Menu", callback_data="back_menu")
+                    ]])
+                )
+            except Exception:
+                logger.error("Could not send error message in button_callback")
+            return MENU
