@@ -1166,87 +1166,92 @@ class TelegramService:
             return f"New {signal_data.get('instrument', 'Unknown')} {signal_data.get('direction', 'Unknown')} Signal"
 
     def _register_handlers(self, application):
-        """Register event handlers for bot commands and callback queries"""
+        """Register all telegram command handlers"""
         try:
-            logger.info("Registering command handlers")
-            
-            # Initialize the application without using run_until_complete
-            try:
-                # Instead of using loop.run_until_complete, directly call initialize 
-                # which will be properly awaited by the caller
-                self.init_task = application.initialize()
-                logger.info("Telegram application initialization ready to be awaited")
-            except Exception as init_e:
-                logger.error(f"Error during application initialization: {str(init_e)}")
-                logger.exception(init_e)
-                
-            # Set bot commands for menu
-            commands = [
-                BotCommand("start", "Start the bot and get the welcome message"),
-                BotCommand("menu", "Show the main menu"),
-                BotCommand("help", "Show available commands and how to use the bot")
-            ]
-            
-            # Store the set_commands task to be awaited later
-            try:
-                # Instead of asyncio.create_task, we will await this in the startup event
-                self.set_commands_task = self.bot.set_my_commands(commands)
-                logger.info("Bot commands ready to be set")
-            except Exception as cmd_e:
-                logger.error(f"Error preparing bot commands: {str(cmd_e)}")
-            
-            # Register command handlers
+            # Register basic commands
             application.add_handler(CommandHandler("start", self.start_command))
             application.add_handler(CommandHandler("menu", self.menu_command))
             application.add_handler(CommandHandler("help", self.help_command))
+            application.add_handler(CommandHandler("set_subscription", self.set_subscription_command))
+            application.add_handler(CommandHandler("payment_failed", self.set_payment_failed_command))
             
-            # Register callback handlers
-            application.add_handler(CallbackQueryHandler(self.menu_analyse_callback, pattern="^menu_analyse$"))
-            application.add_handler(CallbackQueryHandler(self.menu_signals_callback, pattern="^menu_signals$"))
-            application.add_handler(CallbackQueryHandler(self.signals_add_callback, pattern="^signals_add$"))
-            application.add_handler(CallbackQueryHandler(self.signals_manage_callback, pattern="^signals_manage$"))
-            application.add_handler(CallbackQueryHandler(self.market_callback, pattern="^market_"))
-            application.add_handler(CallbackQueryHandler(self.instrument_callback, pattern="^instrument_(?!.*_signals)"))
-            application.add_handler(CallbackQueryHandler(self.instrument_signals_callback, pattern="^instrument_.*_signals$"))
-            
-            # Add handler for back buttons
-            application.add_handler(CallbackQueryHandler(self.back_market_callback, pattern="^back_market$"))
+            # Explicitly register back button handlers
             application.add_handler(CallbackQueryHandler(self.back_instrument_callback, pattern="^back_instrument$"))
-            application.add_handler(CallbackQueryHandler(self.back_signals_callback, pattern="^back_signals$"))
+            application.add_handler(CallbackQueryHandler(self.back_market_callback, pattern="^back_market$"))
             application.add_handler(CallbackQueryHandler(self.back_menu_callback, pattern="^back_menu$"))
             
-            # Analysis handlers for regular flow
-            application.add_handler(CallbackQueryHandler(self.analysis_technical_callback, pattern="^analysis_technical$"))
-            application.add_handler(CallbackQueryHandler(self.analysis_sentiment_callback, pattern="^analysis_sentiment$"))
-            application.add_handler(CallbackQueryHandler(self.analysis_calendar_callback, pattern="^analysis_calendar$"))
+            # Conversation handler
+            conv_handler = ConversationHandler(
+                entry_points=[
+                    CommandHandler("menu", self.menu_command),
+                    CommandHandler("start", self.start_command),
+                    # Add more entry points as needed
+                ],
+                states={
+                    MENU: [
+                        CallbackQueryHandler(self.menu_analyse_callback, pattern=f"^{CALLBACK_MENU_ANALYSE}$"),
+                        CallbackQueryHandler(self.menu_signals_callback, pattern=f"^{CALLBACK_MENU_SIGNALS}$"),
+                    ],
+                    ANALYSIS: [
+                        CallbackQueryHandler(self.analysis_technical_callback, pattern=f"^{CALLBACK_ANALYSIS_TECHNICAL}$"),
+                        CallbackQueryHandler(self.analysis_sentiment_callback, pattern=f"^{CALLBACK_ANALYSIS_SENTIMENT}$"),
+                        CallbackQueryHandler(self.analysis_calendar_callback, pattern=f"^{CALLBACK_ANALYSIS_CALENDAR}$"),
+                        CallbackQueryHandler(self.back_menu_callback, pattern="^back_menu$"),
+                    ],
+                    SIGNALS: [
+                        CallbackQueryHandler(self.signals_add_callback, pattern=f"^{CALLBACK_SIGNALS_ADD}$"),
+                        CallbackQueryHandler(self.signals_manage_callback, pattern=f"^{CALLBACK_SIGNALS_MANAGE}$"),
+                        CallbackQueryHandler(self.back_menu_callback, pattern="^back_menu$"),
+                    ],
+                    # Market selection
+                    CHOOSE_MARKET: [
+                        CallbackQueryHandler(self.market_callback, pattern="^market_"),
+                        CallbackQueryHandler(self.back_analysis_callback, pattern="^back_analysis$"),
+                    ],
+                    # Instrument selection
+                    CHOOSE_INSTRUMENT: [
+                        CallbackQueryHandler(self.instrument_callback, pattern="^instrument_"),
+                        CallbackQueryHandler(self.back_market_callback, pattern="^back_market$"),
+                    ],
+                    # Styling selection
+                    CHOOSE_STYLE: [
+                        # Add style selection handlers here
+                    ],
+                    # Analysis types
+                    CHOOSE_ANALYSIS: [
+                        CallbackQueryHandler(self.analysis_callback, pattern="^analysis_"),
+                    ],
+                    # Signal details
+                    SIGNAL_DETAILS: [
+                        # Add signal details handlers here
+                    ],
+                    # Show result state
+                    SHOW_RESULT: [
+                        CallbackQueryHandler(self.back_instrument_callback, pattern="^back_instrument$"),
+                        CallbackQueryHandler(self.back_to_signal_analysis_callback, pattern="^back_to_signal_analysis$"),
+                    ],
+                },
+                fallbacks=[CommandHandler("menu", self.menu_command)],
+                name="main_conversation",
+                persistent=False
+            )
             
-            # Analysis handlers for signal flow - with instrument embedded in callback
-            application.add_handler(CallbackQueryHandler(self.analysis_technical_callback, pattern="^analysis_technical_signal_.*$"))
-            application.add_handler(CallbackQueryHandler(self.analysis_sentiment_callback, pattern="^analysis_sentiment_signal_.*$"))
-            application.add_handler(CallbackQueryHandler(self.analysis_calendar_callback, pattern="^analysis_calendar_signal_.*$"))
+            # Add conversation handler to application
+            application.add_handler(conv_handler)
             
-            # Signal analysis flow handlers
-            application.add_handler(CallbackQueryHandler(self.signal_technical_callback, pattern="^signal_technical$"))
-            application.add_handler(CallbackQueryHandler(self.signal_sentiment_callback, pattern="^signal_sentiment$"))
-            application.add_handler(CallbackQueryHandler(self.signal_calendar_callback, pattern="^signal_calendar$"))
-            application.add_handler(CallbackQueryHandler(self.signal_calendar_callback, pattern="^signal_flow_calendar_.*$"))
-            application.add_handler(CallbackQueryHandler(self.back_to_signal_callback, pattern="^back_to_signal$"))
-            application.add_handler(CallbackQueryHandler(self.back_to_signal_analysis_callback, pattern="^back_to_signal_analysis$"))
-            
-            # Signal from analysis
-            application.add_handler(CallbackQueryHandler(self.analyze_from_signal_callback, pattern="^analyze_from_signal_.*$"))
-            
-            # Catch-all handler for any other callbacks
+            # Add standalone handlers for buttons
             application.add_handler(CallbackQueryHandler(self.button_callback))
             
-            # Load signals
-            self._load_signals()
+            # Add webhook handler for signals
+            application.add_handler(MessageHandler(filters.StatusUpdate.WEB_APP_DATA, self.handle_web_app_data))
             
-            logger.info("Bot setup completed successfully")
+            # Add error handler
+            application.add_error_handler(self.error_handler)
             
+            logger.info("All handlers registered successfully")
         except Exception as e:
-            logger.error(f"Error setting up bot handlers: {str(e)}")
-            logger.exception(e)
+            logger.error(f"Error registering handlers: {str(e)}")
+            raise
 
     @property
     def signals_enabled(self):
@@ -3126,6 +3131,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             if from_signal:
                 keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal_analysis")])
             else:
+                # Make sure this matches exactly with the registered pattern in _register_handlers
                 keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="back_instrument")])
             
             # Show the chart - directly delete and send new message which is faster than editing
@@ -4873,3 +4879,54 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     keyboard=None
                 )
                 return ConversationHandler.END
+
+    async def initialize_services(self):
+        """Initialize services that require an asyncio event loop"""
+        try:
+            # Initialize chart service
+            await self.chart_service.initialize()
+            logger.info("Chart service initialized")
+        except Exception as e:
+            logger.error(f"Error initializing services: {str(e)}")
+            raise
+
+    async def initialize(self):
+        """Initialize the application and start the bot"""
+        try:
+            # Set up commands for the bot
+            commands = [
+                BotCommand("start", "Start the bot and show welcome message"),
+                BotCommand("menu", "Show the main menu"),
+                BotCommand("help", "Show help information"),
+            ]
+            
+            # Set the commands
+            await self.bot.set_my_commands(commands)
+            
+            # Initialize services that require asyncio
+            await self.initialize_services()
+            
+            # Reset webhook to avoid conflicts with multiple bot instances
+            if self.webhook_url:
+                logger.info(f"Setting webhook to: {self.webhook_url}{self.webhook_path}")
+                # Delete existing webhook and drop pending updates to avoid conflicts
+                await self.bot.delete_webhook(drop_pending_updates=True)
+                # Wait to ensure webhook is fully removed
+                await asyncio.sleep(1)
+                # Set the new webhook
+                await self.bot.set_webhook(
+                    url=f"{self.webhook_url}{self.webhook_path}", 
+                    drop_pending_updates=True
+                )
+                logger.info("Webhook successfully set")
+            else:
+                logger.info("Starting bot in polling mode")
+                # Delete webhook if polling is being used
+                await self.bot.delete_webhook(drop_pending_updates=True)
+                
+            self.bot_started = True
+            logger.info("Bot successfully initialized and started")
+            
+        except Exception as e:
+            logger.error(f"Error initializing bot: {str(e)}")
+            raise
