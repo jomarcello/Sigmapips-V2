@@ -177,7 +177,35 @@ async def start_bot():
         proxy_url = os.environ.get("TELEGRAM_PROXY_URL")
         
         logger.info("Initializing Telegram service...")
-        telegram_service = TelegramService(db, stripe_service, bot_token=bot_token, proxy_url=proxy_url, lazy_init=True)
+        
+        # Check available parameters before initializing TelegramService
+        try:
+            import inspect
+            init_signature = inspect.signature(TelegramService.__init__)
+            has_bot_token_param = 'bot_token' in init_signature.parameters
+            has_proxy_url_param = 'proxy_url' in init_signature.parameters
+            has_lazy_init_param = 'lazy_init' in init_signature.parameters
+            
+            # Log the available parameters
+            logger.info(f"TelegramService parameters - bot_token: {has_bot_token_param}, proxy_url: {has_proxy_url_param}, lazy_init: {has_lazy_init_param}")
+            
+            # Create kwargs based on available parameters
+            kwargs = {'db': db, 'stripe_service': stripe_service}
+            if has_bot_token_param:
+                kwargs['bot_token'] = bot_token
+            if has_proxy_url_param:
+                kwargs['proxy_url'] = proxy_url
+            if has_lazy_init_param:
+                kwargs['lazy_init'] = True
+                
+            # Initialize with available parameters
+            telegram_service = TelegramService(**kwargs)
+            
+        except Exception as e:
+            logger.warning(f"Error checking parameters: {str(e)}, falling back to basic initialization")
+            # Fallback to basic initialization with just required parameters
+            telegram_service = TelegramService(db, stripe_service)
+            
         logger.info("Telegram service initialized successfully")
         perf_logs.append(f"Telegram service initialized: {time.time() - start_time:.2f}s")
         
