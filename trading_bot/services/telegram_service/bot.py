@@ -1172,81 +1172,27 @@ class TelegramService:
             application.add_handler(CommandHandler("start", self.start_command))
             application.add_handler(CommandHandler("menu", self.menu_command))
             application.add_handler(CommandHandler("help", self.help_command))
-            application.add_handler(CommandHandler("set_subscription", self.set_subscription_command))
-            application.add_handler(CommandHandler("payment_failed", self.set_payment_failed_command))
             
-            # Explicitly register back button handlers
+            # Register main callback handlers - alleen de essentiële handlers
+            application.add_handler(CallbackQueryHandler(self.menu_analyse_callback, pattern="^menu_analyse$"))
+            application.add_handler(CallbackQueryHandler(self.menu_signals_callback, pattern="^menu_signals$"))
+            application.add_handler(CallbackQueryHandler(self.analysis_technical_callback, pattern="^analysis_technical$"))
+            application.add_handler(CallbackQueryHandler(self.analysis_sentiment_callback, pattern="^analysis_sentiment$"))
+            application.add_handler(CallbackQueryHandler(self.analysis_calendar_callback, pattern="^analysis_calendar$"))
+            
+            # Market and instrument handlers
+            application.add_handler(CallbackQueryHandler(self.market_callback, pattern="^market_"))
+            application.add_handler(CallbackQueryHandler(self.instrument_callback, pattern="^instrument_"))
+            
+            # Back button handlers
             application.add_handler(CallbackQueryHandler(self.back_instrument_callback, pattern="^back_instrument$"))
             application.add_handler(CallbackQueryHandler(self.back_market_callback, pattern="^back_market$"))
             application.add_handler(CallbackQueryHandler(self.back_menu_callback, pattern="^back_menu$"))
+            application.add_handler(CallbackQueryHandler(self.analysis_callback, pattern="^back_analysis$"))
+            application.add_handler(CallbackQueryHandler(self.back_to_signal_analysis_callback, pattern="^back_to_signal_analysis$"))
             
-            # Conversation handler
-            conv_handler = ConversationHandler(
-                entry_points=[
-                    CommandHandler("menu", self.menu_command),
-                    CommandHandler("start", self.start_command),
-                    # Add more entry points as needed
-                ],
-                states={
-                    MENU: [
-                        CallbackQueryHandler(self.menu_analyse_callback, pattern=f"^{CALLBACK_MENU_ANALYSE}$"),
-                        CallbackQueryHandler(self.menu_signals_callback, pattern=f"^{CALLBACK_MENU_SIGNALS}$"),
-                    ],
-                    ANALYSIS: [
-                        CallbackQueryHandler(self.analysis_technical_callback, pattern=f"^{CALLBACK_ANALYSIS_TECHNICAL}$"),
-                        CallbackQueryHandler(self.analysis_sentiment_callback, pattern=f"^{CALLBACK_ANALYSIS_SENTIMENT}$"),
-                        CallbackQueryHandler(self.analysis_calendar_callback, pattern=f"^{CALLBACK_ANALYSIS_CALENDAR}$"),
-                        CallbackQueryHandler(self.back_menu_callback, pattern="^back_menu$"),
-                    ],
-                    SIGNALS: [
-                        CallbackQueryHandler(self.signals_add_callback, pattern=f"^{CALLBACK_SIGNALS_ADD}$"),
-                        CallbackQueryHandler(self.signals_manage_callback, pattern=f"^{CALLBACK_SIGNALS_MANAGE}$"),
-                        CallbackQueryHandler(self.back_menu_callback, pattern="^back_menu$"),
-                    ],
-                    # Market selection
-                    CHOOSE_MARKET: [
-                        CallbackQueryHandler(self.market_callback, pattern="^market_"),
-                        CallbackQueryHandler(self.analysis_callback, pattern="^back_analysis$"),
-                    ],
-                    # Instrument selection
-                    CHOOSE_INSTRUMENT: [
-                        CallbackQueryHandler(self.instrument_callback, pattern="^instrument_"),
-                        CallbackQueryHandler(self.back_market_callback, pattern="^back_market$"),
-                    ],
-                    # Styling selection
-                    CHOOSE_STYLE: [
-                        # Add style selection handlers here
-                    ],
-                    # Analysis types
-                    CHOOSE_ANALYSIS: [
-                        CallbackQueryHandler(self.analysis_callback, pattern="^analysis_"),
-                    ],
-                    # Signal details
-                    SIGNAL_DETAILS: [
-                        # Add signal details handlers here
-                    ],
-                    # Show result state
-                    SHOW_RESULT: [
-                        CallbackQueryHandler(self.back_instrument_callback, pattern="^back_instrument$"),
-                        CallbackQueryHandler(self.back_to_signal_analysis_callback, pattern="^back_to_signal_analysis$"),
-                    ],
-                },
-                fallbacks=[CommandHandler("menu", self.menu_command)],
-                name="main_conversation",
-                persistent=False
-            )
-            
-            # Add conversation handler to application
-            application.add_handler(conv_handler)
-            
-            # Add standalone handlers for buttons
+            # Catch-all handler voor overige callback queries
             application.add_handler(CallbackQueryHandler(self.button_callback))
-            
-            # Add webhook handler for signals
-            application.add_handler(MessageHandler(filters.StatusUpdate.WEB_APP_DATA, self.handle_web_app_data))
-            
-            # Add error handler
-            application.add_error_handler(self.error_handler)
             
             logger.info("All handlers registered successfully")
         except Exception as e:
