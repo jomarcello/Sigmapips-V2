@@ -40,6 +40,10 @@ class TradingViewNodeService(TradingViewService):
             "ETHUSD": "https://www.tradingview.com/chart/?symbol=ETHUSD"
         }
         
+        # Initialize screenshot cache
+        self.screenshot_cache = {}
+        self.screenshot_cache_ttl = 60 * 10  # 10 minutes cache
+        
         logger.info(f"TradingView Node.js service initialized")
     
     async def initialize(self):
@@ -79,44 +83,24 @@ class TradingViewNodeService(TradingViewService):
                 logger.warning("Playwright previously failed to install, skipping check")
                 return False
             
-            # Controleer of Playwright al geïnstalleerd is om te vermijden dat het elke keer wordt gecontroleerd
+            # Simplify Playwright check - just test if it's available and don't try to install
             if self.playwright_installed is None:
                 try:
-                    # Test of Playwright al beschikbaar is
+                    # Quick test if Playwright is installed
                     subprocess.run(["node", "-e", "require('playwright')"], 
                                   check=True, 
                                   stdout=subprocess.PIPE, 
                                   stderr=subprocess.PIPE,
-                                  timeout=5)  # Reduced timeout
-                    logger.info("Playwright is already installed")
+                                  timeout=3)  # Reduced timeout
+                    logger.info("Playwright is available")
                     self.playwright_installed = True
                 except Exception:
-                    # Installeer Playwright als het niet beschikbaar is
-                    logger.info("Installing Playwright directly...")
-                    try:
-                        # Try with shorter timeout
-                        subprocess.run(["npm", "install", "playwright", "--no-save"], 
-                                      check=True, 
-                                      stdout=subprocess.PIPE, 
-                                      stderr=subprocess.PIPE,
-                                      timeout=60)  # Reduced timeout
-                        logger.info("Playwright installed successfully")
-                        self.playwright_installed = True
-                    except Exception as e:
-                        logger.error(f"Error installing Playwright: {str(e)}")
-                        self.playwright_installed = False
-                        return False
+                    logger.warning("Playwright not available, service may not work correctly")
+                    self.playwright_installed = False
             
-            # Skip browser check if known to be installed
-            if self.playwright_browsers_installed is True:
-                logger.info("Playwright browsers already installed, skipping check")
-                self.is_initialized = True
-                return True
-            
-            # Quick test without attempting to install browsers 
-            # We'll install them later if needed
+            # Set initialized flag
             self.is_initialized = True
-            logger.info("TradingView Node.js service initialized without browser check")
+            logger.info("TradingView Node.js service initialized")
             return True
             
         except Exception as e:
@@ -204,21 +188,23 @@ class TradingViewNodeService(TradingViewService):
     async def take_screenshot_of_url(self, url: str, fullscreen: bool = False) -> Optional[bytes]:
         """Take a screenshot of a URL using Node.js"""
         try:
+            # Check cache first
+            cache_key = f"{url}_{fullscreen}"
+            current_time = time.time()
+            
+            if hasattr(self, 'screenshot_cache') and cache_key in self.screenshot_cache:
+                cached_time, cached_screenshot = self.screenshot_cache[cache_key]
+                # If cache is still valid (less than cache TTL seconds old)
+                if current_time - cached_time < self.screenshot_cache_ttl:
+                    logger.info(f"Using cached screenshot for URL: {url}")
+                    return cached_screenshot
+            
             # Genereer een unieke bestandsnaam voor de screenshot
             timestamp = int(time.time())
             screenshot_path = os.path.join(os.path.dirname(self.script_path), f"screenshot_{timestamp}.png")
             
             # Zorg ervoor dat de URL geen aanhalingstekens bevat
             url = url.strip('"\'')
-            
-            # Debug logging
-            logger.info(f"Taking screenshot with fullscreen={fullscreen}")
-            
-            # Controleer of de URL naar TradingView verwijst
-            if "tradingview.com" in url:
-                logger.info(f"Taking screenshot of TradingView URL: {url}")
-            else:
-                logger.warning(f"URL is not a TradingView URL: {url}")
             
             # Gebruik session_id in plaats van tradingview_username
             # Voeg fullscreen parameter toe aan het commando
@@ -227,12 +213,9 @@ class TradingViewNodeService(TradingViewService):
             # Voeg fullscreen parameter toe als dat nodig is
             if fullscreen or "fullscreen=true" in url:
                 cmd += " fullscreen"
-                logger.info("Adding fullscreen parameter to command")
             
             # Verwijder eventuele puntkomma's uit het commando
             cmd = cmd.replace(";", "")
-            
-            logger.info(f"Running command: {cmd.replace(self.session_id, '****')}")
             
             # Gebruik asyncio.create_subprocess_shell met een timeout om te voorkomen dat het script vastloopt
             try:
@@ -242,9 +225,9 @@ class TradingViewNodeService(TradingViewService):
                     stderr=asyncio.subprocess.PIPE
                 )
                 
-                # Wacht op het proces met een kortere timeout (30 seconden max)
+                # Wacht op het proces met een kortere timeout (20 seconden max)
                 try:
-                    stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=30.0)
+                    stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=20.0)
                 except asyncio.TimeoutError:
                     logger.error("Timeout waiting for Node.js script, terminating process")
                     try:
@@ -253,42 +236,11 @@ class TradingViewNodeService(TradingViewService):
                         logger.error(f"Error killing process: {str(kill_error)}")
                     return None
                 
-                # Log de output
-                if stdout:
-                    logger.info(f"Node.js stdout: {stdout.decode()}")
+                # Only log errors, not standard output
                 if stderr:
                     stderr_output = stderr.decode()
-                    logger.error(f"Node.js stderr: {stderr_output}")
-                    
-                    # Check if browsers need to be installed
-                    if "Executable doesn't exist" in stderr_output or "Please run the following command to download new browsers" in stderr_output:
-                        logger.warning("Playwright browsers missing during screenshot attempt, trying to install them")
-                        try:
-                            # Install Playwright browsers
-                            install_process = subprocess.run(
-                                ["npx", "playwright", "install", "chromium"],
-                                check=True,
-                                stdout=subprocess.PIPE,
-                                stderr=subprocess.PIPE,
-                                timeout=300  # 5 minutes timeout for browser installation
-                            )
-                            logger.info(f"Playwright browsers installed successfully during screenshot attempt: {install_process.stdout.decode()}")
-                            
-                            # Try the screenshot again after installing browsers
-                            logger.info("Retrying screenshot after browser installation")
-                            process = await asyncio.create_subprocess_shell(
-                                cmd,
-                                stdout=asyncio.subprocess.PIPE,
-                                stderr=asyncio.subprocess.PIPE
-                            )
-                            
-                            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=30.0)
-                            if stdout:
-                                logger.info(f"Node.js stdout (retry): {stdout.decode()}")
-                            if stderr:
-                                logger.error(f"Node.js stderr (retry): {stderr.decode()}")
-                        except Exception as e:
-                            logger.error(f"Error installing Playwright browsers during screenshot attempt: {str(e)}")
+                    if stderr_output.strip():  # Only log if there's actual content
+                        logger.error(f"Node.js stderr: {stderr_output}")
                 
                 # Controleer of het bestand bestaat
                 if os.path.exists(screenshot_path):
@@ -302,6 +254,10 @@ class TradingViewNodeService(TradingViewService):
                     except Exception as e:
                         logger.warning(f"Failed to remove temporary screenshot file: {str(e)}")
                     
+                    # Cache the screenshot
+                    if hasattr(self, 'screenshot_cache'):
+                        self.screenshot_cache[cache_key] = (current_time, screenshot_data)
+                    
                     # Return the screenshot data
                     return screenshot_data
                 else:
@@ -313,6 +269,4 @@ class TradingViewNodeService(TradingViewService):
                 
         except Exception as e:
             logger.error(f"Error taking screenshot: {str(e)}")
-            import traceback
-            logger.error(traceback.format_exc())
             return None
