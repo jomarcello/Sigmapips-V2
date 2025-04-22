@@ -154,30 +154,13 @@ async def start_bot():
         logger.info(f"Pre-run startup time: {time.time() - start_time:.2f}s")
         logger.info("=========================================")
         
-        # Check if we're in webhook mode (on Railway) or polling mode (local development)
-        # If WEBHOOK_URL is set, assume we're running in webhook mode via asgi.py
-        # and don't start another bot instance here
-        if webhook_url:
-            logger.info("WEBHOOK_URL is set - assuming bot is running in webhook mode via asgi.py")
-            logger.info("Not starting another bot instance in polling mode to prevent conflicts")
-            
-            # Instead of running the bot, just keep the script alive for services
-            # This is useful for handling background tasks
-            try:
-                logger.info("Main script will remain active for background tasks")
-                while True:
-                    await asyncio.sleep(60)
-            except (KeyboardInterrupt, SystemExit):
-                logger.info("Main script is shutting down")
-            
-        else:
-            # No webhook URL, so run in polling mode
-            logger.info("No WEBHOOK_URL set - starting bot in polling mode")
-            logger.info("Starting bot using TelegramService.run()")
-            await telegram_service.run()
-            
-            # We should never reach here as run() should block indefinitely
-            logger.warning("Bot exited unexpectedly")
+        # Always use polling mode, ignoring webhook configuration
+        logger.info("Starting bot in polling mode regardless of WEBHOOK_URL")
+        logger.info("Starting bot using TelegramService.run()")
+        await telegram_service.run()
+        
+        # We should never reach here as run() should block indefinitely
+        logger.warning("Bot exited unexpectedly")
         
     except Exception as e:
         # Log performance even when there's an error
