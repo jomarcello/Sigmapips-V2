@@ -5,6 +5,8 @@ python-dotenv==1.0.0
 httpx==0.24.1
 stripe==7.5.0
 tenacity==8.2.3  # Voor retry mechanisme in API calls
+fastapi==0.105.0  # Added for webhook functionality
+uvicorn==0.24.0  # Added for serving FastAPI applications
 
 # Database
 supabase==1.1.1
