@@ -235,6 +235,11 @@ class TradingViewCalendarService:
                                 return generate_mock_calendar_data(days_ahead, min_impact)
                             return []
                     
+                    # Clean up invalid JSON - fix common issues like semicolons after URLs
+                    # This pattern fixes the issue with semicolons after URLs in source_url fields
+                    response_text = response_text.replace('";,', '",')
+                    response_text = response_text.replace('";', '"')
+                    
                     try:
                         data = json.loads(response_text)
                         # Log response structure for debugging
