@@ -2748,6 +2748,68 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         if context and hasattr(context, 'user_data'):
             is_signals_context = context.user_data.get('is_signals_context', False)
         
+        # Check if the current message has a photo or animation
+        has_photo = bool(query.message.photo) or query.message.animation is not None
+        
+        if has_photo:
+            # Multi-step approach for removing media messages
+            
+            # Step 1: Try to delete the message and send a new one (cleanest approach)
+            try:
+                # Delete the original message with the photo
+                await query.delete_message()
+                
+                # After deleting, redirect to the appropriate callback based on context
+                if is_signals_context:
+                    # Go back to signals menu
+                    return await self.back_signals_callback(update, context)
+                else:
+                    # Go back to analysis selection
+                    return await self.analysis_callback(update, context)
+            except Exception as delete_error:
+                logger.warning(f"Could not delete media message: {str(delete_error)}")
+                
+                # Step 2: If deletion fails, try replacing with transparent GIF
+                try:
+                    # Use a 1x1 transparent GIF
+                    transparent_gif = "https://upload.wikimedia.org/wikipedia/commons/thumb/0/00/Transparent.gif/1px-Transparent.gif"
+                    
+                    # Replace the media with a transparent GIF using InputMediaDocument
+                    # We'll use the appropriate text based on context
+                    caption = "Select your signal options:" if is_signals_context else "Select your analysis type:"
+                    keyboard = SIGNALS_KEYBOARD if is_signals_context else ANALYSIS_KEYBOARD
+                    
+                    await query.edit_message_media(
+                        media=InputMediaDocument(
+                            media=transparent_gif,
+                            caption=caption
+                        ),
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+                    
+                    # Return the appropriate state
+                    return SIGNALS if is_signals_context else CHOOSE_ANALYSIS
+                except Exception as replace_error:
+                    logger.warning(f"Could not replace media: {str(replace_error)}")
+                    
+                    # Step 3: As a last resort, only edit the caption
+                    try:
+                        # Update caption based on context
+                        caption = "Select your signal options:" if is_signals_context else "Select your analysis type:"
+                        keyboard = SIGNALS_KEYBOARD if is_signals_context else ANALYSIS_KEYBOARD
+                        
+                        await query.edit_message_caption(
+                            caption=caption,
+                            reply_markup=InlineKeyboardMarkup(keyboard),
+                            parse_mode=ParseMode.HTML
+                        )
+                        
+                        # Return the appropriate state
+                        return SIGNALS if is_signals_context else CHOOSE_ANALYSIS
+                    except Exception as caption_error:
+                        logger.error(f"Could not edit caption: {str(caption_error)}")
+        
+        # For non-photo messages or if all media handling fails, fall back to original logic
         if is_signals_context:
             # Go back to signals menu
             return await self.back_signals_callback(update, context)
@@ -4751,48 +4813,97 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 
             logger.info("Back to analysis menu")
             
-            # Check if the current message has a photo
+            # Check if the current message has a photo or animation
             has_photo = bool(query.message.photo) or query.message.animation is not None
             
+            # Create the text and keyboard for the analysis menu
+            menu_text = "Select your analysis type:"
+            keyboard = ANALYSIS_KEYBOARD
+            
+            # Get random gif for analysis menu if needed for a new message
+            gif_url = random.choice(gif_utils.ANALYSIS_GIFS)
+            
             if has_photo:
-                # For messages with photos, we need to send a new message rather than editing
-                # Get random gif for analysis menu
-                gif_url = random.choice(gif_utils.ANALYSIS_GIFS)
+                # Multi-step approach for removing media messages
                 
-                # Send the analysis menu as a new message
-                await context.bot.send_animation(
-                    chat_id=update.effective_chat.id,
-                    animation=gif_url,
-                    caption="Select your analysis type:",
-                    reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
-                    parse_mode=ParseMode.HTML
-                )
-                
-                # Delete the original message with the photo
-                await query.delete_message()
-            else:
-                # Update the message for text messages
+                # Step 1: Try to delete the message and send a new one (cleanest approach)
                 try:
-                    await query.edit_message_text(
-                        text="Select your analysis type:",
-                        reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
+                    # Delete the original message with the photo
+                    await query.delete_message()
+                    
+                    # Send a new message with the analysis menu
+                    await context.bot.send_animation(
+                        chat_id=update.effective_chat.id,
+                        animation=gif_url,
+                        caption=menu_text,
+                        reply_markup=InlineKeyboardMarkup(keyboard),
                         parse_mode=ParseMode.HTML
                     )
-                except Exception as e:
-                    logger.warning(f"Could not update message text: {str(e)}")
+                    return CHOOSE_ANALYSIS
+                except Exception as delete_error:
+                    logger.warning(f"Could not delete media message: {str(delete_error)}")
+                    
+                    # Step 2: If deletion fails, try replacing with transparent GIF
+                    try:
+                        # Use a 1x1 transparent GIF
+                        transparent_gif = "https://upload.wikimedia.org/wikipedia/commons/thumb/0/00/Transparent.gif/1px-Transparent.gif"
+                        
+                        # Replace the media with a transparent GIF using InputMediaDocument
+                        await query.edit_message_media(
+                            media=InputMediaDocument(
+                                media=transparent_gif,
+                                caption=menu_text
+                            ),
+                            reply_markup=InlineKeyboardMarkup(keyboard)
+                        )
+                        return CHOOSE_ANALYSIS
+                    except Exception as replace_error:
+                        logger.warning(f"Could not replace media: {str(replace_error)}")
+                        
+                        # Step 3: As a last resort, only edit the caption
+                        try:
+                            await query.edit_message_caption(
+                                caption=menu_text,
+                                reply_markup=InlineKeyboardMarkup(keyboard),
+                                parse_mode=ParseMode.HTML
+                            )
+                            return CHOOSE_ANALYSIS
+                        except Exception as caption_error:
+                            logger.error(f"Could not edit caption: {str(caption_error)}")
+                            
+                            # Absolute last resort: send a new message without deleting the old one
+                            await context.bot.send_message(
+                                chat_id=update.effective_chat.id,
+                                text=menu_text,
+                                reply_markup=InlineKeyboardMarkup(keyboard),
+                                parse_mode=ParseMode.HTML
+                            )
+            else:
+                # For text messages, use the standard editing approach
+                try:
+                    await query.edit_message_text(
+                        text=menu_text,
+                        reply_markup=InlineKeyboardMarkup(keyboard),
+                        parse_mode=ParseMode.HTML
+                    )
+                except Exception as text_error:
+                    logger.warning(f"Could not update message text: {str(text_error)}")
+                    
+                    # Try caption as fallback
                     try:
                         await query.edit_message_caption(
-                            caption="Select your analysis type:",
-                            reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
+                            caption=menu_text,
+                            reply_markup=InlineKeyboardMarkup(keyboard),
                             parse_mode=ParseMode.HTML
                         )
-                    except Exception as e2:
-                        logger.error(f"Could not update caption either: {str(e2)}")
-                        # As a last resort, send a new message
+                    except Exception as caption_error:
+                        logger.error(f"Could not update caption: {str(caption_error)}")
+                        
+                        # Send a new message as last resort
                         await context.bot.send_message(
                             chat_id=update.effective_chat.id,
-                            text="Select your analysis type:",
-                            reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
+                            text=menu_text,
+                            reply_markup=InlineKeyboardMarkup(keyboard),
                             parse_mode=ParseMode.HTML
                         )
             
