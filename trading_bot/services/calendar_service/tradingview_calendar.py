@@ -294,6 +294,10 @@ class TradingViewCalendarService:
                     
                     logger.info(f"Received {len(data)} items from API")
                     
+                    # Log de eerste paar events voor debugging
+                    for i, event in enumerate(data[:5]):
+                        logger.info(f"Raw event {i+1}: {json.dumps(event)}")
+                    
                     # Transform TradingView data to our format
                     events = []
                     skipped_events = 0
@@ -314,8 +318,13 @@ class TradingViewCalendarService:
                                 1: "Low"
                             }
                             
-                            country = event.get("country", "")
-                            currency = country_to_currency.get(country, "")
+                            # Gebruik direct het currency veld uit het event als het aanwezig is
+                            if "currency" in event and event["currency"]:
+                                currency = event["currency"]
+                            else:
+                                # Fallback naar country-to-currency mapping
+                                country = event.get("country", "")
+                                currency = country_to_currency.get(country, "")
                             
                             # Als de valuta onbekend is, log en sla over
                             if not currency:
@@ -371,6 +380,10 @@ class TradingViewCalendarService:
                             events.append(event_obj)
                             logger.debug(f"Added event: {event_obj}")
                             
+                            # Log volledige events voor de eerste 3 items (debug)
+                            if len(events) <= 3:
+                                logger.info(f"Processed event {len(events)}: From '{event.get('title', '')}' ({event.get('country', '')}) to {json.dumps(event_obj)}")
+                            
                         except Exception as e:
                             logger.error(f"Error processing event {event}: {str(e)}")
                             continue
@@ -419,6 +432,10 @@ async def format_calendar_for_telegram(events: List[Dict]) -> str:
     if not events:
         return "<b>📅 Economic Calendar</b>\n\nNo economic events found for today."
     
+    # Count events per type
+    logger.info(f"Formatting {len(events)} events for Telegram")
+    event_counts = {"total": len(events), "valid": 0, "missing_fields": 0}
+    
     # Sort events by time if not already sorted
     try:
         # Verbeterde sortering met datetime objecten
@@ -452,15 +469,25 @@ async def format_calendar_for_telegram(events: List[Dict]) -> str:
         impact = event.get("impact", "Low")
         impact_emoji = IMPACT_EMOJI.get(impact, "🟢")
         
+        # Controleer of alle benodigde velden aanwezig zijn
+        if not country or not time or not title:
+            logger.warning(f"Skipping event with missing fields: {json.dumps(event)}")
+            event_counts["missing_fields"] += 1
+            continue
+        
         # Format the line with enhanced visibility for country - in plaats van alleen bold 
         # gebruiken we nu "「{country}」" voor betere zichtbaarheid in Telegram
         message += f"{time} - 「{country}」 - {title} {impact_emoji}\n"
+        event_counts["valid"] += 1
     
     # Add legend
     message += "\n-------------------\n"
     message += "🔴 High Impact\n"
     message += "🟠 Medium Impact\n"
     message += "🟢 Low Impact\n"
+    
+    # Log event counts
+    logger.info(f"Telegram formatting: {event_counts['valid']} valid events, {event_counts['missing_fields']} skipped due to missing fields")
     
     return message
 
