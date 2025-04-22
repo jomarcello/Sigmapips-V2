@@ -1782,35 +1782,80 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             query = update.callback_query
             
             # Log that we're showing the calendar
-            self.logger.info(f"Showing economic calendar for all major currencies")
+            self.logger.info(f"Showing economic calendar without market selection")
             
             # Initialize the calendar service
             calendar_service = self._get_calendar_service()
             cache_size = len(getattr(calendar_service, 'cache', {}))
             self.logger.info(f"Calendar service initialized, cache size: {cache_size}")
             
-            # Check if API key is available
-            tavily_api_key = os.environ.get("TAVILY_API_KEY", "")
-            if tavily_api_key:
-                masked_key = f"{tavily_api_key[:4]}..." if len(tavily_api_key) > 7 else "***"
-                self.logger.info(f"Tavily API key is available: {masked_key}")
-            else:
-                self.logger.warning("No Tavily API key found, will use mock data")
-            
             # Get calendar data for ALL major currencies, regardless of the supplied parameter
             self.logger.info(f"Requesting calendar data for all major currencies")
             
-            calendar_data = []
+            calendar_data = None
             
             # Get all currencies data
             try:
                 if hasattr(calendar_service, 'get_calendar'):
-                    calendar_data = await calendar_service.get_calendar()
+                    calendar_result = await calendar_service.get_calendar()
+                    
+                    # Extract events from the calendar result
+                    # This needed to be fixed - we need to get the events from the result
+                    if isinstance(calendar_result, dict) and 'events' in calendar_result:
+                        calendar_events = calendar_result.get('events', [])
+                    elif hasattr(calendar_result, 'events'):
+                        calendar_events = calendar_result.events
+                    else:
+                        calendar_events = []
+                    
+                    # Get the formatted message if available
+                    if isinstance(calendar_result, dict) and 'message' in calendar_result:
+                        formatted_message = calendar_result.get('message')
+                    elif hasattr(calendar_result, 'message'):
+                        formatted_message = calendar_result.message
+                    else:
+                        formatted_message = None
+                    
+                    self.logger.info(f"Retrieved {len(calendar_events)} calendar events")
+                    
+                    # Convert events to expected format for formatter
+                    calendar_data = []
+                    for event in calendar_events:
+                        # Extract timestamp and convert to time
+                        timestamp = event.get('timestamp')
+                        time_str = "00:00"
+                        if timestamp:
+                            dt = datetime.fromtimestamp(timestamp)
+                            time_str = dt.strftime("%H:%M")
+                        
+                        # Map impact level to expected format
+                        impact = "Low"
+                        if 'impact' in event:
+                            impact_level = event.get('impact')
+                            if impact_level == 3:
+                                impact = "High"
+                            elif impact_level == 2:
+                                impact = "Medium"
+                        
+                        # Map country code to name if needed
+                        country = event.get('country', 'Unknown')
+                        
+                        # Create properly formatted event for the formatter
+                        formatted_event = {
+                            'time': time_str,
+                            'country': country,
+                            'title': event.get('name', 'Unknown Event'),
+                            'impact': impact,
+                            'country_flag': CURRENCY_FLAG.get(country, '')
+                        }
+                        calendar_data.append(formatted_event)
+                
                 else:
                     self.logger.warning("calendar_service.get_calendar method not available, using mock data")
                     calendar_data = []
             except Exception as e:
                 self.logger.warning(f"Error getting calendar data: {str(e)}")
+                self.logger.exception(e)
                 calendar_data = []
             
             # Check if data is empty
@@ -1842,7 +1887,9 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 self.logger.info(f"Generated {len(flattened_mock)} mock calendar events")
             
             # Format the calendar data in chronological order
-            if hasattr(self, '_format_calendar_events'):
+            if formatted_message and isinstance(formatted_message, str):
+                message = formatted_message
+            elif hasattr(self, '_format_calendar_events'):
                 message = await self._format_calendar_events(calendar_data)
             else:
                 # Fallback to calendar service formatting if the method doesn't exist on TelegramService
@@ -1893,7 +1940,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 parse_mode=ParseMode.HTML,
                 reply_markup=keyboard
             )
-            self.logger.info("Sent calendar data as new message")
+            self.logger.info("Successfully deleted loading message and sent new calendar data")
         
         except Exception as e:
             self.logger.error(f"Error showing economic calendar: {str(e)}")
