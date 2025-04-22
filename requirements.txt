@@ -2,8 +2,6 @@
 python-telegram-bot==20.3
 aiohttp==3.8.5
 python-dotenv==1.0.0
-fastapi==0.105.0
-uvicorn==0.24.0.post1
 httpx==0.24.1
 stripe==7.5.0
 tenacity==8.2.3  # Voor retry mechanisme in API calls
@@ -43,5 +41,5 @@ pinecone-client
 requests
 
 # AI Services
-# Uncomment and provide API keys in .env file to use these services
-tavily-python==0.2.2  # for web search via Tavily API
+# Required dependencies for natural language processing and sentiment analysis
+tavily-python==0.2.2  # for web search via Tavily API - REQUIRED for sentiment analysis
