@@ -46,12 +46,23 @@ except ImportError:
             sys.modules["telegram_service_bot"] = telegram_bot_module
             spec.loader.exec_module(telegram_bot_module)
             
-            # Get the TelegramService class from the loaded module
-            TelegramService = telegram_bot_module.TelegramService
-            
-            # Make sure the TelegramService class is also available via the module
-            if not hasattr(telegram_bot_module, 'TelegramService'):
-                telegram_bot_module.TelegramService = TelegramService
+            # Check if the module has TelegramService
+            if hasattr(telegram_bot_module, 'TelegramService'):
+                TelegramService = telegram_bot_module.TelegramService
+            else:
+                # Try to find the TelegramService class in the module by looking at class definitions
+                print("TelegramService not found directly, scanning module content...")
+                for attr_name in dir(telegram_bot_module):
+                    attr = getattr(telegram_bot_module, attr_name)
+                    if isinstance(attr, type) and (attr_name == "TelegramService" or 
+                            (hasattr(attr, '__module__') and attr.__module__ == 'telegram_service_bot')):
+                        print(f"Found matching class: {attr_name}")
+                        TelegramService = attr
+                        # Also add it to the module for consistency
+                        telegram_bot_module.TelegramService = attr
+                        break
+                else:
+                    raise ImportError("Cannot find TelegramService class in module")
         else:
             raise ImportError("Cannot import TelegramService: bot.py file not found")
 
