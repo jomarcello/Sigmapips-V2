@@ -85,7 +85,8 @@ class TradingViewCalendarService:
     """Service for retrieving calendar data directly from TradingView"""
     
     def __init__(self):
-        self.base_url = "https://www.tradingview.com/economic-calendar/events"
+        # TradingView calendar API endpoint
+        self.base_url = "https://economic-calendar.tradingview.com/events"
         self.session = None
         
     async def _ensure_session(self):
@@ -101,7 +102,9 @@ class TradingViewCalendarService:
             
     def _format_date(self, date: datetime) -> str:
         """Format date for TradingView API"""
-        return date.strftime("%Y-%m-%d")
+        # Remove microseconds and format as expected by the API
+        date = date.replace(microsecond=0)
+        return date.isoformat() + '.000Z'
         
     async def get_calendar(self, days_ahead: int = 0, min_impact: str = "Low") -> List[Dict[str, Any]]:
         """
@@ -122,13 +125,12 @@ class TradingViewCalendarService:
             start_date = datetime.now()
             end_date = start_date + timedelta(days=days_ahead)
             
-            # Prepare request parameters
+            # Prepare request parameters with correct format
             params = {
-                "from": self._format_date(start_date),
-                "to": self._format_date(end_date),
-                "countries": ["US", "EU", "GB", "JP", "CH", "AU", "NZ", "CA"],  # Array van landen
-                "importance": ["high", "medium", "low"],  # Array van impact levels
-                "limit": 1000
+                'from': self._format_date(start_date),
+                'to': self._format_date(end_date),
+                'countries': 'US,EU,GB,JP,CH,AU,NZ,CA',
+                'limit': 1000
             }
             
             logger.info(f"Requesting calendar with params: {params}")
@@ -137,10 +139,8 @@ class TradingViewCalendarService:
             headers = {
                 "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.114 Safari/537.36",
                 "Accept": "application/json",
-                "Content-Type": "application/json",
                 "Origin": "https://www.tradingview.com",
-                "Referer": "https://www.tradingview.com/economic-calendar/",
-                "X-Requested-With": "XMLHttpRequest"
+                "Referer": "https://www.tradingview.com/economic-calendar/"
             }
             
             # Make request to TradingView
@@ -161,14 +161,75 @@ class TradingViewCalendarService:
                     return []
                     
                 try:
-                    data = await response.json()
-                    if not isinstance(data, list):
-                        logger.error(f"Invalid response format from TradingView: {type(data)}")
+                    response_text = await response.text()
+                    
+                    # Check if we received HTML instead of JSON
+                    if "<html" in response_text.lower():
+                        logger.error("Received HTML response instead of JSON data")
+                        logger.info("Attempting to extract calendar data from HTML response")
+                        
+                        try:
+                            # TradingView might load data through JavaScript
+                            # For now, fall back to mock data
+                            if HAS_CUSTOM_MOCK_DATA:
+                                logger.info("Falling back to mock calendar data due to HTML response")
+                                return generate_mock_calendar_data(days_ahead, min_impact)
+                            return []
+                        except Exception as e:
+                            logger.error(f"Failed to extract data from HTML: {str(e)}")
+                            if HAS_CUSTOM_MOCK_DATA:
+                                logger.info("Falling back to mock calendar data")
+                                return generate_mock_calendar_data(days_ahead, min_impact)
+                            return []
+                    
+                    try:
+                        data = json.loads(response_text)
+                        # Log response structure for debugging
+                        logger.info(f"Response type: {type(data)}")
+                        if isinstance(data, dict):
+                            logger.info(f"Dictionary keys: {list(data.keys())}")
+                            # Log a sample of the first few keys and values
+                            sample = {k: data[k] for k in list(data.keys())[:3]}
+                            logger.info(f"Sample data: {json.dumps(sample, indent=2)[:500]}...")
+                    except json.JSONDecodeError:
+                        logger.error(f"Failed to parse JSON response: {response_text[:200]}...")
                         if HAS_CUSTOM_MOCK_DATA:
                             logger.info("Falling back to mock calendar data")
                             return generate_mock_calendar_data(days_ahead, min_impact)
                         return []
+                    
+                    if not isinstance(data, list):
+                        logger.info(f"Response format is: {type(data)}")
                         
+                        # Handle dictionary format with 'result' key (TradingView API format)
+                        if isinstance(data, dict) and "result" in data:
+                            if isinstance(data["result"], list):
+                                data = data["result"]
+                                logger.info(f"Extracted result list from response, found {len(data)} items")
+                            else:
+                                logger.error(f"Result field is not a list: {type(data['result'])}")
+                                if HAS_CUSTOM_MOCK_DATA:
+                                    logger.info("Falling back to mock calendar data")
+                                    return generate_mock_calendar_data(days_ahead, min_impact)
+                                return []
+                        # Try old format with 'data' key as fallback
+                        elif isinstance(data, dict) and "data" in data:
+                            if isinstance(data["data"], list):
+                                data = data["data"]
+                                logger.info(f"Extracted data list from dictionary response, found {len(data)} items")
+                            else:
+                                logger.error(f"Data field is not a list: {type(data['data'])}")
+                                if HAS_CUSTOM_MOCK_DATA:
+                                    logger.info("Falling back to mock calendar data")
+                                    return generate_mock_calendar_data(days_ahead, min_impact)
+                                return []
+                        else:
+                            logger.error("Response is not a list and does not contain expected fields")
+                            if HAS_CUSTOM_MOCK_DATA:
+                                logger.info("Falling back to mock calendar data")
+                                return generate_mock_calendar_data(days_ahead, min_impact)
+                            return []
+                    
                     logger.info(f"Received {len(data)} items from API")
                     
                     # Transform TradingView data to our format
@@ -184,14 +245,20 @@ class TradingViewCalendarService:
                                 "CH": "CHF",
                                 "AU": "AUD",
                                 "NZ": "NZD",
-                                "CA": "CAD"
+                                "CA": "CAD",
+                                "IN": "INR",  # India
+                                "CN": "CNY",  # China
+                                "RU": "RUB",  # Russia
+                                "BR": "BRL",  # Brazil
+                                "ZA": "ZAR",  # South Africa
                             }
                             
-                            # Map impact levels
-                            impact_map = {
-                                "high": "High",
-                                "medium": "Medium",
-                                "low": "Low"
+                            # Map importance levels from numeric to text
+                            # Based on TradingView's numeric representation (1=low, 2=medium, 3=high)
+                            importance_map = {
+                                3: "High",
+                                2: "Medium",
+                                1: "Low"
                             }
                             
                             country = event.get("country", "")
@@ -199,23 +266,44 @@ class TradingViewCalendarService:
                             if not currency:
                                 logger.debug(f"Skipping event with unknown country: {country}")
                                 continue
-                                
-                            # Convert event time to local time
+                            
+                            # Extract the time from the date field
                             date_str = event.get("date", "")
                             if not date_str:
                                 logger.debug(f"Skipping event without date: {event.get('title', 'Unknown')}")
                                 continue
-                                
-                            event_time = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
-                            time_str = event_time.strftime("%H:%M")
+                            
+                            # Convert ISO date string to datetime and format just the time
+                            try:
+                                event_time = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
+                                time_str = event_time.strftime("%H:%M")
+                            except (ValueError, TypeError) as e:
+                                logger.error(f"Error parsing date '{date_str}': {str(e)}")
+                                time_str = "00:00"  # Default time if parsing fails
+                            
+                            # Get importance level - handle both numeric and string values
+                            importance_value = event.get("importance", 1)  # Default to low if not specified
+                            if isinstance(importance_value, int):
+                                impact = importance_map.get(importance_value, "Low")
+                            else:
+                                # Handle string values for backward compatibility
+                                impact = importance_value.capitalize() if isinstance(importance_value, str) else "Low"
                             
                             # Create event object
                             event_obj = {
                                 "country": currency,
                                 "time": time_str,
                                 "event": event.get("title", ""),
-                                "impact": impact_map.get(event.get("importance", "low"), "Low")
+                                "impact": impact
                             }
+                            
+                            # Add additional information if available
+                            if "actual" in event and event["actual"]:
+                                event_obj["actual"] = event["actual"]
+                            if "previous" in event and event["previous"]:
+                                event_obj["previous"] = event["previous"]
+                            if "forecast" in event and event["forecast"]:
+                                event_obj["forecast"] = event["forecast"]
                             
                             events.append(event_obj)
                             logger.debug(f"Added event: {event_obj}")
