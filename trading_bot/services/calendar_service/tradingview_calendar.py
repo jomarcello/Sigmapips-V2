@@ -8,7 +8,7 @@ import aiohttp
 import http.client
 import urllib.parse
 from datetime import datetime, timedelta
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Union
 from pathlib import Path
 
 # Import onze custom mock data generator
@@ -85,9 +85,11 @@ class TradingViewCalendarService:
     """Service for retrieving calendar data directly from TradingView"""
     
     def __init__(self):
-        # TradingView calendar API endpoint
+        # TradingView calendar API endpoint - ensure this is the current working endpoint
         self.base_url = "https://economic-calendar.tradingview.com/events"
         self.session = None
+        # Keep track of last successful API call
+        self.last_successful_call = None
         
     async def _ensure_session(self):
         """Ensure we have an active aiohttp session"""
@@ -106,6 +108,38 @@ class TradingViewCalendarService:
         date = date.replace(microsecond=0)
         return date.isoformat() + '.000Z'
         
+    async def _check_api_health(self) -> bool:
+        """Check if the TradingView API endpoint is working"""
+        try:
+            await self._ensure_session()
+            
+            # Simple health check request with minimal parameters
+            params = {
+                'from': self._format_date(datetime.now()),
+                'to': self._format_date(datetime.now() + timedelta(days=1)),
+                'limit': 1
+            }
+            
+            # Add headers for better API compatibility
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.114 Safari/537.36",
+                "Accept": "application/json",
+                "Origin": "https://www.tradingview.com",
+                "Referer": "https://www.tradingview.com/economic-calendar/"
+            }
+            
+            # Make request to TradingView
+            full_url = f"{self.base_url}"
+            logger.info(f"Checking API health: {full_url}")
+            
+            async with self.session.get(full_url, params=params, headers=headers) as response:
+                logger.info(f"Health check response status: {response.status}")
+                return response.status == 200
+                
+        except Exception as e:
+            logger.error(f"API health check failed: {str(e)}")
+            return False
+        
     async def get_calendar(self, days_ahead: int = 0, min_impact: str = "Low") -> List[Dict[str, Any]]:
         """
         Fetch calendar events from TradingView
@@ -120,6 +154,15 @@ class TradingViewCalendarService:
         try:
             logger.info("Starting calendar fetch from TradingView")
             await self._ensure_session()
+            
+            # First check if the API is healthy
+            is_healthy = await self._check_api_health()
+            if not is_healthy:
+                logger.error("TradingView API is not healthy, using fallback or returning empty list")
+                if HAS_CUSTOM_MOCK_DATA:
+                    logger.info("Falling back to mock calendar data due to unhealthy API")
+                    return generate_mock_calendar_data(days_ahead, min_impact)
+                return []
             
             # Calculate date range
             start_date = datetime.now()
@@ -148,12 +191,18 @@ class TradingViewCalendarService:
             full_url = f"{self.base_url}"
             logger.info(f"Making request to: {full_url}")
             
-            async with self.session.get(full_url, params=params, headers=headers) as response:
+            # Use a custom timeout to prevent hanging forever
+            timeout = aiohttp.ClientTimeout(total=15)
+            async with self.session.get(full_url, params=params, headers=headers, timeout=timeout) as response:
                 logger.info(f"Got response with status: {response.status}")
                 
                 if response.status != 200:
                     response_text = await response.text()
-                    logger.error(f"Error response from TradingView: {response_text}")
+                    logger.error(f"Error response from TradingView (status {response.status}): {response_text[:200]}")
+                    
+                    # Log more detailed error information for debugging
+                    if response.status == 404:
+                        logger.error(f"404 Not Found error for URL: {full_url}?{urllib.parse.urlencode(params)}")
                     
                     # Fallback naar mock data als de API faalt
                     if HAS_CUSTOM_MOCK_DATA:
@@ -161,13 +210,16 @@ class TradingViewCalendarService:
                         return generate_mock_calendar_data(days_ahead, min_impact)
                     return []
                     
+                # Update the last successful call timestamp
+                self.last_successful_call = datetime.now()
+                
                 try:
                     response_text = await response.text()
                     
                     # Check if we received HTML instead of JSON
                     if "<html" in response_text.lower():
                         logger.error("Received HTML response instead of JSON data")
-                        logger.info("Attempting to extract calendar data from HTML response")
+                        logger.error(f"HTML content (first 200 chars): {response_text[:200]}...")
                         
                         try:
                             # TradingView might load data through JavaScript
@@ -192,8 +244,9 @@ class TradingViewCalendarService:
                             # Log a sample of the first few keys and values
                             sample = {k: data[k] for k in list(data.keys())[:3]}
                             logger.info(f"Sample data: {json.dumps(sample, indent=2)[:500]}...")
-                    except json.JSONDecodeError:
-                        logger.error(f"Failed to parse JSON response: {response_text[:200]}...")
+                    except json.JSONDecodeError as je:
+                        logger.error(f"Failed to parse JSON response: {str(je)}")
+                        logger.error(f"Raw response content (first 200 chars): {response_text[:200]}...")
                         if HAS_CUSTOM_MOCK_DATA:
                             logger.info("Falling back to mock calendar data")
                             return generate_mock_calendar_data(days_ahead, min_impact)
@@ -204,6 +257,14 @@ class TradingViewCalendarService:
                         
                         # Handle dictionary format with 'result' key (TradingView API format)
                         if isinstance(data, dict) and "result" in data:
+                            status = data.get("status", "unknown")
+                            if status != "ok":
+                                logger.error(f"TradingView API returned non-OK status: {status}")
+                                if HAS_CUSTOM_MOCK_DATA:
+                                    logger.info("Falling back to mock calendar data due to API status")
+                                    return generate_mock_calendar_data(days_ahead, min_impact)
+                                return []
+                                
                             if isinstance(data["result"], list):
                                 data = data["result"]
                                 logger.info(f"Extracted result list from response, found {len(data)} items")
@@ -324,6 +385,11 @@ class TradingViewCalendarService:
                     
                     # Sort events by time
                     events.sort(key=lambda x: x["time"])
+                    
+                    # Log success with useful information
+                    logger.info(f"Successfully processed calendar data with {len(events)} events from TradingView API")
+                    if self.last_successful_call:
+                        logger.info(f"Last successful API call was at {self.last_successful_call.isoformat()}")
                     
                     return events
                     
