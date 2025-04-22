@@ -121,6 +121,7 @@ ENV NODE_ENV=production
 ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=0
 ENV PLAYWRIGHT_BROWSERS_PATH=/app/ms-playwright
 ENV TIMEOUT_SECONDS=180
+ENV FORCE_POLLING=true
 
 # Stel debug mode in
 ENV TRADINGVIEW_DEBUG=true
@@ -151,38 +152,13 @@ RUN echo '#!/bin/bash\n\
 echo "Starting SigmaPips Trading Bot..."\n\
 cd /app\n\
 echo "Starting main application..."\n\
-# Check if we are using uvicorn for the FastAPI app\n\
-if [ "${USE_UVICORN:-false}" = "true" ]; then\n\
-    echo "Starting with uvicorn for FastAPI health checks"\n\
-    uvicorn asgi:app --host=0.0.0.0 --port=${PORT:-8080}\n\
-# Check if were using the old structure (trading_bot/main.py) or new structure (main.py in root)\n\
-elif [ -f "trading_bot/main.py" ]; then\n\
-    echo "Found main.py in trading_bot directory"\n\
-    # Run with a timeout to prevent getting stuck\n\
-    timeout ${TIMEOUT_SECONDS:-180} python -m trading_bot.main || {\n\
-        echo "Application timed out after ${TIMEOUT_SECONDS:-180} seconds, restarting..."\n\
-        python -m trading_bot.main\n\
-    }\n\
-elif [ -f "main.py" ]; then\n\
-    echo "Found main.py in root directory"\n\
-    # Run with a timeout to prevent getting stuck\n\
-    timeout ${TIMEOUT_SECONDS:-180} python main.py || {\n\
-        echo "Application timed out after ${TIMEOUT_SECONDS:-180} seconds, restarting..."\n\
-        python main.py\n\
-    }\n\
-else\n\
-    echo "main.py not found in either location, falling back to trading_bot.main module"\n\
-    # Fall back to the module-based import\n\
-    timeout ${TIMEOUT_SECONDS:-180} python -m trading_bot.main || {\n\
-        echo "Application timed out after ${TIMEOUT_SECONDS:-180} seconds, restarting..."\n\
-        python -m trading_bot.main\n\
-    }\n\
-fi\n\
+# Run with the module path directly, no ASGI/uvicorn\n\
+python -m trading_bot.main\n\
 ' > /app/start.sh && chmod +x /app/start.sh
 
 # Set entrypoint to use our fix script first
 ENTRYPOINT ["/app/entrypoint.sh"]
 
-# Run the bot application using uvicorn for Railway's health checks
-ENV USE_UVICORN=true
+# Run the bot application in polling mode
+ENV USE_UVICORN=false
 CMD ["/app/start.sh"]
