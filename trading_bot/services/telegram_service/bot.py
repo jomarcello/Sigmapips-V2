@@ -4749,80 +4749,75 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             if query:
                 await query.answer()
                 
-            logger.info("Back to instrument selection")
+            logger.info("Back to analysis menu")
             
-            # Check if we're in a signals context
-            is_signals_context = False
-            if context and hasattr(context, 'user_data'):
-                is_signals_context = context.user_data.get('signals_context', False)
+            # Check if the current message has a photo
+            has_photo = bool(query.message.photo) or query.message.animation is not None
             
-            # Stuur gebruiker terug naar het juiste menu
-            try:
-                # Haal market uit user_data als het bestaat
-                market = None
-                if context and hasattr(context, 'user_data'):
-                    market = context.user_data.get('market')
+            if has_photo:
+                # For messages with photos, we need to send a new message rather than editing
+                # Get random gif for analysis menu
+                gif_url = random.choice(gif_utils.ANALYSIS_GIFS)
                 
-                # Bepaal het juiste keyboard op basis van market
-                keyboard = None
-                if market == "forex":
-                    keyboard = FOREX_KEYBOARD
-                elif market == "crypto":
-                    keyboard = CRYPTO_KEYBOARD
-                elif market == "indices":
-                    keyboard = INDICES_KEYBOARD
-                elif market == "commodities":
-                    keyboard = COMMODITIES_KEYBOARD
-                else:
-                    keyboard = MARKET_KEYBOARD
+                # Send the analysis menu as a new message
+                await context.bot.send_animation(
+                    chat_id=update.effective_chat.id,
+                    animation=gif_url,
+                    caption="Select your analysis type:",
+                    reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
+                    parse_mode=ParseMode.HTML
+                )
                 
-                # Check if the current message has a photo
-                has_photo = bool(query.message.photo) or query.message.animation is not None
-                
-                if has_photo:
-                    # For messages with photos, we need to send a new message rather than editing
-                    await context.bot.send_message(
-                        chat_id=update.effective_chat.id,
-                        text="Select an instrument:",
-                        reply_markup=InlineKeyboardMarkup(keyboard),
+                # Delete the original message with the photo
+                await query.delete_message()
+            else:
+                # Update the message for text messages
+                try:
+                    await query.edit_message_text(
+                        text="Select your analysis type:",
+                        reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
                         parse_mode=ParseMode.HTML
                     )
-                    
-                    # Delete the original message with the photo
-                    await query.delete_message()
-                else:
-                    # Update the message for text messages
-                    await self.update_message(
-                        query, 
-                        "Select an instrument:",
-                        keyboard=keyboard
-                    )
-                
-                return CHOOSE_INSTRUMENT
-                
-            except Exception as e:
-                logger.error(f"Error in back_instrument_callback: {str(e)}")
-                
-                # Als alternatief stuur terug naar market selectie
-                # If we're in signals context, go back to signals menu
-                if is_signals_context and hasattr(self, 'back_signals_callback'):
-                    return await self.back_signals_callback(update, context)
-                
-                # Otherwise go back to market selection
-                return await self.back_market_callback(update, context)
+                except Exception as e:
+                    logger.warning(f"Could not update message text: {str(e)}")
+                    try:
+                        await query.edit_message_caption(
+                            caption="Select your analysis type:",
+                            reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
+                            parse_mode=ParseMode.HTML
+                        )
+                    except Exception as e2:
+                        logger.error(f"Could not update caption either: {str(e2)}")
+                        # As a last resort, send a new message
+                        await context.bot.send_message(
+                            chat_id=update.effective_chat.id,
+                            text="Select your analysis type:",
+                            reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
+                            parse_mode=ParseMode.HTML
+                        )
+            
+            return CHOOSE_ANALYSIS
                 
         except Exception as e:
             logger.error(f"Failed to handle back_instrument_callback: {str(e)}")
-            # Try to recover by going to market selection
-            if hasattr(self, 'back_market_callback'):
-                return await self.back_market_callback(update, context)
-            else:
+            # Try to recover by going to analysis selection
+            try:
+                if update and update.effective_chat:
+                    await context.bot.send_message(
+                        chat_id=update.effective_chat.id,
+                        text="Select your analysis type:",
+                        reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
+                        parse_mode=ParseMode.HTML
+                    )
+                return CHOOSE_ANALYSIS
+            except Exception:
                 # Last resort fallback - update message with error
-                await self.update_message(
-                    query, 
-                    "Sorry, an error occurred. Please use /menu to start again.", 
-                    keyboard=None
-                )
+                if query:
+                    await self.update_message(
+                        query, 
+                        "Sorry, an error occurred. Please use /menu to start again.", 
+                        keyboard=None
+                    )
                 return ConversationHandler.END
 
     async def initialize_services(self):
