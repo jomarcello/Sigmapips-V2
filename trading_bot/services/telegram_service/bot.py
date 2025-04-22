@@ -2223,164 +2223,54 @@ What would you like to do today?
                 return ConversationHandler.END
 
     async def run(self):
+        """Run the bot with polling"""
         try:
-            if self.webhook_url:
-                # Construct complete webhook URL carefully
-                webhook_full_url = self.webhook_url
-                if self.webhook_path and not webhook_full_url.endswith("/webhook"):
-                    webhook_full_url = f"{webhook_full_url}{self.webhook_path}"
-                
-                logger.info(f"Setting up webhook at {webhook_full_url}")
-                
-                # Initialize application properly
-                logger.info("Initializing application")
-                await self.application.initialize()
-                logger.info("Starting application")
-                await self.application.start()
-                logger.info("Application started successfully")
-                
-                # Re-register handlers to ensure they're in the correct order
-                await self._register_handlers(self.application)
-                logger.info("Handlers registered after application initialization")
-                
-                # Set webhook
-                logger.info("Setting webhook URL")
-                await self.bot.set_webhook(url=webhook_full_url)
-                
-                # Verify webhook was set
-                webhook_info = await self.bot.get_webhook_info()
-                logger.info(f"Webhook set to: {webhook_info.url}")
-                logger.info(f"Pending updates: {webhook_info.pending_update_count}")
-                
-                # Create FastAPI app for webhook handling
-                app = FastAPI()
-                
-                @app.get("/health")
-                async def health_check():
-                    """Health check endpoint for Railway's healthcheck."""
-                    logger.debug("Health check endpoint called")
-                    return {"status": "ok", "message": "Bot is running"}
-                
-                # Bepaal het juiste webhook pad - ensure it's always /webhook regardless of URL
-                webhook_route = "/webhook"
-                logger.info(f"Registering webhook handler at route: {webhook_route}")
-                
-                @app.post(webhook_route)
-                async def telegram_webhook(request: Request):
-                    """Handle Telegram webhook requests."""
-                    # Get the request data
-                    try:
-                        update_data = await request.json()
-                        
-                        # Log all incoming webhook data at debug level
-                        logger.debug(f"Received webhook data: {json.dumps(update_data)}")
-                        
-                        # Check if we've already processed this update
-                        update_id = update_data.get('update_id')
-                        if update_id in self.processed_updates:
-                            logger.warning(f"Duplicate update {update_id} - skipping")
-                            return {"success": True, "message": "Update already processed"}
-                            
-                        # Mark this update as processed
-                        self.processed_updates.add(update_id)
-                        
-                        # Log webhook update
-                        logger.info(f"Received webhook update: {update_id}")
-                        
-                        # Limit the size of processed_updates to prevent memory growth
-                        if len(self.processed_updates) > 1000:
-                            # Keep only the 500 most recent update IDs
-                            self.processed_updates = set(sorted(self.processed_updates)[-500:])
-                        
-                        # Check if signals need to be loaded
-                        if not getattr(self, '_signals_loaded', False) and getattr(self, '_signals_need_loading', False):
-                            try:
-                                logger.info("Loading signals during first webhook request")
-                                await self._load_signals()
-                                self._signals_loaded = True
-                                self._signals_need_loading = False
-                                logger.info("Signals loaded successfully during webhook processing")
-                            except Exception as e:
-                                logger.error(f"Error loading signals during webhook processing: {str(e)}")
-                                logger.error(traceback.format_exc())
-                                # Continue anyway as this is not critical
-                        
-                        # Ensure handlers are registered
-                        if not self._handlers_registered:
-                            logger.warning(f"Handlers not registered before processing update {update_id}, registering now")
-                            await self._register_handlers(self.application)
-                        
-                        # Check if this is a callback query
-                        if 'callback_query' in update_data:
-                            callback_data = update_data.get('callback_query', {}).get('data')
-                            user_id = update_data.get('callback_query', {}).get('from', {}).get('id')
-                            logger.info(f"Received callback query with data: {callback_data} from user: {user_id}")
-                            
-                            # Special handling for callback queries to make them more robust
-                            await self._process_callback_query_with_retry(update_data)
-                            
-                            return {"success": True, "handled_by": "direct_callback_processor"}
-                        
-                        # Create Update object for standard processing
-                        update = Update.de_json(update_data, self.bot)
-                        
-                        # Process the update
-                        logger.debug(f"Processing standard update: {update_id}")
-                        await self.application.process_update(update)
-                        
-                        # Log success
-                        logger.info(f"Successfully processed update {update_id}")
-                        
-                        return {"success": True}
-                    except Exception as e:
-                        logger.error(f"Error processing webhook: {str(e)}")
-                        logger.error(traceback.format_exc())
-                        return {"success": False, "error": str(e)}
-                        
-                # Return the FastAPI app for ASGI server
-                return app
+            # Always use polling mode, regardless of webhook URL
+            logger.info("Starting bot with long polling mode")
+            
+            # Start the bot without blocking
+            await self.application.initialize()
+            await self.application.start()
+            
+            # Re-register handlers to ensure they're in the correct order
+            await self._register_handlers(self.application)
+            logger.info("Handlers registered after application initialization")
+            
+            # Set the bot commands
+            try:
+                logger.info("Setting bot commands...")
+                await self.bot.set_my_commands(self.commands)
+                logger.info("Bot commands set successfully")
+            except Exception as e:
+                logger.error(f"Error setting bot commands: {str(e)}")
+            
+            # Start polling
+            logger.info("Starting polling for updates...")
+            await self.application.updater.start_polling()
+            self.polling_started = True
+            logger.info("Polling started successfully")
+            
+            # Start services only if not using lazy initialization
+            if not getattr(self, 'lazy_init', False):
+                await self.initialize_services()
             else:
-                # No webhook URL, use long polling
-                logger.info("Starting bot with long polling")
-                
-                # Start the bot without blocking
-                await self.application.initialize()
-                await self.application.start()
-                
-                # Re-register handlers to ensure they're in the correct order
-                await self._register_handlers(self.application)
-                logger.info("Handlers registered after application initialization")
-                
-                # Set the bot commands
-                try:
-                    logger.info("Setting bot commands...")
-                    await self.bot.set_my_commands(self.commands)
-                    logger.info("Bot commands set successfully")
-                except Exception as e:
-                    logger.error(f"Error setting bot commands: {str(e)}")
-                
-                self.bot_started = True
-                
-                # Extra log for debugging or monitoring during development
-                logger.info("Bot started with polling successfully")
-                
-                # Start services only if not using lazy initialization
-                if not getattr(self, 'lazy_init', False):
-                    await self.initialize_services()
-                else:
-                    logger.info("Skipping services initialization due to lazy_init=True")
-                
-                # Voeg hier de keepalive task toe
-                async def keepalive():
-                    """Keep the application active to prevent Railway from timing out"""
-                    while True:
-                        logger.debug("Keepalive ping")
-                        await asyncio.sleep(60)
-                
-                # Start the keepalive task
-                self._background_tasks.append(asyncio.create_task(keepalive()))
-                
-                return None
+                logger.info("Skipping services initialization due to lazy_init=True")
+            
+            # Keep-alive task to prevent the application from exiting
+            async def keepalive():
+                """Keep the application active to prevent Railway from timing out"""
+                while True:
+                    logger.debug("Keepalive ping")
+                    await asyncio.sleep(60)
+            
+            # Start the keepalive task
+            self._background_tasks.append(asyncio.create_task(keepalive()))
+            
+            # Keep the updater running
+            await self.application.updater.start_polling()
+            await self.application.idle()
+            
+            return None
         except Exception as e:
             logger.error(f"Error running bot: {str(e)}")
             logger.error(traceback.format_exc())
