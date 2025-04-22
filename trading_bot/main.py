@@ -1,16 +1,15 @@
 import logging
 import os
 import json
-from fastapi import FastAPI, Request, HTTPException
-from fastapi.responses import JSONResponse
+import time
 from dotenv import load_dotenv
 import stripe
-import time
+import asyncio
+
 # Import telegram components only when needed to reduce startup time
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler
 from telegram.request import HTTPXRequest
 from telegram import BotCommand
-import asyncio
 
 # Configureer logging
 logging.basicConfig(level=logging.INFO)
@@ -26,22 +25,6 @@ from trading_bot.services.payment_service.stripe_config import STRIPE_WEBHOOK_SE
 # Import directly from the module to avoid circular imports through __init__.py
 from trading_bot.services.telegram_service.bot import TelegramService
 from trading_bot.services.payment_service.stripe_service import StripeService
-
-# Initialiseer de FastAPI app
-app = FastAPI()
-
-# Initialiseer de database
-db = Database()
-
-# Initialize only the critical services immediately
-stripe_service = StripeService(db)
-
-# Initialize telegram service with lazy loading option
-telegram_service = TelegramService(db, lazy_init=True)
-
-# Connect the services - chart service will be initialized lazily
-telegram_service.stripe_service = stripe_service
-stripe_service.telegram_service = telegram_service
 
 # Voeg deze functie toe bovenaan het bestand, na de imports
 def convert_interval_to_timeframe(interval):
@@ -100,8 +83,33 @@ def convert_interval_to_timeframe(interval):
         # Als het geen getal is, geef het terug zoals het is
         return interval_str
 
-@app.on_event("startup")
-async def startup_event():
+# Function to register additional handlers after startup is complete
+async def register_additional_handlers(telegram_service):
+    try:
+        # Add secondary command handlers
+        telegram_service.application.add_handler(CommandHandler("help", telegram_service.help_command))
+        telegram_service.application.add_handler(CommandHandler("set_subscription", telegram_service.set_subscription_command))
+        telegram_service.application.add_handler(CommandHandler("set_payment_failed", telegram_service.set_payment_failed_command))
+        
+        logger.info("Additional command handlers registered")
+        
+    except Exception as e:
+        logger.error(f"Error registering additional handlers: {str(e)}")
+
+# Background task for processing signals
+async def process_signal_background(signal_data: dict, telegram_service):
+    try:
+        # Process the signal in the background
+        success = await telegram_service.process_signal(signal_data)
+        
+        if not success:
+            logger.error(f"Failed to process signal in background: {signal_data}")
+    except Exception as e:
+        logger.error(f"Error in background signal processing: {str(e)}")
+        logger.exception(e)
+
+async def start_bot():
+    """Main entry point for starting the bot"""
     start_time = time.time()
     perf_logs = []
     
@@ -110,10 +118,30 @@ async def startup_event():
         logger.info("Initializing services...")
         perf_logs.append(f"Starting initialization: 0.00s")
         
-        # No need to manually connect the database - it's done automatically in the constructor
-        # The log shows "Successfully connected to Supabase" already
-        logger.info("Database initialized")
+        # Initialiseer database
+        logger.info("Initializing database...")
+        db = Database()
+        logger.info("Database initialized successfully")
         perf_logs.append(f"Database initialized: {time.time() - start_time:.2f}s")
+        
+        # Initialiseer Stripe service
+        logger.info("Initializing Stripe service...")
+        stripe_service = StripeService(db)
+        logger.info("Stripe service initialized successfully")
+        perf_logs.append(f"Stripe service initialized: {time.time() - start_time:.2f}s")
+        
+        # Initialiseer en start de Telegram bot
+        bot_token = os.environ.get("TELEGRAM_BOT_TOKEN")
+        proxy_url = os.environ.get("TELEGRAM_PROXY_URL")
+        
+        logger.info("Initializing Telegram service...")
+        telegram_service = TelegramService(db, stripe_service, bot_token=bot_token, proxy_url=proxy_url, lazy_init=True)
+        logger.info("Telegram service initialized successfully")
+        perf_logs.append(f"Telegram service initialized: {time.time() - start_time:.2f}s")
+        
+        # Connect the services - chart service will be initialized lazily
+        telegram_service.stripe_service = stripe_service
+        stripe_service.telegram_service = telegram_service
         
         # Log environment variables
         webhook_url = os.getenv("WEBHOOK_URL", "")
@@ -129,7 +157,6 @@ async def startup_event():
         )
         perf_logs.append(f"HTTP request initialized: {time.time() - start_time:.2f}s")
         
-        # Don't initialize telegram_service.initialize method since it has issues
         # Set up the bot in a more optimized way
         logger.info("Setting up Telegram bot with optimized configuration")
         
@@ -179,7 +206,7 @@ async def startup_event():
             perf_logs.append(f"Telegram error (continuing): {time.time() - start_time:.2f}s")
         
         # Register remaining handlers in background task
-        asyncio.create_task(register_additional_handlers())
+        asyncio.create_task(register_additional_handlers(telegram_service))
         
         logger.info("Basic signal endpoints registered, additional handlers queued")
         perf_logs.append(f"Setup complete: {time.time() - start_time:.2f}s")
@@ -198,6 +225,34 @@ async def startup_event():
                 f.write(f"{log}\n")
             f.write(f"Total startup time: {time.time() - start_time:.2f}s\n")
             f.write("=========================================\n")
+        
+        # Houdt het bot-proces in leven
+        logger.info("Bot is running in polling mode. Press Ctrl+C to stop.")
+        
+        # Eenvoudige HTTP gezondheidsstatus eindpunt
+        async def health_check():
+            while True:
+                try:
+                    await asyncio.sleep(30)  # Check elke 30 seconden
+                    logger.debug("Health check: Bot is running")
+                    
+                    # Controleer de telegram-bot status
+                    if not telegram_service.polling_started:
+                        logger.warning("Polling is gestopt, proberen te herstarten...")
+                        try:
+                            await telegram_service.application.updater.start_polling()
+                            telegram_service.polling_started = True
+                            logger.info("Polling succesvol herstart")
+                        except Exception as e:
+                            logger.error(f"Kon polling niet herstarten: {str(e)}")
+                except Exception as e:
+                    logger.error(f"Error in health check: {str(e)}")
+        
+        # Start health check task
+        health_task = asyncio.create_task(health_check())
+        
+        # Wacht voor altijd (of totdat er een uitzondering optreedt)
+        await asyncio.Future()
         
     except Exception as e:
         # Log performance even when there's an error
@@ -221,239 +276,6 @@ async def startup_event():
         
         raise
 
-# Function to register additional handlers after startup is complete
-async def register_additional_handlers():
-    try:
-        # Add secondary command handlers
-        telegram_service.application.add_handler(CommandHandler("help", telegram_service.help_command))
-        telegram_service.application.add_handler(CommandHandler("set_subscription", telegram_service.set_subscription_command))
-        telegram_service.application.add_handler(CommandHandler("set_payment_failed", telegram_service.set_payment_failed_command))
-        
-        logger.info("Additional command handlers registered")
-        
-    except Exception as e:
-        logger.error(f"Error registering additional handlers: {str(e)}")
-
-# Define the signal endpoint with optimized processing
-@app.post("/signal")
-async def process_tradingview_signal(request: Request):
-    """Process TradingView webhook signal with efficient handling"""
-    try:
-        # Get the signal data from the request
-        signal_data = await request.json()
-        logger.info(f"Received TradingView webhook signal: {signal_data}")
-        
-        # Process the signal in a background task to avoid blocking the endpoint
-        # This allows the endpoint to return quickly
-        asyncio.create_task(process_signal_background(signal_data))
-        
-        # Return success immediately - actual processing happens in background
-        return {"status": "success", "message": "Signal received and queued for processing"}
-            
-    except Exception as e:
-        logger.error(f"Error processing TradingView webhook signal: {str(e)}")
-        logger.exception(e)
-        return {"status": "error", "message": str(e)}
-
-# Background task for processing signals
-async def process_signal_background(signal_data: dict):
-    try:
-        # Process the signal in the background
-        success = await telegram_service.process_signal(signal_data)
-        
-        if not success:
-            logger.error(f"Failed to process signal in background: {signal_data}")
-    except Exception as e:
-        logger.error(f"Error in background signal processing: {str(e)}")
-        logger.exception(e)
-
-# Define webhook routes
-
-# Comment out this route as it conflicts with the telegram webhook
-# @app.get("/webhook")
-# async def webhook_info():
-#     """Return webhook info"""
-#     return {"status": "Telegram webhook endpoint", "info": "Use POST method to send updates"}
-
-@app.post("/tradingview-signal")
-async def tradingview_signal(request: Request):
-    """Endpoint for TradingView signals only"""
-    try:
-        # Log de binnenkomende request
-        body = await request.body()
-        logger.info(f"Received TradingView signal: {body.decode('utf-8')}")
-        
-        # Parse de JSON data
-        data = await request.json()
-        
-        # Verwerk als TradingView signaal
-        if telegram_service:
-            success = await telegram_service.process_signal(data)
-            if success:
-                return JSONResponse(content={"status": "success", "message": "Signal processed"})
-            else:
-                raise HTTPException(status_code=500, detail="Failed to process signal")
-        
-        # Als we hier komen, konden we het verzoek niet verwerken
-        raise HTTPException(status_code=400, detail="Could not process TradingView signal")
-    except json.JSONDecodeError:
-        logger.error("Invalid JSON in request body")
-        raise HTTPException(status_code=400, detail="Invalid JSON")
-    except Exception as e:
-        logger.error(f"Error processing webhook: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/signals")
-async def receive_signal(request: Request):
-    """Endpoint for receiving trading signals"""
-    # Simply redirect to the main signal endpoint
-    return await process_tradingview_signal(request)
-
-@app.post("/stripe-webhook")
-async def stripe_webhook(request: Request):
-    payload = await request.body()
-    sig_header = request.headers.get("Stripe-Signature")
-    
-    # Uitgebreidere logging
-    logger.info(f"Webhook payload begin: {payload[:100]}")  # Log begin van payload
-    logger.info(f"Signature header: {sig_header}")
-    
-    # Test verschillende webhook secrets
-    test_secrets = [
-        os.getenv("STRIPE_WEBHOOK_SECRET"),
-        "whsec_ylBJwcxgeTj66Y8e2zcXDjY3IlTvhPPa",  # Je huidige secret
-        # Voeg hier andere mogelijke secrets toe
-    ]
-    
-    event = None
-    # Probeer elk secret
-    for secret in test_secrets:
-        if not secret:
-            continue
-        try:
-            event = stripe.Webhook.construct_event(payload, sig_header, secret)
-            logger.info(f"Signature validatie succesvol met secret: {secret[:5]}...")
-            break
-        except Exception:
-            continue
-            
-    # Als geen enkel secret werkt, accepteer zonder validatie (voor testen)
-    if not event:
-        logger.warning("Geen enkel webhook secret werkt, webhook accepteren zonder validatie")
-        data = json.loads(payload)
-        event = {"type": data.get("type"), "data": {"object": data}}
-    
-    # Verwerk het event
-    await stripe_service.handle_webhook_event(event)
-    
-    return {"status": "success"}
-
-@app.get("/create-subscription-link/{user_id}/{plan_type}")
-async def create_subscription_link(user_id: int, plan_type: str = 'basic'):
-    """Maak een Stripe Checkout URL voor een gebruiker"""
-    try:
-        checkout_url = await stripe_service.create_checkout_session(user_id, plan_type)
-        
-        if checkout_url:
-            return {"status": "success", "checkout_url": checkout_url}
-        else:
-            raise HTTPException(status_code=500, detail="Failed to create checkout session")
-    except Exception as e:
-        logger.error(f"Error creating subscription link: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/health")
-async def health_check():
-    return {"status": "healthy"}
-
-@app.post("/test-webhook")
-async def test_webhook(request: Request):
-    """Test endpoint for webhook processing"""
-    try:
-        # Log de request
-        body = await request.body()
-        logger.info(f"Test webhook received: {body.decode('utf-8')}")
-        
-        # Parse de data
-        data = await request.json()
-        
-        # Simuleer een checkout.session.completed event
-        event = {
-            "type": "checkout.session.completed",
-            "data": {
-                "object": {
-                    "id": "cs_test_" + str(int(time.time())),
-                    "client_reference_id": str(data.get("user_id")),
-                    "customer": "cus_test_" + str(int(time.time())),
-                    "subscription": "sub_test_" + str(int(time.time())),
-                    "metadata": {
-                        "user_id": str(data.get("user_id"))
-                    }
-                }
-            }
-        }
-        
-        # Process the test event
-        result = await stripe_service.handle_webhook_event(event)
-        
-        return {"status": "success", "processed": result}
-    except Exception as e:
-        logger.error(f"Error processing test webhook: {str(e)}")
-        return {"status": "error", "message": str(e)}
-
-async def start_bot():
-    """Main entry point for starting the bot"""
-    start_time = time.time()
-    
-    # Importeer benodigde services
-    from trading_bot.services.database.db import Database
-    from trading_bot.services.payment_service.stripe_service import StripeService
-    from trading_bot.services.telegram_service.bot import TelegramService
-
-    # Initialiseer database
-    try:
-        logger.info("Initializing database...")
-        db = Database()
-        logger.info("Database initialized successfully")
-    except Exception as e:
-        logger.error(f"Error initializing database: {str(e)}")
-        raise
-
-    # Initialiseer Stripe service
-    try:
-        logger.info("Initializing Stripe service...")
-        stripe_service = StripeService(db)
-        logger.info("Stripe service initialized successfully")
-    except Exception as e:
-        logger.error(f"Error initializing Stripe service: {str(e)}")
-        raise
-
-    # Initialiseer en start de Telegram bot
-    bot_token = os.environ.get("TELEGRAM_BOT_TOKEN")
-    proxy_url = os.environ.get("TELEGRAM_PROXY_URL")
-    
-    try:
-        logger.info("Initializing Telegram service...")
-        telegram_service = TelegramService(db, stripe_service, bot_token=bot_token, proxy_url=proxy_url)
-        logger.info("Telegram service initialized successfully")
-    except Exception as e:
-        logger.error(f"Error initializing Telegram service: {str(e)}")
-        raise
-
-    # Start the bot in long polling mode (no webhooks)
-    try:
-        logger.info("Starting Telegram bot in polling mode...")
-        await telegram_service.run()
-        logger.info("Bot running successfully")
-    except Exception as e:
-        logger.error(f"Error starting Telegram bot: {str(e)}")
-        raise
-
 # Run the bot
 if __name__ == "__main__":
     asyncio.run(start_bot())
-
-# Expliciet de app exporteren
-__all__ = ['app']
-
-app = app  # Expliciete herbevestiging van de app variabele
