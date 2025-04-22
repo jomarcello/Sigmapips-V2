@@ -712,8 +712,9 @@ class TelegramService:
             # Initialize the application
             self.application = Application.builder().bot(self.bot).build()
         
-            # Register the handlers
-            self._register_handlers(self.application)
+            # We'll register handlers later during run() instead of here,
+            # to avoid racing conditions and ensure proper order
+            logger.info("Handlers will be registered during application startup")
             
             # Only load signals if not using lazy initialization
             if not lazy_init:
@@ -1265,12 +1266,9 @@ class TelegramService:
             application.add_handler(CommandHandler("set_subscription", self.set_subscription_command))
             application.add_handler(CommandHandler("set_payment_failed", self.set_payment_failed_command))
             
-            # Add callback query handler
-            application.add_handler(CallbackQueryHandler(self.button_callback))
-            
             logger.info("Essential command handlers registered")
             
-            # Register callback handlers
+            # Register specific callback handlers first
             application.add_handler(CallbackQueryHandler(self.menu_analyse_callback, pattern="^menu_analyse$"))
             application.add_handler(CallbackQueryHandler(self.menu_signals_callback, pattern="^menu_signals$"))
             application.add_handler(CallbackQueryHandler(self.signals_add_callback, pattern="^signals_add$"))
@@ -1308,7 +1306,7 @@ class TelegramService:
             # Signal from analysis
             application.add_handler(CallbackQueryHandler(self.analyze_from_signal_callback, pattern="^analyze_from_signal_.*$"))
             
-            # Catch-all handler for any other callbacks
+            # Catch-all handler for any other callbacks - MUST BE LAST
             application.add_handler(CallbackQueryHandler(self.button_callback))
             
             # Load signals
@@ -2578,6 +2576,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             callback_data = query.data
             
             logger.info(f"Button callback opgeroepen met data: {callback_data}")
+            logger.debug(f"Button callback details - User: {update.effective_user.id}, Chat: {update.effective_chat.id}")
             
             # Menu navigation
             if callback_data == "menu_analyse":
@@ -5186,6 +5185,10 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 await self.application.start()
                 logger.info("Application started successfully")
                 
+                # Re-register handlers to ensure they're in the correct order
+                self._register_handlers(self.application)
+                logger.info("Re-registered handlers to ensure correct order")
+                
                 # Set webhook
                 logger.info("Setting webhook URL")
                 await self.bot.set_webhook(url=webhook_full_url)
@@ -5242,10 +5245,17 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                                 logger.error(traceback.format_exc())
                                 # Continue anyway as this is not critical
                         
+                        # Check if this is a callback query and log more details
+                        if 'callback_query' in update_data:
+                            callback_data = update_data.get('callback_query', {}).get('data')
+                            user_id = update_data.get('callback_query', {}).get('from', {}).get('id')
+                            logger.info(f"Received callback query with data: {callback_data} from user: {user_id}")
+                        
                         # Create Update object
                         update = Update.de_json(update_data, self.bot)
                         
                         # Process the update
+                        logger.debug(f"Processing update: {update_id}")
                         await self.application.process_update(update)
                         
                         # Log success
@@ -5254,6 +5264,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                         return {"success": True}
                     except Exception as e:
                         logger.error(f"Error processing webhook: {str(e)}")
+                        logger.error(traceback.format_exc())
                         return {"success": False, "error": str(e)}
                         
                 # Return the FastAPI app for ASGI server
@@ -5265,6 +5276,10 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 # Start the bot without blocking
                 await self.application.initialize()
                 await self.application.start()
+                
+                # Re-register handlers to ensure they're in the correct order
+                self._register_handlers(self.application)
+                logger.info("Re-registered handlers to ensure correct order")
                 
                 # Set the bot commands
                 try:
