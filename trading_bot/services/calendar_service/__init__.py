@@ -22,15 +22,21 @@ HOSTNAME = socket.gethostname()
 logger.info(f"Running on host: {HOSTNAME}")
 logger.info(f"Running in Railway: {RUNNING_IN_RAILWAY}")
 
-# Zorg ervoor dat USE_CALENDAR_FALLBACK expliciet op "false" staat
-if "USE_CALENDAR_FALLBACK" not in os.environ:
-    os.environ["USE_CALENDAR_FALLBACK"] = "false"
-    logger.info("Explicitly setting USE_CALENDAR_FALLBACK=false")
+# BELANGRIJK: Force instellingen voor TradingView calendar
+# Expliciet investing.com uitschakelen
+os.environ["USE_INVESTING_CALENDAR"] = "false"
+logger.info("⚠️ Forcing USE_INVESTING_CALENDAR=false to use TradingView calendar")
+print("⚠️ Forcing USE_INVESTING_CALENDAR=false to use TradingView calendar")
 
-# Als we in Railway draaien, gebruik dan ScrapingAnt als default
-if RUNNING_IN_RAILWAY and os.environ.get("USE_SCRAPINGANT") is None:
-    os.environ["USE_SCRAPINGANT"] = "true"
-    logger.info("Running in Railway, setting USE_SCRAPINGANT=true by default")
+# Calendfaer fallback uitschakelen - we willen echte data
+os.environ["USE_CALENDAR_FALLBACK"] = "false"
+logger.info("⚠️ Forcing USE_CALENDAR_FALLBACK=false to use real data")
+print("⚠️ Forcing USE_CALENDAR_FALLBACK=false to use real data")
+
+# ScrapingAnt inschakelen voor betere data
+os.environ["USE_SCRAPINGANT"] = "true"
+logger.info("⚠️ Forcing USE_SCRAPINGANT=true for better data retrieval")
+print("⚠️ Forcing USE_SCRAPINGANT=true for better data retrieval")
 
 # ScrapingAnt API key configureren indien niet al gedaan
 if os.environ.get("SCRAPINGANT_API_KEY") is None:
