@@ -3209,113 +3209,111 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             if not hasattr(self, 'chart_service') or not self.chart_service:
                 from trading_bot.services.chart_service.chart import ChartService
                 self.chart_service = ChartService()
+                await self.chart_service.initialize()
+                logger.info("Chart service initialized for technical analysis")
             
             # Get the chart image
+            logger.info(f"Requesting chart image for {instrument} on {timeframe}")
             chart_image = await self.chart_service.get_chart(instrument, timeframe)
             
-            # Get the technical analysis text
-            logger.info(f"Getting technical analysis text for {instrument} on {timeframe} timeframe")
+            # Get the technical analysis text - explicitly call our new method
+            logger.info(f"Requesting technical analysis text for {instrument} on {timeframe}")
             analysis_text = await self.chart_service.get_technical_analysis(instrument, timeframe)
-            
-            if not chart_image:
-                # If chart failed but we have analysis text, show just the analysis
-                logger.warning(f"Failed to generate chart for {instrument}, showing text-only analysis")
-                
-                # Create the keyboard with appropriate back button based on flow
-                keyboard = []
-                if from_signal:
-                    keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal_analysis")])
-                else:
-                    keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="back_instrument")])
-                
-                # Show text-only analysis
-                await query.edit_message_text(
-                    text=analysis_text,
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
-                return SHOW_RESULT
+            logger.info(f"Received analysis text of length {len(analysis_text)}")
             
             # Create the keyboard with appropriate back button based on flow
             keyboard = []
-            
-            # Add the appropriate back button based on whether we're in signal flow or menu flow
             if from_signal:
                 keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal_analysis")])
             else:
                 keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="back_instrument")])
             
-            # Show the chart with analysis text as caption
+            # Check if chart image was successfully generated
+            if not chart_image:
+                # If chart failed but we have analysis text, show just the analysis
+                logger.warning(f"Failed to generate chart for {instrument}, showing text-only analysis")
+                
+                # Show text-only analysis
+                await query.edit_message_text(
+                    text=analysis_text,
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode=None  # Ensure no parsing issues
+                )
+                return SHOW_RESULT
+            
+            # STRATEGY CHANGE: First send the full analysis as a text message, then the chart without caption
             try:
-                logger.info(f"Sending chart image with analysis for {instrument} {timeframe}")
+                logger.info(f"Sending full analysis text for {instrument} {timeframe}")
                 
-                # Respect Telegram's caption length limit (1024 characters)
-                max_caption_length = 1000  # Slightly less than the actual limit to be safe
+                # First delete the loading message
+                if query:
+                    try:
+                        logger.info(f"Deleting loading message {query.message.message_id}")
+                        await query.delete_message()
+                        logger.info("Loading message deleted successfully")
+                    except Exception as del_error:
+                        logger.error(f"Failed to delete loading message: {str(del_error)}")
                 
-                # Create a shortened caption if necessary
-                if len(analysis_text) > max_caption_length:
-                    logger.info(f"Analysis text length ({len(analysis_text)}) exceeds Telegram limit, creating shortened version")
-                    
-                    # Split the analysis into sections
-                    sections = analysis_text.split("\n\n")
-                    
-                    # Start with the most important information (first 3 sections usually contain title, trend and zone strength)
-                    shortened_caption = "\n\n".join(sections[:3])
-                    
-                    # Find the key levels section and add if possible
-                    key_levels_section = next((s for s in sections if "🔑 Key Levels" in s), None)
-                    if key_levels_section and len(shortened_caption) + len(key_levels_section) + 2 <= max_caption_length:
-                        shortened_caption += "\n\n" + key_levels_section
-                    
-                    # Add technical indicators if space permits
-                    indicators_section = next((s for s in sections if "📈 Technical Indicators" in s), None)
-                    if indicators_section and len(shortened_caption) + len(indicators_section) + 2 <= max_caption_length:
-                        shortened_caption += "\n\n" + indicators_section
-                    
-                    caption = shortened_caption
-                else:
-                    caption = analysis_text
+                # Now send the full analysis as plain text
+                await context.bot.send_message(
+                    chat_id=update.effective_chat.id,
+                    text=analysis_text,
+                    parse_mode=None  # Ensure no parsing issues
+                )
                 
-                # Try to send a new message with the chart and properly sized caption
+                # Then send the chart image with minimal caption
                 await context.bot.send_photo(
                     chat_id=update.effective_chat.id,
                     photo=chart_image,
-                    caption=caption,
+                    caption=f"{instrument} chart ({timeframe})",
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
                 
-                # Delete the original message (the one with the loading indicator)
-                logger.info(f"Deleting original message {query.message.message_id}")
-                await query.delete_message()
-                logger.info("Original message deleted successfully")
-                
+                logger.info(f"Successfully sent analysis and chart for {instrument}")
                 return SHOW_RESULT
                 
             except Exception as e:
-                logger.error(f"Failed to send chart: {str(e)}")
+                logger.error(f"Failed to send analysis and chart: {str(e)}")
                 
-                # Try a more aggressive shortening if we still get caption too long error
-                if "caption is too long" in str(e).lower():
-                    try:
-                        logger.info("Trying with even shorter caption due to Telegram limits")
-                        # Just include the first section (title and trend)
-                        shorter_caption = analysis_text.split("\n\n")[0]
-                        if len(shorter_caption) > max_caption_length:
-                            shorter_caption = shorter_caption[:max_caption_length - 3] + "..."
-                            
-                        await context.bot.send_photo(
+                # Try alternative approach with just the chart
+                try:
+                    logger.info("Trying alternative approach with just chart")
+                    await context.bot.send_photo(
+                        chat_id=update.effective_chat.id,
+                        photo=chart_image,
+                        caption=f"{instrument} chart ({timeframe})",
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+                    
+                    # Send analysis in pieces if needed
+                    if len(analysis_text) > 4000:  # Telegram message limit is around 4096
+                        # Split into parts
+                        parts = [analysis_text[i:i+4000] for i in range(0, len(analysis_text), 4000)]
+                        for i, part in enumerate(parts):
+                            await context.bot.send_message(
+                                chat_id=update.effective_chat.id,
+                                text=f"Analysis part {i+1}/{len(parts)}:\n\n{part}",
+                                parse_mode=None
+                            )
+                    else:
+                        await context.bot.send_message(
                             chat_id=update.effective_chat.id,
-                            photo=chart_image,
-                            caption=shorter_caption,
-                            reply_markup=InlineKeyboardMarkup(keyboard)
+                            text=analysis_text,
+                            parse_mode=None
                         )
-                        
-                        # Delete the original message
-                        await query.delete_message()
-                        return SHOW_RESULT
-                    except Exception as retry_error:
-                        logger.error(f"Failed second attempt to send chart: {str(retry_error)}")
+                    
+                    # Try to delete the original message if it exists
+                    if query:
+                        try:
+                            await query.delete_message()
+                        except Exception:
+                            pass
+                    
+                    return SHOW_RESULT
+                except Exception as alt_error:
+                    logger.error(f"Alternative approach also failed: {str(alt_error)}")
                 
-                # Fallback error handling
+                # Final fallback error handling
                 try:
                     if loading_message:
                         await loading_message.edit_text(
@@ -3323,7 +3321,8 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                             reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
                         )
                     else:
-                        await query.edit_message_text(
+                        await context.bot.send_message(
+                            chat_id=update.effective_chat.id,
                             text=f"Error sending chart for {instrument}. Please try again later.",
                             reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
                         )
@@ -3334,6 +3333,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         
         except Exception as e:
             logger.error(f"Error in show_technical_analysis: {str(e)}")
+            logger.error(traceback.format_exc())
             # Error recovery
             try:
                 await query.edit_message_text(
