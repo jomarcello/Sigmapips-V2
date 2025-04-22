@@ -145,114 +145,22 @@ async def start_bot():
         
         # Log environment variables
         webhook_url = os.getenv("WEBHOOK_URL", "")
-        logger.info(f"WEBHOOK_URL from environment: '{webhook_url}'")
-        
-        # Create application instance using HTTPX with optimized connection settings
-        request = HTTPXRequest(
-            connection_pool_size=50,
-            connect_timeout=10.0,
-            read_timeout=30.0,
-            write_timeout=20.0,
-            pool_timeout=30.0,
-        )
-        perf_logs.append(f"HTTP request initialized: {time.time() - start_time:.2f}s")
-        
-        # Set up the bot in a more optimized way
-        logger.info("Setting up Telegram bot with optimized configuration")
-        
-        # Create application instance with optimized HTTP client
-        telegram_service.application = Application.builder().bot(telegram_service.bot).build()
-        perf_logs.append(f"Telegram application built: {time.time() - start_time:.2f}s")
-        
-        # Register only essential command handlers for startup
-        # Other handlers will be registered when needed
-        telegram_service.application.add_handler(CommandHandler("start", telegram_service.start_command))
-        telegram_service.application.add_handler(CommandHandler("menu", telegram_service.show_main_menu))
-        telegram_service.application.add_handler(CallbackQueryHandler(telegram_service.button_callback))
-        perf_logs.append(f"Essential handlers registered: {time.time() - start_time:.2f}s")
-        
-        # Defer loading signals to background task
-        # This will run after startup is complete
-        asyncio.create_task(telegram_service._load_signals())
-        
-        # Set essential bot commands only
-        commands = [
-            BotCommand("start", "Start the bot and get the welcome message"),
-            BotCommand("menu", "Show the main menu"),
-            BotCommand("help", "Show available commands and how to use the bot")
-        ]
-        perf_logs.append(f"Commands prepared: {time.time() - start_time:.2f}s")
-        
-        try:
-            # Initialize the application and start in polling mode
-            # Wrap in try-except to continue even if Telegram fails
-            await telegram_service.application.initialize()
-            perf_logs.append(f"Application initialized: {time.time() - start_time:.2f}s")
-            
-            await telegram_service.application.start()
-            perf_logs.append(f"Application started: {time.time() - start_time:.2f}s")
-            
-            await telegram_service.application.updater.start_polling()
-            telegram_service.polling_started = True
-            perf_logs.append(f"Polling started: {time.time() - start_time:.2f}s")
-            
-            # Set the commands
-            await telegram_service.bot.set_my_commands(commands)
-            perf_logs.append(f"Bot commands set: {time.time() - start_time:.2f}s")
-            
-            logger.info("Telegram bot initialized successfully in polling mode")
-        except Exception as e:
-            logger.error(f"Telegram initialization error (non-critical): {str(e)}")
-            perf_logs.append(f"Telegram error (continuing): {time.time() - start_time:.2f}s")
-        
-        # Register remaining handlers in background task
-        asyncio.create_task(register_additional_handlers(telegram_service))
-        
-        logger.info("Basic signal endpoints registered, additional handlers queued")
-        perf_logs.append(f"Setup complete: {time.time() - start_time:.2f}s")
+        logger.info(f"WEBHOOK_URL from environment: '{webhook_url}';")
         
         # Log all performance measurements
         logger.info("=== STARTUP PERFORMANCE MEASUREMENTS ===")
         for log in perf_logs:
             logger.info(log)
-        logger.info(f"Total startup time: {time.time() - start_time:.2f}s")
+        logger.info(f"Pre-run startup time: {time.time() - start_time:.2f}s")
         logger.info("=========================================")
         
-        # Write measurements to a file for reference
-        with open("startup_performance.txt", "w") as f:
-            f.write("=== STARTUP PERFORMANCE MEASUREMENTS ===\n")
-            for log in perf_logs:
-                f.write(f"{log}\n")
-            f.write(f"Total startup time: {time.time() - start_time:.2f}s\n")
-            f.write("=========================================\n")
+        # Use the run method from TelegramService to start the bot
+        # This handles setting up the application, registering handlers, and starting polling
+        logger.info("Starting bot using TelegramService.run()")
+        await telegram_service.run()
         
-        # Houdt het bot-proces in leven
-        logger.info("Bot is running in polling mode. Press Ctrl+C to stop.")
-        
-        # Eenvoudige HTTP gezondheidsstatus eindpunt
-        async def health_check():
-            while True:
-                try:
-                    await asyncio.sleep(30)  # Check elke 30 seconden
-                    logger.debug("Health check: Bot is running")
-                    
-                    # Controleer de telegram-bot status
-                    if not telegram_service.polling_started:
-                        logger.warning("Polling is gestopt, proberen te herstarten...")
-                        try:
-                            await telegram_service.application.updater.start_polling()
-                            telegram_service.polling_started = True
-                            logger.info("Polling succesvol herstart")
-                        except Exception as e:
-                            logger.error(f"Kon polling niet herstarten: {str(e)}")
-                except Exception as e:
-                    logger.error(f"Error in health check: {str(e)}")
-        
-        # Start health check task
-        health_task = asyncio.create_task(health_check())
-        
-        # Wacht voor altijd (of totdat er een uitzondering optreedt)
-        await asyncio.Future()
+        # We should never reach here as run() should block indefinitely
+        logger.warning("Bot exited unexpectedly")
         
     except Exception as e:
         # Log performance even when there's an error
