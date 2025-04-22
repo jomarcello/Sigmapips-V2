@@ -3213,14 +3213,27 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Get the chart image
             chart_image = await self.chart_service.get_chart(instrument, timeframe)
             
+            # Get the technical analysis text
+            logger.info(f"Getting technical analysis text for {instrument} on {timeframe} timeframe")
+            analysis_text = await self.chart_service.get_technical_analysis(instrument, timeframe)
+            
             if not chart_image:
-                # Fallback to error message
-                error_text = f"Failed to generate chart for {instrument}. Please try again later."
+                # If chart failed but we have analysis text, show just the analysis
+                logger.warning(f"Failed to generate chart for {instrument}, showing text-only analysis")
+                
+                # Create the keyboard with appropriate back button based on flow
+                keyboard = []
+                if from_signal:
+                    keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal_analysis")])
+                else:
+                    keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="back_instrument")])
+                
+                # Show text-only analysis
                 await query.edit_message_text(
-                    text=error_text,
-                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
+                    text=analysis_text,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
                 )
-                return MENU
+                return SHOW_RESULT
             
             # Create the keyboard with appropriate back button based on flow
             keyboard = []
@@ -3231,14 +3244,32 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             else:
                 keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="back_instrument")])
             
-            # Show the chart
+            # Show the chart with analysis text as caption
             try:
-                logger.info(f"Sending chart image for {instrument} {timeframe}")
+                logger.info(f"Sending chart image with analysis for {instrument} {timeframe}")
+                
+                # Create a condensed caption from the analysis text (Telegram has 1024 character limit for captions)
+                max_caption_length = 1024
+                if len(analysis_text) > max_caption_length:
+                    # Simplify the caption to fit within limits
+                    sections = analysis_text.split("\n\n")
+                    # Always include the title, trend and zone strength
+                    condensed_caption = "\n\n".join(sections[:3])
+                    # Add as many sections as will fit
+                    for section in sections[3:]:
+                        if len(condensed_caption) + len(section) + 2 <= max_caption_length:
+                            condensed_caption += "\n\n" + section
+                        else:
+                            break
+                    caption = condensed_caption
+                else:
+                    caption = analysis_text
+                
                 # Try to send a new message with the chart
                 await context.bot.send_photo(
                     chat_id=update.effective_chat.id,
                     photo=chart_image,
-                    caption=f"{instrument} Technical Analysis",
+                    caption=caption,
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
                 
@@ -3246,6 +3277,15 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 logger.info(f"Deleting original message {query.message.message_id}")
                 await query.delete_message()
                 logger.info("Original message deleted successfully")
+                
+                # If the caption was truncated, send the full analysis as a separate message
+                if len(analysis_text) > max_caption_length:
+                    logger.info("Sending full analysis as separate message")
+                    await context.bot.send_message(
+                        chat_id=update.effective_chat.id,
+                        text=analysis_text,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
                 
                 return SHOW_RESULT
                 
@@ -3256,12 +3296,12 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 try:
                     if loading_message:
                         await loading_message.edit_text(
-                            text=f"Error sending chart for {instrument}. Please try again later.",
+                            text=f"Error sending chart for {instrument}. Analysis:\n\n{analysis_text}",
                             reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
                         )
                     else:
                         await query.edit_message_text(
-                            text=f"Error sending chart for {instrument}. Please try again later.",
+                            text=f"Error sending chart for {instrument}. Analysis:\n\n{analysis_text}",
                             reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
                         )
                 except Exception:
