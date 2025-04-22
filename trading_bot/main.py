@@ -22,49 +22,15 @@ load_dotenv()
 from trading_bot.services.database.db import Database
 from trading_bot.services.payment_service.stripe_config import STRIPE_WEBHOOK_SECRET
 
-# Import TelegramService with fallback mechanisms
+# Import TelegramService with simplified approach
 try:
-    # First attempt - direct import
-    from trading_bot.services.telegram_service.bot import TelegramService
-except ImportError:
-    try:
-        # Second attempt - import from package
-        from trading_bot.services.telegram_service import TelegramService
-    except ImportError:
-        # Last resort - dynamically load the class
-        import importlib.util
-        import sys
-        
-        # Path to the bot.py file
-        bot_module_path = os.path.join(os.path.dirname(__file__), 'services', 'telegram_service', 'bot.py')
-        
-        if os.path.exists(bot_module_path):
-            print(f"Loading TelegramService directly from {bot_module_path}")
-            # Load the module from the file path
-            spec = importlib.util.spec_from_file_location("telegram_service_bot", bot_module_path)
-            telegram_bot_module = importlib.util.module_from_spec(spec)
-            sys.modules["telegram_service_bot"] = telegram_bot_module
-            spec.loader.exec_module(telegram_bot_module)
-            
-            # Check if the module has TelegramService
-            if hasattr(telegram_bot_module, 'TelegramService'):
-                TelegramService = telegram_bot_module.TelegramService
-            else:
-                # Try to find the TelegramService class in the module by looking at class definitions
-                print("TelegramService not found directly, scanning module content...")
-                for attr_name in dir(telegram_bot_module):
-                    attr = getattr(telegram_bot_module, attr_name)
-                    if isinstance(attr, type) and (attr_name == "TelegramService" or 
-                            (hasattr(attr, '__module__') and attr.__module__ == 'telegram_service_bot')):
-                        print(f"Found matching class: {attr_name}")
-                        TelegramService = attr
-                        # Also add it to the module for consistency
-                        telegram_bot_module.TelegramService = attr
-                        break
-                else:
-                    raise ImportError("Cannot find TelegramService class in module")
-        else:
-            raise ImportError("Cannot import TelegramService: bot.py file not found")
+    # Import from the package - this will use the fixed __init__.py
+    from trading_bot.services.telegram_service import TelegramService
+    logger.info("Successfully imported TelegramService from package")
+except ImportError as e:
+    # Log detailed error and exit - better to fail clearly than continue with a broken import
+    logger.error(f"Critical error importing TelegramService: {str(e)}")
+    raise ImportError("Cannot find TelegramService class in module")
 
 from trading_bot.services.payment_service.stripe_service import StripeService
 
