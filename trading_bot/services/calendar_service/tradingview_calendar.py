@@ -123,7 +123,8 @@ class TradingViewCalendarService:
             
             # Calculate date range
             start_date = datetime.now()
-            end_date = start_date + timedelta(days=days_ahead)
+            # Always make sure end_date is at least 1 day after start_date
+            end_date = start_date + timedelta(days=max(1, days_ahead))
             
             # Prepare request parameters with correct format
             params = {
