@@ -3120,6 +3120,12 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Get the chart image
             chart_image = await self.chart_service.get_chart(instrument, timeframe)
             
+            # Get the technical analysis text
+            analysis_text = await self.chart_service.get_technical_analysis(instrument, timeframe)
+            
+            # Clean up the analysis text (remove double spaces and excessive line breaks)
+            analysis_text = analysis_text.replace("  \n", "\n").strip()
+            
             if not chart_image:
                 # Fallback to error message
                 error_text = f"Failed to generate chart for {instrument}. Please try again later."
@@ -3145,7 +3151,8 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 await context.bot.send_photo(
                     chat_id=update.effective_chat.id,
                     photo=chart_image,
-                    caption=f"{instrument} Technical Analysis",
+                    caption=analysis_text,
+                    parse_mode=ParseMode.HTML,
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
                 
