@@ -3700,3 +3700,84 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 pass
                 
             return MENU
+
+    async def _load_signals(self):
+        """Load and cache previously saved signals"""
+        try:
+            # Initialize user_signals dictionary if it doesn't exist
+            if not hasattr(self, 'user_signals'):
+                self.user_signals = {}
+                
+            # Check if signals directory exists
+            if not os.path.exists(self.signals_dir):
+                os.makedirs(self.signals_dir, exist_ok=True)
+                logger.info(f"Created signals directory at {self.signals_dir}")
+                return  # No signals to load yet
+            
+            # Log the start of loading signals
+            logger.info(f"Loading signals from {self.signals_dir}")
+            
+            # If we have a database connection, load signals from there
+            if self.db:
+                try:
+                    # Get all active signals from the database
+                    signals = await self.db.get_active_signals() if hasattr(self.db, 'get_active_signals') else []
+                    
+                    # Organize signals by user_id for quick access
+                    for signal in signals:
+                        user_id = str(signal.get('user_id'))
+                        signal_id = signal.get('id')
+                        
+                        # Initialize user dictionary if needed
+                        if user_id not in self.user_signals:
+                            self.user_signals[user_id] = {}
+                        
+                        # Store the signal
+                        self.user_signals[user_id][signal_id] = signal
+                    
+                    logger.info(f"Loaded {len(signals)} signals for {len(self.user_signals)} users from database")
+                except Exception as db_error:
+                    logger.error(f"Error loading signals from database: {str(db_error)}")
+            
+            # Also load signals from files for redundancy
+            loaded_count = 0
+            try:
+                # List all signal files
+                signal_files = [f for f in os.listdir(self.signals_dir) if f.endswith('.json')]
+                
+                # Load each signal file
+                for filename in signal_files:
+                    try:
+                        # Extract signal ID from filename
+                        signal_id = filename.replace('.json', '')
+                        
+                        # Load the signal data
+                        with open(os.path.join(self.signals_dir, filename), 'r') as f:
+                            signal_data = json.load(f)
+                        
+                        # Check if signal has user ID information
+                        # For admin testing, add signal to admin users
+                        if hasattr(self, 'admin_users') and self.admin_users:
+                            for admin_id in self.admin_users:
+                                admin_str_id = str(admin_id)
+                                
+                                # Initialize admin dictionary if needed
+                                if admin_str_id not in self.user_signals:
+                                    self.user_signals[admin_str_id] = {}
+                                
+                                # Store signal for admin
+                                self.user_signals[admin_str_id][signal_id] = signal_data
+                        
+                        loaded_count += 1
+                    except Exception as signal_error:
+                        logger.error(f"Error loading signal {filename}: {str(signal_error)}")
+                
+                logger.info(f"Loaded {loaded_count} signals from file storage")
+            except Exception as file_error:
+                logger.error(f"Error loading signals from files: {str(file_error)}")
+                
+        except Exception as e:
+            logger.error(f"Error loading signals: {str(e)}")
+            logger.exception(e)
+            # Initialize empty dict on error
+            self.user_signals = {}
