@@ -3936,27 +3936,63 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     with open(chart_image, 'rb') as file:
                         photo_file = file.read()
                         
+                        # Truncate the analysis text to fit within Telegram's caption limit
+                        if analysis_text and len(analysis_text) > 1000:
+                            truncated_caption = analysis_text[:997] + "..."
+                            logger.info(f"Truncated caption for local file from {len(analysis_text)} to {len(truncated_caption)} characters")
+                        else:
+                            truncated_caption = analysis_text
+                        
                         # Update message with photo file
                         await query.edit_message_media(
                             media=InputMediaPhoto(
                                 media=photo_file,
-                                caption=analysis_text,
+                                caption=truncated_caption,
                                 parse_mode=ParseMode.HTML
                             ),
                             reply_markup=InlineKeyboardMarkup(keyboard)
                         )
                         logger.info(f"Successfully sent chart file and analysis for {instrument}")
+                        
+                        # If the analysis text was truncated, send the full analysis as a separate message
+                        if analysis_text and len(analysis_text) > 1000:
+                            # Split the text into chunks of 4000 characters (Telegram message limit)
+                            chunks = [analysis_text[i:i+4000] for i in range(0, len(analysis_text), 4000)]
+                            
+                            # Send each chunk as a separate message
+                            for chunk in chunks:
+                                await context.bot.send_message(
+                                    chat_id=update.effective_chat.id,
+                                    text=chunk,
+                                    parse_mode=ParseMode.HTML
+                                )
                 except Exception as file_error:
                     logger.error(f"Error sending local file: {str(file_error)}")
                     # Try to send as a new message
                     try:
                         with open(chart_image, 'rb') as file:
+                            # Truncate caption to Telegram's limit if needed
+                            if analysis_text and len(analysis_text) > 1000:
+                                truncated_caption = analysis_text[:997] + "..."
+                            else:
+                                truncated_caption = analysis_text
+                                
                             await query.message.reply_photo(
                                 photo=file,
-                                caption=analysis_text[:1000] if analysis_text and len(analysis_text) > 1000 else analysis_text,
+                                caption=truncated_caption,
                                 parse_mode=ParseMode.HTML,
                                 reply_markup=InlineKeyboardMarkup(keyboard)
                             )
+                            
+                            # Send full analysis as separate message if truncated
+                            if analysis_text and len(analysis_text) > 1000:
+                                chunks = [analysis_text[i:i+4000] for i in range(0, len(analysis_text), 4000)]
+                                for chunk in chunks:
+                                    await context.bot.send_message(
+                                        chat_id=update.effective_chat.id,
+                                        text=chunk,
+                                        parse_mode=ParseMode.HTML
+                                    )
                     except Exception as fallback_error:
                         logger.error(f"Failed to send local file as fallback: {str(fallback_error)}")
                         await query.message.reply_text(
@@ -3968,14 +4004,35 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             
             # Show the chart - directly delete and send new message which is faster than editing
             try:
+                # Truncate the analysis text to fit within Telegram's caption limit (1024 characters)
+                if analysis_text and len(analysis_text) > 1000:
+                    # Truncate and add indicator that text was cut
+                    truncated_analysis = analysis_text[:997] + "..."
+                    logger.info(f"Truncated analysis text from {len(analysis_text)} to {len(truncated_analysis)} characters")
+                else:
+                    truncated_analysis = analysis_text
+                
                 # Send a new message with the chart
                 await context.bot.send_photo(
                     chat_id=update.effective_chat.id,
                     photo=chart_image,
-                    caption=analysis_text,
+                    caption=truncated_analysis,
                     parse_mode=ParseMode.HTML,
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
+                
+                # If the analysis text was truncated, send the full analysis as a separate message
+                if analysis_text and len(analysis_text) > 1000:
+                    # Split the text into chunks of 4000 characters (Telegram message limit)
+                    chunks = [analysis_text[i:i+4000] for i in range(0, len(analysis_text), 4000)]
+                    
+                    # Send each chunk as a separate message
+                    for chunk in chunks:
+                        await context.bot.send_message(
+                            chat_id=update.effective_chat.id,
+                            text=chunk,
+                            parse_mode=ParseMode.HTML
+                        )
                 
                 # Delete the original message
                 await query.delete_message()
