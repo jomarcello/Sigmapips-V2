@@ -2,7 +2,7 @@ import os
 import json
 import asyncio
 import traceback
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Union, Tuple, Set
 from datetime import datetime, timedelta
 import logging
 import copy
@@ -644,17 +644,24 @@ class TelegramService:
         self.token = self.bot_token  # Aliased for backward compatibility
         self.proxy_url = proxy_url or os.getenv("TELEGRAM_PROXY_URL", "")
         
-        # Configure custom request handler with improved connection settings
+        # Configure custom request handler with significantly improved connection settings
+        # These increased timeout values should help with "service unavailable" errors
         request = HTTPXRequest(
-            connection_pool_size=50,  # Increase from 20 to 50
-            connect_timeout=15.0,     # Increase from 10.0 to 15.0
-            read_timeout=45.0,        # Increase from 30.0 to 45.0
-            write_timeout=30.0,       # Increase from 20.0 to 30.0
-            pool_timeout=60.0,        # Increase from 30.0 to 60.0
+            connection_pool_size=100,    # Increased from 50
+            connect_timeout=30.0,        # Increased from 15.0
+            read_timeout=90.0,           # Increased from 45.0 
+            write_timeout=60.0,          # Increased from 30.0
+            pool_timeout=120.0           # Increased from 60.0
         )
         
         # Initialize the bot directly with connection pool settings
-        self.bot = Bot(token=self.bot_token, request=request)
+        try:
+            self.bot = Bot(token=self.bot_token, request=request)
+            logger.info("Bot instance created successfully with improved connection settings")
+        except Exception as e:
+            logger.error(f"Error creating Bot instance: {str(e)}")
+            raise
+            
         self.application = None  # Will be initialized in setup()
         
         # Webhook configuration
@@ -688,11 +695,8 @@ class TelegramService:
             if not self.bot_token:
                 raise ValueError("Missing Telegram bot token")
             
-            # Initialize the bot
-            self.bot = Bot(token=self.bot_token)
-        
-            # Initialize the application
-            self.application = Application.builder().bot(self.bot).build()
+            # Application initialization with additional parameters for reliability
+            self.application = Application.builder().bot(self.bot).concurrent_updates(True).build()
         
             # Register the handlers
             self._register_handlers(self.application)
@@ -720,10 +724,142 @@ class TelegramService:
             raise
             
     async def run(self):
-        """Run the telegram service (placeholder for long-running tasks)"""
+        """Run the telegram service with retry mechanism for Telegram API connection issues"""
         logger.info("TelegramService.run() called")
-        while True:
-            await asyncio.sleep(3600)  # Sleep for an hour
+        
+        # First try to initialize and set up the bot properly
+        try:
+            # Initialize the application if not already initialized
+            if not hasattr(self.application, '_initialized') or not self.application._initialized:
+                await self.application.initialize()
+            
+            # Start the application (this starts the required components)
+            if not hasattr(self.application, '_running') or not self.application._running:
+                await self.application.start()
+            
+            # Determine if we should use polling based on environment or settings
+            use_polling = os.getenv("FORCE_POLLING", "").lower() == "true"
+            is_local_env = not self.webhook_url or self.webhook_url == ""
+            
+            # First validate connection to Telegram with a getMe request before deciding polling/webhook
+            logger.info("Testing connection to Telegram API with getMe...")
+            try:
+                # Send a test request to Telegram API
+                me = await self.bot.get_me()
+                logger.info(f"Successfully connected to Telegram API. Bot: {me.first_name} (@{me.username})")
+            except Exception as e:
+                logger.error(f"Failed to connect to Telegram API: {str(e)}")
+                # Try more aggressive retry for initial connection
+                for attempt in range(1, 6):  # 5 attempts
+                    try:
+                        logger.info(f"Retrying connection to Telegram API (attempt {attempt}/5)...")
+                        await asyncio.sleep(3 * attempt)  # Increasing delay
+                        me = await self.bot.get_me()
+                        logger.info(f"Successfully connected on attempt {attempt}. Bot: {me.first_name}")
+                        break
+                    except Exception as retry_e:
+                        logger.error(f"Attempt {attempt} failed: {str(retry_e)}")
+                        if attempt == 5:
+                            raise  # Re-raise if all attempts failed
+            
+            # Use polling if there's no webhook URL or explicitly forced
+            if use_polling or is_local_env:
+                logger.info("Starting bot in polling mode...")
+                # Make sure the updater isn't already running
+                if hasattr(self.application, 'updater') and self.application.updater.running:
+                    await self.application.updater.stop()
+                
+                # Delete any existing webhook
+                await self.bot.delete_webhook(drop_pending_updates=True)
+                
+                # Start polling with drop_pending_updates to avoid old message conflicts
+                await self.application.updater.start_polling(
+                    poll_interval=1.0, 
+                    timeout=30, 
+                    drop_pending_updates=True
+                )
+                self.polling_started = True
+                logger.info("Bot started in polling mode")
+            elif self.webhook_url:
+                # In webhook mode, ensure webhook is properly set
+                logger.info(f"Bot is set up for webhook mode at {self.webhook_url}{self.webhook_path}")
+                # Clear any existing webhook
+                await self.bot.delete_webhook(drop_pending_updates=True)
+                # Wait a moment to ensure webhook is cleared
+                await asyncio.sleep(1)
+                # Set up the webhook
+                await self.bot.set_webhook(
+                    url=f"{self.webhook_url}{self.webhook_path}",
+                    drop_pending_updates=True
+                )
+                logger.info("Webhook set successfully")
+            else:
+                # No webhook URL and not using polling - use a fake polling to keep bot responsive
+                logger.info("No webhook URL provided and polling not forced. Using fallback polling mode.")
+                # Delete any existing webhook
+                await self.bot.delete_webhook(drop_pending_updates=True)
+                
+                # Start polling with drop_pending_updates to avoid old message conflicts
+                if hasattr(self.application, 'updater'):
+                    await self.application.updater.start_polling(
+                        poll_interval=1.0, 
+                        timeout=30, 
+                        drop_pending_updates=True
+                    )
+                    self.polling_started = True
+                    logger.info("Bot started in fallback polling mode")
+            
+            # Keep the service running with a heartbeat
+            max_retries = 10
+            retry_count = 0
+            retry_delay = 10  # Start with 10 seconds
+            
+            while True:
+                try:
+                    # Send a getMe request to keep the connection alive and verify bot is working
+                    bot_info = await self.bot.get_me()
+                    logger.info(f"Bot heartbeat successful: {bot_info.first_name} (@{bot_info.username})")
+                    # Reset retry counters on success
+                    retry_count = 0
+                    retry_delay = 10
+                    # Sleep for 30 minutes between heartbeats
+                    await asyncio.sleep(1800)
+                    
+                except Exception as e:
+                    retry_count += 1
+                    logger.error(f"Bot heartbeat failed (attempt {retry_count}/{max_retries}): {str(e)}")
+                    
+                    if retry_count >= max_retries:
+                        logger.error("Maximum retries reached, restarting bot initialization")
+                        # Try to restart the bot
+                        try:
+                            # Stop the application components
+                            if hasattr(self, 'application') and self.application:
+                                if hasattr(self.application, 'updater') and self.application.updater.running:
+                                    await self.application.updater.stop()
+                                await self.application.stop()
+                                await self.application.shutdown()
+                            
+                            # Reinitialize the bot with a new application
+                            self.application = Application.builder().bot(self.bot).build()
+                            self._register_handlers(self.application)
+                            
+                            # Restart initialization from the beginning
+                            retry_count = 0
+                            continue
+                        except Exception as restart_error:
+                            logger.error(f"Failed to restart bot: {str(restart_error)}")
+                            # If we couldn't restart, continue with the retry cycle
+                    
+                    # Wait with exponential backoff
+                    logger.info(f"Attempt #{retry_count} failed with service unavailable. Continuing to retry for {retry_delay}s")
+                    await asyncio.sleep(retry_delay)
+                    # Increase retry delay with some randomness to avoid synchronized retries
+                    retry_delay = min(300, retry_delay * 1.5)  # Cap at 5 minutes
+        
+        except Exception as e:
+            logger.error(f"Error in bot run loop: {str(e)}")
+            raise
 
     # Calendar service helpers
     @property
