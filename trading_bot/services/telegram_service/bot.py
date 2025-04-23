@@ -3167,3 +3167,536 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 logger.error(f"Error sending new message in market_callback: {str(e2)}")
         
         return CHOOSE_INSTRUMENT
+
+    async def instrument_callback(self, update: Update, context=None) -> int:
+        """Handle instrument selections with specific types (chart, sentiment, calendar)"""
+        query = update.callback_query
+        callback_data = query.data
+        await query.answer()
+        
+        # Parse the callback data to extract the instrument and type
+        parts = callback_data.split("_")
+        # For format like "instrument_EURUSD_sentiment" or "market_forex_sentiment"
+        
+        if callback_data.startswith("instrument_"):
+            # Extract the instrument, handling potential underscores in instrument name
+            instrument_parts = []
+            analysis_type = ""
+            
+            # Find where the type specifier starts
+            for i, part in enumerate(parts[1:], 1):  # Skip "instrument_" prefix
+                if part in ["chart", "sentiment", "calendar", "signals"]:
+                    analysis_type = part
+                    break
+                instrument_parts.append(part)
+            
+            # Join the instrument parts if we have any
+            instrument = "_".join(instrument_parts) if instrument_parts else ""
+            
+            logger.info(f"Instrument callback: instrument={instrument}, type={analysis_type}")
+            
+            # Store in context
+            if context and hasattr(context, 'user_data'):
+                context.user_data['instrument'] = instrument
+                context.user_data['analysis_type'] = analysis_type
+            
+            # Handle the different analysis types
+            if analysis_type == "chart":
+                return await self.show_technical_analysis(update, context, instrument=instrument)
+            elif analysis_type == "sentiment":
+                return await self.show_sentiment_analysis(update, context, instrument=instrument)
+            elif analysis_type == "calendar":
+                return await self.show_calendar_analysis(update, context, instrument=instrument)
+            elif analysis_type == "signals":
+                # This should be handled by instrument_signals_callback if available
+                if hasattr(self, 'instrument_signals_callback'):
+                    return await self.instrument_signals_callback(update, context)
+                else:
+                    # Fallback if method not available
+                    await query.edit_message_text(
+                        text=f"Signal subscription for {instrument} is being set up...",
+                        parse_mode=ParseMode.HTML
+                    )
+                    return CHOOSE_SIGNALS
+        
+        # Fallback - return to market selection
+        logger.warning(f"Unhandled instrument callback: {callback_data}")
+        try:
+            await query.edit_message_text(
+                text="Please select a market:",
+                reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
+            )
+        except Exception as e:
+            logger.error(f"Error in instrument_callback fallback: {str(e)}")
+        
+        return CHOOSE_MARKET
+
+    async def back_market_callback(self, update: Update, context=None) -> int:
+        """Handle back_market button press to return to market selection"""
+        query = update.callback_query
+        await query.answer()
+        
+        logger.info("back_market_callback called")
+        
+        # Determine if we need to go back to signals or analysis flow
+        is_signals_context = False
+        if context and hasattr(context, 'user_data'):
+            is_signals_context = context.user_data.get('is_signals_context', False)
+        
+        # Check if the current message has a photo or animation
+        has_photo = bool(query.message.photo) or query.message.animation is not None
+        
+        # Select the appropriate keyboard and message
+        if is_signals_context:
+            keyboard = MARKET_KEYBOARD_SIGNALS
+            message_text = "Select a market for trading signals:"
+        else:
+            # Get the analysis type for the right keyboard
+            analysis_type = context.user_data.get('analysis_type', 'technical') if context and hasattr(context, 'user_data') else 'technical'
+            
+            if analysis_type == 'sentiment':
+                keyboard = MARKET_SENTIMENT_KEYBOARD
+                message_text = "Select a market for sentiment analysis:"
+            elif analysis_type == 'calendar':
+                # For calendar, we can just go back to analysis menu
+                return await self.analysis_callback(update, context)
+            else:
+                keyboard = MARKET_KEYBOARD
+                message_text = "Select a market for technical analysis:"
+        
+        # Try to update the message
+        if has_photo:
+            # Try to delete and send a new message
+            try:
+                await query.message.delete()
+                await context.bot.send_message(
+                    chat_id=update.effective_chat.id,
+                    text=message_text,
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.HTML
+                )
+                return CHOOSE_MARKET
+            except Exception as delete_error:
+                logger.warning(f"Could not delete message: {str(delete_error)}")
+                # Try just to edit caption as fallback
+                try:
+                    await query.edit_message_caption(
+                        caption=message_text,
+                        reply_markup=InlineKeyboardMarkup(keyboard),
+                        parse_mode=ParseMode.HTML
+                    )
+                except Exception as e:
+                    logger.error(f"Error updating caption in back_market_callback: {str(e)}")
+        else:
+            # Text message, just update it
+            try:
+                await query.edit_message_text(
+                    text=message_text,
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.HTML
+                )
+            except Exception as e:
+                logger.error(f"Error updating message in back_market_callback: {str(e)}")
+                # Try to send a new message as fallback
+                await context.bot.send_message(
+                    chat_id=update.effective_chat.id,
+                    text=message_text,
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.HTML
+                )
+        
+        return CHOOSE_MARKET
+
+    async def analysis_callback(self, update: Update, context=None) -> int:
+        """Handle back_analysis button press to return to analysis menu"""
+        query = update.callback_query
+        await query.answer()
+        
+        logger.info("analysis_callback called")
+        
+        chat_id = update.effective_chat.id
+        message_id = query.message.message_id
+        
+        # Get random gif for analysis menu
+        gif_url = random.choice(gif_utils.ANALYSIS_GIFS) if hasattr(gif_utils, 'ANALYSIS_GIFS') else "https://media.giphy.com/media/gSzIKNrqtotEYrZv7i/giphy.gif"
+        
+        try:
+            # Try to delete the current message
+            await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
+            # Send a new message with the analysis menu
+            await context.bot.send_animation(
+                chat_id=chat_id,
+                animation=gif_url,
+                caption="Select your analysis type:",
+                reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
+                parse_mode=ParseMode.HTML
+            )
+            logger.info("Successfully deleted message and sent new analysis menu")
+            return CHOOSE_ANALYSIS
+        except Exception as delete_error:
+            logger.warning(f"Could not delete message: {str(delete_error)}")
+            
+            # Fallback if we cannot delete the message
+            try:
+                await query.edit_message_text(
+                    text="Select your analysis type:",
+                    reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
+                )
+            except Exception:
+                try:
+                    # If we can't edit text, try caption
+                    await query.edit_message_caption(
+                        caption="Select your analysis type:",
+                        reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to update message: {str(e)}")
+                    # As a last resort, send a new message
+                    await context.bot.send_message(
+                        chat_id=chat_id,
+                        text="Select your analysis type:",
+                        reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
+                    )
+            
+            return CHOOSE_ANALYSIS
+        
+        except Exception as e:
+            logger.error(f"Error in analysis_callback: {str(e)}")
+            
+            # Try to recover
+            if update and update.effective_chat:
+                try:
+                    await context.bot.send_message(
+                        chat_id=update.effective_chat.id,
+                        text="Something went wrong. Please try again.",
+                        reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
+                    )
+                except Exception:
+                    pass
+            
+            return MENU
+
+    async def button_callback(self, update: Update, context=None) -> int:
+        """Handle button callback queries that don't match other patterns"""
+        try:
+            query = update.callback_query
+            callback_data = query.data
+            
+            # Log the callback data
+            logger.info(f"Button callback called with data: {callback_data}")
+            
+            # Answer the callback query to stop the loading indicator
+            await query.answer()
+            
+            # Handle analyze from signal button
+            if callback_data.startswith("analyze_from_signal_"):
+                # Check if method exists
+                if hasattr(self, 'analyze_from_signal_callback'):
+                    return await self.analyze_from_signal_callback(update, context)
+                else:
+                    # Fallback if method not available
+                    parts = callback_data.split('_')
+                    instrument = parts[3] if len(parts) > 3 else "unknown"
+                    await query.edit_message_text(
+                        text=f"Preparing analysis for {instrument}...",
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=InlineKeyboardMarkup(SIGNAL_ANALYSIS_KEYBOARD)
+                    )
+                    return CHOOSE_ANALYSIS
+                
+            # Help button
+            if callback_data == "help":
+                await self.help_command(update, context)
+                return MENU
+                
+            # Menu navigation
+            if callback_data == CALLBACK_MENU_ANALYSE:
+                return await self.menu_analyse_callback(update, context)
+            elif callback_data == CALLBACK_MENU_SIGNALS:
+                if hasattr(self, 'menu_signals_callback'):
+                    return await self.menu_signals_callback(update, context)
+                else:
+                    # Fallback if method not available
+                    await query.edit_message_text(
+                        text="Signal management coming soon...",
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
+                    )
+                    return MENU
+            
+            # Analysis type selection
+            elif callback_data == CALLBACK_ANALYSIS_TECHNICAL or callback_data == "analysis_technical":
+                return await self.analysis_technical_callback(update, context)
+            elif callback_data == CALLBACK_ANALYSIS_SENTIMENT or callback_data == "analysis_sentiment":
+                return await self.analysis_sentiment_callback(update, context)
+            elif callback_data == CALLBACK_ANALYSIS_CALENDAR or callback_data == "analysis_calendar":
+                return await self.analysis_calendar_callback(update, context)
+                
+            # Direct instrument_timeframe callbacks  
+            if "_timeframe_" in callback_data:
+                # Format: instrument_EURUSD_timeframe_H1
+                parts = callback_data.split("_")
+                instrument = parts[1]
+                timeframe = parts[3] if len(parts) > 3 else "1h"  # Default to 1h
+                if hasattr(self, 'show_technical_analysis'):
+                    return await self.show_technical_analysis(update, context, instrument=instrument, timeframe=timeframe)
+                else:
+                    # Fallback if method not available
+                    await query.edit_message_text(
+                        text=f"Technical analysis for {instrument} on {timeframe} timeframe is being prepared...",
+                        parse_mode=ParseMode.HTML
+                    )
+                    return SHOW_RESULT
+            
+            # Signal buttons
+            # Handle signal technical button
+            if callback_data == "signal_technical":
+                if hasattr(self, 'signal_technical_callback'):
+                    return await self.signal_technical_callback(update, context)
+                else:
+                    # Fallback
+                    await query.edit_message_text(
+                        text="Technical analysis from signal being prepared...",
+                        parse_mode=ParseMode.HTML
+                    )
+                    return CHOOSE_ANALYSIS
+                    
+            # Handle signal sentiment button
+            if callback_data == "signal_sentiment":
+                if hasattr(self, 'signal_sentiment_callback'):
+                    return await self.signal_sentiment_callback(update, context)
+                else:
+                    # Fallback
+                    await query.edit_message_text(
+                        text="Sentiment analysis from signal being prepared...",
+                        parse_mode=ParseMode.HTML
+                    )
+                    return CHOOSE_ANALYSIS
+                    
+            # Handle signal calendar button
+            if callback_data == "signal_calendar":
+                if hasattr(self, 'signal_calendar_callback'):
+                    return await self.signal_calendar_callback(update, context)
+                else:
+                    # Fallback
+                    await query.edit_message_text(
+                        text="Economic calendar from signal being prepared...",
+                        parse_mode=ParseMode.HTML
+                    )
+                    return CHOOSE_ANALYSIS
+                    
+            # Handle back to signal button
+            if callback_data == "back_to_signal":
+                if hasattr(self, 'back_to_signal_callback'):
+                    return await self.back_to_signal_callback(update, context)
+                else:
+                    # Fallback
+                    await query.edit_message_text(
+                        text="Returning to signal...",
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔍 Analyze Market", callback_data="analyze_from_signal")]])
+                    )
+                    return SIGNAL_DETAILS
+            
+            # Handle back to signal analysis button
+            if callback_data == "back_to_signal_analysis":
+                if hasattr(self, 'back_to_signal_analysis_callback'):
+                    return await self.back_to_signal_analysis_callback(update, context)
+                else:
+                    # Fallback
+                    await query.edit_message_text(
+                        text="Select your analysis type:",
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=InlineKeyboardMarkup(SIGNAL_ANALYSIS_KEYBOARD)
+                    )
+                    return CHOOSE_ANALYSIS
+            
+            # Signals handlers
+            if callback_data == "signals_add" or callback_data == CALLBACK_SIGNALS_ADD:
+                if hasattr(self, 'signals_add_callback'):
+                    return await self.signals_add_callback(update, context)
+                else:
+                    # Fallback
+                    await query.edit_message_text(
+                        text="Signal subscription setup coming soon...",
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_menu")]])
+                    )
+                    return MENU
+                
+            # Manage signals handler
+            if callback_data == "signals_manage" or callback_data == CALLBACK_SIGNALS_MANAGE:
+                if hasattr(self, 'signals_manage_callback'):
+                    return await self.signals_manage_callback(update, context)
+                else:
+                    # Fallback
+                    await query.edit_message_text(
+                        text="Signal management coming soon...",
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_menu")]])
+                    )
+                    return MENU
+            
+            # Handle signal deletion callbacks
+            if callback_data.startswith("delete_signal_"):
+                signal_id = callback_data.replace("delete_signal_", "")
+                
+                try:
+                    # Delete the signal subscription if database access is available
+                    if hasattr(self, 'db') and self.db:
+                        response = self.db.supabase.table('signal_subscriptions').delete().eq('id', signal_id).execute()
+                        
+                        if response and response.data:
+                            # Successfully deleted
+                            await query.answer("Signal subscription removed successfully")
+                        else:
+                            # Failed to delete
+                            await query.answer("Failed to remove signal subscription")
+                    else:
+                        await query.answer("Database not available")
+                    
+                    # Refresh the manage signals view if method available
+                    if hasattr(self, 'signals_manage_callback'):
+                        return await self.signals_manage_callback(update, context)
+                    else:
+                        # Basic fallback
+                        await query.edit_message_text(
+                            text="Signal deleted. Use /menu to continue.",
+                            parse_mode=ParseMode.HTML,
+                            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back to Menu", callback_data="back_menu")]])
+                        )
+                        return MENU
+                    
+                except Exception as e:
+                    logger.error(f"Error deleting signal subscription: {str(e)}")
+                    await query.answer("Error removing signal subscription")
+                    # Basic fallback
+                    await query.edit_message_text(
+                        text="Error deleting signal. Use /menu to continue.",
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back to Menu", callback_data="back_menu")]])
+                    )
+                    return MENU
+            
+            # Handle delete all signals
+            if callback_data == "delete_all_signals":
+                user_id = update.effective_user.id
+                
+                try:
+                    # Delete all signal subscriptions for this user if database is available
+                    if hasattr(self, 'db') and self.db:
+                        response = self.db.supabase.table('signal_subscriptions').delete().eq('user_id', user_id).execute()
+                        
+                        if response and response.data:
+                            # Successfully deleted
+                            await query.answer("All signal subscriptions removed successfully")
+                        else:
+                            # Failed to delete
+                            await query.answer("Failed to remove signal subscriptions")
+                    else:
+                        await query.answer("Database not available")
+                    
+                    # Refresh the manage signals view if method available
+                    if hasattr(self, 'signals_manage_callback'):
+                        return await self.signals_manage_callback(update, context)
+                    else:
+                        # Basic fallback
+                        await query.edit_message_text(
+                            text="All signals deleted. Use /menu to continue.",
+                            parse_mode=ParseMode.HTML,
+                            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back to Menu", callback_data="back_menu")]])
+                        )
+                        return MENU
+                    
+                except Exception as e:
+                    logger.error(f"Error deleting all signal subscriptions: {str(e)}")
+                    await query.answer("Error removing signal subscriptions")
+                    # Basic fallback
+                    await query.edit_message_text(
+                        text="Error deleting signals. Use /menu to continue.",
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back to Menu", callback_data="back_menu")]])
+                    )
+                    return MENU
+            
+            # Back button handlers
+            if callback_data == "back_menu" or callback_data == CALLBACK_BACK_MENU:
+                if hasattr(self, 'back_menu_callback'):
+                    return await self.back_menu_callback(update, context)
+                else:
+                    # Fallback
+                    await query.edit_message_text(
+                        text=WELCOME_MESSAGE,
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
+                    )
+                    return MENU
+            elif callback_data == "back_analysis" or callback_data == CALLBACK_BACK_ANALYSIS:
+                if hasattr(self, 'analysis_callback'):
+                    return await self.analysis_callback(update, context)
+                else:
+                    # Fallback
+                    await query.edit_message_text(
+                        text="Select your analysis type:",
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
+                    )
+                    return CHOOSE_ANALYSIS
+            elif callback_data == "back_signals" or callback_data == CALLBACK_BACK_SIGNALS:
+                if hasattr(self, 'back_signals_callback'):
+                    return await self.back_signals_callback(update, context)
+                else:
+                    # Fallback
+                    await query.edit_message_text(
+                        text="Signal Management",
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD)
+                    )
+                    return SIGNALS
+            elif callback_data == "back_market" or callback_data == CALLBACK_BACK_MARKET:
+                if hasattr(self, 'back_market_callback'):
+                    return await self.back_market_callback(update, context)
+                else:
+                    # Fallback
+                    await query.edit_message_text(
+                        text="Select a market:",
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
+                    )
+                    return CHOOSE_MARKET
+            elif callback_data == "back_instrument":
+                if hasattr(self, 'back_instrument_callback'):
+                    return await self.back_instrument_callback(update, context)
+                else:
+                    # Fallback
+                    await query.edit_message_text(
+                        text="Select your analysis type:",
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
+                    )
+                    return CHOOSE_ANALYSIS
+            
+            # Default handling if no specific callback found, go back to menu
+            logger.warning(f"Unhandled callback_data: {callback_data}")
+            await query.edit_message_text(
+                text="Unrecognized option. Please use the main menu.",
+                parse_mode=ParseMode.HTML,
+                reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
+            )
+            return MENU
+            
+        except Exception as e:
+            logger.error(f"Error in button_callback: {str(e)}")
+            logger.exception(e)
+            
+            # Try to recover by returning to the main menu
+            try:
+                if update and update.callback_query:
+                    await update.callback_query.edit_message_text(
+                        text="An error occurred. Please use /menu to continue.",
+                        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Main Menu", callback_data="back_menu")]])
+                    )
+            except Exception:
+                pass
+                
+            return MENU
