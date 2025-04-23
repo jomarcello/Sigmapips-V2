@@ -990,7 +990,7 @@ class TelegramService:
                             self.application = Application.builder().bot(self.bot).build()
                             self._register_handlers(self.application)
                             
-                            # Retry from beginning
+                            # Restart initialization from the beginning
                             return await self.run()
                         except Exception as reset_err:
                             logger.error(f"Failed to reset: {reset_err}")
@@ -2311,6 +2311,11 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                         if currencies:
                             currency = currencies[0]
                             self.logger.info(f"Extracted currency {currency} from instrument {instrument}")
+                
+                # Check if we have a loading message from the context
+                if not loading_message and 'loading_message' in context.user_data:
+                    loading_message = context.user_data.get('loading_message')
+                    self.logger.info(f"Found loading message in context: {loading_message.message_id if loading_message else 'None'}")
             
             # Log that we're showing the calendar
             self.logger.info(f"Showing economic calendar - currency: {currency}, instrument: {instrument}, is_from_signal: {is_from_signal}")
@@ -2328,7 +2333,17 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     )
                     self.logger.info("Created new loading message")
                 except Exception as e:
-                    self.logger.warning(f"Could not create loading message: {str(e)}")
+                    self.logger.warning(f"Could not create loading message by editing: {str(e)}")
+                    # Try to send a new message as fallback
+                    try:
+                        loading_message = await context.bot.send_message(
+                            chat_id=chat_id,
+                            text="Loading economic calendar data...",
+                            parse_mode=ParseMode.HTML
+                        )
+                        self.logger.info("Created new loading message by sending new message")
+                    except Exception as send_error:
+                        self.logger.error(f"Could not send loading message: {str(send_error)}")
             
             # Get calendar data from the TradingView service directly
             try:
@@ -2418,47 +2433,78 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                         reply_markup=keyboard
                     )
                     self.logger.info("Successfully edited message with calendar data")
+                    
+                    # Clear any loading message from context if it exists
+                    if context and hasattr(context, 'user_data') and 'loading_message' in context.user_data:
+                        del context.user_data['loading_message']
+                        
                     # Return appropriate state based on flow
                     return SIGNAL_ANALYSIS if is_from_signal else CHOOSE_ANALYSIS
                 except Exception as edit_error:
                     self.logger.warning(f"Could not edit message: {str(edit_error)}")
                     # Fall through to send a new message
             
-            # If we couldn't edit or have a loading message, try to delete and send new message
+            # If we couldn't edit or have a loading message reference, try to delete and send new message
+            sent_new_message = False
             if loading_message:
                 try:
-                    await context.bot.delete_message(chat_id=chat_id, message_id=loading_message.message_id)
-                    self.logger.info("Successfully deleted loading message")
+                    # Check if loading_message is a Message object
+                    if hasattr(loading_message, 'message_id'):
+                        # Try to delete the loading message
+                        await context.bot.delete_message(chat_id=chat_id, message_id=loading_message.message_id)
+                        self.logger.info(f"Successfully deleted loading message {loading_message.message_id}")
+                    else:
+                        self.logger.warning(f"Loading message doesn't have message_id attribute: {type(loading_message)}")
                 except Exception as delete_error:
                     self.logger.warning(f"Could not delete loading message: {str(delete_error)}")
             
-            # Send the message as a new message
-            await context.bot.send_message(
-                chat_id=chat_id,
-                text=message,
-                parse_mode=ParseMode.HTML,
-                reply_markup=keyboard
-            )
-            self.logger.info("Successfully sent calendar data as new message")
+            # Send a new message if we couldn't edit
+            if not sent_new_message:
+                try:
+                    await context.bot.send_message(
+                        chat_id=chat_id,
+                        text=message,
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=keyboard
+                    )
+                    self.logger.info("Sent new message with calendar data")
+                    sent_new_message = True
+                except Exception as send_error:
+                    self.logger.error(f"Could not send new message: {str(send_error)}")
             
-            # Return appropriate state based on flow
+            # Clear any loading message from context if it exists
+            if context and hasattr(context, 'user_data') and 'loading_message' in context.user_data:
+                del context.user_data['loading_message']
+                
+            # Return appropriate state
             return SIGNAL_ANALYSIS if is_from_signal else CHOOSE_ANALYSIS
-        
+            
         except Exception as e:
-            self.logger.error(f"Error showing economic calendar: {str(e)}")
+            self.logger.error(f"Error in show_economic_calendar: {str(e)}")
             self.logger.exception(e)
             
-            # Send error message
-            chat_id = update.effective_chat.id
-            await context.bot.send_message(
-                chat_id=chat_id,
-                text="<b>⚠️ Error showing economic calendar</b>\n\nSorry, there was an error retrieving the economic calendar data. Please try again later.",
-                parse_mode=ParseMode.HTML
-            )
-            
-            # Return appropriate state based on flow
-            is_from_signal = context and hasattr(context, 'user_data') and context.user_data.get('from_signal', False)
-            return SIGNAL_ANALYSIS if is_from_signal else CHOOSE_ANALYSIS
+            # Try to send an error message
+            try:
+                if update.callback_query:
+                    try:
+                        await update.callback_query.edit_message_text(
+                            text="Sorry, there was an error loading the economic calendar. Please try again.",
+                            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_analysis")]])
+                        )
+                    except Exception:
+                        # If editing fails, send a new message
+                        await context.bot.send_message(
+                            chat_id=update.effective_chat.id,
+                            text="Sorry, there was an error loading the economic calendar. Please try again.",
+                            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_analysis")]])
+                        )
+            except Exception:
+                pass
+                
+            # Return to appropriate state
+            if context and hasattr(context, 'user_data') and context.user_data.get('from_signal', False):
+                return SIGNAL_ANALYSIS
+            return CHOOSE_ANALYSIS
 
     def _generate_mock_calendar_data(self, currencies, date):
         """Generate mock calendar data if the real service fails"""
