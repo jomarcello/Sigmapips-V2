@@ -726,41 +726,126 @@ class TelegramService:
     async def run(self):
         """Run the telegram service with retry mechanism for Telegram API connection issues"""
         logger.info("TelegramService.run() called")
+        instance_id = os.getenv("BOT_INSTANCE_ID", "unknown")
+        logger.info(f"Bot instance ID: {instance_id}")
+        
+        # Record last reset time to avoid excessive resets
+        last_reset_time = 0
         
         # First try to initialize and set up the bot properly
         try:
             # Initialize the application if not already initialized
             if not hasattr(self.application, '_initialized') or not self.application._initialized:
                 await self.application.initialize()
+                logger.info("Application initialized successfully")
             
             # Start the application (this starts the required components)
             if not hasattr(self.application, '_running') or not self.application._running:
                 await self.application.start()
+                logger.info("Application started successfully")
             
             # Determine if we should use polling based on environment or settings
             use_polling = os.getenv("FORCE_POLLING", "").lower() == "true"
             is_local_env = not self.webhook_url or self.webhook_url == ""
             
-            # First validate connection to Telegram with a getMe request before deciding polling/webhook
-            logger.info("Testing connection to Telegram API with getMe...")
+            # ALWAYS clear the webhook first - this helps prevent the conflict error
+            logger.info("🔥 Force-clearing webhook and pending updates to prevent conflicts")
             try:
-                # Send a test request to Telegram API
-                me = await self.bot.get_me()
-                logger.info(f"Successfully connected to Telegram API. Bot: {me.first_name} (@{me.username})")
-            except Exception as e:
-                logger.error(f"Failed to connect to Telegram API: {str(e)}")
-                # Try more aggressive retry for initial connection
-                for attempt in range(1, 6):  # 5 attempts
-                    try:
-                        logger.info(f"Retrying connection to Telegram API (attempt {attempt}/5)...")
-                        await asyncio.sleep(3 * attempt)  # Increasing delay
-                        me = await self.bot.get_me()
-                        logger.info(f"Successfully connected on attempt {attempt}. Bot: {me.first_name}")
+                await self.bot.delete_webhook(drop_pending_updates=True)
+                # Allow time for webhook deletion to propagate
+                await asyncio.sleep(2)
+                logger.info("Webhook cleared successfully")
+                
+                # Send a dummy getUpdates with a specific offset to reset any existing sessions
+                # This helps break free from the "terminated by other getUpdates request" error
+                await self.bot.get_updates(offset=-1, limit=1, timeout=1, allowed_updates=[])
+                logger.info("Successfully reset update session with dummy request")
+            except Exception as clear_e:
+                logger.warning(f"Error while clearing webhook: {str(clear_e)}")
+                # Don't fail completely on this error, continue trying
+            
+            # First validate connection to Telegram with a getMe request before deciding polling/webhook
+            # Special handling for service unavailable errors
+            logger.info("Testing connection to Telegram API with getMe...")
+            connection_attempts = 0
+            max_connection_attempts = 20  # Increased from 5 to 20
+            connection_delay = 5  # Start with 5 seconds
+            
+            # Keep trying to connect until we succeed or reach max attempts
+            while connection_attempts < max_connection_attempts:
+                try:
+                    # Send a test request to Telegram API
+                    me = await self.bot.get_me()
+                    logger.info(f"✅ Successfully connected to Telegram API. Bot: {me.first_name} (@{me.username})")
+                    # Break the loop if we succeeded
+                    break
+                except Exception as e:
+                    connection_attempts += 1
+                    
+                    # Log the specific error type to help diagnose the issue
+                    error_type = type(e).__name__
+                    error_msg = str(e)
+                    logger.error(f"Connection attempt {connection_attempts}/{max_connection_attempts} failed: {error_type} - {error_msg}")
+                    
+                    # Check if we've hit the maximum attempts
+                    if connection_attempts >= max_connection_attempts:
+                        logger.error(f"⚠️ Maximum connection attempts ({max_connection_attempts}) reached. Cannot connect to Telegram API.")
+                        # We'll continue to the next part as a last resort but log this clearly
+                        logger.error("Continuing despite connection failure, but this may cause issues")
                         break
-                    except Exception as retry_e:
-                        logger.error(f"Attempt {attempt} failed: {str(retry_e)}")
-                        if attempt == 5:
-                            raise  # Re-raise if all attempts failed
+                    
+                    # Use a different message format to better track in logs
+                    logger.info(f"Attempt #{connection_attempts} failed with service unavailable. Retrying in {connection_delay}s...")
+                    
+                    # Wait before retrying with a moderately increasing delay
+                    await asyncio.sleep(connection_delay)
+                    # Increase delay with some randomness, but cap it to avoid very long waits
+                    # Use a gentler backoff for service unavailable
+                    connection_delay = min(30, connection_delay * 1.2 + random.uniform(0, 2))
+                    
+                    # Try to recover by clearing the session every few attempts
+                    if connection_attempts % 5 == 0:
+                        logger.info("Attempting recovery by clearing webhook and session...")
+                        try:
+                            await self.bot.delete_webhook(drop_pending_updates=True)
+                            # Try a different approach to reset session
+                            await self.bot.get_updates(offset=999999999, limit=1, timeout=1)
+                        except Exception:
+                            pass  # Ignore errors during recovery attempt
+            
+            # Try to use a proxy if connection failed despite retries
+            if connection_attempts >= max_connection_attempts:
+                logger.warning("Attempting to set up bot with proxy as direct connection failed")
+                try:
+                    # Check if we have a proxy URL in environment
+                    proxy_url = os.getenv("TELEGRAM_PROXY_URL", "")
+                    if proxy_url:
+                        logger.info(f"Trying connection with proxy: {proxy_url}")
+                        # Create a new request handler with proxy
+                        proxy_request = HTTPXRequest(
+                            connection_pool_size=100,
+                            connect_timeout=30.0,
+                            read_timeout=90.0,
+                            write_timeout=60.0,
+                            pool_timeout=120.0,
+                            proxy=proxy_url
+                        )
+                        # Create a new bot instance with proxy
+                        proxy_bot = Bot(token=self.bot_token, request=proxy_request)
+                        # Test the connection
+                        me = await proxy_bot.get_me()
+                        logger.info(f"✅ Successfully connected via proxy. Bot: {me.first_name}")
+                        # Replace our bot instance with the proxy-enabled one
+                        self.bot = proxy_bot
+                        # Recreate application with proxy-enabled bot
+                        self.application = Application.builder().bot(self.bot).build()
+                        self._register_handlers(self.application)
+                        await self.application.initialize()
+                        await self.application.start()
+                    else:
+                        logger.warning("No proxy URL available to try as fallback")
+                except Exception as proxy_e:
+                    logger.error(f"Failed to connect with proxy: {str(proxy_e)}")
             
             # Use polling if there's no webhook URL or explicitly forced
             if use_polling or is_local_env:
@@ -773,13 +858,67 @@ class TelegramService:
                 await self.bot.delete_webhook(drop_pending_updates=True)
                 
                 # Start polling with drop_pending_updates to avoid old message conflicts
-                await self.application.updater.start_polling(
-                    poll_interval=1.0, 
-                    timeout=30, 
-                    drop_pending_updates=True
-                )
-                self.polling_started = True
-                logger.info("Bot started in polling mode")
+                try:
+                    # Custom parameters to help with network issues
+                    poll_interval = float(os.getenv("POLL_INTERVAL", "1.0"))
+                    poll_timeout = int(os.getenv("POLL_TIMEOUT", "30"))
+                    logger.info(f"Using poll_interval={poll_interval}s, timeout={poll_timeout}s")
+                    
+                    await self.application.updater.start_polling(
+                        poll_interval=poll_interval, 
+                        timeout=poll_timeout, 
+                        drop_pending_updates=True,
+                        allowed_updates=["message", "callback_query", "chat_member", "my_chat_member"],
+                        read_timeout=90.0,  # Increased read timeout
+                        write_timeout=60.0  # Increased write timeout
+                    )
+                    self.polling_started = True
+                    logger.info("Bot started in polling mode")
+                except telegram.error.Conflict as conflict_err:
+                    # Handle the conflict error specifically
+                    logger.error(f"Conflict error when starting polling: {conflict_err}")
+                    
+                    # Only do a hard reset if we haven't done one recently
+                    current_time = time.time()
+                    if current_time - last_reset_time > 60:  # Only reset once per minute maximum
+                        logger.info("🚨 Detected conflict with another bot instance. Attempting recovery...")
+                        last_reset_time = current_time
+                        
+                        # Wait for a random time to avoid multiple instances trying to recover simultaneously
+                        wait_time = 5 + random.randint(1, 10)
+                        logger.info(f"Waiting {wait_time} seconds before recovery attempt...")
+                        await asyncio.sleep(wait_time)
+                        
+                        # Try to send a more aggressive reset request
+                        try:
+                            # Force close any existing sessions
+                            await self.bot.delete_webhook(drop_pending_updates=True)
+                            # Use a very large offset to force Telegram to reset the session
+                            await self.bot.get_updates(offset=999999999, limit=1, timeout=1)
+                            logger.info("Reset complete. Retrying from the beginning...")
+                            
+                            # Restart the application
+                            if hasattr(self.application, 'updater') and self.application.updater.running:
+                                await self.application.updater.stop()
+                            await self.application.stop()
+                            await self.application.shutdown()
+                            
+                            # Recreate the application
+                            self.application = Application.builder().bot(self.bot).build()
+                            self._register_handlers(self.application)
+                            
+                            # Retry from beginning
+                            return await self.run()
+                        except Exception as reset_err:
+                            logger.error(f"Failed to reset: {reset_err}")
+                    else:
+                        logger.info("Skipping reset as one was performed recently. Waiting for retry...")
+                    
+                    # Continue with the main loop to retry later
+                except Exception as poll_err:
+                    # Log other polling errors
+                    logger.error(f"Error starting polling: {type(poll_err).__name__} - {str(poll_err)}")
+                    # Continue to heartbeat loop
             elif self.webhook_url:
                 # In webhook mode, ensure webhook is properly set
                 logger.info(f"Bot is set up for webhook mode at {self.webhook_url}{self.webhook_path}")
@@ -790,7 +929,8 @@ class TelegramService:
                 # Set up the webhook
                 await self.bot.set_webhook(
                     url=f"{self.webhook_url}{self.webhook_path}",
-                    drop_pending_updates=True
+                    drop_pending_updates=True,
+                    allowed_updates=["message", "callback_query", "chat_member", "my_chat_member"]
                 )
                 logger.info("Webhook set successfully")
             else:
@@ -801,18 +941,37 @@ class TelegramService:
                 
                 # Start polling with drop_pending_updates to avoid old message conflicts
                 if hasattr(self.application, 'updater'):
-                    await self.application.updater.start_polling(
-                        poll_interval=1.0, 
-                        timeout=30, 
-                        drop_pending_updates=True
-                    )
-                    self.polling_started = True
-                    logger.info("Bot started in fallback polling mode")
+                    try:
+                        await self.application.updater.start_polling(
+                            poll_interval=1.0, 
+                            timeout=30, 
+                            drop_pending_updates=True,
+                            allowed_updates=["message", "callback_query", "chat_member", "my_chat_member"]
+                        )
+                        self.polling_started = True
+                        logger.info("Bot started in fallback polling mode")
+                    except telegram.error.Conflict as conflict_err:
+                        logger.error(f"Conflict error in fallback mode: {conflict_err}")
+                        # Skip polling in this case and continue with heartbeat
+                    except Exception as poll_err:
+                        logger.error(f"Error starting fallback polling: {str(poll_err)}")
+            
+            # At this point, we've either succeeded in setting up the bot or failed
+            # Let's log our state clearly
+            if self.polling_started:
+                logger.info("✅ Bot is set up and polling has started successfully")
+            elif self.webhook_url:
+                logger.info("✅ Bot is set up in webhook mode")
+            else:
+                logger.warning("⚠️ Bot setup completed but neither polling nor webhook is active")
             
             # Keep the service running with a heartbeat
             max_retries = 10
             retry_count = 0
             retry_delay = 10  # Start with 10 seconds
+            
+            # Log heartbeat start
+            logger.info("Starting heartbeat loop to maintain connection...")
             
             while True:
                 try:
@@ -825,9 +984,44 @@ class TelegramService:
                     # Sleep for 30 minutes between heartbeats
                     await asyncio.sleep(1800)
                     
+                except telegram.error.Conflict as conflict_err:
+                    # Handle conflict specifically
+                    logger.error(f"Conflict detected during heartbeat: {conflict_err}")
+                    # Only perform recovery if we haven't done one recently
+                    current_time = time.time()
+                    if current_time - last_reset_time > 60:
+                        logger.info("🚨 Detected conflict during heartbeat. Attempting recovery...")
+                        last_reset_time = current_time
+                        
+                        # Wait for a random time to prevent collisions
+                        wait_time = 5 + random.randint(1, 10)
+                        await asyncio.sleep(wait_time)
+                        
+                        # Reset the bot's session
+                        try:
+                            # Reset webhook and pending updates
+                            await self.bot.delete_webhook(drop_pending_updates=True)
+                            # Reset the get_updates session
+                            await self.bot.get_updates(offset=999999999, limit=1, timeout=1, allowed_updates=[])
+                            logger.info("Session reset complete, continuing heartbeat...")
+                        except Exception as reset_err:
+                            logger.error(f"Reset failed: {reset_err}")
+                    
+                    # Wait a bit longer and continue
+                    await asyncio.sleep(30)
+                    continue
+                
+                except telegram.error.TimedOut as timeout_err:
+                    # Handle timeout errors differently - these are common and can be ignored
+                    logger.warning(f"Heartbeat timed out: {str(timeout_err)}")
+                    # Use a shorter delay for timeouts as they're less severe
+                    await asyncio.sleep(30)
+                    continue
+                    
                 except Exception as e:
                     retry_count += 1
-                    logger.error(f"Bot heartbeat failed (attempt {retry_count}/{max_retries}): {str(e)}")
+                    error_type = type(e).__name__
+                    logger.error(f"Bot heartbeat failed (attempt {retry_count}/{max_retries}): {error_type} - {str(e)}")
                     
                     if retry_count >= max_retries:
                         logger.error("Maximum retries reached, restarting bot initialization")
@@ -846,19 +1040,20 @@ class TelegramService:
                             
                             # Restart initialization from the beginning
                             retry_count = 0
-                            continue
+                            return await self.run()
                         except Exception as restart_error:
                             logger.error(f"Failed to restart bot: {str(restart_error)}")
                             # If we couldn't restart, continue with the retry cycle
                     
                     # Wait with exponential backoff
-                    logger.info(f"Attempt #{retry_count} failed with service unavailable. Continuing to retry for {retry_delay}s")
+                    logger.info(f"Attempt #{retry_count} failed in heartbeat. Continuing to retry for {retry_delay}s")
                     await asyncio.sleep(retry_delay)
                     # Increase retry delay with some randomness to avoid synchronized retries
                     retry_delay = min(300, retry_delay * 1.5)  # Cap at 5 minutes
         
         except Exception as e:
-            logger.error(f"Error in bot run loop: {str(e)}")
+            error_type = type(e).__name__
+            logger.error(f"Error in bot run loop: {error_type} - {str(e)}")
             raise
 
     # Calendar service helpers
