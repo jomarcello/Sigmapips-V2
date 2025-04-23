@@ -141,19 +141,20 @@ class TradingViewCalendarService:
             logger.error(f"API health check failed: {str(e)}")
             return False
         
-    async def get_calendar(self, days_ahead: int = 0, min_impact: str = "Low") -> List[Dict[str, Any]]:
+    async def get_calendar(self, days_ahead: int = 0, min_impact: str = "Low", currency: str = None) -> List[Dict[str, Any]]:
         """
         Fetch calendar events from TradingView
         
         Args:
             days_ahead: Number of days to look ahead
             min_impact: Minimum impact level to include (Low, Medium, High)
+            currency: Optional currency to filter events by
             
         Returns:
             List of calendar events
         """
         try:
-            logger.info("Starting calendar fetch from TradingView")
+            logger.info(f"Starting calendar fetch from TradingView (days_ahead={days_ahead}, min_impact={min_impact}, currency={currency})")
             await self._ensure_session()
             
             # First check if the API is healthy
@@ -177,6 +178,25 @@ class TradingViewCalendarService:
                 'countries': 'US,EU,GB,JP,CH,AU,NZ,CA',
                 'limit': 1000
             }
+            
+            # Filter by country if currency is specified
+            if currency:
+                logger.info(f"Filtering by currency: {currency}")
+                # Map currency code to country code
+                currency_to_country = {
+                    'USD': 'US',
+                    'EUR': 'EU',
+                    'GBP': 'GB',
+                    'JPY': 'JP',
+                    'CHF': 'CH',
+                    'AUD': 'AU',
+                    'NZD': 'NZ',
+                    'CAD': 'CA'
+                }
+                country_code = currency_to_country.get(currency)
+                if country_code:
+                    params['countries'] = country_code
+                    logger.info(f"Set country filter to {country_code}")
             
             logger.info(f"Requesting calendar with params: {params}")
             
@@ -531,6 +551,17 @@ class TradingViewCalendarService:
                     logger.info(f"Successfully processed calendar data with {len(events)} events from TradingView API")
                     if self.last_successful_call:
                         logger.info(f"Last successful API call was at {self.last_successful_call.isoformat()}")
+                    
+                    # After getting events, filter by currency if specified
+                    if currency and len(events) > 0:
+                        logger.info(f"Post-filtering events by currency: {currency}")
+                        filtered_events = []
+                        for event in events:
+                            # Check if the country matches the currency
+                            if event.get('country') == currency:
+                                filtered_events.append(event)
+                        logger.info(f"Filtered from {len(events)} to {len(filtered_events)} events for currency {currency}")
+                        events = filtered_events
                     
                     return events
                     
