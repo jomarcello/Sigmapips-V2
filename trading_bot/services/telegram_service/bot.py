@@ -816,35 +816,29 @@ class TelegramService:
         country_field = 'currency' if has_currency and not has_country else 'country'
         self.logger.info(f"Using '{country_field}' as country identifier")
         
-        # Group events by country
-        events_by_country = {}
+        # Format all events in chronological order
         for event in sorted_events:
+            # Get event details with fallbacks
+            time = event.get('time', 'TBA')
+            title = event.get('title', event.get('event', 'Unknown Event'))  # Support both title and event fields
+            impact = event.get('impact', 'Low')
+            impact_emoji = {'High': '🔴', 'Medium': '🟠', 'Low': '🟢'}.get(impact, '🟢')
+            
+            # Get country/currency flag and code
             country = event.get(country_field, 'Unknown')
-            if country not in events_by_country:
-                events_by_country[country] = []
-            events_by_country[country].append(event)
-        
-        # Format events by country
-        for country, events in events_by_country.items():
             country_flag = CURRENCY_FLAG.get(country, '')
-            message += f"<b>{country_flag} {country}</b>\n"
             
-            for event in events:
-                # Get event details with fallbacks
-                time = event.get('time', 'TBA')
-                title = event.get('title', event.get('event', 'Unknown Event'))  # Support both title and event fields
-                impact = event.get('impact', 'Low')
-                impact_emoji = {'High': '🔴', 'Medium': '🟠', 'Low': '🟢'}.get(impact, '🟢')
-                
-                # Format event line
-                event_line = f"{time} - {impact_emoji} {title}"
-                
-                message += f"{event_line}\n"
+            # Format event line including the country/currency flag
+            event_line = f"{time} - {impact_emoji} {title}"
             
-            message += "\n"  # Add extra newline between countries
+            # Only add the country flag+code if available
+            if country_flag:
+                event_line = f"{time} - {country_flag} {country} - {impact_emoji} {title}"
+            
+            message += f"{event_line}\n"
         
         # Mark the formatted message
-        message += "-------------------\n"
+        message += "\n-------------------\n"
         message += "<i>Powered by SigmaPips AI</i>"
         
         self.logger.info(f"Finished formatting calendar with {len(sorted_events)} events into message of length {len(message)}")
