@@ -892,6 +892,17 @@ class TelegramService:
         
         logger.info("back_signals_callback called")
         
+        # Check if we're coming from a signal (signal analysis flow)
+        from_signal = False
+        if context and hasattr(context, 'user_data'):
+            from_signal = context.user_data.get('from_signal', False)
+        
+        # If coming from a signal, redirect to signal page
+        if from_signal:
+            logger.info("Coming from signal flow, redirecting to back_to_signal_callback")
+            return await self.back_to_signal_callback(update, context)
+        
+        # Otherwise, continue with normal signals flow
         # Make sure we're in the signals flow context
         if context and hasattr(context, 'user_data'):
             # Keep is_signals_context flag but reset from_signal flag
@@ -2026,20 +2037,20 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         query = update.callback_query
         await query.answer()
         
-        # Controleer en behoud signal flow context
+        # Check and maintain signal flow context
         is_from_signal = False
         if context and hasattr(context, 'user_data'):
             is_from_signal = context.user_data.get('from_signal', False)
-            # Zorg dat we in de signal flow blijven
-            context.user_data['is_signals_context'] = True
+            # Make sure we stay in the signal flow
             context.user_data['from_signal'] = True
+            context.user_data['is_signals_context'] = False  # Not in signals context anymore
             context.user_data['analysis_type'] = 'technical'
         
-        # Check of we in de juiste flow zijn
+        # Check if we're in the right flow
         if not is_from_signal:
-            logger.warning("signal_technical_callback aangeroepen buiten signal flow context")
-            # We willen hier strikt op zijn - als het niet vanuit signaal komt, stuur terug naar menu
-            # Dit zou niet moeten gebeuren maar is een extra beveiliging
+            logger.warning("signal_technical_callback called outside signal flow context")
+            # We want to be strict about this - if not from signal, send back to menu
+            # This shouldn't happen but is an extra safeguard
             try:
                 await query.edit_message_text(
                     text="Please start from a trading signal to use this feature.",
@@ -2055,109 +2066,50 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             instrument = context.user_data.get('instrument')
             logger.info(f"Signal technical callback - instrument: {instrument}, from signal: {is_from_signal}")
         
-        # If we have an instrument and are in the signal flow, go directly to analysis
-        if instrument:
-            # Try to show loading animation first
-            loading_gif_url = "https://media.giphy.com/media/gSzIKNrqtotEYrZv7i/giphy.gif"
-            loading_text = f"Loading {instrument} chart..."
-            
-            # Store the current message ID to ensure we can find it later
-            message_id = query.message.message_id
-            chat_id = update.effective_chat.id
-            logger.info(f"Current message_id: {message_id}, chat_id: {chat_id}")
-            
-            loading_message = None
-            
-            try:
-                # Try to update with animated GIF first (best visual experience)
-                await query.edit_message_media(
-                    media=InputMediaAnimation(
-                        media=loading_gif_url,
-                        caption=loading_text
-                    )
-                )
-                logger.info(f"Successfully showed loading GIF for {instrument}")
-                
-                # Store reference to loading message
-                loading_message = query.message
-                if context and hasattr(context, 'user_data'):
-                    context.user_data['loading_message'] = {
-                        'chat_id': chat_id,
-                        'message_id': message_id
-                    }
-            except Exception as e:
-                logger.warning(f"Could not update message with GIF animation: {str(e)}")
-                
-                try:
-                    # Try to just update text as fallback
-                    await query.edit_message_text(
-                        text=loading_text,
-                        reply_markup=None
-                    )
-                    loading_message = query.message
-                except Exception as text_e:
-                    logger.warning(f"Could not update message text: {str(text_e)}")
-                    # Last resort: send new message
-                    try:
-                        loading_msg = await context.bot.send_message(
-                            chat_id=update.effective_chat.id,
-                            text=loading_text
-                        )
-                        loading_message = loading_msg
-                    except Exception as send_e:
-                        logger.error(f"Failed to send loading message: {str(send_e)}")
-            
-            # Show technical analysis directly for the instrument from signal
-            # Get timeframe from signal if available
-            timeframe = None
-            if context and hasattr(context, 'user_data'):
-                timeframe = context.user_data.get('signal_timeframe')
-                # Convert interval format if needed (e.g., "1h" to "H1")
-                if timeframe:
-                    if timeframe == "1m": timeframe = "M1"
-                    elif timeframe == "5m": timeframe = "M5"
-                    elif timeframe == "15m": timeframe = "M15"
-                    elif timeframe == "30m": timeframe = "M30"
-                    elif timeframe == "1h": timeframe = "H1"
-                    elif timeframe == "4h": timeframe = "H4"
-                    elif timeframe == "1d": timeframe = "D1"
-            
-            logger.info(f"Going directly to technical analysis for {instrument} with timeframe {timeframe}")
-            return await self.show_technical_analysis(update, context, instrument=instrument, timeframe=timeframe)
-        
-        # Als we hier komen, hebben we geen instrument gevonden in de context. 
-        # Dit zou niet moeten gebeuren in de signal flow maar we vangen het op
-        logger.error("No instrument found in signal_technical_callback context")
-        
-        # Informeer de gebruiker en stuur terug naar het hoofdmenu
-        try:
+        if not instrument:
+            # No instrument specified
             await query.edit_message_text(
-                text="Error: Could not find instrument information. Please try again from the main menu.",
-                reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
-                parse_mode=ParseMode.HTML
+                text="Please specify an instrument first.",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal_analysis")]])
             )
-        except Exception as e:
-            logger.error(f"Failed to send error message: {str(e)}")
+            return SIGNAL_ANALYSIS
         
-        return MENU
+        # Get timeframe from context or use default
+        timeframe = "1h"
+        if context and hasattr(context, 'user_data') and 'signal_timeframe' in context.user_data:
+            timeframe = context.user_data.get('signal_timeframe')
+        
+        logger.info(f"Getting technical analysis for {instrument} ({timeframe}) from signal")
+        
+        # Call the show_technical_analysis method
+        if hasattr(self, 'show_technical_analysis'):
+            # This will handle the technical analysis display
+            return await self.show_technical_analysis(update, context, instrument, timeframe)
+        else:
+            # Fallback if method not available
+            await query.edit_message_text(
+                text=f"Technical analysis for {instrument} is being prepared...",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal_analysis")]])
+            )
+            return SIGNAL_ANALYSIS
 
     async def signal_sentiment_callback(self, update: Update, context=None) -> int:
         """Handle signal_sentiment button press"""
         query = update.callback_query
         await query.answer()
         
-        # Controleer en behoud signal flow context
+        # Check and maintain signal flow context
         is_from_signal = False
         if context and hasattr(context, 'user_data'):
             is_from_signal = context.user_data.get('from_signal', False)
-            # Zorg dat we in de signal flow blijven
-            context.user_data['is_signals_context'] = True
+            # Make sure we stay in the signal flow
             context.user_data['from_signal'] = True
+            context.user_data['is_signals_context'] = False  # Not in signals context anymore
             context.user_data['analysis_type'] = 'sentiment'
         
-        # Check of we in de juiste flow zijn
+        # Check if we're in the right flow
         if not is_from_signal:
-            logger.warning("signal_sentiment_callback aangeroepen buiten signal flow context")
+            logger.warning("signal_sentiment_callback called outside signal flow context")
             try:
                 await query.edit_message_text(
                     text="Please start from a trading signal to use this feature.",
@@ -2173,85 +2125,98 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             instrument = context.user_data.get('instrument')
             logger.info(f"Signal sentiment callback - instrument: {instrument}, from signal: {is_from_signal}")
         
-        if instrument:
-            # Try to show loading animation first
-            loading_gif_url = "https://media.giphy.com/media/gSzIKNrqtotEYrZv7i/giphy.gif"
-            loading_text = f"Loading sentiment analysis for {instrument}..."
-            
-            # Store the current message ID to ensure we can find it later
-            message_id = query.message.message_id
-            chat_id = update.effective_chat.id
-            
-            try:
-                # Try to update with animated GIF first (best visual experience)
-                await query.edit_message_media(
-                    media=InputMediaAnimation(
-                        media=loading_gif_url,
-                        caption=loading_text
-                    )
-                )
-                logger.info(f"Successfully showed loading GIF for {instrument} sentiment")
-                
-                # Store reference to loading message
-                if context and hasattr(context, 'user_data'):
-                    context.user_data['loading_message'] = {
-                        'chat_id': chat_id,
-                        'message_id': message_id
-                    }
-            except Exception as e:
-                logger.warning(f"Could not update message with GIF animation: {str(e)}")
-                
-                try:
-                    # Try to just update text as fallback
-                    await query.edit_message_text(
-                        text=loading_text,
-                        reply_markup=None
-                    )
-                except Exception as text_e:
-                    logger.warning(f"Could not update message text: {str(text_e)}")
-                    # Last resort: send new message
-                    try:
-                        await context.bot.send_message(
-                            chat_id=update.effective_chat.id,
-                            text=loading_text
-                        )
-                    except Exception as send_e:
-                        logger.error(f"Failed to send loading message: {str(send_e)}")
-            
-            # Go directly to sentiment analysis for this instrument
-            logger.info(f"Going directly to sentiment analysis for {instrument}")
-            return await self.show_sentiment_analysis(update, context, instrument=instrument)
-        
-        # Als we hier komen, hebben we geen instrument gevonden in de context
-        logger.error("No instrument found in signal_sentiment_callback context")
-        
-        # Informeer de gebruiker en stuur terug naar het hoofdmenu
-        try:
+        if not instrument:
+            # No instrument specified
             await query.edit_message_text(
-                text="Error: Could not find instrument information. Please try again from the main menu.",
-                reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
+                text="Please specify an instrument first.",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal_analysis")]])
+            )
+            return SIGNAL_ANALYSIS
+        
+        # Get market from instrument
+        market = _detect_market(instrument)
+        
+        # Show loading message
+        loading_text = f"Loading sentiment analysis for {instrument}..."
+        loading_gif = "https://media.giphy.com/media/dpjUltnOPye7azvAhH/giphy.gif"
+        
+        try:
+            # Try to show animated loading GIF
+            await query.edit_message_media(
+                media=InputMediaAnimation(
+                    media=loading_gif,
+                    caption=loading_text
+                )
+            )
+        except Exception as gif_error:
+            logger.warning(f"Could not show loading GIF: {str(gif_error)}")
+            # Fall back to text loading message
+            try:
+                await query.edit_message_text(text=loading_text)
+            except Exception:
+                pass
+        
+        # Create back button for this context
+        keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal_analysis")]]
+        
+        # Get sentiment analysis
+        try:
+            # Initialize chart service if needed
+            if not hasattr(self, 'chart_service') or not self.chart_service:
+                from trading_bot.services.chart_service.chart import ChartService
+                self.chart_service = ChartService()
+            
+            # Get sentiment analysis
+            sentiment_data = await self.chart_service.get_sentiment_analysis(instrument)
+            
+            if not sentiment_data:
+                await query.edit_message_text(
+                    text=f"No sentiment data available for {instrument}.",
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+                return SIGNAL_ANALYSIS
+            
+            # Format sentiment data into text
+            sentiment_text = f"<b>Sentiment Analysis for {instrument}</b>\n\n"
+            sentiment_text += sentiment_data
+            
+            # Send the sentiment analysis
+            await query.edit_message_text(
+                text=sentiment_text,
+                reply_markup=InlineKeyboardMarkup(keyboard),
                 parse_mode=ParseMode.HTML
             )
+            
+            return SIGNAL_ANALYSIS
+            
         except Exception as e:
-            logger.error(f"Failed to send error message: {str(e)}")
-        
-        return MENU
+            logger.error(f"Error getting sentiment analysis: {str(e)}")
+            # Error message
+            try:
+                await query.edit_message_text(
+                    text=f"Error getting sentiment analysis for {instrument}. Please try again.",
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            except Exception:
+                pass
+            
+            return SIGNAL_ANALYSIS
 
     async def signal_calendar_callback(self, update: Update, context=None) -> int:
         """Handle signal_calendar button press"""
         query = update.callback_query
         await query.answer()
         
-        # Controleer en behoud signal flow context
+        # Check and maintain signal flow context
         is_from_signal = False
         if context and hasattr(context, 'user_data'):
             is_from_signal = context.user_data.get('from_signal', False)
-            # Zorg dat we in de signal flow blijven
-            context.user_data['is_signals_context'] = True
+            # Make sure we stay in the signal flow
             context.user_data['from_signal'] = True
+            context.user_data['is_signals_context'] = False  # Not in signals context anymore
             context.user_data['analysis_type'] = 'calendar'
             
-            # Backup signaalgegevens om terugkeren mogelijk te maken
+            # Backup signal data to make return possible
             signal_instrument = context.user_data.get('instrument')
             signal_direction = context.user_data.get('signal_direction')
             signal_timeframe = context.user_data.get('signal_timeframe') 
@@ -2261,9 +2226,9 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             context.user_data['signal_direction_backup'] = signal_direction
             context.user_data['signal_timeframe_backup'] = signal_timeframe
         
-        # Check of we in de juiste flow zijn
+        # Check if we're in the right flow
         if not is_from_signal:
-            logger.warning("signal_calendar_callback aangeroepen buiten signal flow context")
+            logger.warning("signal_calendar_callback called outside signal flow context")
             try:
                 await query.edit_message_text(
                     text="Please start from a trading signal to use this feature.",
@@ -2280,81 +2245,85 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         instrument = None
         if context and hasattr(context, 'user_data'):
             instrument = context.user_data.get('instrument')
-            logger.info(f"Signal calendar callback - instrument: {instrument}, from signal: {is_from_signal}")
+            logger.info(f"Signal calendar callback for instrument: {instrument}")
         
-        # Check if the callback data contains an instrument
-        if query.data.startswith("signal_flow_calendar_"):
-            parts = query.data.split("_")
-            if len(parts) >= 4:
-                instrument = parts[3]  # Extract instrument from callback data
-                logger.info(f"Extracted instrument from callback data: {instrument}")
-                # Save to context
-                if context and hasattr(context, 'user_data'):
-                    context.user_data['instrument'] = instrument
-        
-        # If we have an instrument in the signal flow, go directly to calendar analysis
-        if instrument:
-            # Try to show loading animation first
-            loading_gif_url = "https://media.giphy.com/media/gSzIKNrqtotEYrZv7i/giphy.gif"
-            loading_text = f"Loading economic calendar for {instrument}..."
-            
-            try:
-                # Try to update with animated GIF first (best visual experience)
-                await query.edit_message_media(
-                    media=InputMediaAnimation(
-                        media=loading_gif_url,
-                        caption=loading_text
-                    )
-                )
-                logger.info(f"Successfully showed loading GIF for economic calendar")
-                
-                # Store the current message ID to ensure we can find it later
-                message_id = query.message.message_id
-                chat_id = update.effective_chat.id
-                if context and hasattr(context, 'user_data'):
-                    context.user_data['loading_message'] = {
-                        'chat_id': chat_id,
-                        'message_id': message_id
-                    }
-            except Exception as e:
-                logger.warning(f"Could not update message with GIF animation: {str(e)}")
-                
-                try:
-                    # Try to just update text as fallback
-                    await query.edit_message_text(
-                        text=loading_text,
-                        reply_markup=None
-                    )
-                except Exception as text_e:
-                    logger.warning(f"Could not update message text: {str(text_e)}")
-                    # Last resort: send new message
-                    try:
-                        loading_msg = await context.bot.send_message(
-                            chat_id=update.effective_chat.id,
-                            text=loading_text
-                        )
-                    except Exception as send_e:
-                        logger.error(f"Failed to send loading message: {str(send_e)}")
-        
-            # Show calendar analysis for ALL major currencies
-            return await self.show_calendar_analysis(update, context, instrument=instrument)
-        
-        # Als we hier komen, hebben we geen instrument gevonden in de context
-        logger.error("No instrument found in signal_calendar_callback context")
-        
-        # Show the economic calendar anyway (seems like it will work with no instrument)
-        loading_text = "Loading economic calendar..."
-        
-        try:
+        if not instrument:
+            # No instrument specified
             await query.edit_message_text(
-                text=loading_text,
-                reply_markup=None
+                text="Please specify an instrument first.",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal_analysis")]])
             )
-        except Exception as e:
-            logger.warning(f"Could not update message text: {str(e)}")
+            return SIGNAL_ANALYSIS
         
-        # Show calendar analysis for ALL major currencies
-        return await self.show_calendar_analysis(update, context, instrument=None)
+        # Determine currencies from instrument
+        currencies = []
+        if instrument in INSTRUMENT_CURRENCY_MAP:
+            currencies = INSTRUMENT_CURRENCY_MAP[instrument]
+            logger.info(f"Found currencies for {instrument}: {currencies}")
+        else:
+            # Default to USD if no mapping found
+            currencies = ["USD"]
+            logger.warning(f"No currency mapping found for {instrument}, defaulting to USD")
+        
+        # Set loading message
+        loading_message = f"Loading economic calendar for {instrument}..."
+        
+        # Load economic calendar with currencies from the instrument
+        try:
+            # Try to show a loading message first
+            await query.edit_message_text(text=loading_message)
+            
+            # Make sure we're in signal flow for the return path
+            if context and hasattr(context, 'user_data'):
+                context.user_data['from_signal'] = True
+                context.user_data['loading_message'] = loading_message
+                
+            # Call the show_economic_calendar with the first currency from the instrument
+            # Note: we set the callback to be back_to_signal_analysis
+            primary_currency = currencies[0] if currencies else "USD"
+            
+            logger.info(f"Showing calendar for primary currency: {primary_currency}")
+            
+            # Initialize services
+            await self.initialize_services()
+            
+            # Format the calendar data
+            calendar_data = await self._get_calendar_service().get_economic_calendar(currency=primary_currency)
+            
+            if not calendar_data:
+                logger.warning(f"No calendar data found for {primary_currency}")
+                calendar_data = self._generate_mock_calendar_data([primary_currency], datetime.now())
+                
+            # Format the calendar events
+            formatted_data = await self._format_calendar_events(calendar_data)
+            
+            # Create keyboard with back button to signal analysis
+            keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal_analysis")]]
+            
+            # Get flag emoji for the currency
+            currency_flag = CURRENCY_FLAG.get(primary_currency, "🌐")
+            
+            # Send the calendar data
+            await query.edit_message_text(
+                text=f"<b>{currency_flag} Economic Calendar for {primary_currency}</b>\n\n{formatted_data}",
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode=ParseMode.HTML
+            )
+            
+            return SIGNAL_ANALYSIS
+        
+        except Exception as e:
+            logger.error(f"Error in signal_calendar_callback: {str(e)}")
+            try:
+                # Error message with back button
+                await query.edit_message_text(
+                    text=f"Error loading economic calendar. Please try again.",
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal_analysis")]])
+                )
+            except Exception:
+                pass
+            
+            return SIGNAL_ANALYSIS
 
     async def back_menu_callback(self, update: Update, context=None) -> int:
         """Handle back_menu button press to return to main menu.
@@ -2858,99 +2827,39 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             raise
 
     async def back_to_signal_analysis_callback(self, update: Update, context=None) -> int:
-        """Handle back_to_signal_analysis button press to return to signal analysis options"""
-        query = update.callback_query
-        await query.answer()
-        
-        logger.info("back_to_signal_analysis_callback called")
-        
+        """Handle back_to_signal_analysis button press to return to signal analysis menu"""
         try:
-            # Get instrument from context
+            query = update.callback_query
+            await query.answer()
+            
+            logger.info("back_to_signal_analysis_callback called")
+            
+            # Get the instrument from context
             instrument = None
             if context and hasattr(context, 'user_data'):
                 instrument = context.user_data.get('instrument')
-                from_signal = context.user_data.get('from_signal', False)
-                logger.info(f"Going back to signal analysis for instrument {instrument}, from_signal={from_signal}")
             
-            # Make sure we're still in signal flow
-            if context and hasattr(context, 'user_data'):
-                context.user_data['from_signal'] = True
+            # Create the signal analysis menu - vertical layout with 3 options
+            keyboard = [
+                [InlineKeyboardButton("📊 Technical Analysis", callback_data="signal_technical")],
+                [InlineKeyboardButton("🔍 Market Sentiment", callback_data="signal_sentiment")],
+                [InlineKeyboardButton("📅 Economic Calendar", callback_data="signal_calendar")],
+                [InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal")]
+            ]
             
-            # Check if message has photo or animation
-            has_photo = bool(query.message.photo) or query.message.animation is not None
+            # Update the message with signal analysis menu
+            await query.edit_message_text(
+                text=f"<b>Signal Analysis for {instrument or 'Unknown Instrument'}</b>\n\nChoose analysis type:",
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode=ParseMode.HTML
+            )
             
-            # Use the SIGNAL_ANALYSIS_KEYBOARD
-            keyboard = SIGNAL_ANALYSIS_KEYBOARD
-            
-            # Format the message text
-            text = f"<b>Select analysis type for {instrument}:</b>"
-            
-            # Get random gif for analysis menu
-            gif_url = "https://media.giphy.com/media/gSzIKNrqtotEYrZv7i/giphy.gif"
-            
-            if has_photo:
-                # Try to delete the message first (if possible)
-                try:
-                    await query.message.delete()
-                    # Send a new message with analysis menu and proper GIF
-                    await context.bot.send_animation(
-                        chat_id=update.effective_chat.id,
-                        animation=gif_url,
-                        caption=text,
-                        reply_markup=InlineKeyboardMarkup(keyboard),
-                        parse_mode=ParseMode.HTML
-                    )
-                    return CHOOSE_ANALYSIS
-                except Exception as delete_error:
-                    logger.error(f"Could not delete message: {str(delete_error)}")
-                    
-                    # Try to replace the photo with an analysis GIF
-                    try:
-                        await query.edit_message_media(
-                            media=InputMediaAnimation(
-                                media=gif_url,
-                                caption=text
-                            ),
-                            reply_markup=InlineKeyboardMarkup(keyboard)
-                        )
-                        return CHOOSE_ANALYSIS
-                    except Exception as e:
-                        logger.error(f"Could not replace photo: {str(e)}")
-                        
-                        # Final fallback - try to edit the caption
-                        try:
-                            await query.edit_message_caption(
-                                caption=text,
-                                reply_markup=InlineKeyboardMarkup(keyboard),
-                                parse_mode=ParseMode.HTML
-                            )
-                        except Exception as caption_error:
-                            logger.error(f"Could not edit caption: {str(caption_error)}")
-                            # Just log the error, will try to edit the message text next
-            else:
-                # No photo, try to edit the message
-                try:
-                    await query.edit_message_text(
-                        text=text,
-                        reply_markup=InlineKeyboardMarkup(keyboard),
-                        parse_mode=ParseMode.HTML
-                    )
-                except Exception as e:
-                    logger.error(f"Error updating message text: {str(e)}")
-                    # Fallback to sending a new message
-                    await context.bot.send_message(
-                        chat_id=update.effective_chat.id,
-                        text=text,
-                        reply_markup=InlineKeyboardMarkup(keyboard),
-                        parse_mode=ParseMode.HTML
-                    )
-            
-            return CHOOSE_ANALYSIS
+            return SIGNAL_ANALYSIS
             
         except Exception as e:
             logger.error(f"Error in back_to_signal_analysis_callback: {str(e)}")
             
-            # Error recovery - return to main menu
+            # Error recovery - try to get back to menu
             try:
                 await query.edit_message_text(
                     text="An error occurred. Please try again from the main menu.",
@@ -2958,96 +2867,89 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 )
             except Exception:
                 pass
-            
+                
             return MENU
 
     async def back_to_signal_callback(self, update: Update, context=None) -> int:
         """Handle back_to_signal button press to return to the original signal"""
-        query = update.callback_query
-        await query.answer()
-        
-        logger.info("back_to_signal_callback werd aangeroepen - terugkeren naar oorspronkelijk signaal")
-        
         try:
-            # Get the current signal being viewed
-            user_id = update.effective_user.id
+            query = update.callback_query
+            await query.answer()
             
-            # First try to get signal data from backup in context
+            logger.info("back_to_signal_callback called")
+            
+            # Extract signal info from context
+            signal_id = None
             signal_instrument = None
             signal_direction = None
             signal_timeframe = None
-            signal_id = None
+            signal_message = None
             
             if context and hasattr(context, 'user_data'):
-                # Log de huidige context voor debugging
-                logger.info(f"Context bij teruggaan naar signaal: {context.user_data}")
+                signal_id = context.user_data.get('signal_id')
+                signal_instrument = context.user_data.get('instrument')
+                signal_direction = context.user_data.get('signal_direction')
+                signal_timeframe = context.user_data.get('signal_timeframe')
+                signal_message = context.user_data.get('original_signal_message')
                 
-                # Try to get from backup fields first (these are more reliable after navigation)
-                signal_instrument = context.user_data.get('signal_instrument_backup') or context.user_data.get('signal_instrument')
-                signal_direction = context.user_data.get('signal_direction_backup') or context.user_data.get('signal_direction')
-                signal_timeframe = context.user_data.get('signal_timeframe_backup') or context.user_data.get('signal_timeframe')
-                signal_id = context.user_data.get('signal_id_backup') or context.user_data.get('signal_id')
-                
-                # BELANGRIJK: Reset signal flow flags maar behoud de signal info
-                # Zet expliciete vlaggen die aangeven dat we in de signaal flow zijn
-                context.user_data['from_signal'] = True
-                context.user_data['is_signals_context'] = True
-                
-                # Log retrieved values for debugging
-                logger.info(f"Opgehaalde signaalgegevens uit context: instrument={signal_instrument}, direction={signal_direction}, timeframe={signal_timeframe}, signal_id={signal_id}")
+                logger.info(f"Retrieved signal context: id={signal_id}, instrument={signal_instrument}")
             
-            # Find the most recent signal for this user based on context data
+            if not signal_id and not signal_instrument:
+                logger.error("No signal info found in context")
+                await query.edit_message_text(
+                    text="Could not return to signal. Please use the main menu.",
+                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
+                )
+                return MENU
+            
+            # Try to get the signal data from storage
             signal_data = None
+            if signal_id:
+                signal_data = await self._get_signal_by_id(signal_id)
+                logger.info(f"Retrieved signal data for ID {signal_id}: {signal_data is not None}")
             
-            # Als we een signal_id hebben, probeer het signaal direct op te halen
-            if signal_id and str(user_id) in self.user_signals and signal_id in self.user_signals[str(user_id)]:
-                signal_data = self.user_signals[str(user_id)][signal_id]
-                logger.info(f"Signaalgegevens gevonden met signal_id: {signal_id}")
-            else:
-                # Zoek matching signaal op basis van instrument, direction en timeframe
-                if str(user_id) in self.user_signals:
-                    user_signal_dict = self.user_signals[str(user_id)]
-                    # Find signals matching instrument, direction and timeframe
-                    matching_signals = []
-                    
-                    for sig_id, sig in user_signal_dict.items():
-                        instrument_match = sig.get('instrument') == signal_instrument
-                        direction_match = True  # Default to true if we don't have direction data
-                        timeframe_match = True  # Default to true if we don't have timeframe data
-                        
-                        if signal_direction:
-                            direction_match = sig.get('direction') == signal_direction
-                        if signal_timeframe:
-                            # Check beide formaten (interval en timeframe)
-                            timeframe_match = sig.get('interval') == signal_timeframe or sig.get('timeframe') == signal_timeframe
-                        
-                        if instrument_match and direction_match and timeframe_match:
-                            matching_signals.append((sig_id, sig))
-                    
-                    # Sort by timestamp, newest first
-                    if matching_signals:
-                        matching_signals.sort(key=lambda x: x[1].get('timestamp', ''), reverse=True)
-                        signal_id, signal_data = matching_signals[0]
-                        logger.info(f"Matching signaal gevonden met ID: {signal_id}")
-                    else:
-                        logger.warning(f"Geen exact matching signaal gevonden voor instrument={signal_instrument}, direction={signal_direction}, timeframe={signal_timeframe}")
-                        # If no exact match, try with just the instrument
-                        matching_signals = []
-                        for sig_id, sig in user_signal_dict.items():
-                            if sig.get('instrument') == signal_instrument:
-                                matching_signals.append((sig_id, sig))
-                            
-                        if matching_signals:
-                            matching_signals.sort(key=lambda x: x[1].get('timestamp', ''), reverse=True)
-                            signal_id, signal_data = matching_signals[0]
-                            logger.info(f"Signaal gevonden op basis van alleen instrument, ID: {signal_id}")
-            
-            # Als nog steeds geen signaal gevonden, maar we hebben wel instrument info
-            if not signal_data and signal_instrument:
-                # Maak een minimaal signaal met de gegevens die we hebben
-                logger.info(f"Maak minimaal signaal bericht met beschikbare gegevens")
+            # If signal data is found, use it
+            if signal_data:
+                # Show the signal details with analyze button
+                # Prepare analyze button with signal info embedded
+                keyboard = [
+                    [InlineKeyboardButton("🔍 Analyze Market", callback_data=f"analyze_from_signal_{signal_instrument}_{signal_id}")]
+                ]
                 
-                # Fallback: maak een basisbericht met de beschikbare informatie
+                # Get the formatted message from the signal
+                signal_message = signal_data.get('message', "Signal details not available.")
+                
+                # Edit current message to show signal
+                await query.edit_message_text(
+                    text=signal_message,
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.HTML
+                )
+                
+                logger.info("Successfully returned to signal details page")
+                return SIGNAL_DETAILS
+            
+            # If we have the saved original message, use that
+            if signal_message:
+                keyboard = [
+                    [InlineKeyboardButton("🔍 Analyze Market", callback_data=f"analyze_from_signal_{signal_instrument}_{signal_id or 'unknown'}")]
+                ]
+                
+                await query.edit_message_text(
+                    text=signal_message,
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.HTML
+                )
+                
+                logger.info("Successfully returned to signal using saved message")
+                return SIGNAL_DETAILS
+            
+            # If still no signal data but we have instrument info
+            if signal_instrument:
+                # Create a minimal signal with the data we have
+                logger.info(f"Creating minimal signal message with available data")
+                
+                # Fallback: create a basic message with available information
                 direction = signal_direction or "unknown"
                 direction_emoji = "🟢" if direction.upper() == "BUY" else "🔴" if direction.upper() == "SELL" else "⚪"
                 
@@ -3058,12 +2960,12 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 if signal_timeframe:
                     signal_message += f"<b>Timeframe:</b> {signal_timeframe}\n"
                 
-                # Toon het signaal met de analyze knop
+                # Show the signal with the analyze button
                 keyboard = [
                     [InlineKeyboardButton("🔍 Analyze Market", callback_data=f"analyze_from_signal_{signal_instrument}_{signal_id or 'unknown'}")]
                 ]
                 
-                # Bewerk het huidige bericht om het signaal te tonen
+                # Edit the current message to show the signal
                 await query.edit_message_text(
                     text=signal_message,
                     reply_markup=InlineKeyboardMarkup(keyboard),
@@ -3072,32 +2974,12 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 
                 return SIGNAL_DETAILS
             
-            if not signal_data:
-                # Fallback message if signal not found
-                await query.edit_message_text(
-                    text="Signal not found. Please use the main menu to continue.",
-                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
-                )
-                return MENU
-            
-            # Show the signal details with analyze button
-            # Prepare analyze button with signal info embedded
-            keyboard = [
-                [InlineKeyboardButton("🔍 Analyze Market", callback_data=f"analyze_from_signal_{signal_instrument}_{signal_id}")]
-            ]
-            
-            # Get the formatted message from the signal
-            signal_message = signal_data.get('message', "Signal details not available.")
-            
-            # Edit current message to show signal
+            # Fallback message if signal not found
             await query.edit_message_text(
-                text=signal_message,
-                reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode=ParseMode.HTML
+                text="Signal not found. Please use the main menu to continue.",
+                reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
             )
-            
-            logger.info("Succesvol teruggekeerd naar signaal details pagina")
-            return SIGNAL_DETAILS
+            return MENU
             
         except Exception as e:
             logger.error(f"Error in back_to_signal_callback: {str(e)}")
@@ -3791,42 +3673,38 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             logger.error(f"Error loading signals: {str(e)}")
     
     async def _get_signal_by_id(self, signal_id: str) -> dict:
-        """Get signal data by ID from database"""
+        """Get signal by ID from the signals database.
+        
+        Args:
+            signal_id: The ID of the signal to retrieve
+            
+        Returns:
+            The signal data as a dictionary, or None if not found
+        """
         try:
-            # Get signals collection from database
-            signals_collection = self.db.get_collection('signals')
-            if not signals_collection:
-                logger.error("Could not get signals collection from database")
-                return None
+            logger.info(f"Getting signal with ID: {signal_id}")
             
-            # Parse ObjectId if needed
-            from bson import ObjectId
-            if not isinstance(signal_id, ObjectId):
+            # Check if signal exists in memory
+            for user_id, signals in self.user_signals.items():
+                if signal_id in signals:
+                    logger.info(f"Found signal {signal_id} for user {user_id}")
+                    return signals[signal_id]
+            
+            # If not in memory, check in database
+            signal = None
+            if self.db:
                 try:
-                    object_id = ObjectId(signal_id)
-                except Exception:
-                    object_id = signal_id  # Use as is if cannot convert
-            else:
-                object_id = signal_id
-                
-            # Query for signal by ID
-            signal = await signals_collection.find_one({"_id": object_id})
+                    signal = await self.db.get_signal(signal_id)
+                    if signal:
+                        logger.info(f"Found signal {signal_id} in database")
+                except Exception as db_error:
+                    logger.error(f"Error retrieving signal from database: {str(db_error)}")
             
-            if not signal:
-                logger.warning(f"Signal not found with ID: {signal_id}")
-                
-                # Try as string match as fallback
-                signal = await signals_collection.find_one({"signal_id": signal_id})
-                
-                if not signal:
-                    logger.error(f"Signal not found with ID or signal_id: {signal_id}")
-                    return None
-            
-            logger.info(f"Found signal: {signal.get('instrument')} ({signal.get('timeframe', '1h')})")
+            # Return the signal or None if not found
             return signal
             
         except Exception as e:
-            logger.error(f"Error getting signal by ID: {str(e)}")
+            logger.error(f"Error in _get_signal_by_id: {str(e)}")
             return None
 
     async def analyze_from_signal_callback(self, update: Update, context=None) -> int:
@@ -3871,7 +3749,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             if context and hasattr(context, 'user_data'):
                 # Set flag to indicate we're in signal flow
                 context.user_data['from_signal'] = True
-                context.user_data['is_signals_context'] = True
+                context.user_data['is_signals_context'] = False  # Important: not in signals context
                 
                 # Store signal data for other handlers
                 context.user_data['signal_id'] = signal_id
@@ -3879,19 +3757,22 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 context.user_data['signal_timeframe'] = timeframe
                 context.user_data['signal_direction'] = direction
                 
+                # Save original signal message context (for returning back)
+                if hasattr(query, 'message') and query.message:
+                    if query.message.text:
+                        context.user_data['original_signal_message'] = query.message.text
+                    elif query.message.caption:
+                        context.user_data['original_signal_message'] = query.message.caption
+                
                 # Log stored context
                 logger.info(f"Stored signal context - instrument: {instrument}, timeframe: {timeframe}")
             
-            # Show signal analysis menu
+            # Show signal analysis menu - vertical layout with 3 services
             keyboard = [
-                [
-                    InlineKeyboardButton("📊 Technical", callback_data="signal_technical"),
-                    InlineKeyboardButton("🔍 Sentiment", callback_data="signal_sentiment"),
-                ],
-                [
-                    InlineKeyboardButton("📅 Economic Calendar", callback_data="signal_calendar"),
-                    InlineKeyboardButton("⬅️ Back", callback_data="back_signals"),
-                ]
+                [InlineKeyboardButton("📊 Technical Analysis", callback_data="signal_technical")],
+                [InlineKeyboardButton("🔍 Market Sentiment", callback_data="signal_sentiment")],
+                [InlineKeyboardButton("📅 Economic Calendar", callback_data="signal_calendar")],
+                [InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal")]
             ]
             
             try:
