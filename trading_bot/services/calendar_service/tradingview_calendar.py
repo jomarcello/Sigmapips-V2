@@ -555,13 +555,14 @@ class TradingViewCalendarService:
                     # After getting events, filter by currency if specified
                     if currency and len(events) > 0:
                         logger.info(f"Post-filtering events by currency: {currency}")
-                        filtered_events = []
+                        # Instead of completely filtering, we'll just tag the events for the specified currency
+                        # but return all events
                         for event in events:
-                            # Check if the country matches the currency
-                            if event.get('country') == currency:
-                                filtered_events.append(event)
-                        logger.info(f"Filtered from {len(events)} to {len(filtered_events)} events for currency {currency}")
-                        events = filtered_events
+                            # Add a highlighted flag if the event matches the requested currency
+                            event["highlighted"] = event.get('country') == currency
+                        
+                        # Log that we're showing all events with highlighted currency
+                        logger.info(f"Showing all {len(events)} events with {currency} events highlighted")
                     
                     return events
                     
@@ -575,6 +576,46 @@ class TradingViewCalendarService:
             logger.error(f"Traceback: {traceback.format_exc()}")
             return []
             
+        finally:
+            await self._close_session()
+
+    async def debug_api_connection(self):
+        """Perform detailed API connection debugging"""
+        logger.info("Starting TradingView API connection debug")
+        debug_info = {
+            "api_health": False,
+            "connection_error": None,
+            "events_retrieved": 0,
+            "sample_events": [],
+            "last_successful_call": None,
+            "test_time": datetime.now().isoformat()
+        }
+        
+        try:
+            # Check API health
+            await self._ensure_session()
+            is_healthy = await self._check_api_health()
+            debug_info["api_health"] = is_healthy
+            
+            if is_healthy:
+                # Try to retrieve events
+                events = await self.get_calendar(days_ahead=0)
+                debug_info["events_retrieved"] = len(events)
+                if events:
+                    # Include a sample of first 3 events
+                    debug_info["sample_events"] = events[:3]
+                
+                # Record last successful call
+                debug_info["last_successful_call"] = self.last_successful_call.isoformat() if self.last_successful_call else None
+            
+            logger.info(f"API debug completed: health={debug_info['api_health']}, events={debug_info['events_retrieved']}")
+            return debug_info
+            
+        except Exception as e:
+            logger.error(f"Error during API debug: {str(e)}")
+            debug_info["connection_error"] = str(e)
+            return debug_info
+        
         finally:
             await self._close_session()
 
@@ -630,6 +671,9 @@ async def format_calendar_for_telegram(events: List[Dict]) -> str:
             impact = event.get("impact", "Low")
             impact_emoji = IMPACT_EMOJI.get(impact, "🟢")
             
+            # Check if this event is highlighted (specific to the requested currency)
+            is_highlighted = event.get("highlighted", False)
+            
             # Log each event being processed for debugging
             logger.debug(f"Processing event {i+1}: {json.dumps(event)}")
             
@@ -644,8 +688,9 @@ async def format_calendar_for_telegram(events: List[Dict]) -> str:
                 event_counts["missing_fields"] += 1
                 continue
             
-            # Format the line with enhanced visibility for country
-            event_line = f"{time} - 「{country}」 - {title} {impact_emoji}"
+            # Format the line with enhanced visibility for country - bold if highlighted
+            country_text = f"<b>{country}</b>" if is_highlighted else country
+            event_line = f"{time} - 「{country_text}」 - {title} {impact_emoji}"
             
             # Add previous/forecast/actual values if available
             values = []
