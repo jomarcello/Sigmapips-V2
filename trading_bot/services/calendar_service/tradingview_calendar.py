@@ -627,7 +627,7 @@ async def format_calendar_for_telegram(events: List[Dict]) -> str:
     
     # Count events per type
     logger.info(f"Formatting {len(events)} events for Telegram")
-    event_counts = {"total": len(events), "valid": 0, "missing_fields": 0}
+    event_counts = {"total": len(events), "valid": 0, "missing_fields": 0, "highlighted": 0}
     
     # Log all events to help diagnose issues
     logger.info(f"Events to format: {json.dumps(events[:5], indent=2)}")
@@ -673,6 +673,8 @@ async def format_calendar_for_telegram(events: List[Dict]) -> str:
             
             # Check if this event is highlighted (specific to the requested currency)
             is_highlighted = event.get("highlighted", False)
+            if is_highlighted:
+                event_counts["highlighted"] += 1
             
             # Log each event being processed for debugging
             logger.debug(f"Processing event {i+1}: {json.dumps(event)}")
@@ -690,7 +692,9 @@ async def format_calendar_for_telegram(events: List[Dict]) -> str:
             
             # Format the line with enhanced visibility for country - bold if highlighted
             country_text = f"<b>{country}</b>" if is_highlighted else country
-            event_line = f"{time} - 「{country_text}」 - {title} {impact_emoji}"
+            # Add a special marker for highlighted events to make them more visible
+            prefix = "➤ " if is_highlighted else ""
+            event_line = f"{time} - 「{country_text}」 - {prefix}{title} {impact_emoji}"
             
             # Add previous/forecast/actual values if available
             values = []
@@ -719,14 +723,16 @@ async def format_calendar_for_telegram(events: List[Dict]) -> str:
         logger.warning("No valid events to display in calendar")
         message += "No valid economic events found for today.\n"
     
-    # Add legend
+    # Add legend with explanation of formatting
     message += "\n-------------------\n"
     message += "🔴 High Impact\n"
     message += "🟠 Medium Impact\n"
     message += "🟢 Low Impact\n"
+    # Add note about highlighted events
+    message += "➤ Primary currency events are in <b>bold</b>\n"
     
     # Log event counts
-    logger.info(f"Telegram formatting: {event_counts['valid']} valid events, {event_counts['missing_fields']} skipped due to missing fields")
+    logger.info(f"Telegram formatting: {event_counts['valid']} valid events, {event_counts['highlighted']} highlighted events, {event_counts['missing_fields']} skipped due to missing fields")
     logger.info(f"Final message length: {len(message)} characters")
     
     return message
