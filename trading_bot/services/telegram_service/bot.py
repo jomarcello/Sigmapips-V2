@@ -3058,3 +3058,112 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 pass
             
             return MENU
+
+    async def market_callback(self, update: Update, context=None) -> int:
+        """Handle market selection and show appropriate instruments"""
+        query = update.callback_query
+        await query.answer()
+        callback_data = query.data
+        
+        # Parse the market from callback data
+        parts = callback_data.split("_")
+        market = parts[1]  # Extract market type (forex, crypto, etc.)
+        
+        # Check if there's a specific analysis type in the callback data
+        analysis_type = None
+        if len(parts) > 2:
+            analysis_type = parts[2]  # chart, sentiment, calendar, signals
+            
+        # Check if signal-specific context
+        is_signals_context = False
+        if callback_data.endswith("_signals"):
+            is_signals_context = True
+        elif context and hasattr(context, 'user_data'):
+            is_signals_context = context.user_data.get('is_signals_context', False)
+        
+        # Store market in context
+        if context and hasattr(context, 'user_data'):
+            context.user_data['market'] = market
+            context.user_data['is_signals_context'] = is_signals_context
+            if analysis_type:
+                context.user_data['analysis_type'] = analysis_type
+        
+        logger.info(f"Market callback: market={market}, analysis_type={analysis_type}, signals_context={is_signals_context}")
+        
+        # Determine which keyboard to show based on market and context
+        keyboard = None
+        message_text = f"Select a {market.upper()} instrument:"
+        
+        if is_signals_context:
+            # Signal-specific keyboards
+            if market == 'forex':
+                keyboard = FOREX_KEYBOARD_SIGNALS
+            elif market == 'crypto':
+                keyboard = CRYPTO_KEYBOARD_SIGNALS
+            elif market == 'indices':
+                keyboard = INDICES_KEYBOARD_SIGNALS
+            elif market == 'commodities':
+                keyboard = COMMODITIES_KEYBOARD_SIGNALS
+            else:
+                # Default keyboard for unknown market
+                keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_signals")]]
+                message_text = f"Unknown market: {market}"
+        else:
+            # Analysis-specific keyboards
+            if not analysis_type and context and hasattr(context, 'user_data'):
+                analysis_type = context.user_data.get('analysis_type', 'technical')
+            
+            if analysis_type == 'sentiment':
+                if market == 'forex':
+                    keyboard = FOREX_SENTIMENT_KEYBOARD
+                elif market == 'crypto':
+                    keyboard = CRYPTO_SENTIMENT_KEYBOARD
+                elif market == 'indices':
+                    keyboard = INDICES_SENTIMENT_KEYBOARD
+                elif market == 'commodities':
+                    keyboard = COMMODITIES_SENTIMENT_KEYBOARD
+                else:
+                    keyboard = MARKET_SENTIMENT_KEYBOARD
+                message_text = f"Select instrument for sentiment analysis:"
+            elif analysis_type == 'calendar':
+                if market == 'forex':
+                    keyboard = FOREX_CALENDAR_KEYBOARD
+                else:
+                    keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_analysis")]]
+                message_text = f"Select currency for economic calendar:"
+            else:
+                # Default to technical analysis
+                if market == 'forex':
+                    keyboard = FOREX_KEYBOARD
+                elif market == 'crypto':
+                    keyboard = CRYPTO_KEYBOARD
+                elif market == 'indices':
+                    keyboard = INDICES_KEYBOARD
+                elif market == 'commodities':
+                    keyboard = COMMODITIES_KEYBOARD
+                else:
+                    keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_analysis")]]
+                    message_text = f"Unknown market: {market}"
+                message_text = f"Select instrument for technical analysis:"
+        
+        # Show the keyboard
+        try:
+            await self.update_message(
+                query=query,
+                text=message_text,
+                keyboard=InlineKeyboardMarkup(keyboard),
+                parse_mode=ParseMode.HTML
+            )
+        except Exception as e:
+            logger.error(f"Error updating message in market_callback: {str(e)}")
+            # Try to create a new message as fallback
+            try:
+                await query.message.reply_text(
+                    text=message_text,
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.HTML
+                )
+            except Exception as e2:
+                logger.error(f"Error sending new message in market_callback: {str(e2)}")
+        
+        return CHOOSE_INSTRUMENT
