@@ -734,6 +734,45 @@ class TelegramService:
         
         # First try to initialize and set up the bot properly
         try:
+            # Create a file-based lock to ensure only one instance is running at a time
+            # This is the most reliable method to prevent conflicts between bot instances
+            lock_path = "/tmp/telegram_bot.lock"
+            
+            # Try to create a lock file
+            try:
+                # Get process ID
+                pid = os.getpid()
+                
+                # Check if lock file exists
+                if os.path.exists(lock_path):
+                    # Read the existing lock file
+                    try:
+                        with open(lock_path, 'r') as f:
+                            existing_pid_str = f.read().strip()
+                            existing_instance = f.read().strip()
+                            logger.warning(f"Existing lock file found with PID: {existing_pid_str}, instance: {existing_instance}")
+                            
+                            # Try to check if process is still running (Linux/Unix only)
+                            if os.name != 'nt':  # Not Windows
+                                try:
+                                    existing_pid = int(existing_pid_str)
+                                    os.kill(existing_pid, 0)  # This will raise OSError if process is not running
+                                    logger.error(f"⚠️ Another bot instance is already running with PID {existing_pid}! Using this instance {instance_id} as backup.")
+                                except (ValueError, OSError):
+                                    # Process is not running, we can take over
+                                    logger.info(f"Taking over lock from non-running process: {existing_pid_str}")
+                                    os.remove(lock_path)
+                    except Exception as read_err:
+                        logger.warning(f"Error reading lock file: {str(read_err)}")
+                        os.remove(lock_path)
+                
+                # Create our lock file
+                with open(lock_path, 'w') as f:
+                    f.write(f"{pid}\n{instance_id}")
+                logger.info(f"Created lock file for instance {instance_id} with PID {pid}")
+            except Exception as lock_err:
+                logger.warning(f"Error managing lock file: {str(lock_err)}")
+            
             # Initialize the application if not already initialized
             if not hasattr(self.application, '_initialized') or not self.application._initialized:
                 await self.application.initialize()
@@ -779,6 +818,50 @@ class TelegramService:
                     logger.info(f"✅ Successfully connected to Telegram API. Bot: {me.first_name} (@{me.username})")
                     # Break the loop if we succeeded
                     break
+                except telegram.error.Conflict as conflict_err:
+                    connection_attempts += 1
+                    logger.error(f"Conflict error during connection attempt {connection_attempts}: {str(conflict_err)}")
+                    
+                    # Perform a reset procedure to break out of conflict state
+                    try:
+                        # More aggressive session reset with random jitter to avoid collisions
+                        wait_time = 3 + random.uniform(0, 5)
+                        logger.info(f"Waiting {wait_time:.1f}s before conflict recovery...")
+                        await asyncio.sleep(wait_time)
+                        
+                        # Try to reset the session state 
+                        await self.bot.delete_webhook(drop_pending_updates=True)
+                        # Use a very large offset to reset getUpdates state
+                        await self.bot.get_updates(offset=999999999, limit=1, timeout=1)
+                        
+                        # If we've tried multiple times without success, try to rebuild the bot
+                        if connection_attempts > 5:
+                            logger.info("Rebuilding bot instance after multiple conflict errors")
+                            
+                            # Create new request handler
+                            request = HTTPXRequest(
+                                connection_pool_size=100,
+                                connect_timeout=30.0,
+                                read_timeout=90.0,
+                                write_timeout=60.0,
+                                pool_timeout=120.0
+                            )
+                            
+                            # Create new bot instance
+                            self.bot = Bot(token=self.bot_token, request=request)
+                            
+                            # Create new application with the bot
+                            self.application = Application.builder().bot(self.bot).build()
+                            self._register_handlers(self.application)
+                            
+                            # Initialize and start the new application
+                            await self.application.initialize()
+                            await self.application.start()
+                    except Exception as reset_err:
+                        logger.error(f"Error during conflict recovery: {str(reset_err)}")
+                    
+                    # Increase delay for next attempt
+                    connection_delay = min(30, connection_delay * 1.2)
                 except Exception as e:
                     connection_attempts += 1
                     
@@ -3844,6 +3927,16 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Split the callback data for pattern matching
             parts = callback_data.split("_")
             
+            # Handle analyze_from_signal buttons
+            if callback_data.startswith("analyze_from_signal_"):
+                logger.info(f"Handling analyze_from_signal in button_callback: {callback_data}")
+                return await self.analyze_from_signal_callback(update, context)
+                
+            # Handle back_to_signal_analysis specifically
+            if callback_data == "back_to_signal_analysis":
+                logger.info(f"Handling back_to_signal_analysis in button_callback")
+                return await self.back_to_signal_analysis_callback(update, context)
+                
             # Handle signal-specific buttons that might be missed by the specific handlers
             if callback_data == "signal_technical":
                 logger.info(f"Handling signal_technical in general button_callback")
@@ -3856,6 +3949,11 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             if callback_data == "signal_calendar":
                 logger.info(f"Handling signal_calendar in general button_callback")
                 return await self.signal_calendar_callback(update, context)
+                
+            # Handle back_to_signal button
+            if callback_data == "back_to_signal":
+                logger.info(f"Handling back_to_signal in button_callback")
+                return await self.back_to_signal_callback(update, context)
             
             # Direct instrument_timeframe callbacks  
             if "_timeframe_" in callback_data:
