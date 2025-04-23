@@ -619,6 +619,51 @@ class TradingViewCalendarService:
         finally:
             await self._close_session()
 
+    async def get_economic_calendar(self, currencies: List[str] = None, days_ahead: int = 0, min_impact: str = "Low") -> str:
+        """
+        Fetch and format economic calendar events for multiple currencies
+        
+        Args:
+            currencies: List of currency codes to filter events by (e.g. ["EUR", "USD"])
+            days_ahead: Number of days to look ahead
+            min_impact: Minimum impact level to include (Low, Medium, High)
+            
+        Returns:
+            Formatted HTML string with calendar data
+        """
+        try:
+            logger.info(f"Getting economic calendar for currencies: {currencies}, days_ahead: {days_ahead}")
+            
+            # Get all events from TradingView (we'll filter by currency ourselves)
+            all_events = await self.get_calendar(days_ahead=days_ahead, min_impact=min_impact)
+            logger.info(f"Got {len(all_events)} events from TradingView")
+            
+            # Filter by currencies if provided
+            filtered_events = all_events
+            if currencies:
+                filtered_events = [
+                    event for event in all_events 
+                    if event.get('country') in currencies
+                ]
+                logger.info(f"Filtered to {len(filtered_events)} events for currencies: {currencies}")
+                
+                # If no events found after filtering, try to get events for all major currencies
+                if not filtered_events:
+                    logger.info(f"No events found for {currencies}, fetching for all major currencies")
+                    filtered_events = all_events
+            
+            # Format the events
+            formatted_calendar = await format_calendar_for_telegram(filtered_events)
+            
+            return formatted_calendar
+            
+        except Exception as e:
+            logger.error(f"Error in get_economic_calendar: {str(e)}")
+            logger.exception(e)
+            
+            # Return a minimal calendar with error message
+            return "<b>📅 Economic Calendar</b>\n\nSorry, there was an error retrieving the economic calendar data."
+
 async def format_calendar_for_telegram(events: List[Dict]) -> str:
     """Format the calendar data for Telegram display"""
     if not events:
