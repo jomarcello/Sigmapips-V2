@@ -40,7 +40,7 @@ from trading_bot.services.telegram_service.states import (
     CHOOSE_ANALYSIS, SIGNAL_DETAILS, SIGNAL_ANALYSIS,
     CALLBACK_MENU_ANALYSE, CALLBACK_MENU_SIGNALS, CALLBACK_ANALYSIS_TECHNICAL,
     CALLBACK_ANALYSIS_SENTIMENT, CALLBACK_ANALYSIS_CALENDAR, CALLBACK_SIGNALS_ADD,
-    CALLBACK_SIGNALS_MANAGE, CALLBACK_BACK_MENU, CALLBACK_BACK_ANALYSIS, CALLBACK_BACK_MARKET, CALLBACK_BACK_INSTRUMENT, CALLBACK_BACK_SIGNALS
+    CALLBACK_SIGNALS_MANAGE, CALLBACK_BACK_MENU
 )
 import trading_bot.services.telegram_service.gif_utils as gif_utils
 
@@ -108,7 +108,7 @@ CALLBACK_ANALYSIS_TECHNICAL = "analysis_technical"
 CALLBACK_ANALYSIS_SENTIMENT = "analysis_sentiment"
 CALLBACK_ANALYSIS_CALENDAR = "analysis_calendar"
 CALLBACK_BACK_MENU = "back_menu"
-CALLBACK_BACK_ANALYSIS = "back_analysis"
+CALLBACK_BACK_ANALYSIS = "back_to_analysis"
 CALLBACK_BACK_MARKET = "back_market"
 CALLBACK_BACK_INSTRUMENT = "back_instrument"
 CALLBACK_BACK_SIGNALS = "back_signals"
@@ -673,8 +673,7 @@ class TelegramService:
         logger.info(f"Bot initialized with webhook URL: {self.webhook_url} and path: {self.webhook_path}")
         
         # Initialize API services
-        # Use the property to lazy-load the chart service instead of direct initialization
-        self._chart_service = None
+        self.chart_service = ChartService()  # Initialize chart service
         # Lazy load services only when needed
         self._calendar_service = None
         self._sentiment_service = None
@@ -714,61 +713,16 @@ class TelegramService:
             logger.error(f"Error initializing Telegram service: {str(e)}")
             raise
 
-    @property
-    def sentiment_service(self):
-        """Lazy loaded sentiment service"""
-        if not hasattr(self, '_sentiment_service') or self._sentiment_service is None:
-            # Only initialize the sentiment service when it's first accessed
-            logger.info("Lazy loading sentiment service")
-            from trading_bot.services.sentiment_service.sentiment import MarketSentimentService
-            self._sentiment_service = MarketSentimentService()
-        return self._sentiment_service
-        
-    @property
-    def chart_service(self):
-        """Lazy loaded chart service with proper isolation"""
-        if not hasattr(self, '_chart_service') or self._chart_service is None:
-            # Only initialize the chart service when it's first accessed
-            logger.info("Lazy loading chart service")
-            from trading_bot.services.chart_service.chart import ChartService
-            self._chart_service = ChartService()
-        return self._chart_service
-        
     async def initialize_services(self):
-        """Initialize services with proper isolation"""
-        logger.info("Initializing services with proper isolation")
-        
-        # Initialize services separately to maintain isolation
+        """Initialize services that require an asyncio event loop"""
         try:
-            # Use properties to lazily load services when needed
-            # This ensures each service is properly isolated
-            if hasattr(self, '_chart_service') and self._chart_service:
-                logger.info("Chart service already initialized")
-            else:
-                logger.info("Initializing chart service")
-                from trading_bot.services.chart_service.chart import ChartService
-                self._chart_service = ChartService()
-                
-            if hasattr(self, '_sentiment_service') and self._sentiment_service:
-                logger.info("Sentiment service already initialized")
-            else:
-                logger.info("Initializing sentiment service")
-                from trading_bot.services.sentiment_service.sentiment import MarketSentimentService
-                self._sentiment_service = MarketSentimentService()
-                
-            if hasattr(self, '_calendar_service') and self._calendar_service:
-                logger.info("Calendar service already initialized")
-            else:
-                logger.info("Initializing calendar service")
-                from trading_bot.services.calendar_service.calendar import CalendarService
-                self._calendar_service = CalendarService()
-                
-            logger.info("All services initialized successfully with isolation")
-            
+            # Initialize chart service
+            await self.chart_service.initialize()
+            logger.info("Chart service initialized")
         except Exception as e:
             logger.error(f"Error initializing services: {str(e)}")
-            logger.exception(e)
-
+            raise
+            
     async def run(self):
         """Run the telegram service with retry mechanism for Telegram API connection issues"""
         logger.info("TelegramService.run() called")
@@ -1718,8 +1672,8 @@ class TelegramService:
             application.add_handler(CallbackQueryHandler(self.back_instrument_callback, pattern="^back_instrument$"))
             application.add_handler(CallbackQueryHandler(self.back_market_callback, pattern="^back_market$"))
             application.add_handler(CallbackQueryHandler(self.back_menu_callback, pattern="^back_menu$"))
-            application.add_handler(CallbackQueryHandler(self.back_analysis_callback, pattern="^back_analysis$"))
-            # Fix the handler for the back_to_analysis pattern - removed since back_analysis is now correctly handled
+            application.add_handler(CallbackQueryHandler(self.analysis_callback, pattern="^back_analysis$"))
+            application.add_handler(CallbackQueryHandler(self.analysis_callback, pattern="^back_to_analysis$"))
             application.add_handler(CallbackQueryHandler(self.back_to_signal_analysis_callback, pattern="^back_to_signal_analysis$"))
             application.add_handler(CallbackQueryHandler(self.back_to_signal_callback, pattern="^back_to_signal$"))
             application.add_handler(CallbackQueryHandler(self.back_signals_callback, pattern="^back_signals$"))
@@ -2233,21 +2187,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         await query.answer()
         
         if context and hasattr(context, 'user_data'):
-            # Clear any existing analysis data to ensure separation between services
-            if 'chart_data' in context.user_data:
-                del context.user_data['chart_data']
-            if 'technical_analysis_data' in context.user_data:
-                del context.user_data['technical_analysis_data']
-            if 'chart_ready' in context.user_data:
-                del context.user_data['chart_ready']
-            if 'timeframe' in context.user_data:
-                del context.user_data['timeframe']
-            
-            # Set new analysis type
             context.user_data['analysis_type'] = 'sentiment'
-            
-            # Log the context clearing for debugging
-            logger.info("Cleared chart data from context when switching to sentiment analysis")
         
         # Set the callback data
         callback_data = query.data
@@ -2261,88 +2201,36 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             
             logger.info(f"Sentiment analysis for specific instrument: {instrument}")
             
-            # Force delete current message to ensure no chart persists
-            try:
-                await context.bot.delete_message(
-                    chat_id=update.effective_chat.id,
-                    message_id=query.message.message_id
-                )
-                logger.info("Successfully deleted previous message before showing sentiment analysis")
-            except Exception as e:
-                logger.warning(f"Could not delete message before showing sentiment: {str(e)}")
-            
             # Show analysis directly for this instrument
             return await self.show_sentiment_analysis(update, context, instrument=instrument)
             
         # Show the market selection menu
         try:
-            # Always try to delete the current message first to ensure no chart persists
-            try:
-                await context.bot.delete_message(
-                    chat_id=update.effective_chat.id,
-                    message_id=query.message.message_id
-                )
-                logger.info("Successfully deleted previous message when switching to sentiment analysis")
-                
-                # Send new message with market selection
-                await context.bot.send_message(
-                    chat_id=update.effective_chat.id,
-                    text="Select market for sentiment analysis:",
-                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD),
-                    parse_mode=ParseMode.HTML
-                )
-                return CHOOSE_MARKET
-            except Exception as delete_error:
-                logger.warning(f"Could not delete previous message: {str(delete_error)}")
-                
-                # Fall back to editing - but first try to send a new message
+            # First try to edit message text
+            await query.edit_message_text(
+                text="Select market for sentiment analysis:",
+                reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
+            )
+        except Exception as text_error:
+            # If that fails due to caption, try editing caption
+            if "There is no text in the message to edit" in str(text_error):
                 try:
-                    # Send a completely new message and ignore the old one
-                    await context.bot.send_message(
-                        chat_id=update.effective_chat.id,
+                    await query.edit_message_caption(
+                        caption="Select market for sentiment analysis:",
+                        reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD),
+                        parse_mode=ParseMode.HTML
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to update caption in analysis_sentiment_callback: {str(e)}")
+                    # Try to send a new message as last resort
+                    await query.message.reply_text(
                         text="Select market for sentiment analysis:",
                         reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD),
                         parse_mode=ParseMode.HTML
                     )
-                    return CHOOSE_MARKET
-                except Exception as send_error:
-                    logger.warning(f"Could not send new message: {str(send_error)}")
-                    
-                    # Last resort - try to edit the existing message
-                    try:
-                        await query.edit_message_text(
-                            text="Select market for sentiment analysis:",
-                            reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
-                        )
-                    except Exception as text_error:
-                        # If that fails due to caption, try editing caption
-                        if "There is no text in the message to edit" in str(text_error):
-                            try:
-                                await query.edit_message_caption(
-                                    caption="Select market for sentiment analysis:",
-                                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD),
-                                    parse_mode=ParseMode.HTML
-                                )
-                            except Exception as e:
-                                logger.error(f"Failed to update caption in analysis_sentiment_callback: {str(e)}")
-                                # Try to send a new message as last resort
-                                await query.message.reply_text(
-                                    text="Select market for sentiment analysis:",
-                                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD),
-                                    parse_mode=ParseMode.HTML
-                                )
-                        else:
-                            # Re-raise for other errors
-                            raise
-        except Exception as e:
-            logger.error(f"Error in analysis_sentiment_callback: {str(e)}")
-            # Last resort - send a completely new message
-            await context.bot.send_message(
-                chat_id=update.effective_chat.id,
-                text="Select market for sentiment analysis:",
-                reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD),
-                parse_mode=ParseMode.HTML
-            )
+            else:
+                # Re-raise for other errors
+                raise
         
         return CHOOSE_MARKET
         
@@ -2371,52 +2259,12 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         
         # Set loading message
         loading_message = "Loading economic calendar..."
-        loading_message_obj = None
         
         try:
-            # Check if the message has media content
-            has_media = False
-            if hasattr(query.message, 'photo') and query.message.photo:
-                has_media = True
-            elif hasattr(query.message, 'animation') and query.message.animation:
-                has_media = True
-                
-            if has_media:
-                # If the message has media content, keep the existing message for loading animation
-                # We won't modify it here, just store the message object to pass to show_economic_calendar
-                loading_message_obj = query.message
-                logger.info("Using existing media message as loading indicator")
-                
-                # Store the message object in context to prevent duplicate loading messages
-                if context and hasattr(context, 'user_data'):
-                    context.user_data['loading_message_obj'] = loading_message_obj
-            else:
-                # Standard text message, try to edit
-                try:
-                    loading_message_obj = await query.edit_message_text(text=loading_message)
-                    logger.info("Created loading message by editing text")
-                    
-                    # Store the message object in context
-                    if context and hasattr(context, 'user_data'):
-                        context.user_data['loading_message_obj'] = loading_message_obj
-                except Exception as text_error:
-                    logger.warning(f"Could not edit text: {str(text_error)}")
-                    
-                    # Try to send a new message as fallback
-                    try:
-                        loading_message_obj = await context.bot.send_message(
-                            chat_id=update.effective_chat.id,
-                            text=loading_message
-                        )
-                        logger.info("Sent new loading message")
-                        
-                        # Store the message object in context
-                        if context and hasattr(context, 'user_data'):
-                            context.user_data['loading_message_obj'] = loading_message_obj
-                    except Exception as send_error:
-                        logger.error(f"Could not send loading message: {str(send_error)}")
+            # Show initial loading message
+            await query.edit_message_text(text=loading_message)
             
-            # Use the show_calendar_analysis method, passing the loading message object
+            # Use the show_calendar_analysis method
             return await self.show_calendar_analysis(
                 update=update,
                 context=context,
@@ -2427,44 +2275,12 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             logger.error(f"Error in analysis_calendar_callback: {str(e)}")
             try:
                 # Error message with back button
-                error_text = "Error loading economic calendar. Please try again."
-                keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_analysis")]])
-                
-                # Try to determine the best way to show the error
-                if hasattr(query.message, 'photo') and query.message.photo or hasattr(query.message, 'animation') and query.message.animation:
-                    # Message has media, try to edit caption
-                    try:
-                        await query.edit_message_caption(
-                            caption=error_text,
-                            reply_markup=keyboard,
-                            parse_mode=ParseMode.HTML
-                        )
-                    except Exception:
-                        # Try sending a new message
-                        await context.bot.send_message(
-                            chat_id=update.effective_chat.id,
-                            text=error_text,
-                            reply_markup=keyboard,
-                            parse_mode=ParseMode.HTML
-                        )
-                else:
-                    # Try editing text
-                    try:
-                        await query.edit_message_text(
-                            text=error_text,
-                            reply_markup=keyboard,
-                            parse_mode=ParseMode.HTML
-                        )
-                    except Exception:
-                        # Try sending a new message
-                        await context.bot.send_message(
-                            chat_id=update.effective_chat.id,
-                            text=error_text,
-                            reply_markup=keyboard,
-                            parse_mode=ParseMode.HTML
-                        )
-            except Exception as error_message_error:
-                logger.error(f"Could not send error message: {str(error_message_error)}")
+                await query.edit_message_text(
+                    text=f"Error loading economic calendar. Please try again.",
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_analysis")]])
+                )
+            except Exception:
+                pass
             
             return CHOOSE_ANALYSIS
 
@@ -2496,11 +2312,6 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                             currency = currencies[0]
                             self.logger.info(f"Extracted currency {currency} from instrument {instrument}")
                 
-                # Skip loading message creation if we already have a loading message from context
-                if not loading_message and 'loading_message_obj' in context.user_data:
-                    loading_message = context.user_data.get('loading_message_obj')
-                    self.logger.info(f"Using loading message from context")
-                
                 # Check if we have a loading message from the context
                 if not loading_message and 'loading_message' in context.user_data:
                     loading_message = context.user_data.get('loading_message')
@@ -2512,7 +2323,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Initialize the calendar service
             calendar_service = self._get_calendar_service()
             
-            # Create loading message if one doesn't exist and we have a query
+            # Create loading message if one doesn't exist
             if not loading_message and query:
                 try:
                     loading_text = "Loading economic calendar data..."
@@ -2533,8 +2344,6 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                         self.logger.info("Created new loading message by sending new message")
                     except Exception as send_error:
                         self.logger.error(f"Could not send loading message: {str(send_error)}")
-            else:
-                self.logger.info(f"Using existing loading message: {loading_message}")
             
             # Get calendar data from the TradingView service directly
             try:
@@ -2617,76 +2426,23 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             
             # If we have a query, try to edit message directly
             if query:
-                # Check if message has media content
-                has_media = False
-                if hasattr(query.message, 'photo') and query.message.photo:
-                    has_media = True
-                    self.logger.info("Message has photo content")
-                elif hasattr(query.message, 'animation') and query.message.animation:
-                    has_media = True
-                    self.logger.info("Message has animation content")
-                
-                if has_media:
-                    # For messages with media content, try to edit caption first
-                    try:
-                        await query.edit_message_caption(
-                            caption=message,
-                            parse_mode=ParseMode.HTML,
-                            reply_markup=keyboard
-                        )
-                        self.logger.info("Successfully edited caption with calendar data")
+                try:
+                    await query.edit_message_text(
+                        text=message,
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=keyboard
+                    )
+                    self.logger.info("Successfully edited message with calendar data")
+                    
+                    # Clear any loading message from context if it exists
+                    if context and hasattr(context, 'user_data') and 'loading_message' in context.user_data:
+                        del context.user_data['loading_message']
                         
-                        # Clear any loading message from context if it exists
-                        if context and hasattr(context, 'user_data') and 'loading_message' in context.user_data:
-                            del context.user_data['loading_message']
-                            
-                        # Return appropriate state based on flow
-                        return SIGNAL_ANALYSIS if is_from_signal else CHOOSE_ANALYSIS
-                    except Exception as caption_error:
-                        self.logger.warning(f"Could not edit caption: {str(caption_error)}")
-                        
-                        # Try replacing the media with text content
-                        try:
-                            transparent_gif = "https://upload.wikimedia.org/wikipedia/commons/thumb/0/00/Transparent.gif/1px-Transparent.gif"
-                            
-                            await query.edit_message_media(
-                                media=InputMediaDocument(
-                                    media=transparent_gif,
-                                    caption=message,
-                                    parse_mode=ParseMode.HTML
-                                ),
-                                reply_markup=keyboard
-                            )
-                            self.logger.info("Successfully replaced media and added calendar data as caption")
-                            
-                            # Clear any loading message from context
-                            if context and hasattr(context, 'user_data') and 'loading_message' in context.user_data:
-                                del context.user_data['loading_message']
-                                
-                            # Return appropriate state
-                            return SIGNAL_ANALYSIS if is_from_signal else CHOOSE_ANALYSIS
-                        except Exception as media_error:
-                            self.logger.warning(f"Could not replace media: {str(media_error)}")
-                            # Fall through to sending a new message
-                else:
-                    # For text messages, try to edit text
-                    try:
-                        await query.edit_message_text(
-                            text=message,
-                            parse_mode=ParseMode.HTML,
-                            reply_markup=keyboard
-                        )
-                        self.logger.info("Successfully edited message with calendar data")
-                        
-                        # Clear any loading message from context if it exists
-                        if context and hasattr(context, 'user_data') and 'loading_message' in context.user_data:
-                            del context.user_data['loading_message']
-                            
-                        # Return appropriate state based on flow
-                        return SIGNAL_ANALYSIS if is_from_signal else CHOOSE_ANALYSIS
-                    except Exception as edit_error:
-                        self.logger.warning(f"Could not edit message: {str(edit_error)}")
-                        # Fall through to send a new message
+                    # Return appropriate state based on flow
+                    return SIGNAL_ANALYSIS if is_from_signal else CHOOSE_ANALYSIS
+                except Exception as edit_error:
+                    self.logger.warning(f"Could not edit message: {str(edit_error)}")
+                    # Fall through to send a new message
             
             # If we couldn't edit or have a loading message reference, try to delete and send new message
             sent_new_message = False
@@ -2717,13 +2473,9 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     self.logger.error(f"Could not send new message: {str(send_error)}")
             
             # Clear any loading message from context if it exists
-            if context and hasattr(context, 'user_data'):
-                if 'loading_message' in context.user_data:
-                    del context.user_data['loading_message']
-                # Also clear the loading_message_obj we added
-                if 'loading_message_obj' in context.user_data:
-                    del context.user_data['loading_message_obj']
-                        
+            if context and hasattr(context, 'user_data') and 'loading_message' in context.user_data:
+                del context.user_data['loading_message']
+                
             # Return appropriate state
             return SIGNAL_ANALYSIS if is_from_signal else CHOOSE_ANALYSIS
             
@@ -2907,10 +2659,111 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             )
             return SIGNAL_ANALYSIS
         
-        # Simply call the show_sentiment_analysis method
-        # This reuses the same code and prevents duplicated functionality
-        logger.info(f"Routing to show_sentiment_analysis with instrument: {instrument}")
-        return await self.show_sentiment_analysis(update, context, instrument=instrument)
+        # Get market from instrument
+        market = _detect_market(instrument)
+        
+        # Show loading message
+        loading_text = f"Loading sentiment analysis for {instrument}..."
+        loading_gif = "https://media.giphy.com/media/dpjUltnOPye7azvAhH/giphy.gif"
+        
+        try:
+            # Try to show animated loading GIF
+            await query.edit_message_media(
+                media=InputMediaAnimation(
+                    media=loading_gif,
+                    caption=loading_text
+                )
+            )
+        except Exception as gif_error:
+            logger.warning(f"Could not show loading GIF: {str(gif_error)}")
+            # Fall back to text loading message
+            try:
+                await query.edit_message_text(text=loading_text)
+            except Exception:
+                pass
+        
+        # Create back button for this context
+        keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal_analysis")]]
+        
+        # Get sentiment analysis
+        try:
+            # Initialize chart service if needed
+            if not hasattr(self, 'chart_service') or not self.chart_service:
+                from trading_bot.services.chart_service.chart import ChartService
+                self.chart_service = ChartService()
+            
+            # Get sentiment analysis
+            sentiment_data = await self.chart_service.get_sentiment_analysis(instrument)
+            
+            if not sentiment_data:
+                # Instead of edit_message_text, send a new message and delete the old one
+                chat_id = update.effective_chat.id
+                message_id = update.effective_message.message_id
+                
+                # Send a new message with the error
+                await self.bot.send_message(
+                    chat_id=chat_id,
+                    text=f"No sentiment data available for {instrument}.",
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.HTML
+                )
+                
+                # Delete the original message with the loading GIF
+                try:
+                    await self.bot.delete_message(chat_id=chat_id, message_id=message_id)
+                except Exception as e:
+                    logger.warning(f"Could not delete original message: {str(e)}")
+                
+                return SIGNAL_ANALYSIS
+            
+            # Format sentiment data into text
+            sentiment_text = f"<b>Sentiment Analysis for {instrument}</b>\n\n"
+            sentiment_text += sentiment_data
+            
+            # Using the same approach - send a new message with the results
+            chat_id = update.effective_chat.id
+            message_id = update.effective_message.message_id
+            
+            # Send the sentiment analysis as a new message
+            await self.bot.send_message(
+                chat_id=chat_id,
+                text=sentiment_text,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode=ParseMode.HTML
+            )
+            
+            # Delete the original message with the loading GIF
+            try:
+                await self.bot.delete_message(chat_id=chat_id, message_id=message_id)
+            except Exception as e:
+                logger.warning(f"Could not delete original message: {str(e)}")
+            
+            return SIGNAL_ANALYSIS
+            
+        except Exception as e:
+            logger.error(f"Error getting sentiment analysis: {str(e)}")
+            # Error message using same approach
+            try:
+                chat_id = update.effective_chat.id
+                message_id = update.effective_message.message_id
+                
+                # Send error message
+                await self.bot.send_message(
+                    chat_id=chat_id,
+                    text=f"Error getting sentiment analysis for {instrument}. Please try again.",
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.HTML
+                )
+                
+                # Delete the original message
+                try:
+                    await self.bot.delete_message(chat_id=chat_id, message_id=message_id)
+                except Exception as del_e:
+                    logger.warning(f"Could not delete original message: {str(del_e)}")
+            except Exception as msg_e:
+                logger.error(f"Failed to send error message: {str(msg_e)}")
+            
+            return SIGNAL_ANALYSIS
 
     async def signal_calendar_callback(self, update: Update, context=None) -> int:
         """Handle signal_calendar button press for showing economic calendar in signal flow"""
@@ -3583,15 +3436,8 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             from_signal = False
             
             # Check if we're in signal flow
-            if context and hasattr(context, 'user_data'):
-                # Clear any sentiment-related data from the context to ensure clean state
-                context.user_data.pop('sentiment_data', None)
-                context.user_data.pop('sentiment_message_id', None)
-                
-                # Set analysis type properly
-                context.user_data['analysis_type'] = 'technical'
-                
-                from_signal = context.user_data.get('from_signal', False)
+            if context and hasattr(context, 'user_data') and context.user_data.get('from_signal'):
+                from_signal = True
                 logger.info("In signal flow, from_signal=True")
             
             # Get the current user data
@@ -3638,7 +3484,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             logger.info(f"Getting technical analysis chart for {instrument} on {timeframe} timeframe")
             
             # Show loading message - efficiently start getting the chart and analysis in parallel
-            loading_text = f"Loading {instrument} technical analysis chart..."
+            loading_text = f"Loading {instrument} chart..."
             loading_gif = "https://media.giphy.com/media/dpjUltnOPye7azvAhH/giphy.gif"
             
             try:
@@ -3719,9 +3565,20 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                             ),
                             reply_markup=InlineKeyboardMarkup(keyboard)
                         )
-                        logger.info(f"Successfully sent chart file and technical analysis for {instrument}")
+                        logger.info(f"Successfully sent chart file and analysis for {instrument}")
                         
-                        # We're removing the separate full analysis message to prevent duplicate analysis
+                        # If the analysis text was truncated, send the full analysis as a separate message
+                        if analysis_text and len(analysis_text) > 1000 and not from_signal:
+                            # Split the text into chunks of 4000 characters (Telegram message limit)
+                            chunks = [analysis_text[i:i+4000] for i in range(0, len(analysis_text), 4000)]
+                            
+                            # Send each chunk as a separate message
+                            for chunk in chunks:
+                                await context.bot.send_message(
+                                    chat_id=update.effective_chat.id,
+                                    text=chunk,
+                                    parse_mode=ParseMode.HTML
+                                )
                 except Exception as file_error:
                     logger.error(f"Error sending local file: {str(file_error)}")
                     # Try to send as a new message
@@ -3740,11 +3597,19 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                                 reply_markup=InlineKeyboardMarkup(keyboard)
                             )
                             
-                            # We're removing the separate full analysis message to prevent duplicate analysis
+                            # Send full analysis as separate message if truncated
+                            if analysis_text and len(analysis_text) > 1000 and not from_signal:
+                                chunks = [analysis_text[i:i+4000] for i in range(0, len(analysis_text), 4000)]
+                                for chunk in chunks:
+                                    await context.bot.send_message(
+                                        chat_id=update.effective_chat.id,
+                                        text=chunk,
+                                        parse_mode=ParseMode.HTML
+                                    )
                     except Exception as fallback_error:
                         logger.error(f"Failed to send local file as fallback: {str(fallback_error)}")
                         await query.message.reply_text(
-                            text=f"Error sending chart. Technical analysis: {analysis_text[:1000] if analysis_text else 'Not available'}",
+                            text=f"Error sending chart. Analysis: {analysis_text[:1000] if analysis_text else 'Not available'}",
                             reply_markup=InlineKeyboardMarkup(keyboard),
                             parse_mode=ParseMode.HTML
                         )
@@ -3770,30 +3635,34 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                         ),
                         reply_markup=InlineKeyboardMarkup(keyboard)
                     )
-                    
-                    # We're removing the separate full analysis message to prevent duplicate analysis
+                    logger.info(f"Successfully edited message with chart for {instrument}")
                 except Exception as edit_error:
                     logger.warning(f"Could not edit message media: {str(edit_error)}")
                     
-                    # Try to delete the message and send a new one
-                    try:
-                        await context.bot.delete_message(
-                            chat_id=update.effective_chat.id,
-                            message_id=query.message.message_id
-                        )
-                    except Exception as delete_error:
-                        logger.warning(f"Could not delete message: {str(delete_error)}")
-                    
-                    # Send a new message with the chart
-                    message = await context.bot.send_photo(
+                    # Als bewerken niet lukt, dan versturen we een nieuw bericht
+                    await context.bot.send_photo(
                         chat_id=update.effective_chat.id,
                         photo=chart_image,
                         caption=truncated_analysis,
-                        reply_markup=InlineKeyboardMarkup(keyboard),
-                        parse_mode=ParseMode.HTML
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
                     )
                     
-                    # We're removing the separate full analysis message to prevent duplicate analysis
+                    # Alleen verwijderen als het nieuwe bericht succesvol is verstuurd
+                    await query.delete_message()
+                
+                # If the analysis text was truncated, send the full analysis as a separate message
+                if analysis_text and len(analysis_text) > 1000 and not from_signal:
+                    # Split the text into chunks of 4000 characters (Telegram message limit)
+                    chunks = [analysis_text[i:i+4000] for i in range(0, len(analysis_text), 4000)]
+                    
+                    # Send each chunk as a separate message
+                    for chunk in chunks:
+                        await context.bot.send_message(
+                            chat_id=update.effective_chat.id,
+                            text=chunk,
+                            parse_mode=ParseMode.HTML
+                        )
                 
                 return SHOW_RESULT
                 
@@ -3826,225 +3695,8 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 
             return MENU
 
-    @property
-    def sentiment_service(self):
-        """Lazy loaded sentiment service"""
-        if not hasattr(self, '_sentiment_service') or self._sentiment_service is None:
-            # Only initialize the sentiment service when it's first accessed
-            logger.info("Lazy loading sentiment service")
-            from trading_bot.services.sentiment_service.sentiment import MarketSentimentService
-            self._sentiment_service = MarketSentimentService()
-        return self._sentiment_service
-
-    async def show_sentiment_analysis(self, update: Update, context=None, instrument=None, timeframe=None) -> int:
-        """Show sentiment analysis for a selected instrument"""
-        try:
-            query = update.callback_query
-            if query:
-                await query.answer()
-            
-            # Check if we're in the signal flow
-            is_from_signal = False
-            if context and hasattr(context, 'user_data'):
-                # Clear any chart-related data to ensure clean state
-                # Use direct deletion instead of pop to ensure data is removed
-                if 'chart_data' in context.user_data:
-                    del context.user_data['chart_data']
-                if 'technical_analysis_data' in context.user_data:
-                    del context.user_data['technical_analysis_data']
-                if 'chart_ready' in context.user_data:
-                    del context.user_data['chart_ready']
-                if 'timeframe' in context.user_data:
-                    del context.user_data['timeframe']
-                
-                # Set sentiment analysis type
-                context.user_data['analysis_type'] = 'sentiment'
-                
-                # Check signal flow status
-                is_from_signal = context.user_data.get('from_signal', False)
-                
-                # Add debug logging
-                logger.info(f"show_sentiment_analysis: from_signal = {is_from_signal}")
-                logger.info(f"Context user_data: {context.user_data}")
-            
-            # Get instrument from parameter or context
-            if not instrument and context and hasattr(context, 'user_data'):
-                instrument = context.user_data.get('instrument')
-            
-            if not instrument:
-                logger.error("No instrument provided for sentiment analysis")
-                
-                # Always send a new message rather than trying to edit
-                await context.bot.send_message(
-                    chat_id=update.effective_chat.id,
-                    text="Please select an instrument first.",
-                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD),
-                    parse_mode=ParseMode.HTML
-                )
-                return CHOOSE_MARKET
-            
-            logger.info(f"Showing sentiment analysis for instrument: {instrument}")
-            
-            # Clean instrument name (without _SELL_4h etc)
-            clean_instrument = instrument.split('_')[0] if '_' in instrument else instrument
-            
-            # Delete any existing message to ensure clean state
-            # This is critical to prevent overlap between chart and sentiment
-            message_id_to_delete = None
-            if query and query.message:
-                message_id_to_delete = query.message.message_id
-                try:
-                    await context.bot.delete_message(
-                        chat_id=update.effective_chat.id,
-                        message_id=message_id_to_delete
-                    )
-                    logger.info(f"Successfully deleted message {message_id_to_delete} before sentiment analysis")
-                except Exception as e:
-                    logger.warning(f"Could not delete message {message_id_to_delete}: {str(e)}")
-                
-            # Always send a fresh loading message
-            loading_message = await context.bot.send_message(
-                chat_id=update.effective_chat.id,
-                text=f"Loading sentiment analysis for {clean_instrument}...",
-                parse_mode=ParseMode.HTML
-            )
-            loading_message_id = loading_message.message_id
-            
-            try:
-                # Get sentiment data using clean instrument name
-                market_type = _detect_market(clean_instrument)
-                # Use the sentiment service through property to ensure lazy loading
-                await self.sentiment_service.load_cache()
-                sentiment_data = await self.sentiment_service.get_sentiment(clean_instrument, market_type)
-                
-                # Delete the loading message
-                try:
-                    await context.bot.delete_message(
-                        chat_id=update.effective_chat.id,
-                        message_id=loading_message_id
-                    )
-                except Exception as e:
-                    logger.warning(f"Could not delete loading message: {str(e)}")
-                
-                if not sentiment_data:
-                    # Determine which back button to use based on flow
-                    back_callback = "back_to_signal_analysis" if is_from_signal else "back_instrument"
-                    
-                    # Send error message as a new message
-                    await context.bot.send_message(
-                        chat_id=update.effective_chat.id,
-                        text=f"Failed to get sentiment data for {clean_instrument}. Please try again.",
-                        reply_markup=InlineKeyboardMarkup([[
-                            InlineKeyboardButton("⬅️ Back", callback_data=back_callback)
-                        ]]),
-                        parse_mode=ParseMode.HTML
-                    )
-                    return CHOOSE_ANALYSIS
-                
-                # Extract data
-                bullish = sentiment_data.get('bullish', 50)
-                bearish = sentiment_data.get('bearish', 30)
-                neutral = sentiment_data.get('neutral', 20)
-                
-                # Determine sentiment
-                if bullish > bearish + neutral:
-                    overall = "Bullish"
-                    emoji = "📈"
-                elif bearish > bullish + neutral:
-                    overall = "Bearish"
-                    emoji = "📉"
-                else:
-                    overall = "Neutral"
-                    emoji = "⚖️"
-                
-                # Get analysis text if available
-                analysis_text = ""
-                if isinstance(sentiment_data.get('analysis'), str):
-                    analysis_text = sentiment_data['analysis']
-                
-                # Prepare the message format
-                title = f"<b>🎯 {clean_instrument} Market Analysis</b>"
-                overall_sentiment = f"<b>Overall Sentiment:</b> {overall} {emoji}"
-                
-                # Construct a clean message with proper formatting
-                full_message = f"{title}\n\n{overall_sentiment}\n\n"
-                full_message += f"<b>Market Sentiment Breakdown:</b>\n"
-                full_message += f"🟢 Bullish: {bullish}%\n"
-                full_message += f"🔴 Bearish: {bearish}%\n"
-                full_message += f"⚪️ Neutral: {neutral}%\n\n"
-                
-                # Add additional analysis text if available
-                if analysis_text:
-                    # Check if analysis already contains the breakdown
-                    if "<b>Market Sentiment Breakdown:</b>" not in analysis_text:
-                        # Add any additional analysis info
-                        full_message += analysis_text
-                
-                # Create keyboard with appropriate back button
-                keyboard = []
-                if is_from_signal:
-                    keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal_analysis")])
-                else:
-                    keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="back_instrument")])
-                
-                # Always send a new message with the sentiment data
-                await context.bot.send_message(
-                    chat_id=update.effective_chat.id,
-                    text=full_message,
-                    reply_markup=InlineKeyboardMarkup(keyboard),
-                    parse_mode=ParseMode.HTML
-                )
-                
-                # Store the sentiment data in context for future reference
-                if context and hasattr(context, 'user_data'):
-                    context.user_data['sentiment_data'] = sentiment_data
-                
-                return SHOW_RESULT
-                
-            except Exception as e:
-                logger.error(f"Error getting sentiment analysis: {str(e)}")
-                logger.error(traceback.format_exc())
-                
-                # Delete the loading message if it exists
-                try:
-                    await context.bot.delete_message(
-                        chat_id=update.effective_chat.id,
-                        message_id=loading_message_id
-                    )
-                except Exception:
-                    pass
-                
-                # Determine which back button to use based on flow
-                back_callback = "back_to_signal_analysis" if is_from_signal else "back_instrument"
-                
-                # Send error message
-                await context.bot.send_message(
-                    chat_id=update.effective_chat.id,
-                    text=f"An error occurred while getting sentiment analysis for {clean_instrument}. Please try again.",
-                    reply_markup=InlineKeyboardMarkup([[
-                        InlineKeyboardButton("⬅️ Back", callback_data=back_callback)
-                    ]]),
-                    parse_mode=ParseMode.HTML
-                )
-                return CHOOSE_ANALYSIS
-                
-        except Exception as e:
-            logger.error(f"Error in show_sentiment_analysis: {str(e)}")
-            logger.error(traceback.format_exc())
-            
-            # Get back to a known state
-            if context and update:
-                await context.bot.send_message(
-                    chat_id=update.effective_chat.id,
-                    text="An error occurred. Please use the main menu to continue.",
-                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
-                    parse_mode=ParseMode.HTML
-                )
-            
-            return MENU
-
     async def back_to_signal_callback(self, update: Update, context=None) -> int:
-        """Handle back button from analysis to signal"""
+        """Handle back_to_signal button press to return to the original signal"""
         try:
             query = update.callback_query
             await query.answer()
@@ -4406,7 +4058,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Back buttons
             elif data == CALLBACK_BACK_MENU:
                 return await self.back_menu_callback(update, context)
-            elif data == CALLBACK_BACK_ANALYSIS or data == "back_analysis":
+            elif data == CALLBACK_BACK_ANALYSIS:
                 return await self.back_analysis_callback(update, context)
             elif data == CALLBACK_BACK_SIGNALS:
                 return await self.back_signals_callback(update, context)
@@ -4537,113 +4189,35 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
                 ]
             
-            # Set appropriate title based on context
-            title = f"Select {market.capitalize()} Instrument"
-            if "sentiment" in context_suffix:
-                title = f"Select {market.capitalize()} Instrument for Sentiment Analysis"
-            elif "signals" in context_suffix:
-                title = f"Select {market.capitalize()} Instrument for Signals"
-            
-            # Check if the message has media content
-            has_media = False
-            if hasattr(query.message, 'photo') and query.message.photo:
-                has_media = True
-            elif hasattr(query.message, 'animation') and query.message.animation:
-                has_media = True
-                
             # Send response with appropriate keyboard
             try:
-                if has_media:
-                    # If there's media, try to edit the caption or replace media
-                    try:
-                        await query.edit_message_caption(
-                            caption=title,
-                            reply_markup=InlineKeyboardMarkup(keyboard),
-                            parse_mode=ParseMode.HTML
-                        )
-                        logger.info("Successfully updated message caption in market_callback")
-                        return CHOOSE_INSTRUMENT
-                    except Exception as caption_error:
-                        logger.warning(f"Failed to update caption in market_callback: {str(caption_error)}")
-                        
-                        # Try to replace with transparent image + caption
-                        try:
-                            transparent_gif = "https://upload.wikimedia.org/wikipedia/commons/thumb/0/00/Transparent.gif/1px-Transparent.gif"
-                            
-                            await query.edit_message_media(
-                                media=InputMediaDocument(
-                                    media=transparent_gif,
-                                    caption=title,
-                                    parse_mode=ParseMode.HTML
-                                ),
-                                reply_markup=InlineKeyboardMarkup(keyboard)
-                            )
-                            logger.info("Successfully replaced media in market_callback")
-                            return CHOOSE_INSTRUMENT
-                        except Exception as media_error:
-                            logger.warning(f"Failed to replace media in market_callback: {str(media_error)}")
-                            
-                            # Last resort: send a new message
-                            await context.bot.send_message(
-                                chat_id=update.effective_chat.id,
-                                text=title,
-                                reply_markup=InlineKeyboardMarkup(keyboard),
-                                parse_mode=ParseMode.HTML
-                            )
-                            logger.info("Sent new message in market_callback")
-                            return CHOOSE_INSTRUMENT
-                else:
-                    # Standard text message, try to edit
-                    await query.edit_message_text(
-                        text=title,
-                        reply_markup=InlineKeyboardMarkup(keyboard),
-                        parse_mode=ParseMode.HTML
-                    )
-                    logger.info("Successfully updated message text in market_callback")
-                    return CHOOSE_INSTRUMENT
+                # Set appropriate title based on context
+                title = f"Select {market.capitalize()} Instrument"
+                if "sentiment" in context_suffix:
+                    title = f"Select {market.capitalize()} Instrument for Sentiment Analysis"
+                elif "signals" in context_suffix:
+                    title = f"Select {market.capitalize()} Instrument for Signals"
+                
+                await query.edit_message_text(
+                    text=title,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+                
+                return CHOOSE_INSTRUMENT
                 
             except Exception as e:
                 logger.error(f"Error in market_callback: {str(e)}")
                 
-                # Check if this is the specific error for no text message
-                if "There is no text in the message to edit" in str(e):
-                    try:
-                        # Try to edit the caption instead
-                        await query.edit_message_caption(
-                            caption=title,
-                            reply_markup=InlineKeyboardMarkup(keyboard),
-                            parse_mode=ParseMode.HTML
-                        )
-                        logger.info("Successfully edited caption in market_callback")
-                        return CHOOSE_INSTRUMENT
-                    except Exception as caption_error:
-                        logger.warning(f"Failed to edit caption in market_callback: {str(caption_error)}")
-                
-                # Fallback message - send a new message
-                try:
-                    await context.bot.send_message(
-                        chat_id=update.effective_chat.id,
-                        text=title,
-                        reply_markup=InlineKeyboardMarkup(keyboard),
-                        parse_mode=ParseMode.HTML
-                    )
-                    logger.info("Sent fallback message in market_callback")
-                    return CHOOSE_INSTRUMENT
-                except Exception as send_error:
-                    logger.error(f"Failed to send fallback message: {str(send_error)}")
-                    
-                    # If all else fails, try to go back to menu
-                    await context.bot.send_message(
-                        chat_id=update.effective_chat.id,
-                        text="An error occurred while selecting market. Please try again.",
-                        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_menu")]])
-                    )
-                    return MENU
+                # Fallback message
+                await query.edit_message_text(
+                    text="An error occurred while selecting market. Please try again.",
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_menu")]])
+                )
+                return MENU
         
         # If we reach here, there was an issue with the callback data
         logger.error(f"Invalid market callback data: {query.data}")
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
+        await query.edit_message_text(
             text="Invalid market selection. Please try again.",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_menu")]])
         )
@@ -4964,7 +4538,6 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             
             # Get random gif for analysis menu
             gif_url = random.choice(gif_utils.ANALYSIS_GIFS)
-            message_text = "Select your analysis type:"
             
             try:
                 # Try to delete the current message
@@ -4973,7 +4546,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 await context.bot.send_animation(
                     chat_id=chat_id,
                     animation=gif_url,
-                    caption=message_text,
+                    caption="Select your analysis type:",
                     reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
                     parse_mode=ParseMode.HTML
                 )
@@ -4982,58 +4555,27 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             except Exception as delete_error:
                 logger.warning(f"Could not delete message: {str(delete_error)}")
                 
-                # Try to update media with GIF
+                # Fallback if we cannot delete the message
                 try:
-                    await query.edit_message_media(
-                        media=InputMediaAnimation(
-                            media=gif_url,
-                            caption=message_text
-                        ),
+                    await query.edit_message_text(
+                        text="Select your analysis type:",
                         reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
                     )
-                    logger.info("Successfully updated media to GIF for analysis menu")
-                    return CHOOSE_ANALYSIS
-                except Exception as media_error:
-                    logger.warning(f"Could not update media: {str(media_error)}")
-                    
-                    # If media update fails, try to update text
+                except Exception:
                     try:
-                        await query.edit_message_text(
-                            text=message_text,
+                        # If we can't edit text, try caption
+                        await query.edit_message_caption(
+                            caption="Select your analysis type:",
                             reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
                         )
-                        logger.info("Successfully edited message text for analysis menu")
-                    except Exception as text_error:
-                        # If text update fails due to caption, try editing caption
-                        if "There is no text in the message to edit" in str(text_error):
-                            try:
-                                await query.edit_message_caption(
-                                    caption=message_text,
-                                    reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
-                                )
-                                logger.info("Successfully edited caption for analysis menu")
-                            except Exception as caption_error:
-                                logger.warning(f"Failed to edit caption: {str(caption_error)}")
-                                # Last resort: send a new message with GIF
-                                await context.bot.send_animation(
-                                    chat_id=chat_id,
-                                    animation=gif_url,
-                                    caption=message_text,
-                                    reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
-                                    parse_mode=ParseMode.HTML
-                                )
-                                logger.info("Sent new message with GIF for analysis menu")
-                        else:
-                            # For other errors, send a new message with GIF
-                            logger.warning(f"Failed to update message: {str(text_error)}")
-                            await context.bot.send_animation(
-                                chat_id=chat_id,
-                                animation=gif_url,
-                                caption=message_text,
-                                reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
-                                parse_mode=ParseMode.HTML
-                            )
-                            logger.info("Sent new message with GIF for analysis menu")
+                    except Exception as e:
+                        logger.error(f"Failed to update message: {str(e)}")
+                        # As a last resort, send a new message
+                        await context.bot.send_message(
+                            chat_id=chat_id,
+                            text="Select your analysis type:",
+                            reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
+                        )
                 
                 return CHOOSE_ANALYSIS
         
@@ -5098,16 +4640,10 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         signal_id = None
         signal_direction = None
         signal_timeframe = None
-        loading_message_obj = None
         
         if context and hasattr(context, 'user_data'):
             context_user_data = context.user_data
             from_signal = context_user_data.get('from_signal', False)
-            
-            # Get loading message from context if available
-            if 'loading_message_obj' in context_user_data:
-                loading_message_obj = context_user_data.get('loading_message_obj')
-                logger.info("Using existing loading message from context")
             
             # Store and backup important signal data
             if not instrument and 'instrument' in context_user_data:
@@ -5135,7 +4671,6 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             return await self.show_economic_calendar(
                 update=update,
                 context=context,
-                loading_message=loading_message_obj
                 # We're deliberately not passing instrument or currency
                 # This will show the full calendar
             )
@@ -5150,110 +4685,6 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                         text="Sorry, an error occurred loading the economic calendar. Please try again.",
                         reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
                     )
-            except Exception:
-                pass
-                
-            return MENU
-
-    async def back_analysis_callback(self, update: Update, context=None) -> int:
-        """Handle back_analysis button click to return to the analysis menu"""
-        logger.info("back_analysis_callback triggered - returning to analysis menu")
-        
-        query = update.callback_query
-        await query.answer()
-        
-        try:
-            # Use the standard ANALYSIS_KEYBOARD instead of creating a custom one
-            keyboard = ANALYSIS_KEYBOARD
-            
-            # Get a random analysis GIF like in menu_analyse_callback
-            gif_url = random.choice(gif_utils.ANALYSIS_GIFS)
-            
-            # Message text should match menu_analyse_callback
-            message_text = "Select your analysis type:"
-            
-            # Try to delete the current message and send a new one with GIF
-            try:
-                # Delete current message
-                await query.message.delete()
-                
-                # Send a new message with GIF animation
-                await context.bot.send_animation(
-                    chat_id=update.effective_chat.id,
-                    animation=gif_url,
-                    caption=message_text,
-                    reply_markup=InlineKeyboardMarkup(keyboard),
-                    parse_mode=ParseMode.HTML
-                )
-                logger.info("Successfully sent new analysis menu with GIF")
-                return CHOOSE_ANALYSIS
-            except Exception as delete_error:
-                logger.warning(f"Could not delete message: {str(delete_error)}")
-                
-                # If we can't delete, try to update media with GIF
-                try:
-                    await query.edit_message_media(
-                        media=InputMediaAnimation(
-                            media=gif_url,
-                            caption=message_text
-                        ),
-                        reply_markup=InlineKeyboardMarkup(keyboard)
-                    )
-                    logger.info("Successfully updated media to GIF for analysis menu")
-                    return CHOOSE_ANALYSIS
-                except Exception as media_error:
-                    logger.warning(f"Could not update media: {str(media_error)}")
-                    
-                    # If media update fails, try to update text
-                    try:
-                        await query.edit_message_text(
-                            text=message_text,
-                            reply_markup=InlineKeyboardMarkup(keyboard),
-                            parse_mode=ParseMode.HTML
-                        )
-                        logger.info("Successfully edited message text for analysis menu")
-                    except Exception as text_error:
-                        # If text update fails due to caption, try editing caption
-                        if "There is no text in the message to edit" in str(text_error):
-                            try:
-                                await query.edit_message_caption(
-                                    caption=message_text,
-                                    reply_markup=InlineKeyboardMarkup(keyboard),
-                                    parse_mode=ParseMode.HTML
-                                )
-                                logger.info("Successfully edited caption for analysis menu")
-                            except Exception as caption_error:
-                                logger.warning(f"Failed to edit caption: {str(caption_error)}")
-                                # Last resort: send a new message with GIF
-                                await context.bot.send_animation(
-                                    chat_id=update.effective_chat.id,
-                                    animation=gif_url,
-                                    caption=message_text,
-                                    reply_markup=InlineKeyboardMarkup(keyboard),
-                                    parse_mode=ParseMode.HTML
-                                )
-                                logger.info("Sent new message with GIF for analysis menu")
-                        else:
-                            # For other errors, send a new message with GIF
-                            logger.warning(f"Failed to edit message for back_analysis: {str(text_error)}")
-                            await context.bot.send_animation(
-                                chat_id=update.effective_chat.id,
-                                animation=gif_url,
-                                caption=message_text,
-                                reply_markup=InlineKeyboardMarkup(keyboard),
-                                parse_mode=ParseMode.HTML
-                            )
-                            logger.info("Sent new message with GIF for analysis menu")
-            
-            # Return the CHOOSE_ANALYSIS state
-            return CHOOSE_ANALYSIS
-            
-        except Exception as e:
-            logger.error(f"Error in back_analysis_callback: {str(e)}")
-            
-            # If there was an error, try to show the main menu
-            try:
-                await self.show_main_menu(update, context)
             except Exception:
                 pass
                 
