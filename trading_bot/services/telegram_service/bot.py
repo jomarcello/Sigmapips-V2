@@ -3686,12 +3686,11 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             if signal_message:
                 logger.info(f"Using original signal message: {signal_message[:100]}...")
                 
-                # Create signal analysis keyboard
+                # Create single Analyze Market button instead of the menu
+                # This matches the UI shown in the screenshot
+                callback_data = f"analyze_from_signal_{signal_instrument}_{signal_id}"
                 keyboard = [
-                    [InlineKeyboardButton("📊 Technical Analysis", callback_data="signal_technical")],
-                    [InlineKeyboardButton("🔍 Market Sentiment", callback_data="signal_sentiment")],
-                    [InlineKeyboardButton("📅 Economic Calendar", callback_data="signal_calendar")],
-                    [InlineKeyboardButton("⬅️ Back to Menu", callback_data="back_menu")]
+                    [InlineKeyboardButton("🔍 Analyze Market", callback_data=callback_data)]
                 ]
                 
                 # Try to replace text or caption
@@ -3718,7 +3717,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                             parse_mode=ParseMode.HTML
                         )
                     
-                    return SIGNAL_ANALYSIS
+                    return SIGNAL_DETAILS
                 except Exception as message_error:
                     logger.error(f"Error showing original signal message: {str(message_error)}")
                     # Fall through to try using signal data
@@ -3735,17 +3734,15 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 message += f"<b>Direction:</b> {direction}\n"
                 
                 # Include basic hint
-                message += "\nSelect an option to analyze this signal further."
+                message += "\nSelect the button below to analyze this signal."
                 
-                # Create signal analysis keyboard
+                # Create single Analyze Market button
+                callback_data = f"analyze_from_signal_{instrument}_{signal_id}"
                 keyboard = [
-                    [InlineKeyboardButton("📊 Technical Analysis", callback_data="signal_technical")],
-                    [InlineKeyboardButton("🔍 Market Sentiment", callback_data="signal_sentiment")],
-                    [InlineKeyboardButton("📅 Economic Calendar", callback_data="signal_calendar")],
-                    [InlineKeyboardButton("⬅️ Back to Menu", callback_data="back_menu")]
+                    [InlineKeyboardButton("🔍 Analyze Market", callback_data=callback_data)]
                 ]
                 
-                # Show signal analysis menu - vertical layout with 3 services
+                # Show the signal with the Analyze Market button
                 try:
                     await query.edit_message_text(
                         text=message,
@@ -3753,8 +3750,8 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                         parse_mode=ParseMode.HTML
                     )
                     
-                    # Return to signal analysis menu state
-                    return SIGNAL_ANALYSIS
+                    # Return to signal details state
+                    return SIGNAL_DETAILS
                     
                 except Exception as e:
                     logger.error(f"Error showing reconstructed signal message: {str(e)}")
@@ -3767,7 +3764,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                             reply_markup=InlineKeyboardMarkup(keyboard),
                             parse_mode=ParseMode.HTML
                         )
-                        return SIGNAL_ANALYSIS
+                        return SIGNAL_DETAILS
                     except Exception:
                         pass
             
