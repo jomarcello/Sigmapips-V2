@@ -2733,33 +2733,17 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 logger.error(f"Error in signal_calendar_callback redirect: {str(e)}")
             return MENU
         
-        # Get the instrument from context
-        instrument = None
-        if context and hasattr(context, 'user_data'):
-            instrument = context.user_data.get('instrument')
-            logger.info(f"Signal calendar callback for instrument: {instrument}")
-        
-        if not instrument:
-            # No instrument specified
-            await query.edit_message_text(
-                text="Please specify an instrument first.",
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal_analysis")]])
-            )
-            return SIGNAL_ANALYSIS
-        
         # Set loading message
-        loading_message = f"Loading economic calendar for {instrument}..."
+        loading_message = "Loading economic calendar..."
         
         try:
             # Show initial loading message
             await query.edit_message_text(text=loading_message)
             
-            # Use the show_economic_calendar method directly
-            # This is the same method used by the menu flow
+            # No instrument required - use the show_economic_calendar method directly
             return await self.show_economic_calendar(
                 update=update,
                 context=context,
-                currency=None,  # Let the method determine currency from instrument
                 loading_message=loading_message
             )
             
@@ -4552,3 +4536,41 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             logger.exception(e)
             # Initialize empty dict on error
             self.user_signals = {}
+
+    async def show_calendar_analysis(self, update: Update, context=None, instrument=None, timeframe=None) -> int:
+        """Show economic calendar analysis for any currency"""
+        logger.info(f"show_calendar_analysis called with instrument: {instrument}")
+        
+        query = update.callback_query
+        
+        # Determine if we're in signal flow
+        from_signal = False
+        if context and hasattr(context, 'user_data'):
+            context_user_data = context.user_data
+            from_signal = context_user_data.get('from_signal', False)
+            logger.info(f"Calendar analysis context: {context_user_data}")
+        
+        try:
+            # No instrument required, we'll show the global calendar
+            # Just pass through to show_economic_calendar which will handle everything
+            return await self.show_economic_calendar(
+                update=update,
+                context=context,
+                # We're deliberately not passing instrument or currency
+                # This will show the full calendar
+            )
+            
+        except Exception as e:
+            logger.error(f"Error in show_calendar_analysis: {str(e)}")
+            
+            # Try to recover
+            try:
+                if update and update.callback_query:
+                    await update.callback_query.edit_message_text(
+                        text="Sorry, an error occurred loading the economic calendar. Please try again.",
+                        reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
+                    )
+            except Exception:
+                pass
+                
+            return MENU
