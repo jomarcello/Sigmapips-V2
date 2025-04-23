@@ -2727,11 +2727,34 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         # Enhanced logging for debugging
         logger.info(f"signal_calendar_callback called with data: {query.data}")
         
+        # Get current signal information
+        instrument = None
+        signal_id = None
+        signal_direction = None
+        signal_timeframe = None
+        
         # Set signal flow context flags properly
         if context and hasattr(context, 'user_data'):
+            # First, store original signal information
+            instrument = context.user_data.get('instrument')
+            signal_id = context.user_data.get('signal_id')
+            signal_direction = context.user_data.get('signal_direction')
+            signal_timeframe = context.user_data.get('signal_timeframe')
+            
+            # Set signal flow flags
             context.user_data['from_signal'] = True
             context.user_data['in_signal_flow'] = True
             context.user_data['analysis_type'] = 'calendar'
+            
+            # Ensure we store backup copies of all signal data
+            if instrument:
+                context.user_data['signal_instrument_backup'] = instrument
+            if signal_id:
+                context.user_data['signal_id_backup'] = signal_id
+            if signal_direction:
+                context.user_data['signal_direction_backup'] = signal_direction
+            if signal_timeframe:
+                context.user_data['signal_timeframe_backup'] = signal_timeframe
             
             # Debug current context
             logger.info(f"Signal calendar context set: {context.user_data}")
@@ -3647,11 +3670,31 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 context.user_data['from_signal'] = True
                 context.user_data['in_signal_flow'] = True
                 
+                # First try to get values from primary variables
                 signal_id = context.user_data.get('signal_id')
                 signal_instrument = context.user_data.get('instrument')
                 signal_direction = context.user_data.get('signal_direction')
                 signal_timeframe = context.user_data.get('signal_timeframe')
                 signal_message = context.user_data.get('original_signal_message')
+                
+                # If any value is missing, try to get from backup
+                if not signal_id:
+                    signal_id = context.user_data.get('signal_id_backup')
+                if not signal_instrument:
+                    signal_instrument = context.user_data.get('signal_instrument_backup')
+                    # Also restore it to the main variable
+                    if signal_instrument:
+                        context.user_data['instrument'] = signal_instrument
+                if not signal_direction:
+                    signal_direction = context.user_data.get('signal_direction_backup')
+                    # Also restore it to the main variable
+                    if signal_direction:
+                        context.user_data['signal_direction'] = signal_direction
+                if not signal_timeframe:
+                    signal_timeframe = context.user_data.get('signal_timeframe_backup')
+                    # Also restore it to the main variable
+                    if signal_timeframe:
+                        context.user_data['signal_timeframe'] = signal_timeframe
                 
                 # Log all signal-related context data for debugging
                 signal_keys = {k: v for k, v in context.user_data.items() if 'signal' in k}
@@ -4548,10 +4591,33 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         
         # Determine if we're in signal flow
         from_signal = False
+        signal_id = None
+        signal_direction = None
+        signal_timeframe = None
+        
         if context and hasattr(context, 'user_data'):
             context_user_data = context.user_data
             from_signal = context_user_data.get('from_signal', False)
+            
+            # Store and backup important signal data
+            if not instrument and 'instrument' in context_user_data:
+                instrument = context_user_data.get('instrument')
+                context_user_data['signal_instrument_backup'] = instrument
+                
+            if 'signal_id' in context_user_data:
+                signal_id = context_user_data.get('signal_id')
+                context_user_data['signal_id_backup'] = signal_id
+                
+            if 'signal_direction' in context_user_data:
+                signal_direction = context_user_data.get('signal_direction')
+                context_user_data['signal_direction_backup'] = signal_direction
+                
+            if not timeframe and 'signal_timeframe' in context_user_data:
+                signal_timeframe = context_user_data.get('signal_timeframe')
+                context_user_data['signal_timeframe_backup'] = signal_timeframe
+            
             logger.info(f"Calendar analysis context: {context_user_data}")
+            logger.info(f"Signal data in calendar analysis: instrument={instrument}, signal_id={signal_id}, direction={signal_direction}, timeframe={signal_timeframe}")
         
         try:
             # No instrument required, we'll show the global calendar
