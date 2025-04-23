@@ -2795,100 +2795,10 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             )
             return SIGNAL_ANALYSIS
         
-        # Get market from instrument
-        market = _detect_market(instrument)
-        
-        # Show simple loading text without GIF
-        try:
-            await query.edit_message_text(
-                text=f"Loading sentiment analysis for {instrument}...",
-                parse_mode=ParseMode.HTML
-            )
-        except Exception as e:
-            logger.warning(f"Could not update message text: {str(e)}")
-            # We'll create a new message below anyway
-        
-        # Create back button for this context
-        keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal_analysis")]]
-        
-        # Get sentiment analysis
-        try:
-            # Initialize market sentiment service if needed
-            if not hasattr(self, 'market_sentiment_service') or not self.market_sentiment_service:
-                from trading_bot.services.sentiment_service.sentiment import MarketSentimentService
-                self.market_sentiment_service = MarketSentimentService()
-                await self.market_sentiment_service.load_cache()
-            
-            # Get sentiment data directly from MarketSentimentService
-            sentiment_data = await self.market_sentiment_service.get_market_sentiment_text(instrument, market)
-            
-            # Get chat information
-            chat_id = update.effective_chat.id
-            message_id = update.effective_message.message_id
-            
-            if not sentiment_data:
-                # Delete the original message
-                try:
-                    await self.bot.delete_message(chat_id=chat_id, message_id=message_id)
-                except Exception as e:
-                    logger.warning(f"Could not delete original message: {str(e)}")
-                
-                # Send a new message with the error
-                await self.bot.send_message(
-                    chat_id=chat_id,
-                    text=f"No sentiment data available for {instrument}.",
-                    reply_markup=InlineKeyboardMarkup(keyboard),
-                    parse_mode=ParseMode.HTML
-                )
-                
-                return SIGNAL_ANALYSIS
-            
-            # Format sentiment data into text
-            sentiment_text = f"<b>Sentiment Analysis for {instrument}</b>\n\n"
-            sentiment_text += sentiment_data
-            
-            # Delete the original message
-            try:
-                await self.bot.delete_message(chat_id=chat_id, message_id=message_id)
-                logger.info("Deleted original message")
-            except Exception as e:
-                logger.warning(f"Could not delete original message: {str(e)}")
-            
-            # Send the sentiment analysis as a new message
-            await self.bot.send_message(
-                chat_id=chat_id,
-                text=sentiment_text,
-                reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode=ParseMode.HTML
-            )
-            logger.info(f"Successfully sent sentiment analysis for {instrument}")
-            
-            return SIGNAL_ANALYSIS
-            
-        except Exception as e:
-            logger.error(f"Error getting sentiment analysis: {str(e)}")
-            try:
-                # Send a new error message
-                chat_id = update.effective_chat.id
-                
-                # Try to delete the original message
-                try:
-                    message_id = update.effective_message.message_id
-                    await self.bot.delete_message(chat_id=chat_id, message_id=message_id)
-                except Exception as del_e:
-                    logger.warning(f"Could not delete original message: {str(del_e)}")
-                
-                # Send error message
-                await self.bot.send_message(
-                    chat_id=chat_id,
-                    text=f"Error getting sentiment analysis for {instrument}. Please try again.",
-                    reply_markup=InlineKeyboardMarkup(keyboard),
-                    parse_mode=ParseMode.HTML
-                )
-            except Exception as msg_e:
-                logger.error(f"Failed to send error message: {str(msg_e)}")
-            
-            return SIGNAL_ANALYSIS
+        # Simply call the show_sentiment_analysis method
+        # This reuses the same code and prevents duplicated functionality
+        logger.info(f"Routing to show_sentiment_analysis with instrument: {instrument}")
+        return await self.show_sentiment_analysis(update, context, instrument=instrument)
 
     async def signal_calendar_callback(self, update: Update, context=None) -> int:
         """Handle signal_calendar button press for showing economic calendar in signal flow"""
@@ -3838,136 +3748,198 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 
             return MENU
 
+    @property
+    def sentiment_service(self):
+        """Lazy loaded sentiment service"""
+        if not hasattr(self, '_sentiment_service') or self._sentiment_service is None:
+            # Only initialize the sentiment service when it's first accessed
+            logger.info("Lazy loading sentiment service")
+            from trading_bot.services.sentiment_service.sentiment import MarketSentimentService
+            self._sentiment_service = MarketSentimentService()
+        return self._sentiment_service
+
     async def show_sentiment_analysis(self, update: Update, context=None, instrument=None, timeframe=None) -> int:
-        """Show sentiment analysis for an instrument"""
+        """Show sentiment analysis for a selected instrument"""
         try:
             query = update.callback_query
-            from_signal = False
+            await query.answer()
             
-            # Check if we're in signal flow
-            if context and hasattr(context, 'user_data') and context.user_data.get('from_signal'):
-                from_signal = True
-                logger.info("In signal flow, from_signal=True")
-            
-            # Get the current user data
-            context_user_data = context.user_data if context and hasattr(context, 'user_data') else {}
-            
-            # Extract instrument if not provided
-            if not instrument:
-                callback_data = query.data
-                logger.info(f"Processing callback: {callback_data}")
-                
-                if callback_data.startswith("instrument_") and "sentiment" in callback_data:
-                    parts = callback_data.split("_")
-                    if len(parts) >= 3:
-                        # Extract instrument, accounting for potential underscores in instrument name
-                        for i, part in enumerate(parts[1:], 1):
-                            if part == "sentiment":
-                                instrument = "_".join(parts[1:i])
-                                break
-            
-            # If still no instrument, check user data
-            if not instrument and context and hasattr(context, 'user_data'):
-                instrument = context_user_data.get('instrument')
-            
-            # If still no instrument, show error
-            if not instrument:
-                await query.edit_message_text(
-                    text="Error: No instrument specified for sentiment analysis.",
-                    reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
-                )
-                return CHOOSE_ANALYSIS
-            
-            # Default timeframe if not provided
-            if not timeframe:
-                timeframe = "1h"
-            
-            # Store the current information in context
+            # Check if we're in the signal flow
+            is_from_signal = False
             if context and hasattr(context, 'user_data'):
-                context.user_data['instrument'] = instrument
-                context.user_data['timeframe'] = timeframe
+                is_from_signal = context.user_data.get('from_signal', False)
+                # Add debug logging
+                logger.info(f"show_sentiment_analysis: from_signal = {is_from_signal}")
+                logger.info(f"Context user_data: {context.user_data}")
             
-            # Log what we're doing
-            logger.info(f"Getting sentiment analysis for {instrument}")
+            # Get instrument from parameter or context
+            if not instrument and context and hasattr(context, 'user_data'):
+                instrument = context.user_data.get('instrument')
             
-            # Show simple loading text instead of GIF to avoid media issues
+            if not instrument:
+                logger.error("No instrument provided for sentiment analysis")
+                try:
+                    await query.edit_message_text(
+                        text="Please select an instrument first.",
+                        reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
+                    )
+                except Exception as e:
+                    logger.error(f"Error updating message: {str(e)}")
+                return CHOOSE_MARKET
+            
+            logger.info(f"Showing sentiment analysis for instrument: {instrument}")
+            
+            # Clean instrument name (without _SELL_4h etc)
+            clean_instrument = instrument.split('_')[0] if '_' in instrument else instrument
+            
+            # Show simple loading text
             try:
                 await query.edit_message_text(
-                    text=f"Loading {instrument} sentiment analysis...",
+                    text=f"Loading sentiment analysis for {clean_instrument}...",
                     parse_mode=ParseMode.HTML
                 )
             except Exception as e:
                 logger.warning(f"Could not update message text: {str(e)}")
-                # Don't try to fallback - we'll create a new message below
-            
-            # Initialization for sentiment service if needed - use MarketSentimentService directly
-            if not hasattr(self, 'market_sentiment_service') or not self.market_sentiment_service:
-                from trading_bot.services.sentiment_service.sentiment import MarketSentimentService
-                self.market_sentiment_service = MarketSentimentService()
-                await self.market_sentiment_service.load_cache()
-            
-            # Get the market type based on the instrument
-            market_type = _detect_market(instrument)
-            
-            # Get sentiment data directly from MarketSentimentService
-            sentiment_text = await self.market_sentiment_service.get_market_sentiment_text(instrument, market_type)
-            
-            # Clean up the sentiment text
-            if not sentiment_text:
-                sentiment_text = f"Sentiment analysis for {instrument}"
-                # Add basic sentiment info if no data available
-                sentiment_text += "\n\n• No detailed sentiment data available at this time."
-                sentiment_text += "\n• Please check back later for updates."
-            
-            # Create the keyboard with appropriate back button based on flow
-            keyboard = []
-            
-            # Add the appropriate back button based on whether we're in signal flow or menu flow
-            if from_signal:
-                keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal_analysis")])
-            else:
-                keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="back_instrument")])
-            
-            # Delete the original message and send a new one to avoid media issues
-            chat_id = update.effective_chat.id
-            message_id = update.effective_message.message_id
             
             try:
-                # Delete the original message
-                await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
-                logger.info("Deleted original message")
-            except Exception as delete_error:
-                logger.warning(f"Could not delete original message: {str(delete_error)}")
-            
-            # Send a completely new message with the sentiment analysis
-            await context.bot.send_message(
-                chat_id=chat_id,
-                text=sentiment_text,
-                reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode=ParseMode.HTML
-            )
-            logger.info(f"Successfully sent new message with sentiment analysis for {instrument}")
-            
-            return SHOW_RESULT
-            
+                # Get sentiment data using clean instrument name
+                market_type = _detect_market(clean_instrument)
+                # Use the sentiment service through property to ensure lazy loading
+                await self.sentiment_service.load_cache()
+                sentiment_data = await self.sentiment_service.get_sentiment(clean_instrument, market_type)
+                
+                if not sentiment_data:
+                    # Determine which back button to use based on flow
+                    back_callback = "back_to_signal_analysis" if is_from_signal else "back_instrument"
+                    
+                    # Delete old message and send a new one
+                    try:
+                        await context.bot.delete_message(
+                            chat_id=update.effective_chat.id,
+                            message_id=query.message.message_id
+                        )
+                    except Exception as e:
+                        logger.warning(f"Could not delete message: {str(e)}")
+                    
+                    await context.bot.send_message(
+                        chat_id=update.effective_chat.id,
+                        text=f"Failed to get sentiment data for {clean_instrument}. Please try again.",
+                        reply_markup=InlineKeyboardMarkup([[
+                            InlineKeyboardButton("⬅️ Back", callback_data=back_callback)
+                        ]]),
+                        parse_mode=ParseMode.HTML
+                    )
+                    return CHOOSE_ANALYSIS
+                
+                # Extract data
+                bullish = sentiment_data.get('bullish', 50)
+                bearish = sentiment_data.get('bearish', 30)
+                neutral = sentiment_data.get('neutral', 20)
+                
+                # Determine sentiment
+                if bullish > bearish + neutral:
+                    overall = "Bullish"
+                    emoji = "📈"
+                elif bearish > bullish + neutral:
+                    overall = "Bearish"
+                    emoji = "📉"
+                else:
+                    overall = "Neutral"
+                    emoji = "⚖️"
+                
+                # Get analysis text if available
+                analysis_text = ""
+                if isinstance(sentiment_data.get('analysis'), str):
+                    analysis_text = sentiment_data['analysis']
+                
+                # Prepare the message format
+                title = f"<b>🎯 {clean_instrument} Market Analysis</b>"
+                overall_sentiment = f"<b>Overall Sentiment:</b> {overall} {emoji}"
+                
+                # Construct a clean message with proper formatting
+                full_message = f"{title}\n\n{overall_sentiment}\n\n"
+                full_message += f"<b>Market Sentiment Breakdown:</b>\n"
+                full_message += f"🟢 Bullish: {bullish}%\n"
+                full_message += f"🔴 Bearish: {bearish}%\n"
+                full_message += f"⚪️ Neutral: {neutral}%\n\n"
+                
+                # Add additional analysis text if available
+                if analysis_text:
+                    # Check if analysis already contains the breakdown
+                    if "<b>Market Sentiment Breakdown:</b>" not in analysis_text:
+                        # Add any additional analysis info
+                        full_message += analysis_text
+                
+                # Create keyboard with appropriate back button
+                keyboard = []
+                if is_from_signal:
+                    keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal_analysis")])
+                else:
+                    keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="back_instrument")])
+                
+                # Delete the old message and send a new one to avoid media/formatting issues
+                try:
+                    await context.bot.delete_message(
+                        chat_id=update.effective_chat.id,
+                        message_id=query.message.message_id
+                    )
+                except Exception as e:
+                    logger.warning(f"Could not delete message: {str(e)}")
+                
+                # Send as a new text message
+                await context.bot.send_message(
+                    chat_id=update.effective_chat.id,
+                    text=full_message,
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.HTML
+                )
+                
+                return SHOW_RESULT
+                
+            except Exception as e:
+                logger.error(f"Error in sentiment analysis: {str(e)}")
+                try:
+                    # Create a proper back button
+                    back_callback = "back_to_signal_analysis" if is_from_signal else "back_instrument"
+                    keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data=back_callback)]]
+                    
+                    # Delete old message and send error
+                    try:
+                        await context.bot.delete_message(
+                            chat_id=update.effective_chat.id,
+                            message_id=query.message.message_id
+                        )
+                    except Exception as del_e:
+                        logger.warning(f"Could not delete message: {str(del_e)}")
+                    
+                    await context.bot.send_message(
+                        chat_id=update.effective_chat.id,
+                        text=f"Error getting sentiment analysis for {clean_instrument}. Please try again.",
+                        reply_markup=InlineKeyboardMarkup(keyboard),
+                        parse_mode=ParseMode.HTML
+                    )
+                except Exception as msg_e:
+                    logger.error(f"Failed to send error message: {str(msg_e)}")
+                
+                return CHOOSE_ANALYSIS
+                
         except Exception as e:
             logger.error(f"Error in show_sentiment_analysis: {str(e)}")
             logger.exception(e)
             
-            # Show error message
+            # Try to send error message
             try:
-                # Try to send a new message instead of editing
-                chat_id = update.effective_chat.id
+                keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_menu")]]
                 await context.bot.send_message(
-                    chat_id=chat_id,
-                    text=f"Error showing sentiment analysis for {instrument}. Please try again later.",
-                    reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
+                    chat_id=update.effective_chat.id,
+                    text=f"An error occurred while processing sentiment analysis. Please try again.",
+                    reply_markup=InlineKeyboardMarkup(keyboard),
                     parse_mode=ParseMode.HTML
                 )
             except Exception:
                 pass
             
-            return CHOOSE_ANALYSIS
+            return MENU
 
     async def back_to_signal_callback(self, update: Update, context=None) -> int:
         """Handle back button from analysis to signal"""
