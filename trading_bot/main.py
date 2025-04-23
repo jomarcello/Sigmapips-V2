@@ -5,10 +5,16 @@ import sys
 import asyncio
 import time
 import re
+import uuid
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from telegram import Bot
 from telegram.ext import Application
+
+# Create a unique instance ID for this process
+INSTANCE_ID = str(uuid.uuid4())
+os.environ["BOT_INSTANCE_ID"] = INSTANCE_ID
+print(f"Starting bot instance with ID: {INSTANCE_ID}")
 
 # Force polling for local development unless explicitly set otherwise
 if not os.getenv("WEBHOOK_URL") and os.getenv("FORCE_POLLING") is None:
@@ -74,7 +80,12 @@ try:
     async def main():
         initialization_start_time = time.time()
         logger.info("Initializing services...")
-            
+        instance_id = os.getenv("BOT_INSTANCE_ID", "unknown")
+        logger.info(f"Main process starting with instance ID: {instance_id}")
+        
+        # Add environment flag to indicate this is the main process 
+        os.environ["MAIN_PROCESS"] = "true"
+        
         # Initialize database
         db_start_time = time.time()
         db = Database()
@@ -107,6 +118,13 @@ try:
         telegram_start_time = time.time()
         
         try:
+            # Check if the bot is already running in FastAPI
+            if bot_running and telegram_service:
+                logger.info(f"Bot already running from FastAPI, skipping duplicate initialization")
+                # Just wait and keep the script alive
+                while True:
+                    await asyncio.sleep(60)
+                
             telegram_service = TelegramService(db, stripe_service, bot_token=bot_token, lazy_init=True)
             telegram_time = time.time() - telegram_start_time
             logger.info(f"Telegram service initialized with lazy loading in {telegram_time:.2f} seconds")
@@ -134,6 +152,7 @@ try:
                         raise exception
                 
                 bot_running = True
+                logger.info(f"Bot started successfully with instance ID: {instance_id}")
                 bot_time = time.time() - bot_start_time
                 logger.info(f"Bot started successfully in {bot_time:.2f} seconds")
                 
@@ -217,10 +236,18 @@ async def startup_event():
     try:
         # Log startup status
         logger.info("FastAPI startup event triggered")
+        instance_id = os.getenv("BOT_INSTANCE_ID", "unknown")
+        logger.info(f"FastAPI startup with instance ID: {instance_id}")
         
         # First ensure any existing bot is stopped to avoid conflicts
         await stop_bot()
         
+        # Check if this is the first instance or if the main app already started the bot
+        # We can track this with the global bot_running flag
+        if bot_running and telegram_service:
+            logger.info(f"Bot already running (instance {instance_id}), skipping init in FastAPI startup")
+            return
+            
         # Only initialize and start the bot if it's not already running
         # This prevents conflicts when both main.py and FastAPI try to start the bot
         if not bot_running and not telegram_service:
@@ -262,6 +289,7 @@ async def startup_event():
             logger.info("Starting bot as background task...")
             asyncio.create_task(telegram_service.run())
             bot_running = True
+            logger.info(f"Bot started with instance ID: {instance_id}")
             
         else:
             logger.info(f"Bot already running: {bot_running}, telegram_service exists: {telegram_service is not None}")
@@ -271,7 +299,7 @@ async def startup_event():
                 await telegram_service.initialize_services()
                 bot_running = True
         
-        # Register signal endpoint
+        # Register signal endpoint and ensure it's available
         logger.info("Registering signal endpoint")
         
     except Exception as e:
@@ -287,19 +315,50 @@ async def stop_bot():
     if bot_running and telegram_service and hasattr(telegram_service, 'polling_started') and telegram_service.polling_started:
         try:
             logger.info("Stopping telegram bot updater...")
+            instance_id = os.getenv("BOT_INSTANCE_ID", "unknown")
+            logger.info(f"Stopping bot with instance ID: {instance_id}")
+            
+            # First try to delete webhook and reset update session
+            try:
+                await telegram_service.bot.delete_webhook(drop_pending_updates=True)
+                logger.info("Webhook cleared during bot stop")
+                
+                # Send a dummy request to reset update session
+                await telegram_service.bot.get_updates(offset=-1, limit=1, timeout=1, allowed_updates=[])
+                logger.info("Reset update session during bot stop")
+            except Exception as clear_e:
+                logger.warning(f"Error clearing webhook during stop: {str(clear_e)}")
+            
+            # Then stop the updater if it's running
             if hasattr(telegram_service, 'application') and telegram_service.application:
                 if hasattr(telegram_service.application, 'updater') and telegram_service.application.updater.running:
                     await telegram_service.application.updater.stop()
-                await telegram_service.application.stop()
-                await telegram_service.application.shutdown()
+                    logger.info("Updater stopped successfully")
+                
+                # Stop and shutdown the application
+                try:
+                    await telegram_service.application.stop()
+                    logger.info("Application stopped successfully")
+                except Exception as stop_e:
+                    logger.warning(f"Error stopping application: {str(stop_e)}")
+                    
+                try:
+                    await telegram_service.application.shutdown()
+                    logger.info("Application shutdown successfully")
+                except Exception as shutdown_e:
+                    logger.warning(f"Error shutting down application: {str(shutdown_e)}")
+                    
             telegram_service.polling_started = False
             bot_running = False
             logger.info("Telegram bot stopped successfully")
         except Exception as e:
             logger.error(f"Error stopping telegram bot: {str(e)}")
             logger.exception(e)
+            # Even if there's an error, mark the bot as not running
+            telegram_service.polling_started = False if telegram_service else False
+            bot_running = False
     else:
-        logger.info("No bot running, nothing to stop")
+        logger.info("No bot running or polling not started, nothing to stop")
 
 # Register the signal endpoint outside the startup event to ensure it's always available
 @app.post("/signal")
