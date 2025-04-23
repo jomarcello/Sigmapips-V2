@@ -4083,3 +4083,130 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 self.logger.error(f"Error sending error message: {str(edit_error)}")
             
             return MENU
+
+    async def back_to_signal_callback(self, update: Update, context=None) -> int:
+        """Handle the back to signal callback to return to signals menu"""
+        # Implementation...
+        
+    async def back_signals_callback(self, update: Update, context=None) -> int:
+        """Handle the back to signals menu callback"""
+        # Implementation...
+        
+    async def back_market_callback(self, update: Update, context=None) -> int:
+        """Handle the back to market selection callback"""
+        query = update.callback_query
+        await query.answer()
+        
+        logger.info("back_market_callback called")
+        
+        # Determine if we're in signals context based on user data
+        is_signals_context = False
+        if context and hasattr(context, 'user_data'):
+            is_signals_context = context.user_data.get('is_signals_context', False)
+            is_sentiment_context = context.user_data.get('is_sentiment_context', False)
+            is_calendar_context = context.user_data.get('is_calendar_context', False)
+        
+        # Decide which keyboard to show based on the context
+        keyboard = None
+        message_text = "Select market:"
+        
+        # Choose the appropriate keyboard based on context
+        if is_signals_context:
+            keyboard = MARKET_KEYBOARD_SIGNALS
+            message_text = "Select market for signals:"
+        elif is_sentiment_context:
+            keyboard = MARKET_KEYBOARD_SENTIMENT
+            message_text = "Select market for sentiment analysis:"
+        elif is_calendar_context:
+            keyboard = MARKET_KEYBOARD_CALENDAR
+            message_text = "Select market for economic calendar:"
+        else:
+            # Default to standard analysis keyboard
+            keyboard = MARKET_KEYBOARD
+            message_text = "Select market for analysis:"
+        
+        # Update the message with the market selection keyboard
+        await self.update_message(
+            query=query,
+            text=message_text,
+            keyboard=InlineKeyboardMarkup(keyboard),
+            parse_mode=ParseMode.HTML
+        )
+        
+        return CHOOSE_MARKET
+    
+    async def back_analysis_callback(self, update: Update, context=None) -> int:
+        """Handle the back to analysis selection callback"""
+        query = update.callback_query
+        await query.answer()
+        
+        logger.info("back_analysis_callback called")
+        
+        # Show analysis selection keyboard
+        message_text = "Select analysis type:"
+        
+        await self.update_message(
+            query=query,
+            text=message_text,
+            keyboard=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
+            parse_mode=ParseMode.HTML
+        )
+        
+        return CHOOSE_ANALYSIS
+    
+    async def analysis_callback(self, update: Update, context=None) -> int:
+        """Handle the back to analysis callback"""
+        query = update.callback_query
+        await query.answer()
+        
+        logger.info("analysis_callback called")
+        
+        # This is similar to back_analysis_callback, but might be used in different contexts
+        message_text = "Select analysis type:"
+        
+        await self.update_message(
+            query=query,
+            text=message_text,
+            keyboard=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
+            parse_mode=ParseMode.HTML
+        )
+        
+        return CHOOSE_ANALYSIS
+    
+    async def analyze_from_signal_callback(self, update: Update, context=None) -> int:
+        """Handle callback for analyzing from a signal"""
+        query = update.callback_query
+        await query.answer()
+        
+        logger.info(f"analyze_from_signal_callback called with data: {query.data}")
+        
+        # Extract the instrument and possibly timeframe from the callback data
+        # Expected format: analyze_from_signal_EURUSD_1h
+        callback_data = query.data
+        parts = callback_data.split("_")
+        
+        if len(parts) < 4:
+            logger.error(f"Invalid analyze_from_signal callback data: {callback_data}")
+            return MENU
+        
+        instrument = parts[3]  # e.g., EURUSD
+        timeframe = parts[4] if len(parts) > 4 else "1h"  # Default to 1h if not specified
+        
+        # Store instrument and timeframe in context
+        if context and hasattr(context, 'user_data'):
+            context.user_data['instrument'] = instrument
+            context.user_data['timeframe'] = timeframe
+            
+            # We're going into technical analysis from a signal
+            context.user_data['is_signals_context'] = False
+            context.user_data['is_sentiment_context'] = False
+            context.user_data['is_calendar_context'] = False
+            
+            logger.info(f"Set analysis context for signal: {context.user_data}")
+        
+        # Show technical analysis for the instrument
+        return await self.show_technical_analysis(update, context, instrument=instrument, timeframe=timeframe)
+        
+    async def get_subscribers_for_instrument(self, instrument: str, timeframe: str = None) -> List[int]:
+        """Get all subscribers for a given instrument and timeframe"""
+        # Implementation...
