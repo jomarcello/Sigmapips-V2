@@ -246,22 +246,34 @@ class EconomicCalendarService:
         """Get the URL for the loading GIF"""
         return self.loading_gif
         
-    async def get_calendar(self, days_ahead: int = 0, min_impact: str = "Low") -> List[Dict]:
+    async def get_calendar(self, days_ahead: int = 0, min_impact: str = "Low", currency: str = None) -> List[Dict]:
         """Get the economic calendar for the specified number of days ahead
         
         Args:
             days_ahead: Number of days to look ahead
             min_impact: Minimum impact level to include (Low, Medium, High)
+            currency: Optional currency to filter events by
             
         Returns:
             List of calendar events
         """
         try:
-            self.logger.info(f"MAIN: Getting economic calendar data (days_ahead={days_ahead}, min_impact={min_impact})")
+            self.logger.info(f"MAIN: Getting economic calendar data (days_ahead={days_ahead}, min_impact={min_impact}, currency={currency})")
             print(f"📅 Getting economic calendar data for {days_ahead} days ahead with min impact {min_impact}")
             
             # Gebruik de TradingView kalender service om events op te halen
             events = await self.calendar_service.get_calendar(days_ahead=days_ahead, min_impact=min_impact)
+            
+            # Filter by currency if specified
+            if currency:
+                self.logger.info(f"Filtering events by currency: {currency}")
+                filtered_events = []
+                for event in events:
+                    # Check if the event country code matches the currency
+                    if event.get('country') == currency:
+                        filtered_events.append(event)
+                events = filtered_events
+                self.logger.info(f"After filtering by {currency}: {len(events)} events remaining")
             
             self.logger.info(f"MAIN: Received {len(events)} calendar events")
             print(f"📅 Successfully retrieved {len(events)} calendar events")
