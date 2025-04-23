@@ -107,7 +107,16 @@ try:
         service = TradingViewCalendarService()
         return await service.debug_api_connection()
 
-    __all__ = ['EconomicCalendarService', 'debug_tradingview_api']
+    # Add a function to get all calendar events without filtering
+    async def get_all_calendar_events():
+        """Get all calendar events without filtering"""
+        logger.info("Getting all calendar events without filtering")
+        service = TradingViewCalendarService()
+        events = await service.get_calendar(days_ahead=0, min_impact="Low")
+        logger.info(f"Retrieved {len(events)} total events")
+        return events
+
+    __all__ = ['EconomicCalendarService', 'debug_tradingview_api', 'get_all_calendar_events']
 except Exception:
     # Als de import faalt, exporteren we alleen de EconomicCalendarService
     __all__ = ['EconomicCalendarService']
