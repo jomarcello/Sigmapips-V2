@@ -619,7 +619,7 @@ async def format_calendar_for_telegram(events: List[Dict]) -> str:
             # Add previous/forecast/actual values if available
             values = []
             if "previous" in event and event["previous"] is not None:
-                values.append(f"Prev: {event['previous']}")
+                values.append(f"{event['previous']}")
             if "forecast" in event and event["forecast"] is not None:
                 values.append(f"Fcst: {event['forecast']}")
             if "actual" in event and event["actual"] is not None:
