@@ -3955,7 +3955,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                         logger.info(f"Successfully sent chart file and analysis for {instrument}")
                         
                         # If the analysis text was truncated, send the full analysis as a separate message
-                        if analysis_text and len(analysis_text) > 1000:
+                        if analysis_text and len(analysis_text) > 1000 and not from_signal:
                             # Split the text into chunks of 4000 characters (Telegram message limit)
                             chunks = [analysis_text[i:i+4000] for i in range(0, len(analysis_text), 4000)]
                             
@@ -3985,7 +3985,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                             )
                             
                             # Send full analysis as separate message if truncated
-                            if analysis_text and len(analysis_text) > 1000:
+                            if analysis_text and len(analysis_text) > 1000 and not from_signal:
                                 chunks = [analysis_text[i:i+4000] for i in range(0, len(analysis_text), 4000)]
                                 for chunk in chunks:
                                     await context.bot.send_message(
@@ -4012,17 +4012,34 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 else:
                     truncated_analysis = analysis_text
                 
-                # Send a new message with the chart
-                await context.bot.send_photo(
-                    chat_id=update.effective_chat.id,
-                    photo=chart_image,
-                    caption=truncated_analysis,
-                    parse_mode=ParseMode.HTML,
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
+                # Probeer het originele bericht te bewerken in plaats van te verwijderen en een nieuw bericht te versturen
+                try:
+                    await query.edit_message_media(
+                        media=InputMediaPhoto(
+                            media=chart_image,
+                            caption=truncated_analysis,
+                            parse_mode=ParseMode.HTML
+                        ),
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+                    logger.info(f"Successfully edited message with chart for {instrument}")
+                except Exception as edit_error:
+                    logger.warning(f"Could not edit message media: {str(edit_error)}")
+                    
+                    # Als bewerken niet lukt, dan versturen we een nieuw bericht
+                    await context.bot.send_photo(
+                        chat_id=update.effective_chat.id,
+                        photo=chart_image,
+                        caption=truncated_analysis,
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+                    
+                    # Alleen verwijderen als het nieuwe bericht succesvol is verstuurd
+                    await query.delete_message()
                 
                 # If the analysis text was truncated, send the full analysis as a separate message
-                if analysis_text and len(analysis_text) > 1000:
+                if analysis_text and len(analysis_text) > 1000 and not from_signal:
                     # Split the text into chunks of 4000 characters (Telegram message limit)
                     chunks = [analysis_text[i:i+4000] for i in range(0, len(analysis_text), 4000)]
                     
@@ -4033,9 +4050,6 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                             text=chunk,
                             parse_mode=ParseMode.HTML
                         )
-                
-                # Delete the original message
-                await query.delete_message()
                 
                 return SHOW_RESULT
                 
