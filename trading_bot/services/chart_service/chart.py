@@ -741,30 +741,10 @@ class ChartService:
 
     async def get_sentiment_analysis(self, instrument: str) -> str:
         """Generate sentiment analysis for an instrument"""
-        try:
-            logger.info(f"Generating sentiment analysis for {instrument}")
-            
-            # We need to initialize the sentiment service if it doesn't exist
-            if not hasattr(self, 'sentiment_service'):
-                from trading_bot.services.sentiment_service.sentiment import MarketSentimentService
-                self.sentiment_service = MarketSentimentService()
-                await self.sentiment_service.load_cache()
-            
-            # Get the market type based on the instrument
-            market_type = self._detect_market_type(instrument)
-            
-            # Get the sentiment data
-            sentiment_text = await self.sentiment_service.get_market_sentiment_text(instrument, market_type)
-            
-            if not sentiment_text:
-                return f"No sentiment data available for {instrument}."
-                
-            return sentiment_text
-            
-        except Exception as e:
-            logger.error(f"Error generating sentiment analysis: {str(e)}")
-            logger.error(traceback.format_exc())
-            return f"Error getting sentiment analysis for {instrument}. Please try again later."
+        # This method is intentionally left empty to prevent duplicate sentiment analysis
+        # Sentiment analysis is now directly handled by the TelegramService using MarketSentimentService
+        logger.info(f"ChartService.get_sentiment_analysis called for {instrument} but is now disabled")
+        return ""
 
     def _detect_market_type(self, instrument: str) -> str:
         """Detect the market type for an instrument"""
