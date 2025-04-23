@@ -9,6 +9,7 @@ import time
 # Import telegram components only when needed to reduce startup time
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler
 from telegram import BotCommand
+import asyncio
 
 # Configureer logging
 logging.basicConfig(level=logging.INFO)
@@ -17,12 +18,15 @@ logger = logging.getLogger(__name__)
 # Laad omgevingsvariabelen
 load_dotenv()
 
+# Global variable to track if bot is running
+bot_running = False
+
 # Importeer alleen de essentiële services direct - andere worden lazy-loaded
 from trading_bot.services.database.db import Database
 from trading_bot.services.payment_service.stripe_config import STRIPE_WEBHOOK_SECRET
 
-# Import directly from the module to avoid circular imports through __init__.py
-from trading_bot.services.telegram_service.bot import TelegramService
+# Import from the module, not directly from the file
+from trading_bot.services.telegram_service import TelegramService
 from trading_bot.services.payment_service.stripe_service import StripeService
 
 # Initialiseer de FastAPI app
@@ -98,9 +102,33 @@ def convert_interval_to_timeframe(interval):
         # Als het geen getal is, geef het terug zoals het is
         return interval_str
 
+async def stop_bot():
+    """Safely stop the bot polling to prevent conflicts"""
+    global bot_running
+    
+    # Only try to stop if we think it's running
+    if bot_running and telegram_service and telegram_service.polling_started:
+        try:
+            logger.info("Stopping telegram bot updater...")
+            if hasattr(telegram_service, 'application') and telegram_service.application:
+                if hasattr(telegram_service.application, 'updater'):
+                    await telegram_service.application.updater.stop()
+                await telegram_service.application.stop()
+                await telegram_service.application.shutdown()
+            telegram_service.polling_started = False
+            bot_running = False
+            logger.info("Telegram bot stopped successfully")
+        except Exception as e:
+            logger.error(f"Error stopping telegram bot: {str(e)}")
+
 @app.on_event("startup")
 async def startup_event():
+    global bot_running
+    
     try:
+        # First ensure any existing bot is stopped
+        await stop_bot()
+        
         # Initialize the services
         logger.info("Initializing services...")
         
@@ -132,10 +160,7 @@ async def startup_event():
         telegram_service.application.add_handler(CommandHandler("set_payment_failed", telegram_service.set_payment_failed_command))
         telegram_service.application.add_handler(CallbackQueryHandler(telegram_service.button_callback))
         
-        # Load signals
-        telegram_service._load_signals()
-        
-        # Set bot commands
+        # Set the commands
         commands = [
             BotCommand("start", "Start the bot and get the welcome message"),
             BotCommand("menu", "Show the main menu"),
@@ -145,11 +170,32 @@ async def startup_event():
         # Initialize the application and start in polling mode
         await telegram_service.application.initialize()
         await telegram_service.application.start()
-        await telegram_service.application.updater.start_polling()
-        telegram_service.polling_started = True
+        
+        # Determine if we should use polling based on environment
+        use_polling = os.getenv("FORCE_POLLING", "").lower() == "true"
+        is_local_env = not webhook_url or webhook_url == ""
+        
+        if use_polling or is_local_env:
+            logger.info("Starting bot in polling mode...")
+            # Make sure the updater isn't already running
+            if hasattr(telegram_service.application, 'updater') and telegram_service.application.updater.running:
+                await telegram_service.application.updater.stop()
+            
+            # Start polling with a longer timeout to reduce conflicts
+            await telegram_service.application.updater.start_polling(poll_interval=1.0, timeout=30)
+            telegram_service.polling_started = True
+            bot_running = True
+            logger.info("Bot started in polling mode")
+        else:
+            logger.info("Skipping polling mode as bot is likely running in webhook mode")
+            telegram_service.polling_started = False
+            bot_running = True
         
         # Set the commands
-        await telegram_service.bot.set_my_commands(commands)
+        await telegram_service.application.bot.set_my_commands(commands)
+        
+        # Load signals
+        await telegram_service._load_signals()
         
         logger.info("Telegram bot initialized successfully in polling mode")
         
@@ -181,6 +227,12 @@ async def startup_event():
         logger.error(f"Error initializing services: {str(e)}")
         logger.exception(e)
         raise
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Stop the bot when the application shuts down"""
+    logger.info("Application shutting down, stopping telegram bot...")
+    await stop_bot()
 
 # Define webhook routes
 
@@ -300,6 +352,73 @@ async def create_subscription_link(user_id: int, plan_type: str = 'basic'):
 async def health_check():
     return {"status": "healthy"}
 
+@app.get("/restart-bot")
+async def restart_bot():
+    """Endpoint to restart the telegram bot service"""
+    global bot_running
+    
+    try:
+        # First stop the bot if it's running
+        await stop_bot()
+        
+        # Wait a moment to ensure everything is cleared
+        await asyncio.sleep(2)
+        
+        # Restart the bot
+        logger.info("Restarting telegram bot...")
+        
+        # Create new application instance
+        telegram_service.application = Application.builder().bot(telegram_service.bot).build()
+        
+        # Register command handlers manually
+        telegram_service.application.add_handler(CommandHandler("start", telegram_service.start_command))
+        telegram_service.application.add_handler(CommandHandler("menu", telegram_service.show_main_menu))
+        telegram_service.application.add_handler(CommandHandler("help", telegram_service.help_command))
+        telegram_service.application.add_handler(CommandHandler("set_subscription", telegram_service.set_subscription_command))
+        telegram_service.application.add_handler(CommandHandler("set_payment_failed", telegram_service.set_payment_failed_command))
+        telegram_service.application.add_handler(CallbackQueryHandler(telegram_service.button_callback))
+        
+        # Set the commands
+        commands = [
+            BotCommand("start", "Start the bot and get the welcome message"),
+            BotCommand("menu", "Show the main menu"),
+            BotCommand("help", "Show available commands and how to use the bot")
+        ]
+        
+        # Initialize the application and start in polling mode
+        await telegram_service.application.initialize()
+        await telegram_service.application.start()
+        
+        # Determine if we should use polling based on environment
+        webhook_url = os.getenv("WEBHOOK_URL", "")
+        use_polling = os.getenv("FORCE_POLLING", "").lower() == "true"
+        is_local_env = not webhook_url or webhook_url == ""
+        
+        if use_polling or is_local_env:
+            logger.info("Restarting bot in polling mode...")
+            # Start polling with a longer timeout
+            await telegram_service.application.updater.start_polling(poll_interval=1.0, timeout=30)
+            telegram_service.polling_started = True
+            bot_running = True
+            logger.info("Bot restarted in polling mode")
+        else:
+            logger.info("Skipping polling mode as bot is likely running in webhook mode")
+            telegram_service.polling_started = False
+            bot_running = True
+        
+        # Set the commands
+        await telegram_service.application.bot.set_my_commands(commands)
+        
+        # Load signals
+        await telegram_service._load_signals()
+        
+        logger.info("Telegram bot restarted successfully")
+        
+        return {"status": "success", "message": "Bot restarted successfully"}
+    except Exception as e:
+        logger.error(f"Error restarting bot: {str(e)}")
+        return {"status": "error", "message": str(e)}
+
 @app.post("/test-webhook")
 async def test_webhook(request: Request):
     """Test endpoint for webhook processing"""
@@ -337,7 +456,9 @@ async def test_webhook(request: Request):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("trading_bot.main:app", host="0.0.0.0", port=8080)
+    # Gebruik PORT environment variabele indien beschikbaar
+    port = int(os.getenv("PORT", 8080))
+    uvicorn.run("trading_bot.main:app", host="0.0.0.0", port=port)
 
 # Expliciet de app exporteren
 __all__ = ['app']
