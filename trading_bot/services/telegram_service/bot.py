@@ -839,18 +839,6 @@ class TelegramService:
                 # Format event line
                 event_line = f"{time} - {impact_emoji} {title}"
                 
-                # Add previous/forecast/actual values if available
-                values = []
-                if "previous" in event and event["previous"] is not None:
-                    values.append(f"{event['previous']}")  # Removed "Prev: " prefix
-                if "forecast" in event and event["forecast"] is not None:
-                    values.append(f"Fcst: {event['forecast']}")
-                if "actual" in event and event["actual"] is not None:
-                    values.append(f"Act: {event['actual']}")
-                    
-                if values:
-                    event_line += f" ({', '.join(values)})"
-                
                 message += f"{event_line}\n"
             
             message += "\n"  # Add extra newline between countries
