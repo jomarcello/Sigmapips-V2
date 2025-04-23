@@ -2798,25 +2798,15 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         # Get market from instrument
         market = _detect_market(instrument)
         
-        # Show loading message
-        loading_text = f"Loading sentiment analysis for {instrument}..."
-        loading_gif = "https://media.giphy.com/media/dpjUltnOPye7azvAhH/giphy.gif"
-        
+        # Show simple loading text without GIF
         try:
-            # Try to show animated loading GIF
-            await query.edit_message_media(
-                media=InputMediaAnimation(
-                    media=loading_gif,
-                    caption=loading_text
-                )
+            await query.edit_message_text(
+                text=f"Loading sentiment analysis for {instrument}...",
+                parse_mode=ParseMode.HTML
             )
-        except Exception as gif_error:
-            logger.warning(f"Could not show loading GIF: {str(gif_error)}")
-            # Fall back to text loading message
-            try:
-                await query.edit_message_text(text=loading_text)
-            except Exception:
-                pass
+        except Exception as e:
+            logger.warning(f"Could not update message text: {str(e)}")
+            # We'll create a new message below anyway
         
         # Create back button for this context
         keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal_analysis")]]
@@ -2832,10 +2822,16 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Get sentiment data directly from MarketSentimentService
             sentiment_data = await self.market_sentiment_service.get_market_sentiment_text(instrument, market)
             
+            # Get chat information
+            chat_id = update.effective_chat.id
+            message_id = update.effective_message.message_id
+            
             if not sentiment_data:
-                # Instead of edit_message_text, send a new message and delete the old one
-                chat_id = update.effective_chat.id
-                message_id = update.effective_message.message_id
+                # Delete the original message
+                try:
+                    await self.bot.delete_message(chat_id=chat_id, message_id=message_id)
+                except Exception as e:
+                    logger.warning(f"Could not delete original message: {str(e)}")
                 
                 # Send a new message with the error
                 await self.bot.send_message(
@@ -2845,21 +2841,18 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     parse_mode=ParseMode.HTML
                 )
                 
-                # Delete the original message with the loading GIF
-                try:
-                    await self.bot.delete_message(chat_id=chat_id, message_id=message_id)
-                except Exception as e:
-                    logger.warning(f"Could not delete original message: {str(e)}")
-                
                 return SIGNAL_ANALYSIS
             
             # Format sentiment data into text
             sentiment_text = f"<b>Sentiment Analysis for {instrument}</b>\n\n"
             sentiment_text += sentiment_data
             
-            # Using the same approach - send a new message with the results
-            chat_id = update.effective_chat.id
-            message_id = update.effective_message.message_id
+            # Delete the original message
+            try:
+                await self.bot.delete_message(chat_id=chat_id, message_id=message_id)
+                logger.info("Deleted original message")
+            except Exception as e:
+                logger.warning(f"Could not delete original message: {str(e)}")
             
             # Send the sentiment analysis as a new message
             await self.bot.send_message(
@@ -2868,21 +2861,22 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 reply_markup=InlineKeyboardMarkup(keyboard),
                 parse_mode=ParseMode.HTML
             )
-            
-            # Delete the original message with the loading GIF
-            try:
-                await self.bot.delete_message(chat_id=chat_id, message_id=message_id)
-            except Exception as e:
-                logger.warning(f"Could not delete original message: {str(e)}")
+            logger.info(f"Successfully sent sentiment analysis for {instrument}")
             
             return SIGNAL_ANALYSIS
             
         except Exception as e:
             logger.error(f"Error getting sentiment analysis: {str(e)}")
-            # Error message using same approach
             try:
+                # Send a new error message
                 chat_id = update.effective_chat.id
-                message_id = update.effective_message.message_id
+                
+                # Try to delete the original message
+                try:
+                    message_id = update.effective_message.message_id
+                    await self.bot.delete_message(chat_id=chat_id, message_id=message_id)
+                except Exception as del_e:
+                    logger.warning(f"Could not delete original message: {str(del_e)}")
                 
                 # Send error message
                 await self.bot.send_message(
@@ -2891,12 +2885,6 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     reply_markup=InlineKeyboardMarkup(keyboard),
                     parse_mode=ParseMode.HTML
                 )
-                
-                # Delete the original message
-                try:
-                    await self.bot.delete_message(chat_id=chat_id, message_id=message_id)
-                except Exception as del_e:
-                    logger.warning(f"Could not delete original message: {str(del_e)}")
             except Exception as msg_e:
                 logger.error(f"Failed to send error message: {str(msg_e)}")
             
@@ -3902,25 +3890,15 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Log what we're doing
             logger.info(f"Getting sentiment analysis for {instrument}")
             
-            # Show loading message
-            loading_text = f"Loading {instrument} sentiment analysis..."
-            loading_gif = "https://media.giphy.com/media/dpjUltnOPye7azvAhH/giphy.gif"
-            
+            # Show simple loading text instead of GIF to avoid media issues
             try:
-                # Try to show animated GIF for loading
-                await query.edit_message_media(
-                    media=InputMediaAnimation(
-                        media=loading_gif,
-                        caption=loading_text
-                    )
+                await query.edit_message_text(
+                    text=f"Loading {instrument} sentiment analysis...",
+                    parse_mode=ParseMode.HTML
                 )
-            except Exception as gif_error:
-                logger.warning(f"Could not show loading GIF: {str(gif_error)}")
-                # Fallback to text loading message
-                try:
-                    await query.edit_message_text(text=loading_text)
-                except Exception:
-                    pass
+            except Exception as e:
+                logger.warning(f"Could not update message text: {str(e)}")
+                # Don't try to fallback - we'll create a new message below
             
             # Initialization for sentiment service if needed - use MarketSentimentService directly
             if not hasattr(self, 'market_sentiment_service') or not self.market_sentiment_service:
@@ -3950,61 +3928,25 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             else:
                 keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="back_instrument")])
             
-            # Update the message with sentiment text
+            # Delete the original message and send a new one to avoid media issues
+            chat_id = update.effective_chat.id
+            message_id = update.effective_message.message_id
+            
             try:
-                await query.edit_message_text(
-                    text=sentiment_text,
-                    reply_markup=InlineKeyboardMarkup(keyboard),
-                    parse_mode=ParseMode.HTML
-                )
-                logger.info(f"Successfully sent sentiment analysis for {instrument}")
-                return SHOW_RESULT
-            except Exception as text_error:
-                logger.warning(f"Could not edit message text: {str(text_error)}")
-                
-                # Try to edit caption if text editing fails
-                try:
-                    await query.edit_message_caption(
-                        caption=sentiment_text[:1024] if len(sentiment_text) > 1024 else sentiment_text,
-                        reply_markup=InlineKeyboardMarkup(keyboard),
-                        parse_mode=ParseMode.HTML
-                    )
-                    logger.info(f"Successfully edited caption with sentiment analysis for {instrument}")
-                    
-                    # If sentiment text was truncated, send full text as separate message
-                    if len(sentiment_text) > 1024:
-                        await context.bot.send_message(
-                            chat_id=update.effective_chat.id,
-                            text=sentiment_text,
-                            parse_mode=ParseMode.HTML
-                        )
-                    
-                    return SHOW_RESULT
-                except Exception as caption_error:
-                    logger.warning(f"Could not edit caption: {str(caption_error)}")
-                    
-                    # Last resort: send a new message
-                    try:
-                        # Try to delete the original message first
-                        try:
-                            await context.bot.delete_message(
-                                chat_id=update.effective_chat.id,
-                                message_id=query.message.message_id
-                            )
-                        except Exception:
-                            pass
-                        
-                        # Send a new message with the full sentiment text
-                        await context.bot.send_message(
-                            chat_id=update.effective_chat.id,
-                            text=sentiment_text,
-                            reply_markup=InlineKeyboardMarkup(keyboard),
-                            parse_mode=ParseMode.HTML
-                        )
-                        logger.info(f"Successfully sent new message with sentiment analysis for {instrument}")
-                        return SHOW_RESULT
-                    except Exception as send_error:
-                        logger.error(f"Failed to send sentiment analysis: {str(send_error)}")
+                # Delete the original message
+                await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
+                logger.info("Deleted original message")
+            except Exception as delete_error:
+                logger.warning(f"Could not delete original message: {str(delete_error)}")
+            
+            # Send a completely new message with the sentiment analysis
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=sentiment_text,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode=ParseMode.HTML
+            )
+            logger.info(f"Successfully sent new message with sentiment analysis for {instrument}")
             
             return SHOW_RESULT
             
@@ -4014,18 +3956,16 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             
             # Show error message
             try:
-                await query.edit_message_text(
+                # Try to send a new message instead of editing
+                chat_id = update.effective_chat.id
+                await context.bot.send_message(
+                    chat_id=chat_id,
                     text=f"Error showing sentiment analysis for {instrument}. Please try again later.",
-                    reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
+                    reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
+                    parse_mode=ParseMode.HTML
                 )
             except Exception:
-                try:
-                    await query.message.reply_text(
-                        text=f"Error showing sentiment analysis for {instrument}. Please try again later.",
-                        reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
-                    )
-                except Exception:
-                    pass
+                pass
             
             return CHOOSE_ANALYSIS
 
