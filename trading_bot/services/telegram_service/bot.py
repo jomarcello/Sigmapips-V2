@@ -2239,27 +2239,50 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         query = update.callback_query
         await query.answer()
         
-        if context and hasattr(context, 'user_data'):
-            context.user_data['analysis_type'] = 'calendar'
-            
-        # Set the callback data
+        # Handle backward compatibility for signal-specific calendar
         callback_data = query.data
-        
-        # Set the instrument if it was passed in the callback data
+        instrument = None
         if callback_data.startswith("analysis_calendar_signal_"):
             # Extract instrument from the callback data
             instrument = callback_data.replace("analysis_calendar_signal_", "")
+            logger.info(f"Backward compatibility: Calendar analysis for instrument: {instrument}")
             if context and hasattr(context, 'user_data'):
                 context.user_data['instrument'] = instrument
-            
-            logger.info(f"Calendar analysis for specific instrument: {instrument}")
-            
-            # Show analysis directly for this instrument
-            return await self.show_calendar_analysis(update, context, instrument=instrument)
         
-        # Skip market selection and go directly to calendar analysis
-        logger.info("Showing economic calendar without market selection")
-        return await self.show_calendar_analysis(update, context)
+        # Set menu flow context flags properly
+        if context and hasattr(context, 'user_data'):
+            context.user_data['analysis_type'] = 'calendar'
+            context.user_data['from_signal'] = False
+            context.user_data['in_signal_flow'] = False
+            
+            logger.info(f"Menu calendar context set, instrument: {instrument}")
+        
+        # Set loading message
+        loading_message = "Loading economic calendar..."
+        
+        try:
+            # Show initial loading message
+            await query.edit_message_text(text=loading_message)
+            
+            # Use the show_calendar_analysis method
+            return await self.show_calendar_analysis(
+                update=update,
+                context=context,
+                instrument=instrument
+            )
+            
+        except Exception as e:
+            logger.error(f"Error in analysis_calendar_callback: {str(e)}")
+            try:
+                # Error message with back button
+                await query.edit_message_text(
+                    text=f"Error loading economic calendar. Please try again.",
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_analysis")]])
+                )
+            except Exception:
+                pass
+            
+            return CHOOSE_ANALYSIS
 
     async def show_economic_calendar(self, update: Update, context: CallbackContext, currency=None, loading_message=None):
         """Show the economic calendar for a specific currency or instrument"""
@@ -2270,7 +2293,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             chat_id = update.effective_chat.id
             query = update.callback_query
             
-            # Check if we're in a signal flow
+            # Determine if we're in a signal flow
             is_from_signal = False
             instrument = None
             if context and hasattr(context, 'user_data'):
@@ -2314,8 +2337,8 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     tv_service = calendar_service.tradingview_calendar
                     self.logger.info("Using TradingView calendar service directly")
                     
-                    # Get calendar events directly
-                    events = await tv_service.get_calendar(days_ahead=1, min_impact="Low")
+                    # Get calendar events directly - if currency is specified, highlight that currency's events
+                    events = await tv_service.get_calendar(days_ahead=1, min_impact="Low", currency=currency)
                     self.logger.info(f"Got {len(events)} events from TradingView service")
                     
                     # Use the TradingView formatting function
@@ -2377,18 +2400,14 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             
             # Create keyboard with back button based on flow context
             keyboard = None
-            if context and hasattr(context, 'user_data'):
-                if context.user_data.get('from_signal', False):
-                    # When we're coming from a signal, the back button should go to signal analysis
-                    keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal_analysis")]])
-                    self.logger.info("Using back_to_signal_analysis button for signal flow")
-                else:
-                    # Otherwise, go back to the main analysis menu
-                    keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="menu_analyse")]])
-                    self.logger.info("Using menu_analyse button for regular flow")
+            if is_from_signal:
+                # When we're coming from a signal, the back button should go to signal analysis
+                keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back to Signal", callback_data="back_to_signal_analysis")]])
+                self.logger.info("Using back_to_signal_analysis button for signal flow")
             else:
-                # Default fallback
-                keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="menu_analyse")]])
+                # Regular menu flow - go back to the analysis menu
+                keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back to Menu", callback_data="back_analysis")]])
+                self.logger.info("Using back_analysis button for menu flow")
             
             # If we have a query, try to edit message directly
             if query:
@@ -2708,31 +2727,15 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         # Enhanced logging for debugging
         logger.info(f"signal_calendar_callback called with data: {query.data}")
         
-        # Check and maintain signal flow context
-        is_from_signal = False
+        # Set signal flow context flags properly
         if context and hasattr(context, 'user_data'):
-            is_from_signal = context.user_data.get('from_signal', False)
-            # Make sure we stay in the signal flow
             context.user_data['from_signal'] = True
-            context.user_data['in_signal_flow'] = True  # Important for navigation
-            context.user_data['is_signals_context'] = False  # Not in signals context
+            context.user_data['in_signal_flow'] = True
             context.user_data['analysis_type'] = 'calendar'
             
             # Debug current context
-            logger.info(f"Context before calendar: {context.user_data}")
-        
-        # Check if we're in the right flow
-        if not is_from_signal:
-            logger.warning("signal_calendar_callback called outside signal flow context")
-            try:
-                await query.edit_message_text(
-                    text="Please start from a trading signal to use this feature.",
-                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
-                )
-            except Exception as e:
-                logger.error(f"Error in signal_calendar_callback redirect: {str(e)}")
-            return MENU
-        
+            logger.info(f"Signal calendar context set: {context.user_data}")
+            
         # Set loading message
         loading_message = "Loading economic calendar..."
         
@@ -2740,11 +2743,11 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Show initial loading message
             await query.edit_message_text(text=loading_message)
             
-            # No instrument required - use the show_economic_calendar method directly
-            return await self.show_economic_calendar(
+            # No instrument required - use the show_calendar_analysis method
+            # This is the exact same as used in the menu flow
+            return await self.show_calendar_analysis(
                 update=update,
-                context=context,
-                loading_message=loading_message
+                context=context
             )
             
         except Exception as e:
