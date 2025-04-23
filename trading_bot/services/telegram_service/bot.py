@@ -3602,18 +3602,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                         )
                         logger.info(f"Successfully sent chart file and technical analysis for {instrument}")
                         
-                        # If the analysis text was truncated, send the full analysis as a separate message
-                        if analysis_text and len(analysis_text) > 1000 and not from_signal:
-                            # Split the text into chunks of 4000 characters (Telegram message limit)
-                            chunks = [analysis_text[i:i+4000] for i in range(0, len(analysis_text), 4000)]
-                            
-                            # Send each chunk as a separate message
-                            for chunk in chunks:
-                                await context.bot.send_message(
-                                    chat_id=update.effective_chat.id,
-                                    text=chunk,
-                                    parse_mode=ParseMode.HTML
-                                )
+                        # We're removing the separate full analysis message to prevent duplicate analysis
                 except Exception as file_error:
                     logger.error(f"Error sending local file: {str(file_error)}")
                     # Try to send as a new message
@@ -3632,15 +3621,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                                 reply_markup=InlineKeyboardMarkup(keyboard)
                             )
                             
-                            # Send full analysis as separate message if truncated
-                            if analysis_text and len(analysis_text) > 1000 and not from_signal:
-                                chunks = [analysis_text[i:i+4000] for i in range(0, len(analysis_text), 4000)]
-                                for chunk in chunks:
-                                    await context.bot.send_message(
-                                        chat_id=update.effective_chat.id,
-                                        text=chunk,
-                                        parse_mode=ParseMode.HTML
-                                    )
+                            # We're removing the separate full analysis message to prevent duplicate analysis
                     except Exception as fallback_error:
                         logger.error(f"Failed to send local file as fallback: {str(fallback_error)}")
                         await query.message.reply_text(
@@ -3671,18 +3652,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                         reply_markup=InlineKeyboardMarkup(keyboard)
                     )
                     
-                    # If the analysis text was truncated, send the full analysis as a separate message
-                    if analysis_text and len(analysis_text) > 1000 and not from_signal:
-                        # Split the text into chunks of 4000 characters (Telegram message limit)
-                        chunks = [analysis_text[i:i+4000] for i in range(0, len(analysis_text), 4000)]
-                        
-                        # Send each chunk as a separate message
-                        for chunk in chunks:
-                            await context.bot.send_message(
-                                chat_id=update.effective_chat.id,
-                                text=chunk,
-                                parse_mode=ParseMode.HTML
-                            )
+                    # We're removing the separate full analysis message to prevent duplicate analysis
                 except Exception as edit_error:
                     logger.warning(f"Could not edit message media: {str(edit_error)}")
                     
@@ -3704,18 +3674,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                         parse_mode=ParseMode.HTML
                     )
                     
-                    # If the analysis text was truncated, send the full analysis as a separate message
-                    if analysis_text and len(analysis_text) > 1000 and not from_signal:
-                        # Split the text into chunks of 4000 characters (Telegram message limit)
-                        chunks = [analysis_text[i:i+4000] for i in range(0, len(analysis_text), 4000)]
-                        
-                        # Send each chunk as a separate message
-                        for chunk in chunks:
-                            await context.bot.send_message(
-                                chat_id=update.effective_chat.id,
-                                text=chunk,
-                                parse_mode=ParseMode.HTML
-                            )
+                    # We're removing the separate full analysis message to prevent duplicate analysis
                 
                 return SHOW_RESULT
                 
