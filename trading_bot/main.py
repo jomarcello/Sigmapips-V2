@@ -7,6 +7,8 @@ import time
 import re
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from telegram import Bot
+from telegram.ext import Application
 
 # Set up logging
 logging.basicConfig(
@@ -21,6 +23,10 @@ logger.info("Starting SigmaPips Trading Bot...")
 
 # Add the current directory to the path so we can import from trading_bot
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+# Global variable to track if bot is running
+bot_running = False
+telegram_service = None
 
 # Function to read the bot token from .env file
 def read_token_from_env_file():
@@ -92,6 +98,7 @@ try:
         
         # Initialize Telegram service with database and Stripe service
         # Enable lazy initialization to defer heavy service loading
+        global telegram_service, bot_running
         telegram_start_time = time.time()
         telegram_service = TelegramService(db, stripe_service, bot_token=bot_token, lazy_init=True)
         telegram_time = time.time() - telegram_start_time
@@ -141,20 +148,57 @@ except Exception as e:
 
 app = FastAPI()
 
+# Add CORS middleware to allow requests from other domains
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Add health check endpoint for Railway
+@app.get("/health")
+async def health_check():
+    """Health check endpoint for Railway"""
+    return {"status": "ok"}
+
 @app.on_event("startup")
 async def startup_event():
-    global bot_running
+    global bot_running, telegram_service
     
     try:
         # First ensure any existing bot is stopped
         await stop_bot()
         
-        # Initialize the services
-        logger.info("Initializing services...")
-        
-        # No need to manually connect the database - it's done automatically in the constructor
-        # The log shows "Successfully connected to Supabase" already
-        logger.info("Database initialized")
+        # Initialize the services if they're not already initialized
+        if not telegram_service:
+            logger.warning("Telegram service not initialized, initializing now...")
+            # Import the proper bot class
+            from trading_bot.services.telegram_service.bot import TelegramService
+            from trading_bot.services.database.db import Database
+            from trading_bot.services.payment_service.stripe_service import StripeService
+            
+            # Initialize database
+            db = Database()
+            logger.info("Database initialized")
+            
+            # Initialize Stripe service
+            stripe_service = StripeService(db)
+            
+            # Get the Telegram bot token from environment variables
+            bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
+            # If not found in env, read directly from .env file
+            if not bot_token:
+                bot_token = read_token_from_env_file()
+                
+            # Ensure we have a valid token
+            if not bot_token:
+                logger.error("No valid TELEGRAM_BOT_TOKEN found.")
+                return
+            
+            # Initialize Telegram service
+            telegram_service = TelegramService(db, stripe_service, bot_token=bot_token)
         
         # Initialize chart service through the telegram service's initialize_services method
         # This is the only service we need to initialize eagerly
@@ -180,6 +224,8 @@ async def startup_event():
         
         # Set up the application and register all handlers explicitly
         logger.info("Setting up application and registering handlers...")
+        # Import Application here to avoid circular imports
+        from telegram.ext import Application
         telegram_service.application = Application.builder().bot(telegram_service.bot).build()
         
         # Register handlers (this calls _register_handlers internally)
@@ -241,3 +287,25 @@ async def startup_event():
         logger.error(f"Error initializing services: {str(e)}")
         logger.exception(e)
         raise 
+
+async def stop_bot():
+    """Safely stop the bot polling to prevent conflicts"""
+    global bot_running
+    
+    # Only try to stop if we think it's running
+    if bot_running and telegram_service and hasattr(telegram_service, 'polling_started') and telegram_service.polling_started:
+        try:
+            logger.info("Stopping telegram bot updater...")
+            if hasattr(telegram_service, 'application') and telegram_service.application:
+                if hasattr(telegram_service.application, 'updater') and telegram_service.application.updater.running:
+                    await telegram_service.application.updater.stop()
+                await telegram_service.application.stop()
+                await telegram_service.application.shutdown()
+            telegram_service.polling_started = False
+            bot_running = False
+            logger.info("Telegram bot stopped successfully")
+        except Exception as e:
+            logger.error(f"Error stopping telegram bot: {str(e)}")
+            logger.exception(e)
+    else:
+        logger.info("No bot running, nothing to stop") 
