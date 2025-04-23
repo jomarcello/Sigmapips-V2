@@ -262,19 +262,10 @@ class EconomicCalendarService:
             print(f"📅 Getting economic calendar data for {days_ahead} days ahead with min impact {min_impact}")
             
             # Gebruik de TradingView kalender service om events op te halen
-            events = await self.calendar_service.get_calendar(days_ahead=days_ahead, min_impact=min_impact)
+            # Instead of filtering after, we pass the currency to the service which will tag events as "highlighted"
+            events = await self.calendar_service.get_calendar(days_ahead=days_ahead, min_impact=min_impact, currency=currency)
             
-            # Filter by currency if specified
-            if currency:
-                self.logger.info(f"Filtering events by currency: {currency}")
-                filtered_events = []
-                for event in events:
-                    # Check if the event country code matches the currency
-                    if event.get('country') == currency:
-                        filtered_events.append(event)
-                events = filtered_events
-                self.logger.info(f"After filtering by {currency}: {len(events)} events remaining")
-            
+            # Log the number of events found
             self.logger.info(f"MAIN: Received {len(events)} calendar events")
             print(f"📅 Successfully retrieved {len(events)} calendar events")
             
@@ -302,18 +293,17 @@ class EconomicCalendarService:
         currencies = INSTRUMENT_CURRENCY_MAP.get(instrument, ["USD"])
         self.logger.info(f"Relevant currencies for {instrument}: {currencies}")
         
-        # For each currency, get all events but highlight the specific currency
-        events = []
+        # Use primary currency for highlighting
         primary_currency = currencies[0] if currencies else "USD"
+        self.logger.info(f"Using primary currency {primary_currency} for highlighting")
         
         try:
             # Get all events with the primary currency highlighted
-            calendar_data = await self.calendar_service.get_calendar(currency=primary_currency)
-            self.logger.info(f"MAIN: Received {len(calendar_data)} calendar events")
-            events = calendar_data
+            calendar_data = await self.get_calendar(currency=primary_currency)
+            self.logger.info(f"Retrieved {len(calendar_data)} calendar events with {primary_currency} highlighted")
             
             return {
-                "events": events, 
+                "events": calendar_data, 
                 "explanation": f"Calendar events for {instrument} ({', '.join(currencies)})"
             }
             
@@ -327,7 +317,12 @@ class EconomicCalendarService:
         self.logger.info(f"Getting calendar for instrument: {instrument}")
         
         try:
-            # Get the events with highlighting
+            # Get relevant currencies for clearer display
+            currencies = INSTRUMENT_CURRENCY_MAP.get(instrument, ["USD"])
+            primary_currency = currencies[0] if currencies else "USD"
+            self.logger.info(f"Primary currency for {instrument}: {primary_currency}")
+            
+            # Get the events with highlighting for primary currency
             events_data = await self.get_events_for_instrument(instrument)
             events = events_data["events"]
             
@@ -335,18 +330,14 @@ class EconomicCalendarService:
                 self.logger.warning(f"No calendar events found for {instrument}")
                 return "<b>📅 Economic Calendar</b>\n\nNo calendar events found for this instrument."
             
-            # Get relevant currencies for clearer display
-            currencies = INSTRUMENT_CURRENCY_MAP.get(instrument, ["USD"])
-            primary_currency = currencies[0] if currencies else "USD"
-            
-            # Use direct formatting with the new highlighted flag
+            # Use the tradingview formatting function with our highlighted events
             from trading_bot.services.calendar_service.tradingview_calendar import format_calendar_for_telegram
             calendar_message = await format_calendar_for_telegram(events)
             
             # Add instrument-specific header
             calendar_message = calendar_message.replace("<b>📅 Economic Calendar</b>", 
                                                        f"<b>📅 Economic Calendar for {instrument}</b>\n" +
-                                                       f"<i>Primary currency: {primary_currency}</i>")
+                                                       f"<i>Primary currency: {primary_currency} (in bold)</i>")
             
             return calendar_message
             
