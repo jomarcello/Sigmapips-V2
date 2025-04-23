@@ -10,6 +10,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from telegram import Bot
 from telegram.ext import Application
 
+# Force polling for local development unless explicitly set otherwise
+if not os.getenv("WEBHOOK_URL") and os.getenv("FORCE_POLLING") is None:
+    os.environ["FORCE_POLLING"] = "true"
+    print("Setting FORCE_POLLING=true for local development")
+
 # Set up logging
 logging.basicConfig(
     level=logging.INFO,
@@ -100,38 +105,80 @@ try:
         # Enable lazy initialization to defer heavy service loading
         global telegram_service, bot_running
         telegram_start_time = time.time()
-        telegram_service = TelegramService(db, stripe_service, bot_token=bot_token, lazy_init=True)
-        telegram_time = time.time() - telegram_start_time
-        logger.info(f"Telegram service initialized with lazy loading in {telegram_time:.2f} seconds")
         
-        # Start the bot immediately without initializing services
-        # Services will be initialized on first use
-        bot_start_time = time.time()
-        await telegram_service.run()
-        bot_time = time.time() - bot_start_time
-        logger.info(f"Bot started successfully in {bot_time:.2f} seconds")
-        
-        # Calculate total initialization time
-        total_init_time = time.time() - initialization_start_time
-        logger.info(f"Total services initialization time: {total_init_time:.2f} seconds")
-        
-        # Total startup time
-        total_startup_time = time.time() - startup_start_time
-        logger.info(f"TOTAL STARTUP TIME: {total_startup_time:.2f} seconds")
-        
-        # Log performance metrics to a file for tracking
         try:
-            with open("startup_performance_new.txt", "a") as f:
-                timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
-                f.write(f"{timestamp} - Startup time: {total_startup_time:.2f}s (Imports: {import_time:.2f}s, " +
-                        f"DB: {db_time:.2f}s, Stripe: {stripe_time:.2f}s, " + 
-                        f"Telegram: {telegram_time:.2f}s, Bot: {bot_time:.2f}s)\n")
+            telegram_service = TelegramService(db, stripe_service, bot_token=bot_token, lazy_init=True)
+            telegram_time = time.time() - telegram_start_time
+            logger.info(f"Telegram service initialized with lazy loading in {telegram_time:.2f} seconds")
+            
+            # Start the bot with enhanced error handling
+            bot_start_time = time.time()
+            try:
+                # Initialize services for charts and other necessary components
+                await telegram_service.initialize_services()
+                logger.info("Services initialized successfully")
+                
+                # Start the bot with our new robust run() method that handles retries
+                # This will automatically retry on service unavailable errors
+                logger.info("Starting bot with retry mechanism...")
+                bot_task = asyncio.create_task(telegram_service.run())
+                
+                # Give the bot a moment to connect and detect any immediate failures
+                await asyncio.sleep(5)
+                
+                # Check if the bot task is still running or if it failed immediately
+                if bot_task.done():
+                    exception = bot_task.exception()
+                    if exception:
+                        logger.error(f"Bot failed to start: {str(exception)}")
+                        raise exception
+                
+                bot_running = True
+                bot_time = time.time() - bot_start_time
+                logger.info(f"Bot started successfully in {bot_time:.2f} seconds")
+                
+                # Calculate total initialization time
+                total_init_time = time.time() - initialization_start_time
+                logger.info(f"Total services initialization time: {total_init_time:.2f} seconds")
+                
+                # Total startup time
+                total_startup_time = time.time() - startup_start_time
+                logger.info(f"TOTAL STARTUP TIME: {total_startup_time:.2f} seconds")
+                
+                # Log performance metrics to a file for tracking
+                try:
+                    with open("startup_performance_new.txt", "a") as f:
+                        timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+                        f.write(f"{timestamp} - Startup time: {total_startup_time:.2f}s (Imports: {import_time:.2f}s, " +
+                                f"DB: {db_time:.2f}s, Stripe: {stripe_time:.2f}s, " + 
+                                f"Telegram: {telegram_time:.2f}s, Bot: {bot_time:.2f}s)\n")
+                except Exception as e:
+                    logger.error(f"Error writing performance metrics: {str(e)}")
+                
+                # Keep the bot task running without awaiting it 
+                # so that other asynchronous tasks (like FastAPI) can run concurrently
+                while True:
+                    # Check periodically if the bot is still running
+                    if bot_task.done():
+                        exception = bot_task.exception()
+                        if exception:
+                            logger.error(f"Bot task stopped with error: {str(exception)}")
+                            # Restart the bot task if it fails
+                            logger.info("Restarting bot task...")
+                            bot_task = asyncio.create_task(telegram_service.run())
+                    
+                    await asyncio.sleep(60)
+                    
+            except Exception as e:
+                logger.error(f"Error starting bot: {str(e)}")
+                bot_running = False
+                # Re-raise to handle at a higher level
+                raise
+            
         except Exception as e:
-            logger.error(f"Error writing performance metrics: {str(e)}")
-        
-        # Keep the script running
-        while True:
-            await asyncio.sleep(60)
+            logger.error(f"Error initializing Telegram service: {str(e)}")
+            # Re-raise to handle at a higher level
+            raise
     
     # Run the main function
     if __name__ == "__main__":
@@ -168,13 +215,18 @@ async def startup_event():
     global bot_running, telegram_service
     
     try:
-        # First ensure any existing bot is stopped
+        # Log startup status
+        logger.info("FastAPI startup event triggered")
+        
+        # First ensure any existing bot is stopped to avoid conflicts
         await stop_bot()
         
-        # Initialize the services if they're not already initialized
-        if not telegram_service:
-            logger.warning("Telegram service not initialized, initializing now...")
-            # Import the proper bot class
+        # Only initialize and start the bot if it's not already running
+        # This prevents conflicts when both main.py and FastAPI try to start the bot
+        if not bot_running and not telegram_service:
+            logger.info("Bot not running, initializing services from FastAPI startup")
+            
+            # Import services
             from trading_bot.services.telegram_service.bot import TelegramService
             from trading_bot.services.database.db import Database
             from trading_bot.services.payment_service.stripe_service import StripeService
@@ -197,96 +249,35 @@ async def startup_event():
                 logger.error("No valid TELEGRAM_BOT_TOKEN found.")
                 return
             
-            # Initialize Telegram service
-            telegram_service = TelegramService(db, stripe_service, bot_token=bot_token)
-        
-        # Initialize chart service through the telegram service's initialize_services method
-        # This is the only service we need to initialize eagerly
-        await telegram_service.initialize_services()
-        logger.info("Chart service initialized through telegram service")
-        
-        # Log environment variables
-        webhook_url = os.getenv("WEBHOOK_URL", "")
-        logger.info(f"WEBHOOK_URL from environment: '{webhook_url}'")
-        
-        # Clear all existing update sessions to avoid conflicts
-        logger.info("Clearing existing update sessions...")
-        try:
-            # Delete webhook first to clear any pending updates
-            await telegram_service.bot.delete_webhook(drop_pending_updates=True)
-            logger.info("Successfully cleared webhook and dropped pending updates")
+            # Initialize Telegram service with robust settings
+            telegram_service = TelegramService(db, stripe_service, bot_token=bot_token, lazy_init=True)
+            logger.info("Telegram service initialized with robust settings")
             
-            # Send a dummy getUpdates request to clear any conflicting sessions
-            await telegram_service.bot.get_updates(offset=-1, limit=1, timeout=1)
-            logger.info("Sent dummy getUpdates request to clear sessions")
-        except Exception as e:
-            logger.error(f"Error clearing update sessions: {str(e)}")
-        
-        # Set up the application and register all handlers explicitly
-        logger.info("Setting up application and registering handlers...")
-        # Import Application here to avoid circular imports
-        from telegram.ext import Application
-        telegram_service.application = Application.builder().bot(telegram_service.bot).build()
-        
-        # Register handlers (this calls _register_handlers internally)
-        logger.info("Registering command and callback handlers...")
-        telegram_service._register_handlers(telegram_service.application)
-        
-        # Initialize the application
-        await telegram_service.application.initialize()
-        await telegram_service.application.start()
-        
-        # Determine if we should use polling based on environment
-        use_polling = os.getenv("FORCE_POLLING", "").lower() == "true"
-        is_local_env = not webhook_url or webhook_url == ""
-        
-        if use_polling or is_local_env:
-            logger.info("Starting bot in polling mode...")
-            # Make sure the updater isn't already running
-            if hasattr(telegram_service.application, 'updater') and telegram_service.application.updater.running:
-                await telegram_service.application.updater.stop()
+            # Initialize services first
+            await telegram_service.initialize_services()
+            logger.info("Services initialized successfully")
             
-            # Start polling with a longer timeout to reduce conflicts
-            await telegram_service.application.updater.start_polling(poll_interval=1.0, timeout=30, drop_pending_updates=True)
-            telegram_service.polling_started = True
+            # Create a background task to run the bot with retry mechanism
+            # This uses the enhanced run() method that handles connection issues
+            logger.info("Starting bot as background task...")
+            asyncio.create_task(telegram_service.run())
             bot_running = True
-            logger.info("Bot started in polling mode")
+            
         else:
-            logger.info("Skipping polling mode as bot is likely running in webhook mode")
-            # Set webhook URL if it's not already set
-            await telegram_service.bot.set_webhook(url=webhook_url, drop_pending_updates=True)
-            telegram_service.polling_started = False
-            bot_running = True
-            logger.info(f"Webhook set to {webhook_url}")
+            logger.info(f"Bot already running: {bot_running}, telegram_service exists: {telegram_service is not None}")
+            # If the bot was started by main.py, just ensure the chart service is initialized
+            if telegram_service and not bot_running:
+                logger.info("Telegram service exists but bot not marked as running, initializing services")
+                await telegram_service.initialize_services()
+                bot_running = True
         
-        # Manually register signal endpoints
-        @app.post("/signal")
-        async def process_tradingview_signal(request: Request):
-            """Process TradingView webhook signal"""
-            try:
-                # Get the signal data from the request
-                signal_data = await request.json()
-                logger.info(f"Received TradingView webhook signal: {signal_data}")
-                
-                # Process the signal
-                success = await telegram_service.process_signal(signal_data)
-                
-                if success:
-                    return {"status": "success", "message": "Signal processed successfully"}
-                else:
-                    return {"status": "error", "message": "Failed to process signal"}
-                    
-            except Exception as e:
-                logger.error(f"Error processing TradingView webhook signal: {str(e)}")
-                logger.exception(e)
-                return {"status": "error", "message": str(e)}
-        
-        logger.info("Signal endpoints registered directly on FastAPI app")
+        # Register signal endpoint
+        logger.info("Registering signal endpoint")
         
     except Exception as e:
         logger.error(f"Error initializing services: {str(e)}")
         logger.exception(e)
-        raise 
+        # Don't raise the exception to let the FastAPI app continue to start
 
 async def stop_bot():
     """Safely stop the bot polling to prevent conflicts"""
@@ -308,4 +299,30 @@ async def stop_bot():
             logger.error(f"Error stopping telegram bot: {str(e)}")
             logger.exception(e)
     else:
-        logger.info("No bot running, nothing to stop") 
+        logger.info("No bot running, nothing to stop")
+
+# Register the signal endpoint outside the startup event to ensure it's always available
+@app.post("/signal")
+async def process_tradingview_signal(request: Request):
+    """Process TradingView webhook signal"""
+    try:
+        # Ensure telegram service is initialized
+        if not telegram_service:
+            return {"status": "error", "message": "Telegram service not initialized"}
+            
+        # Get the signal data from the request
+        signal_data = await request.json()
+        logger.info(f"Received TradingView webhook signal: {signal_data}")
+        
+        # Process the signal
+        success = await telegram_service.process_signal(signal_data)
+        
+        if success:
+            return {"status": "success", "message": "Signal processed successfully"}
+        else:
+            return {"status": "error", "message": "Failed to process signal"}
+            
+    except Exception as e:
+        logger.error(f"Error processing TradingView webhook signal: {str(e)}")
+        logger.exception(e)
+        return {"status": "error", "message": str(e)} 
