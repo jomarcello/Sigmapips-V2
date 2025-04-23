@@ -40,7 +40,7 @@ from trading_bot.services.telegram_service.states import (
     CHOOSE_ANALYSIS, SIGNAL_DETAILS, SIGNAL_ANALYSIS,
     CALLBACK_MENU_ANALYSE, CALLBACK_MENU_SIGNALS, CALLBACK_ANALYSIS_TECHNICAL,
     CALLBACK_ANALYSIS_SENTIMENT, CALLBACK_ANALYSIS_CALENDAR, CALLBACK_SIGNALS_ADD,
-    CALLBACK_SIGNALS_MANAGE, CALLBACK_BACK_MENU
+    CALLBACK_SIGNALS_MANAGE, CALLBACK_BACK_MENU, CALLBACK_BACK_ANALYSIS, CALLBACK_BACK_MARKET, CALLBACK_BACK_INSTRUMENT, CALLBACK_BACK_SIGNALS
 )
 import trading_bot.services.telegram_service.gif_utils as gif_utils
 
@@ -108,7 +108,7 @@ CALLBACK_ANALYSIS_TECHNICAL = "analysis_technical"
 CALLBACK_ANALYSIS_SENTIMENT = "analysis_sentiment"
 CALLBACK_ANALYSIS_CALENDAR = "analysis_calendar"
 CALLBACK_BACK_MENU = "back_menu"
-CALLBACK_BACK_ANALYSIS = "back_to_analysis"
+CALLBACK_BACK_ANALYSIS = "back_analysis"
 CALLBACK_BACK_MARKET = "back_market"
 CALLBACK_BACK_INSTRUMENT = "back_instrument"
 CALLBACK_BACK_SIGNALS = "back_signals"
@@ -1673,7 +1673,7 @@ class TelegramService:
             application.add_handler(CallbackQueryHandler(self.back_market_callback, pattern="^back_market$"))
             application.add_handler(CallbackQueryHandler(self.back_menu_callback, pattern="^back_menu$"))
             application.add_handler(CallbackQueryHandler(self.back_analysis_callback, pattern="^back_analysis$"))
-            application.add_handler(CallbackQueryHandler(self.analysis_callback, pattern="^back_to_analysis$"))
+            # Fix the handler for the back_to_analysis pattern - removed since back_analysis is now correctly handled
             application.add_handler(CallbackQueryHandler(self.back_to_signal_analysis_callback, pattern="^back_to_signal_analysis$"))
             application.add_handler(CallbackQueryHandler(self.back_to_signal_callback, pattern="^back_to_signal$"))
             application.add_handler(CallbackQueryHandler(self.back_signals_callback, pattern="^back_signals$"))
@@ -4058,7 +4058,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Back buttons
             elif data == CALLBACK_BACK_MENU:
                 return await self.back_menu_callback(update, context)
-            elif data == CALLBACK_BACK_ANALYSIS:
+            elif data == CALLBACK_BACK_ANALYSIS or data == "back_analysis":
                 return await self.back_analysis_callback(update, context)
             elif data == CALLBACK_BACK_SIGNALS:
                 return await self.back_signals_callback(update, context)
@@ -4189,35 +4189,113 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
                 ]
             
+            # Set appropriate title based on context
+            title = f"Select {market.capitalize()} Instrument"
+            if "sentiment" in context_suffix:
+                title = f"Select {market.capitalize()} Instrument for Sentiment Analysis"
+            elif "signals" in context_suffix:
+                title = f"Select {market.capitalize()} Instrument for Signals"
+            
+            # Check if the message has media content
+            has_media = False
+            if hasattr(query.message, 'photo') and query.message.photo:
+                has_media = True
+            elif hasattr(query.message, 'animation') and query.message.animation:
+                has_media = True
+                
             # Send response with appropriate keyboard
             try:
-                # Set appropriate title based on context
-                title = f"Select {market.capitalize()} Instrument"
-                if "sentiment" in context_suffix:
-                    title = f"Select {market.capitalize()} Instrument for Sentiment Analysis"
-                elif "signals" in context_suffix:
-                    title = f"Select {market.capitalize()} Instrument for Signals"
-                
-                await query.edit_message_text(
-                    text=title,
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
-                
-                return CHOOSE_INSTRUMENT
+                if has_media:
+                    # If there's media, try to edit the caption or replace media
+                    try:
+                        await query.edit_message_caption(
+                            caption=title,
+                            reply_markup=InlineKeyboardMarkup(keyboard),
+                            parse_mode=ParseMode.HTML
+                        )
+                        logger.info("Successfully updated message caption in market_callback")
+                        return CHOOSE_INSTRUMENT
+                    except Exception as caption_error:
+                        logger.warning(f"Failed to update caption in market_callback: {str(caption_error)}")
+                        
+                        # Try to replace with transparent image + caption
+                        try:
+                            transparent_gif = "https://upload.wikimedia.org/wikipedia/commons/thumb/0/00/Transparent.gif/1px-Transparent.gif"
+                            
+                            await query.edit_message_media(
+                                media=InputMediaDocument(
+                                    media=transparent_gif,
+                                    caption=title,
+                                    parse_mode=ParseMode.HTML
+                                ),
+                                reply_markup=InlineKeyboardMarkup(keyboard)
+                            )
+                            logger.info("Successfully replaced media in market_callback")
+                            return CHOOSE_INSTRUMENT
+                        except Exception as media_error:
+                            logger.warning(f"Failed to replace media in market_callback: {str(media_error)}")
+                            
+                            # Last resort: send a new message
+                            await context.bot.send_message(
+                                chat_id=update.effective_chat.id,
+                                text=title,
+                                reply_markup=InlineKeyboardMarkup(keyboard),
+                                parse_mode=ParseMode.HTML
+                            )
+                            logger.info("Sent new message in market_callback")
+                            return CHOOSE_INSTRUMENT
+                else:
+                    # Standard text message, try to edit
+                    await query.edit_message_text(
+                        text=title,
+                        reply_markup=InlineKeyboardMarkup(keyboard),
+                        parse_mode=ParseMode.HTML
+                    )
+                    logger.info("Successfully updated message text in market_callback")
+                    return CHOOSE_INSTRUMENT
                 
             except Exception as e:
                 logger.error(f"Error in market_callback: {str(e)}")
                 
-                # Fallback message
-                await query.edit_message_text(
-                    text="An error occurred while selecting market. Please try again.",
-                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_menu")]])
-                )
-                return MENU
+                # Check if this is the specific error for no text message
+                if "There is no text in the message to edit" in str(e):
+                    try:
+                        # Try to edit the caption instead
+                        await query.edit_message_caption(
+                            caption=title,
+                            reply_markup=InlineKeyboardMarkup(keyboard),
+                            parse_mode=ParseMode.HTML
+                        )
+                        logger.info("Successfully edited caption in market_callback")
+                        return CHOOSE_INSTRUMENT
+                    except Exception as caption_error:
+                        logger.warning(f"Failed to edit caption in market_callback: {str(caption_error)}")
+                
+                # Fallback message - send a new message
+                try:
+                    await context.bot.send_message(
+                        chat_id=update.effective_chat.id,
+                        text=title,
+                        reply_markup=InlineKeyboardMarkup(keyboard),
+                        parse_mode=ParseMode.HTML
+                    )
+                    logger.info("Sent fallback message in market_callback")
+                    return CHOOSE_INSTRUMENT
+                except Exception as send_error:
+                    logger.error(f"Failed to send fallback message: {str(send_error)}")
+                    
+                    # If all else fails, try to go back to menu
+                    await context.bot.send_message(
+                        chat_id=update.effective_chat.id,
+                        text="An error occurred while selecting market. Please try again.",
+                        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_menu")]])
+                    )
+                    return MENU
         
         # If we reach here, there was an issue with the callback data
         logger.error(f"Invalid market callback data: {query.data}")
-        await query.edit_message_text(
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
             text="Invalid market selection. Please try again.",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_menu")]])
         )
@@ -4705,24 +4783,89 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 [InlineKeyboardButton("⬅️ Back to Menu", callback_data=CALLBACK_BACK_MENU)]
             ]
             
-            try:
-                # Try to edit the message
-                await query.edit_message_text(
-                    text="<b>📊 Analysis Menu</b>\n\nChoose the type of analysis:",
-                    reply_markup=InlineKeyboardMarkup(keyboard),
-                    parse_mode=ParseMode.HTML
-                )
-                logger.info("Successfully edited message to show analysis menu")
-            except Exception as e:
-                # If editing fails, send a new message
-                logger.warning(f"Failed to edit message for back_analysis: {str(e)}")
-                await context.bot.send_message(
-                    chat_id=update.effective_chat.id,
-                    text="<b>📊 Analysis Menu</b>\n\nChoose the type of analysis:",
-                    reply_markup=InlineKeyboardMarkup(keyboard),
-                    parse_mode=ParseMode.HTML
-                )
-                logger.info("Sent new message with analysis menu")
+            # Check if the message has media content
+            has_media = False
+            if hasattr(query.message, 'photo') and query.message.photo:
+                has_media = True
+            elif hasattr(query.message, 'animation') and query.message.animation:
+                has_media = True
+                
+            message_text = "<b>📊 Analysis Menu</b>\n\nChoose the type of analysis:"
+            
+            if has_media:
+                try:
+                    # If the message has media, try to edit with a transparent image
+                    transparent_gif = "https://upload.wikimedia.org/wikipedia/commons/thumb/0/00/Transparent.gif/1px-Transparent.gif"
+                    
+                    await query.edit_message_media(
+                        media=InputMediaDocument(
+                            media=transparent_gif,
+                            caption=message_text,
+                            parse_mode=ParseMode.HTML
+                        ),
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+                    logger.info("Successfully edited media message to show analysis menu")
+                except Exception as media_error:
+                    logger.warning(f"Failed to edit media message for back_analysis: {str(media_error)}")
+                    # Try editing caption as fallback
+                    try:
+                        await query.edit_message_caption(
+                            caption=message_text,
+                            reply_markup=InlineKeyboardMarkup(keyboard),
+                            parse_mode=ParseMode.HTML
+                        )
+                        logger.info("Successfully edited caption to show analysis menu")
+                    except Exception as caption_error:
+                        logger.warning(f"Failed to edit caption for back_analysis: {str(caption_error)}")
+                        # Send a new message as last resort
+                        await context.bot.send_message(
+                            chat_id=update.effective_chat.id,
+                            text=message_text,
+                            reply_markup=InlineKeyboardMarkup(keyboard),
+                            parse_mode=ParseMode.HTML
+                        )
+                        logger.info("Sent new message with analysis menu")
+            else:
+                try:
+                    # Try to edit the message text
+                    await query.edit_message_text(
+                        text=message_text,
+                        reply_markup=InlineKeyboardMarkup(keyboard),
+                        parse_mode=ParseMode.HTML
+                    )
+                    logger.info("Successfully edited message to show analysis menu")
+                except Exception as e:
+                    # Check if this is the specific error for no text message
+                    if "There is no text in the message to edit" in str(e):
+                        try:
+                            # Try to edit the caption instead
+                            await query.edit_message_caption(
+                                caption=message_text,
+                                reply_markup=InlineKeyboardMarkup(keyboard),
+                                parse_mode=ParseMode.HTML
+                            )
+                            logger.info("Successfully edited caption to show analysis menu")
+                        except Exception as caption_error:
+                            logger.warning(f"Failed to edit caption for back_analysis: {str(caption_error)}")
+                            # Send a new message as last resort
+                            await context.bot.send_message(
+                                chat_id=update.effective_chat.id,
+                                text=message_text,
+                                reply_markup=InlineKeyboardMarkup(keyboard),
+                                parse_mode=ParseMode.HTML
+                            )
+                            logger.info("Sent new message with analysis menu")
+                    else:
+                        # If editing fails for other reasons, send a new message
+                        logger.warning(f"Failed to edit message for back_analysis: {str(e)}")
+                        await context.bot.send_message(
+                            chat_id=update.effective_chat.id,
+                            text=message_text,
+                            reply_markup=InlineKeyboardMarkup(keyboard),
+                            parse_mode=ParseMode.HTML
+                        )
+                        logger.info("Sent new message with analysis menu")
             
             # Return the CHOOSE_ANALYSIS state
             return CHOOSE_ANALYSIS
