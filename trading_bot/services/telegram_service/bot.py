@@ -3620,7 +3620,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             logger.info(f"Getting technical analysis chart for {instrument} on {timeframe} timeframe")
             
             # Show loading message - efficiently start getting the chart and analysis in parallel
-            loading_text = f"Loading {instrument} chart..."
+            loading_text = f"Loading {instrument} technical analysis chart..."
             loading_gif = "https://media.giphy.com/media/dpjUltnOPye7azvAhH/giphy.gif"
             
             try:
@@ -3701,7 +3701,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                             ),
                             reply_markup=InlineKeyboardMarkup(keyboard)
                         )
-                        logger.info(f"Successfully sent chart file and analysis for {instrument}")
+                        logger.info(f"Successfully sent chart file and technical analysis for {instrument}")
                         
                         # If the analysis text was truncated, send the full analysis as a separate message
                         if analysis_text and len(analysis_text) > 1000 and not from_signal:
@@ -3745,7 +3745,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     except Exception as fallback_error:
                         logger.error(f"Failed to send local file as fallback: {str(fallback_error)}")
                         await query.message.reply_text(
-                            text=f"Error sending chart. Analysis: {analysis_text[:1000] if analysis_text else 'Not available'}",
+                            text=f"Error sending chart. Technical analysis: {analysis_text[:1000] if analysis_text else 'Not available'}",
                             reply_markup=InlineKeyboardMarkup(keyboard),
                             parse_mode=ParseMode.HTML
                         )
@@ -3771,34 +3771,52 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                         ),
                         reply_markup=InlineKeyboardMarkup(keyboard)
                     )
-                    logger.info(f"Successfully edited message with chart for {instrument}")
+                    
+                    # If the analysis text was truncated, send the full analysis as a separate message
+                    if analysis_text and len(analysis_text) > 1000 and not from_signal:
+                        # Split the text into chunks of 4000 characters (Telegram message limit)
+                        chunks = [analysis_text[i:i+4000] for i in range(0, len(analysis_text), 4000)]
+                        
+                        # Send each chunk as a separate message
+                        for chunk in chunks:
+                            await context.bot.send_message(
+                                chat_id=update.effective_chat.id,
+                                text=chunk,
+                                parse_mode=ParseMode.HTML
+                            )
                 except Exception as edit_error:
                     logger.warning(f"Could not edit message media: {str(edit_error)}")
                     
-                    # Als bewerken niet lukt, dan versturen we een nieuw bericht
-                    await context.bot.send_photo(
+                    # Try to delete the message and send a new one
+                    try:
+                        await context.bot.delete_message(
+                            chat_id=update.effective_chat.id,
+                            message_id=query.message.message_id
+                        )
+                    except Exception as delete_error:
+                        logger.warning(f"Could not delete message: {str(delete_error)}")
+                    
+                    # Send a new message with the chart
+                    message = await context.bot.send_photo(
                         chat_id=update.effective_chat.id,
                         photo=chart_image,
                         caption=truncated_analysis,
-                        parse_mode=ParseMode.HTML,
-                        reply_markup=InlineKeyboardMarkup(keyboard)
+                        reply_markup=InlineKeyboardMarkup(keyboard),
+                        parse_mode=ParseMode.HTML
                     )
                     
-                    # Alleen verwijderen als het nieuwe bericht succesvol is verstuurd
-                    await query.delete_message()
-                
-                # If the analysis text was truncated, send the full analysis as a separate message
-                if analysis_text and len(analysis_text) > 1000 and not from_signal:
-                    # Split the text into chunks of 4000 characters (Telegram message limit)
-                    chunks = [analysis_text[i:i+4000] for i in range(0, len(analysis_text), 4000)]
-                    
-                    # Send each chunk as a separate message
-                    for chunk in chunks:
-                        await context.bot.send_message(
-                            chat_id=update.effective_chat.id,
-                            text=chunk,
-                            parse_mode=ParseMode.HTML
-                        )
+                    # If the analysis text was truncated, send the full analysis as a separate message
+                    if analysis_text and len(analysis_text) > 1000 and not from_signal:
+                        # Split the text into chunks of 4000 characters (Telegram message limit)
+                        chunks = [analysis_text[i:i+4000] for i in range(0, len(analysis_text), 4000)]
+                        
+                        # Send each chunk as a separate message
+                        for chunk in chunks:
+                            await context.bot.send_message(
+                                chat_id=update.effective_chat.id,
+                                text=chunk,
+                                parse_mode=ParseMode.HTML
+                            )
                 
                 return SHOW_RESULT
                 
@@ -3831,8 +3849,183 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 
             return MENU
 
+    async def show_sentiment_analysis(self, update: Update, context=None, instrument=None, timeframe=None) -> int:
+        """Show sentiment analysis for an instrument"""
+        try:
+            query = update.callback_query
+            from_signal = False
+            
+            # Check if we're in signal flow
+            if context and hasattr(context, 'user_data') and context.user_data.get('from_signal'):
+                from_signal = True
+                logger.info("In signal flow, from_signal=True")
+            
+            # Get the current user data
+            context_user_data = context.user_data if context and hasattr(context, 'user_data') else {}
+            
+            # Extract instrument if not provided
+            if not instrument:
+                callback_data = query.data
+                logger.info(f"Processing callback: {callback_data}")
+                
+                if callback_data.startswith("instrument_") and "sentiment" in callback_data:
+                    parts = callback_data.split("_")
+                    if len(parts) >= 3:
+                        # Extract instrument, accounting for potential underscores in instrument name
+                        for i, part in enumerate(parts[1:], 1):
+                            if part == "sentiment":
+                                instrument = "_".join(parts[1:i])
+                                break
+            
+            # If still no instrument, check user data
+            if not instrument and context and hasattr(context, 'user_data'):
+                instrument = context_user_data.get('instrument')
+            
+            # If still no instrument, show error
+            if not instrument:
+                await query.edit_message_text(
+                    text="Error: No instrument specified for sentiment analysis.",
+                    reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
+                )
+                return CHOOSE_ANALYSIS
+            
+            # Default timeframe if not provided
+            if not timeframe:
+                timeframe = "1h"
+            
+            # Store the current information in context
+            if context and hasattr(context, 'user_data'):
+                context.user_data['instrument'] = instrument
+                context.user_data['timeframe'] = timeframe
+            
+            # Log what we're doing
+            logger.info(f"Getting sentiment analysis for {instrument}")
+            
+            # Show loading message
+            loading_text = f"Loading {instrument} sentiment analysis..."
+            loading_gif = "https://media.giphy.com/media/dpjUltnOPye7azvAhH/giphy.gif"
+            
+            try:
+                # Try to show animated GIF for loading
+                await query.edit_message_media(
+                    media=InputMediaAnimation(
+                        media=loading_gif,
+                        caption=loading_text
+                    )
+                )
+            except Exception as gif_error:
+                logger.warning(f"Could not show loading GIF: {str(gif_error)}")
+                # Fallback to text loading message
+                try:
+                    await query.edit_message_text(text=loading_text)
+                except Exception:
+                    pass
+            
+            # Initialization for sentiment service if needed
+            if not hasattr(self, 'sentiment_service') or not self.sentiment_service:
+                from trading_bot.services.sentiment_service.sentiment import SentimentService
+                self.sentiment_service = SentimentService()
+            
+            # Get sentiment data
+            sentiment_text = await self.sentiment_service.get_sentiment_analysis(instrument)
+            
+            # Clean up the sentiment text
+            if not sentiment_text:
+                sentiment_text = f"Sentiment analysis for {instrument}"
+                # Add basic sentiment info if no data available
+                sentiment_text += "\n\n• No detailed sentiment data available at this time."
+                sentiment_text += "\n• Please check back later for updates."
+            
+            # Create the keyboard with appropriate back button based on flow
+            keyboard = []
+            
+            # Add the appropriate back button based on whether we're in signal flow or menu flow
+            if from_signal:
+                keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal_analysis")])
+            else:
+                keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="back_instrument")])
+            
+            # Update the message with sentiment text
+            try:
+                await query.edit_message_text(
+                    text=sentiment_text,
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.HTML
+                )
+                logger.info(f"Successfully sent sentiment analysis for {instrument}")
+                return SHOW_RESULT
+            except Exception as text_error:
+                logger.warning(f"Could not edit message text: {str(text_error)}")
+                
+                # Try to edit caption if text editing fails
+                try:
+                    await query.edit_message_caption(
+                        caption=sentiment_text[:1024] if len(sentiment_text) > 1024 else sentiment_text,
+                        reply_markup=InlineKeyboardMarkup(keyboard),
+                        parse_mode=ParseMode.HTML
+                    )
+                    logger.info(f"Successfully edited caption with sentiment analysis for {instrument}")
+                    
+                    # If sentiment text was truncated, send full text as separate message
+                    if len(sentiment_text) > 1024:
+                        await context.bot.send_message(
+                            chat_id=update.effective_chat.id,
+                            text=sentiment_text,
+                            parse_mode=ParseMode.HTML
+                        )
+                    
+                    return SHOW_RESULT
+                except Exception as caption_error:
+                    logger.warning(f"Could not edit caption: {str(caption_error)}")
+                    
+                    # Last resort: send a new message
+                    try:
+                        # Try to delete the original message first
+                        try:
+                            await context.bot.delete_message(
+                                chat_id=update.effective_chat.id,
+                                message_id=query.message.message_id
+                            )
+                        except Exception:
+                            pass
+                        
+                        # Send a new message with the full sentiment text
+                        await context.bot.send_message(
+                            chat_id=update.effective_chat.id,
+                            text=sentiment_text,
+                            reply_markup=InlineKeyboardMarkup(keyboard),
+                            parse_mode=ParseMode.HTML
+                        )
+                        logger.info(f"Successfully sent new message with sentiment analysis for {instrument}")
+                        return SHOW_RESULT
+                    except Exception as send_error:
+                        logger.error(f"Failed to send sentiment analysis: {str(send_error)}")
+            
+            return SHOW_RESULT
+            
+        except Exception as e:
+            logger.error(f"Error in show_sentiment_analysis: {str(e)}")
+            logger.exception(e)
+            
+            # Show error message
+            try:
+                await query.edit_message_text(
+                    text=f"Error showing sentiment analysis for {instrument}. Please try again later.",
+                    reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
+                )
+            except Exception:
+                try:
+                    await query.message.reply_text(
+                        text=f"Error showing sentiment analysis for {instrument}. Please try again later.",
+                        reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
+                    )
+                except Exception:
+                    pass
+            
+            return CHOOSE_ANALYSIS
+
     async def back_to_signal_callback(self, update: Update, context=None) -> int:
-        """Handle back_to_signal button press to return to the original signal"""
+        """Handle back button from analysis to signal"""
         try:
             query = update.callback_query
             await query.answer()
