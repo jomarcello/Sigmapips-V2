@@ -3,7 +3,7 @@ import json
 import asyncio
 import traceback
 from typing import Dict, Any, List, Optional, Union, Tuple, Set
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import logging
 import copy
 import re
@@ -4210,3 +4210,48 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
     async def get_subscribers_for_instrument(self, instrument: str, timeframe: str = None) -> List[int]:
         """Get all subscribers for a given instrument and timeframe"""
         # Implementation...
+    
+    async def _load_signals(self):
+        """Load saved signals from database and process them if needed"""
+        try:
+            logger.info("Loading saved signals from database...")
+            
+            # Check if db is available
+            if not hasattr(self, 'db') or self.db is None:
+                logger.warning("Database not available, skipping signal loading")
+                return
+                
+            # Get saved signals from database
+            saved_signals = await self.db.get_saved_signals()
+            if not saved_signals:
+                logger.info("No saved signals found in database")
+                return
+                
+            logger.info(f"Found {len(saved_signals)} saved signals")
+            
+            # Process each signal
+            for signal in saved_signals:
+                try:
+                    # Check if the signal is still valid
+                    if 'expiry' in signal and signal['expiry']:
+                        expiry_time = datetime.fromisoformat(signal['expiry'].replace('Z', '+00:00'))
+                        if expiry_time < datetime.now(timezone.utc):
+                            logger.info(f"Signal expired: {signal.get('id')}")
+                            continue
+                    
+                    # Process valid signals
+                    signal_data = signal.get('data', {})
+                    if signal_data:
+                        logger.info(f"Processing saved signal: {signal.get('id')}")
+                        
+                        # Don't actually process signals on startup to avoid spam
+                        # Just log that we could process them
+                        # await self.process_signal(signal_data)
+                        logger.info(f"Signal ready for processing: {signal_data.get('instrument', 'unknown')}")
+                except Exception as e:
+                    logger.error(f"Error processing saved signal {signal.get('id')}: {str(e)}")
+            
+            logger.info("Finished loading saved signals")
+            
+        except Exception as e:
+            logger.error(f"Error loading signals: {str(e)}")
