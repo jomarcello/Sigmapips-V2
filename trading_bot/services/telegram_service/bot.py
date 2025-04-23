@@ -37,7 +37,7 @@ from trading_bot.services.payment_service.stripe_service import StripeService
 from trading_bot.services.payment_service.stripe_config import get_subscription_features
 from trading_bot.services.telegram_service.states import (
     MENU, ANALYSIS, SIGNALS, CHOOSE_MARKET, CHOOSE_INSTRUMENT, CHOOSE_STYLE,
-    CHOOSE_ANALYSIS, SIGNAL_DETAILS,
+    CHOOSE_ANALYSIS, SIGNAL_DETAILS, SIGNAL_ANALYSIS,
     CALLBACK_MENU_ANALYSE, CALLBACK_MENU_SIGNALS, CALLBACK_ANALYSIS_TECHNICAL,
     CALLBACK_ANALYSIS_SENTIMENT, CALLBACK_ANALYSIS_CALENDAR, CALLBACK_SIGNALS_ADD,
     CALLBACK_SIGNALS_MANAGE, CALLBACK_BACK_MENU
@@ -3754,174 +3754,385 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             return MENU
 
     async def _load_signals(self):
-        """Load and cache previously saved signals"""
+        """Load stored signals from database"""
         try:
-            # Initialize user_signals dictionary if it doesn't exist
+            # Get signals collection from database
+            signals_collection = self.db.get_collection('signals')
+            if not signals_collection:
+                logger.error("Could not get signals collection from database")
+                return
+                
+            # Initialize signals dict if not exists
             if not hasattr(self, 'user_signals'):
                 self.user_signals = {}
-                
-            # Check if signals directory exists
-            if not os.path.exists(self.signals_dir):
-                os.makedirs(self.signals_dir, exist_ok=True)
-                logger.info(f"Created signals directory at {self.signals_dir}")
-                return  # No signals to load yet
             
-            # Log the start of loading signals
-            logger.info(f"Loading signals from {self.signals_dir}")
+            # Query for active signals (not expired)
+            cursor = signals_collection.find({"expired": {"$ne": True}})
+            signals = await cursor.to_list(length=None)
             
-            # If we have a database connection, load signals from there
-            if self.db:
-                try:
-                    # Get all active signals from the database
-                    signals = await self.db.get_active_signals() if hasattr(self.db, 'get_active_signals') else []
-                    
-                    # Organize signals by user_id for quick access
-                    for signal in signals:
-                        user_id = str(signal.get('user_id'))
-                        signal_id = signal.get('id')
-                        
-                        # Initialize user dictionary if needed
-                        if user_id not in self.user_signals:
-                            self.user_signals[user_id] = {}
-                        
-                        # Store the signal
-                        self.user_signals[user_id][signal_id] = signal
-                    
-                    logger.info(f"Loaded {len(signals)} signals for {len(self.user_signals)} users from database")
-                except Exception as db_error:
-                    logger.error(f"Error loading signals from database: {str(db_error)}")
+            # Process and store signals by user and signal_id
+            for signal in signals:
+                user_id = str(signal.get('user_id'))
+                signal_id = str(signal.get('_id'))
+                
+                # Initialize user signals dict if not exists
+                if user_id not in self.user_signals:
+                    self.user_signals[user_id] = {}
+                
+                # Store signal
+                self.user_signals[user_id][signal_id] = signal
             
-            # Also load signals from files for redundancy
-            loaded_count = 0
-            try:
-                # List all signal files
-                signal_files = [f for f in os.listdir(self.signals_dir) if f.endswith('.json')]
-                
-                # Load each signal file
-                for filename in signal_files:
-                    try:
-                        # Extract signal ID from filename
-                        signal_id = filename.replace('.json', '')
-                        
-                        # Load the signal data
-                        with open(os.path.join(self.signals_dir, filename), 'r') as f:
-                            signal_data = json.load(f)
-                        
-                        # Check if signal has user ID information
-                        # For admin testing, add signal to admin users
-                        if hasattr(self, 'admin_users') and self.admin_users:
-                            for admin_id in self.admin_users:
-                                admin_str_id = str(admin_id)
-                                
-                                # Initialize admin dictionary if needed
-                                if admin_str_id not in self.user_signals:
-                                    self.user_signals[admin_str_id] = {}
-                                
-                                # Store signal for admin
-                                self.user_signals[admin_str_id][signal_id] = signal_data
-                        
-                        loaded_count += 1
-                    except Exception as signal_error:
-                        logger.error(f"Error loading signal {filename}: {str(signal_error)}")
-                
-                logger.info(f"Loaded {loaded_count} signals from file storage")
-            except Exception as file_error:
-                logger.error(f"Error loading signals from files: {str(file_error)}")
-                
+            logger.info(f"Loaded {len(signals)} signals for {len(self.user_signals)} users")
+            
         except Exception as e:
             logger.error(f"Error loading signals: {str(e)}")
-            logger.exception(e)
-            # Initialize empty dict on error
-            self.user_signals = {}
+    
+    async def _get_signal_by_id(self, signal_id: str) -> dict:
+        """Get signal data by ID from database"""
+        try:
+            # Get signals collection from database
+            signals_collection = self.db.get_collection('signals')
+            if not signals_collection:
+                logger.error("Could not get signals collection from database")
+                return None
+            
+            # Parse ObjectId if needed
+            from bson import ObjectId
+            if not isinstance(signal_id, ObjectId):
+                try:
+                    object_id = ObjectId(signal_id)
+                except Exception:
+                    object_id = signal_id  # Use as is if cannot convert
+            else:
+                object_id = signal_id
+                
+            # Query for signal by ID
+            signal = await signals_collection.find_one({"_id": object_id})
+            
+            if not signal:
+                logger.warning(f"Signal not found with ID: {signal_id}")
+                
+                # Try as string match as fallback
+                signal = await signals_collection.find_one({"signal_id": signal_id})
+                
+                if not signal:
+                    logger.error(f"Signal not found with ID or signal_id: {signal_id}")
+                    return None
+            
+            logger.info(f"Found signal: {signal.get('instrument')} ({signal.get('timeframe', '1h')})")
+            return signal
+            
+        except Exception as e:
+            logger.error(f"Error getting signal by ID: {str(e)}")
+            return None
 
     async def analyze_from_signal_callback(self, update: Update, context=None) -> int:
-        """Handle Analyze Market button from signal notifications"""
-        query = update.callback_query
-        logger.info(f"analyze_from_signal_callback called with data: {query.data}")
-        
+        """Handle the analyze market button from signal notifications"""
         try:
-            # Extract signal information from callback data
-            parts = query.data.split('_')
+            query = update.callback_query
+            await query.answer()
             
-            # Format: analyze_from_signal_INSTRUMENT_SIGNALID
-            if len(parts) >= 4:
-                instrument = parts[3]
-                signal_id = parts[4] if len(parts) >= 5 else None
-                
-                # Store in context for other handlers
-                if context and hasattr(context, 'user_data'):
-                    # BELANGRIJK: Eerst alle menu-flow context flags resetten
-                    # om te zorgen dat we volledig in de signal flow zitten
-                    context.user_data['is_signals_context'] = True
-                    context.user_data['from_signal'] = True
-                    
-                    # Sla signaalgegevens op in context
-                    context.user_data['instrument'] = instrument
-                    if signal_id:
-                        context.user_data['signal_id'] = signal_id
-                    
-                    # Make a backup copy to ensure we can return to signal later
-                    context.user_data['signal_instrument_backup'] = instrument
-                    if signal_id:
-                        context.user_data['signal_id_backup'] = signal_id
-                    
-                    # Also store info from the actual signal if available
-                    if str(update.effective_user.id) in self.user_signals and signal_id in self.user_signals[str(update.effective_user.id)]:
-                        signal = self.user_signals[str(update.effective_user.id)][signal_id]
-                        if signal:
-                            context.user_data['signal_direction'] = signal.get('direction')
-                            context.user_data['signal_timeframe'] = signal.get('timeframe', signal.get('interval'))
-                            # Backup copies
-                            context.user_data['signal_direction_backup'] = signal.get('direction')
-                            context.user_data['signal_timeframe_backup'] = signal.get('timeframe', signal.get('interval'))
-                            logger.info(f"Stored signal details: direction={signal.get('direction')}, timeframe={signal.get('timeframe', signal.get('interval'))}")
-                            
-                    # Log de context na het instellen van alle waardes
-                    logger.info(f"Signal flow context set: {context.user_data}")
-            else:
-                # Legacy support - just extract the instrument
-                instrument = parts[3] if len(parts) >= 4 else None
-                
-                if instrument and context and hasattr(context, 'user_data'):
-                    # Zorg dat we in de signal flow context zitten
-                    context.user_data['is_signals_context'] = True
-                    context.user_data['from_signal'] = True
-                    
-                    context.user_data['instrument'] = instrument
-                    context.user_data['signal_instrument_backup'] = instrument
+            # Parse callback data which contains signal ID
+            callback_data = query.data
+            logger.info(f"analyze_from_signal_callback triggered with data: {callback_data}")
             
-            # Show analysis options for this instrument
-            # Format message with more descriptive text
-            keyboard = SIGNAL_ANALYSIS_KEYBOARD
-            
-            # Try to edit the message text
-            try:
+            if not callback_data.startswith("analyze_signal_"):
+                logger.error(f"Invalid callback data format: {callback_data}")
                 await query.edit_message_text(
-                    text=f"<b>Select analysis type for {instrument}:</b>\n\nChoose an analysis method to explore this trading signal.",
+                    text="Error: Invalid signal format. Please try again.",
+                    reply_markup=InlineKeyboardMarkup(MAIN_KEYBOARD)
+                )
+                return MENU
+            
+            # Extract signal_id from callback data
+            signal_id = callback_data.replace("analyze_signal_", "")
+            
+            # Log for debugging
+            logger.info(f"Analyze market for signal ID: {signal_id}")
+            
+            # Load signal data from database
+            signal_data = await self._get_signal_by_id(signal_id)
+            
+            if not signal_data:
+                logger.error(f"Signal not found with ID: {signal_id}")
+                await query.edit_message_text(
+                    text="Error: Signal not found. It may have expired or been deleted.",
+                    reply_markup=InlineKeyboardMarkup(MAIN_KEYBOARD)
+                )
+                return MENU
+            
+            # Extract the instrument from signal
+            instrument = signal_data.get('instrument')
+            if not instrument:
+                logger.error(f"No instrument found in signal: {signal_id}")
+                await query.edit_message_text(
+                    text="Error: Invalid signal data. No instrument found.",
+                    reply_markup=InlineKeyboardMarkup(MAIN_KEYBOARD)
+                )
+                return MENU
+            
+            # Extract timeframe from signal if available
+            timeframe = signal_data.get('timeframe', '1h')
+            
+            # Store signal data in context for other handlers
+            if context and hasattr(context, 'user_data'):
+                # Set flag to indicate we're in signal flow
+                context.user_data['from_signal'] = True
+                context.user_data['is_signals_context'] = True
+                
+                # Store signal data for other handlers
+                context.user_data['signal_id'] = signal_id
+                context.user_data['signal_data'] = signal_data
+                context.user_data['instrument'] = instrument
+                context.user_data['signal_timeframe'] = timeframe
+                
+                # Log stored context
+                logger.info(f"Stored signal context - instrument: {instrument}, timeframe: {timeframe}")
+            
+            # Show signal analysis menu
+            keyboard = [
+                [
+                    InlineKeyboardButton("📊 Technical", callback_data="signal_technical"),
+                    InlineKeyboardButton("🔍 Sentiment", callback_data="signal_sentiment"),
+                ],
+                [
+                    InlineKeyboardButton("📅 Economic Calendar", callback_data="signal_calendar"),
+                    InlineKeyboardButton("⬅️ Back", callback_data="back_signals"),
+                ]
+            ]
+            
+            try:
+                # If this is a direct message, edit the current message
+                await query.edit_message_text(
+                    text=f"<b>Signal Analysis for {instrument}</b>\n\nChoose analysis type:",
                     reply_markup=InlineKeyboardMarkup(keyboard),
                     parse_mode=ParseMode.HTML
                 )
+                
+                # Return to signal analysis menu state
+                return SIGNAL_ANALYSIS
+                
             except Exception as e:
                 logger.error(f"Error in analyze_from_signal_callback: {str(e)}")
-                # Fall back to sending a new message
-                await query.message.reply_text(
-                    text=f"<b>Select analysis type for {instrument}:</b>\n\nChoose an analysis method to explore this trading signal.",
-                    reply_markup=InlineKeyboardMarkup(keyboard),
-                    parse_mode=ParseMode.HTML
-                )
-            
-            return CHOOSE_ANALYSIS
-        
+                
+                # Fallback
+                try:
+                    await query.edit_message_text(
+                        text="Error showing signal analysis menu. Please try again.",
+                        reply_markup=InlineKeyboardMarkup(MAIN_KEYBOARD),
+                        parse_mode=ParseMode.HTML
+                    )
+                except Exception:
+                    pass
+                    
+                return MENU
+                
         except Exception as e:
             logger.error(f"Error in analyze_from_signal_callback: {str(e)}")
-            logger.exception(e)
             
+            # Try to handle the error gracefully
             try:
-                await query.edit_message_text(
-                    text="An error occurred. Please try again from the main menu.",
-                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
-                )
+                if update and update.callback_query:
+                    await update.callback_query.edit_message_text(
+                        text="An error occurred during signal analysis. Please try again.",
+                        reply_markup=InlineKeyboardMarkup(MAIN_KEYBOARD)
+                    )
             except Exception:
                 pass
+                
+            return MENU
+
+    async def show_technical_analysis(self, update: Update, context=None, instrument=None, timeframe=None) -> int:
+        """Show technical analysis for an instrument"""
+        try:
+            query = update.callback_query
+            from_signal = False
             
+            # Check if we're in signal flow
+            if context and hasattr(context, 'user_data') and context.user_data.get('from_signal'):
+                from_signal = True
+                logger.info("In signal flow, from_signal=True")
+            
+            # Get the current user data
+            context_user_data = context.user_data if context and hasattr(context, 'user_data') else {}
+            
+            # Extract instrument and timeframe from callback data if not provided
+            if not instrument:
+                callback_data = query.data
+                logger.info(f"Processing callback: {callback_data}")
+                
+                if callback_data.startswith("instrument_chart_"):
+                    # Format: instrument_chart_BTCUSD_1h
+                    parts = callback_data.split("_")
+                    if len(parts) >= 3:
+                        instrument = parts[2]
+                        # Handle timeframe if provided in callback
+                        if len(parts) >= 4:
+                            timeframe = parts[3]
+            
+            # If still no instrument, check user data
+            if not instrument and context and hasattr(context, 'user_data'):
+                instrument = context_user_data.get('instrument')
+                if not timeframe:
+                    timeframe = context_user_data.get('timeframe')
+            
+            # If still no instrument, show error
+            if not instrument:
+                await query.edit_message_text(
+                    text="Error: No instrument specified for technical analysis.",
+                    reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
+                )
+                return CHOOSE_ANALYSIS
+            
+            # Default timeframe if not provided
+            if not timeframe:
+                timeframe = "1h"
+            
+            # Store the current information in context
+            if context and hasattr(context, 'user_data'):
+                context.user_data['instrument'] = instrument
+                context.user_data['timeframe'] = timeframe
+            
+            # Log what we're doing
+            logger.info(f"Getting technical analysis chart for {instrument} on {timeframe} timeframe")
+            
+            # Show loading message - efficiently start getting the chart and analysis in parallel
+            loading_text = f"Loading {instrument} chart..."
+            loading_gif = "https://media.giphy.com/media/dpjUltnOPye7azvAhH/giphy.gif"
+            
+            try:
+                # Try to show animated GIF for loading
+                await query.edit_message_media(
+                    media=InputMediaAnimation(
+                        media=loading_gif,
+                        caption=loading_text
+                    )
+                )
+            except Exception as gif_error:
+                logger.warning(f"Could not show loading GIF: {str(gif_error)}")
+                # Fallback to text loading message
+                try:
+                    await query.edit_message_text(text=loading_text)
+                except Exception:
+                    pass
+            
+            # Start chart service initialization if needed
+            if not hasattr(self, 'chart_service') or not self.chart_service:
+                from trading_bot.services.chart_service.chart import ChartService
+                self.chart_service = ChartService()
+            
+            # Start both requests in parallel
+            chart_task = asyncio.create_task(self.chart_service.get_chart(instrument, timeframe))
+            analysis_task = asyncio.create_task(self.chart_service.get_technical_analysis(instrument, timeframe))
+            
+            # Wait for both tasks to complete
+            chart_image, analysis_text = await asyncio.gather(chart_task, analysis_task)
+            
+            # Clean up the analysis text
+            if analysis_text:
+                analysis_text = analysis_text.replace("  \n", "\n").strip()
+            else:
+                analysis_text = f"Technical analysis for {instrument} ({timeframe})"
+            
+            # Create the keyboard with appropriate back button based on flow
+            keyboard = []
+            
+            # Add the appropriate back button based on whether we're in signal flow or menu flow
+            if from_signal:
+                keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal_analysis")])
+            else:
+                # Make sure this matches exactly with the registered pattern in _register_handlers
+                keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="back_instrument")])
+            
+            # Check if chart_image is valid
+            if not chart_image:
+                # Fallback to error message
+                error_text = f"Failed to generate chart for {instrument}. Please try again later."
+                await query.edit_message_text(
+                    text=error_text,
+                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
+                )
+                return MENU
+            
+            # Handle local file paths by opening and sending the file directly
+            if isinstance(chart_image, str) and os.path.exists(chart_image):
+                logger.info(f"Chart data is a local file path: {chart_image}")
+                try:
+                    # Open the file and send it as a photo
+                    with open(chart_image, 'rb') as file:
+                        photo_file = file.read()
+                        
+                        # Update message with photo file
+                        await query.edit_message_media(
+                            media=InputMediaPhoto(
+                                media=photo_file,
+                                caption=analysis_text,
+                                parse_mode=ParseMode.HTML
+                            ),
+                            reply_markup=InlineKeyboardMarkup(keyboard)
+                        )
+                        logger.info(f"Successfully sent chart file and analysis for {instrument}")
+                except Exception as file_error:
+                    logger.error(f"Error sending local file: {str(file_error)}")
+                    # Try to send as a new message
+                    try:
+                        with open(chart_image, 'rb') as file:
+                            await query.message.reply_photo(
+                                photo=file,
+                                caption=analysis_text[:1000] if analysis_text and len(analysis_text) > 1000 else analysis_text,
+                                parse_mode=ParseMode.HTML,
+                                reply_markup=InlineKeyboardMarkup(keyboard)
+                            )
+                    except Exception as fallback_error:
+                        logger.error(f"Failed to send local file as fallback: {str(fallback_error)}")
+                        await query.message.reply_text(
+                            text=f"Error sending chart. Analysis: {analysis_text[:1000] if analysis_text else 'Not available'}",
+                            reply_markup=InlineKeyboardMarkup(keyboard),
+                            parse_mode=ParseMode.HTML
+                        )
+                return SHOW_RESULT
+            
+            # Show the chart - directly delete and send new message which is faster than editing
+            try:
+                # Send a new message with the chart
+                await context.bot.send_photo(
+                    chat_id=update.effective_chat.id,
+                    photo=chart_image,
+                    caption=analysis_text,
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+                
+                # Delete the original message
+                await query.delete_message()
+                
+                return SHOW_RESULT
+                
+            except Exception as e:
+                logger.error(f"Failed to send chart: {str(e)}")
+                
+                # Simple fallback error handling
+                try:
+                    await query.edit_message_text(
+                        text=f"Error sending chart for {instrument}. Please try again later.",
+                        reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
+                    )
+                except Exception:
+                    pass
+                
+                return MENU
+                
+        except Exception as e:
+            logger.error(f"Error in show_technical_analysis: {str(e)}")
+            
+            # Try to recover
+            try:
+                if update and update.callback_query:
+                    await update.callback_query.edit_message_text(
+                        text="Sorry, an error occurred. Please try again.",
+                        reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
+                    )
+            except Exception:
+                pass
+                
             return MENU
