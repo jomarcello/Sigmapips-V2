@@ -2668,94 +2668,73 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             gif_url = random.choice(gif_utils.ANALYSIS_GIFS)
             
             if has_photo:
-                # Multi-step approach for removing media messages
-                
-                # Step 1: Try to delete the message and send a new one (cleanest approach)
                 try:
-                    # Delete the original message with the photo
-                    await query.delete_message()
+                    # Probeer foto/media te vervangen met transparante afbeelding en menu tekst
+                    transparent_gif = "https://upload.wikimedia.org/wikipedia/commons/thumb/0/00/Transparent.gif/1px-Transparent.gif"
                     
-                    # Send a new message with the analysis menu
-                    await context.bot.send_animation(
+                    await query.edit_message_media(
+                        media=InputMediaDocument(
+                            media=transparent_gif,
+                            caption=menu_text,
+                            parse_mode=ParseMode.HTML
+                        ),
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+                    logger.info("Successfully replaced media with transparent image")
+                except Exception as media_error:
+                    logger.warning(f"Could not edit media message: {str(media_error)}")
+                    
+                    # Als media bewerking mislukt, stuur een nieuw bericht
+                    await context.bot.send_message(
                         chat_id=update.effective_chat.id,
-                        animation=gif_url,
-                        caption=menu_text,
+                        text=menu_text,
                         reply_markup=InlineKeyboardMarkup(keyboard),
                         parse_mode=ParseMode.HTML
                     )
-                    return CHOOSE_ANALYSIS
-                except Exception as delete_error:
-                    logger.warning(f"Could not delete media message: {str(delete_error)}")
                     
-                    # Step 2: If deletion fails, try replacing with transparent GIF
+                    # Probeer het oorspronkelijke bericht te verwijderen
                     try:
-                        # Use a 1x1 transparent GIF
-                        transparent_gif = "https://upload.wikimedia.org/wikipedia/commons/thumb/0/00/Transparent.gif/1px-Transparent.gif"
-                        
-                        # Replace the media with a transparent GIF using InputMediaDocument
-                        await query.edit_message_media(
-                            media=InputMediaDocument(
-                                media=transparent_gif,
-                                caption=menu_text
-                            ),
-                            reply_markup=InlineKeyboardMarkup(keyboard)
-                        )
-                        return CHOOSE_ANALYSIS
-                    except Exception as replace_error:
-                        logger.warning(f"Could not replace media: {str(replace_error)}")
-                        
-                        # Step 3: As a last resort, only edit the caption
-                        try:
-                            await query.edit_message_caption(
-                                caption=menu_text,
-                                reply_markup=InlineKeyboardMarkup(keyboard),
-                                parse_mode=ParseMode.HTML
-                            )
-                            return CHOOSE_ANALYSIS
-                        except Exception as caption_error:
-                            logger.error(f"Could not edit caption: {str(caption_error)}")
-                            
-                            # Absolute last resort: send a new message without deleting the old one
-                            await context.bot.send_message(
-                                chat_id=update.effective_chat.id,
-                                text=menu_text,
-                                reply_markup=InlineKeyboardMarkup(keyboard),
-                                parse_mode=ParseMode.HTML
-                            )
+                        await query.delete_message()
+                        logger.info("Deleted original message after sending new message")
+                    except Exception as delete_error:
+                        logger.warning(f"Could not delete original message: {str(delete_error)}")
             else:
-                # For text messages, use the standard editing approach
+                # Voor tekstberichten gebruiken we de standaard bewerkingsmethode
                 try:
                     await query.edit_message_text(
                         text=menu_text,
                         reply_markup=InlineKeyboardMarkup(keyboard),
                         parse_mode=ParseMode.HTML
                     )
+                    logger.info("Successfully edited text message")
                 except Exception as text_error:
                     logger.warning(f"Could not update message text: {str(text_error)}")
                     
-                    # Try caption as fallback
+                    # Probeer caption te bewerken als fallback
                     try:
                         await query.edit_message_caption(
                             caption=menu_text,
                             reply_markup=InlineKeyboardMarkup(keyboard),
                             parse_mode=ParseMode.HTML
                         )
+                        logger.info("Successfully edited caption")
                     except Exception as caption_error:
-                        logger.error(f"Could not update caption: {str(caption_error)}")
+                        logger.warning(f"Could not update caption: {str(caption_error)}")
                         
-                        # Send a new message as last resort
+                        # Stuur een nieuw bericht als laatste redmiddel
                         await context.bot.send_message(
                             chat_id=update.effective_chat.id,
                             text=menu_text,
                             reply_markup=InlineKeyboardMarkup(keyboard),
                             parse_mode=ParseMode.HTML
                         )
+                        logger.info("Sent new message as fallback")
             
             return CHOOSE_ANALYSIS
                 
         except Exception as e:
             logger.error(f"Failed to handle back_instrument_callback: {str(e)}")
-            # Try to recover by going to analysis selection
+            # Poging tot herstel door naar analyse selectie te gaan
             try:
                 if update and update.effective_chat:
                     await context.bot.send_message(
@@ -2766,7 +2745,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     )
                 return CHOOSE_ANALYSIS
             except Exception:
-                # Last resort fallback - update message with error
+                # Laatste redmiddel - update bericht met foutmelding
                 if query:
                     await self.update_message(
                         query, 
@@ -2847,12 +2826,69 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 [InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal")]
             ]
             
-            # Update the message with signal analysis menu
-            await query.edit_message_text(
-                text=f"<b>Signal Analysis for {instrument or 'Unknown Instrument'}</b>\n\nChoose analysis type:",
-                reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode=ParseMode.HTML
-            )
+            message_text = f"<b>Signal Analysis for {instrument or 'Unknown Instrument'}</b>\n\nChoose analysis type:"
+            
+            # Controleer of het bericht een foto/media bevat
+            has_photo = bool(query.message.photo) or query.message.animation is not None
+            
+            if has_photo:
+                try:
+                    # Als het een foto/media bevat, gebruik edit_message_media om terug te gaan
+                    # Stuur een transparante afbeelding om de foto te vervangen door tekst
+                    transparent_gif = "https://upload.wikimedia.org/wikipedia/commons/thumb/0/00/Transparent.gif/1px-Transparent.gif"
+                    
+                    await query.edit_message_media(
+                        media=InputMediaDocument(
+                            media=transparent_gif,
+                            caption=message_text,
+                            parse_mode=ParseMode.HTML
+                        ),
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+                except Exception as media_error:
+                    logger.warning(f"Could not edit media message: {str(media_error)}")
+                    
+                    # Als media bewerken mislukt, probeer een nieuw bericht te sturen
+                    await context.bot.send_message(
+                        chat_id=update.effective_chat.id,
+                        text=message_text,
+                        reply_markup=InlineKeyboardMarkup(keyboard),
+                        parse_mode=ParseMode.HTML
+                    )
+                    
+                    # Probeer het oorspronkelijke bericht te verwijderen
+                    try:
+                        await query.delete_message()
+                    except Exception as delete_error:
+                        logger.warning(f"Could not delete original message: {str(delete_error)}")
+            else:
+                # Als het een tekstbericht is, gebruik de standaard edit_message_text
+                try:
+                    await query.edit_message_text(
+                        text=message_text,
+                        reply_markup=InlineKeyboardMarkup(keyboard),
+                        parse_mode=ParseMode.HTML
+                    )
+                except Exception as text_error:
+                    logger.warning(f"Could not edit text message: {str(text_error)}")
+                    
+                    # Als tekstbericht bewerken mislukt, probeer caption te bewerken
+                    try:
+                        await query.edit_message_caption(
+                            caption=message_text,
+                            reply_markup=InlineKeyboardMarkup(keyboard),
+                            parse_mode=ParseMode.HTML
+                        )
+                    except Exception as caption_error:
+                        logger.warning(f"Could not edit caption: {str(caption_error)}")
+                        
+                        # Als alles mislukt, stuur een nieuw bericht
+                        await context.bot.send_message(
+                            chat_id=update.effective_chat.id,
+                            text=message_text,
+                            reply_markup=InlineKeyboardMarkup(keyboard),
+                            parse_mode=ParseMode.HTML
+                        )
             
             return SIGNAL_ANALYSIS
             
@@ -2861,9 +2897,12 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             
             # Error recovery - try to get back to menu
             try:
-                await query.edit_message_text(
-                    text="An error occurred. Please try again from the main menu.",
-                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
+                # Stuur een nieuw bericht als fallback
+                await context.bot.send_message(
+                    chat_id=update.effective_chat.id,
+                    text="An error occurred. Please use the main menu to continue.",
+                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
+                    parse_mode=ParseMode.HTML
                 )
             except Exception:
                 pass
@@ -2896,9 +2935,12 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             
             if not signal_id and not signal_instrument:
                 logger.error("No signal info found in context")
-                await query.edit_message_text(
+                # Stuur een nieuw bericht in plaats van bewerken
+                await context.bot.send_message(
+                    chat_id=update.effective_chat.id,
                     text="Could not return to signal. Please use the main menu.",
-                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
+                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
+                    parse_mode=ParseMode.HTML
                 )
                 return MENU
             
@@ -2908,44 +2950,23 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 signal_data = await self._get_signal_by_id(signal_id)
                 logger.info(f"Retrieved signal data for ID {signal_id}: {signal_data is not None}")
             
+            # Keyboard voor signal details
+            keyboard = [
+                [InlineKeyboardButton("🔍 Analyze Market", callback_data=f"analyze_from_signal_{signal_instrument}_{signal_id or 'unknown'}")]
+            ]
+            
+            # Prepare message content
+            message_text = ""
+            
             # If signal data is found, use it
             if signal_data:
-                # Show the signal details with analyze button
-                # Prepare analyze button with signal info embedded
-                keyboard = [
-                    [InlineKeyboardButton("🔍 Analyze Market", callback_data=f"analyze_from_signal_{signal_instrument}_{signal_id}")]
-                ]
-                
                 # Get the formatted message from the signal
-                signal_message = signal_data.get('message', "Signal details not available.")
-                
-                # Edit current message to show signal
-                await query.edit_message_text(
-                    text=signal_message,
-                    reply_markup=InlineKeyboardMarkup(keyboard),
-                    parse_mode=ParseMode.HTML
-                )
-                
-                logger.info("Successfully returned to signal details page")
-                return SIGNAL_DETAILS
-            
+                message_text = signal_data.get('message', "Signal details not available.")
             # If we have the saved original message, use that
-            if signal_message:
-                keyboard = [
-                    [InlineKeyboardButton("🔍 Analyze Market", callback_data=f"analyze_from_signal_{signal_instrument}_{signal_id or 'unknown'}")]
-                ]
-                
-                await query.edit_message_text(
-                    text=signal_message,
-                    reply_markup=InlineKeyboardMarkup(keyboard),
-                    parse_mode=ParseMode.HTML
-                )
-                
-                logger.info("Successfully returned to signal using saved message")
-                return SIGNAL_DETAILS
-            
+            elif signal_message:
+                message_text = signal_message
             # If still no signal data but we have instrument info
-            if signal_instrument:
+            elif signal_instrument:
                 # Create a minimal signal with the data we have
                 logger.info(f"Creating minimal signal message with available data")
                 
@@ -2953,33 +2974,80 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 direction = signal_direction or "unknown"
                 direction_emoji = "🟢" if direction.upper() == "BUY" else "🔴" if direction.upper() == "SELL" else "⚪"
                 
-                signal_message = f"<b>🎯 Trading Signal</b>\n\n"
-                signal_message += f"<b>Instrument:</b> {signal_instrument}\n"
+                message_text = f"<b>🎯 Trading Signal</b>\n\n"
+                message_text += f"<b>Instrument:</b> {signal_instrument}\n"
                 if signal_direction:
-                    signal_message += f"<b>Direction:</b> {signal_direction} {direction_emoji}\n"
+                    message_text += f"<b>Direction:</b> {signal_direction} {direction_emoji}\n"
                 if signal_timeframe:
-                    signal_message += f"<b>Timeframe:</b> {signal_timeframe}\n"
-                
-                # Show the signal with the analyze button
-                keyboard = [
-                    [InlineKeyboardButton("🔍 Analyze Market", callback_data=f"analyze_from_signal_{signal_instrument}_{signal_id or 'unknown'}")]
-                ]
-                
-                # Edit the current message to show the signal
-                await query.edit_message_text(
-                    text=signal_message,
-                    reply_markup=InlineKeyboardMarkup(keyboard),
-                    parse_mode=ParseMode.HTML
-                )
-                
-                return SIGNAL_DETAILS
+                    message_text += f"<b>Timeframe:</b> {signal_timeframe}\n"
+            else:
+                # Fallback bericht
+                message_text = "Signal not found. Please use the main menu to continue."
+                keyboard = START_KEYBOARD
             
-            # Fallback message if signal not found
-            await query.edit_message_text(
-                text="Signal not found. Please use the main menu to continue.",
-                reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
-            )
-            return MENU
+            # Controleer of het bericht een foto/media bevat
+            has_photo = bool(query.message.photo) or query.message.animation is not None
+            
+            if has_photo:
+                try:
+                    # Als het een foto/media bevat, gebruik edit_message_media om terug te gaan
+                    # Stuur een transparante afbeelding om de foto te vervangen door tekst
+                    transparent_gif = "https://upload.wikimedia.org/wikipedia/commons/thumb/0/00/Transparent.gif/1px-Transparent.gif"
+                    
+                    await query.edit_message_media(
+                        media=InputMediaDocument(
+                            media=transparent_gif,
+                            caption=message_text,
+                            parse_mode=ParseMode.HTML
+                        ),
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+                except Exception as media_error:
+                    logger.warning(f"Could not edit media message: {str(media_error)}")
+                    
+                    # Als media bewerken mislukt, probeer een nieuw bericht te sturen
+                    await context.bot.send_message(
+                        chat_id=update.effective_chat.id,
+                        text=message_text,
+                        reply_markup=InlineKeyboardMarkup(keyboard),
+                        parse_mode=ParseMode.HTML
+                    )
+                    
+                    # Probeer het oorspronkelijke bericht te verwijderen
+                    try:
+                        await query.delete_message()
+                    except Exception as delete_error:
+                        logger.warning(f"Could not delete original message: {str(delete_error)}")
+            else:
+                # Als het een tekstbericht is, gebruik de standaard edit_message_text
+                try:
+                    await query.edit_message_text(
+                        text=message_text,
+                        reply_markup=InlineKeyboardMarkup(keyboard),
+                        parse_mode=ParseMode.HTML
+                    )
+                except Exception as text_error:
+                    logger.warning(f"Could not edit text message: {str(text_error)}")
+                    
+                    # Als tekstbericht bewerken mislukt, probeer caption te bewerken
+                    try:
+                        await query.edit_message_caption(
+                            caption=message_text,
+                            reply_markup=InlineKeyboardMarkup(keyboard),
+                            parse_mode=ParseMode.HTML
+                        )
+                    except Exception as caption_error:
+                        logger.warning(f"Could not edit caption: {str(caption_error)}")
+                        
+                        # Als alles mislukt, stuur een nieuw bericht
+                        await context.bot.send_message(
+                            chat_id=update.effective_chat.id,
+                            text=message_text,
+                            reply_markup=InlineKeyboardMarkup(keyboard),
+                            parse_mode=ParseMode.HTML
+                        )
+            
+            return SIGNAL_DETAILS
             
         except Exception as e:
             logger.error(f"Error in back_to_signal_callback: {str(e)}")
@@ -2987,9 +3055,12 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             
             # Error recovery
             try:
-                await query.edit_message_text(
+                # Stuur een nieuw bericht als fallback
+                await context.bot.send_message(
+                    chat_id=update.effective_chat.id,
                     text="An error occurred while returning to signal. Please try again from the main menu.",
-                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
+                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
+                    parse_mode=ParseMode.HTML
                 )
             except Exception:
                 pass
