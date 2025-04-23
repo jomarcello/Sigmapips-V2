@@ -2229,6 +2229,115 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         
         return CHOOSE_MARKET
 
+    async def signal_calendar_callback(self, update: Update, context=None) -> int:
+        """Handle signal_calendar button press"""
+        query = update.callback_query
+        await query.answer()
+        
+        # Add detailed debug logging
+        logger.info(f"signal_calendar_callback called with data: {query.data}")
+        
+        # Save analysis type in context
+        if context and hasattr(context, 'user_data'):
+            context.user_data['analysis_type'] = 'calendar'
+            # Make sure we save the original signal data to return to later
+            signal_instrument = context.user_data.get('instrument')
+            signal_direction = context.user_data.get('signal_direction')
+            signal_timeframe = context.user_data.get('signal_timeframe') 
+            
+            # Save these explicitly to ensure they're preserved
+            context.user_data['signal_instrument_backup'] = signal_instrument
+            context.user_data['signal_direction_backup'] = signal_direction
+            context.user_data['signal_timeframe_backup'] = signal_timeframe
+            
+            # Check if we're in signal flow
+            is_from_signal = context.user_data.get('from_signal', False)
+            logger.info(f"Signal calendar callback - instrument: {signal_instrument}, from signal: {is_from_signal}")
+        
+        # Get the instrument from context
+        instrument = None
+        if context and hasattr(context, 'user_data'):
+            instrument = context.user_data.get('instrument')
+            is_from_signal = context.user_data.get('from_signal', False)
+        
+        # Check if the callback data contains an instrument
+        if query.data.startswith("signal_flow_calendar_"):
+            parts = query.data.split("_")
+            if len(parts) >= 4:
+                instrument = parts[3]  # Extract instrument from callback data
+                logger.info(f"Extracted instrument from callback data: {instrument}")
+                # Save to context
+                if context and hasattr(context, 'user_data'):
+                    context.user_data['instrument'] = instrument
+        
+        # If we have an instrument and are in the signal flow, go directly to calendar analysis
+        if is_from_signal:
+            # Set flag to indicate we're in signal flow
+            if context and hasattr(context, 'user_data'):
+                context.user_data['from_signal'] = True
+                logger.info(f"Set from_signal flag to True for calendar analysis")
+            
+            # Try to show loading animation first
+            loading_gif_url = "https://media.giphy.com/media/gSzIKNrqtotEYrZv7i/giphy.gif"
+            loading_text = f"Loading economic calendar..."
+            
+            try:
+                # Try to update with animated GIF first (best visual experience)
+                await query.edit_message_media(
+                    media=InputMediaAnimation(
+                        media=loading_gif_url,
+                        caption=loading_text
+                    )
+                )
+                logger.info(f"Successfully showed loading GIF for economic calendar")
+                
+                # Store the current message ID to ensure we can find it later
+                message_id = query.message.message_id
+                chat_id = update.effective_chat.id
+                if context and hasattr(context, 'user_data'):
+                    context.user_data['loading_message'] = {
+                        'chat_id': chat_id,
+                        'message_id': message_id
+                    }
+            except Exception as e:
+                logger.warning(f"Could not update message with GIF animation: {str(e)}")
+                
+                try:
+                    # Try to just update text as fallback
+                    await query.edit_message_text(
+                        text=loading_text,
+                        reply_markup=None
+                    )
+                except Exception as text_e:
+                    logger.warning(f"Could not update message text: {str(text_e)}")
+                    # Last resort: send new message
+                    try:
+                        loading_msg = await context.bot.send_message(
+                            chat_id=update.effective_chat.id,
+                            text=loading_text
+                        )
+                    except Exception as send_e:
+                        logger.error(f"Failed to send loading message: {str(send_e)}")
+            
+            # Show calendar analysis for ALL major currencies
+            return await self.show_calendar_analysis(update, context, instrument=instrument)
+            
+        else:
+            # Just show the economic calendar directly without market selection
+            # Since calendar shows data for all currencies anyway
+            loading_text = "Loading economic calendar..."
+            
+            try:
+                await query.edit_message_text(
+                    text=loading_text,
+                    reply_markup=None
+                )
+            except Exception as e:
+                logger.warning(f"Could not update message text: {str(e)}")
+            
+            # Show calendar analysis for ALL major currencies
+            return await self.show_calendar_analysis(update, context, instrument=None)
+
     async def back_menu_callback(self, update: Update, context=None) -> int:
         """Handle back_menu button press to return to main menu.
         
@@ -2729,115 +2838,6 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         except Exception as e:
             logger.error(f"Error initializing bot: {str(e)}")
             raise
-
-    async def signal_calendar_callback(self, update: Update, context=None) -> int:
-        """Handle signal_calendar button press"""
-        query = update.callback_query
-        await query.answer()
-        
-        # Add detailed debug logging
-        logger.info(f"signal_calendar_callback called with data: {query.data}")
-        
-        # Save analysis type in context
-        if context and hasattr(context, 'user_data'):
-            context.user_data['analysis_type'] = 'calendar'
-            # Make sure we save the original signal data to return to later
-            signal_instrument = context.user_data.get('instrument')
-            signal_direction = context.user_data.get('signal_direction')
-            signal_timeframe = context.user_data.get('signal_timeframe') 
-            
-            # Save these explicitly to ensure they're preserved
-            context.user_data['signal_instrument_backup'] = signal_instrument
-            context.user_data['signal_direction_backup'] = signal_direction
-            context.user_data['signal_timeframe_backup'] = signal_timeframe
-            
-            # Check if we're in signal flow
-            is_from_signal = context.user_data.get('from_signal', False)
-            logger.info(f"Signal calendar callback - instrument: {signal_instrument}, from signal: {is_from_signal}")
-        
-        # Get the instrument from context
-        instrument = None
-        if context and hasattr(context, 'user_data'):
-            instrument = context.user_data.get('instrument')
-            is_from_signal = context.user_data.get('from_signal', False)
-        
-        # Check if the callback data contains an instrument
-        if query.data.startswith("signal_flow_calendar_"):
-            parts = query.data.split("_")
-            if len(parts) >= 4:
-                instrument = parts[3]  # Extract instrument from callback data
-                logger.info(f"Extracted instrument from callback data: {instrument}")
-                # Save to context
-                if context and hasattr(context, 'user_data'):
-                    context.user_data['instrument'] = instrument
-        
-        # If we have an instrument and are in the signal flow, go directly to calendar analysis
-        if is_from_signal:
-            # Set flag to indicate we're in signal flow
-            if context and hasattr(context, 'user_data'):
-                context.user_data['from_signal'] = True
-                logger.info(f"Set from_signal flag to True for calendar analysis")
-            
-            # Try to show loading animation first
-            loading_gif_url = "https://media.giphy.com/media/gSzIKNrqtotEYrZv7i/giphy.gif"
-            loading_text = f"Loading economic calendar..."
-            
-            try:
-                # Try to update with animated GIF first (best visual experience)
-                await query.edit_message_media(
-                    media=InputMediaAnimation(
-                        media=loading_gif_url,
-                        caption=loading_text
-                    )
-                )
-                logger.info(f"Successfully showed loading GIF for economic calendar")
-                
-                # Store the current message ID to ensure we can find it later
-                message_id = query.message.message_id
-                chat_id = update.effective_chat.id
-                if context and hasattr(context, 'user_data'):
-                    context.user_data['loading_message'] = {
-                        'chat_id': chat_id,
-                        'message_id': message_id
-                    }
-            except Exception as e:
-                logger.warning(f"Could not update message with GIF animation: {str(e)}")
-                
-                try:
-                    # Try to just update text as fallback
-                    await query.edit_message_text(
-                        text=loading_text,
-                        reply_markup=None
-                    )
-                except Exception as text_e:
-                    logger.warning(f"Could not update message text: {str(text_e)}")
-                    # Last resort: send new message
-                    try:
-                        loading_msg = await context.bot.send_message(
-                            chat_id=update.effective_chat.id,
-                            text=loading_text
-                        )
-                    except Exception as send_e:
-                        logger.error(f"Failed to send loading message: {str(send_e)}")
-            
-            # Show calendar analysis for ALL major currencies
-            return await self.show_calendar_analysis(update, context, instrument=instrument)
-            
-        else:
-            # Just show the economic calendar directly without market selection
-            # Since calendar shows data for all currencies anyway
-            loading_text = "Loading economic calendar..."
-            
-            try:
-                await query.edit_message_text(
-                    text=loading_text,
-                    reply_markup=None
-                )
-            except Exception as e:
-                logger.warning(f"Could not update message text: {str(e)}")
-            
-            # Show calendar analysis for ALL major currencies
-            return await self.show_calendar_analysis(update, context, instrument=None)
 
     async def back_to_signal_analysis_callback(self, update: Update, context=None) -> int:
         """Handle back_to_signal_analysis button press to return to signal analysis options"""
@@ -3781,3 +3781,87 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             logger.exception(e)
             # Initialize empty dict on error
             self.user_signals = {}
+
+    async def analyze_from_signal_callback(self, update: Update, context=None) -> int:
+        """Handle Analyze Market button from signal notifications"""
+        query = update.callback_query
+        logger.info(f"analyze_from_signal_callback called with data: {query.data}")
+        
+        try:
+            # Extract signal information from callback data
+            parts = query.data.split('_')
+            
+            # Format: analyze_from_signal_INSTRUMENT_SIGNALID
+            if len(parts) >= 4:
+                instrument = parts[3]
+                signal_id = parts[4] if len(parts) >= 5 else None
+                
+                # Store in context for other handlers
+                if context and hasattr(context, 'user_data'):
+                    context.user_data['instrument'] = instrument
+                    if signal_id:
+                        context.user_data['signal_id'] = signal_id
+                    
+                    # Make a backup copy to ensure we can return to signal later
+                    context.user_data['signal_instrument_backup'] = instrument
+                    if signal_id:
+                        context.user_data['signal_id_backup'] = signal_id
+                    
+                    # Set the from_signal flag to ensure analyses go directly to results
+                    context.user_data['from_signal'] = True
+                    
+                    # Also store info from the actual signal if available
+                    if str(update.effective_user.id) in self.user_signals and signal_id in self.user_signals[str(update.effective_user.id)]:
+                        signal = self.user_signals[str(update.effective_user.id)][signal_id]
+                        if signal:
+                            context.user_data['signal_direction'] = signal.get('direction')
+                            context.user_data['signal_timeframe'] = signal.get('timeframe', signal.get('interval'))
+                            # Backup copies
+                            context.user_data['signal_direction_backup'] = signal.get('direction')
+                            context.user_data['signal_timeframe_backup'] = signal.get('timeframe', signal.get('interval'))
+                            logger.info(f"Stored signal details: direction={signal.get('direction')}, timeframe={signal.get('timeframe', signal.get('interval'))}")
+            else:
+                # Legacy support - just extract the instrument
+                instrument = parts[3] if len(parts) >= 4 else None
+                
+                if instrument and context and hasattr(context, 'user_data'):
+                    context.user_data['instrument'] = instrument
+                    context.user_data['signal_instrument_backup'] = instrument
+                    context.user_data['from_signal'] = True
+            
+            # Show analysis options for this instrument
+            # Format message
+            # Use the SIGNAL_ANALYSIS_KEYBOARD for consistency
+            keyboard = SIGNAL_ANALYSIS_KEYBOARD
+            
+            # Try to edit the message text
+            try:
+                await query.edit_message_text(
+                    text=f"<b>Select analysis type for {instrument}:</b>",
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.HTML
+                )
+            except Exception as e:
+                logger.error(f"Error in analyze_from_signal_callback: {str(e)}")
+                # Fall back to sending a new message
+                await query.message.reply_text(
+                    text=f"<b>Select analysis type for {instrument}:</b>",
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.HTML
+                )
+            
+            return CHOOSE_ANALYSIS
+        
+        except Exception as e:
+            logger.error(f"Error in analyze_from_signal_callback: {str(e)}")
+            logger.exception(e)
+            
+            try:
+                await query.edit_message_text(
+                    text="An error occurred. Please try again from the main menu.",
+                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
+                )
+            except Exception:
+                pass
+            
+            return MENU
