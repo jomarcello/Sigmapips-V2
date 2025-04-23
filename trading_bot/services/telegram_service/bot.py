@@ -1246,6 +1246,9 @@ class TelegramService:
             application.add_handler(CallbackQueryHandler(self.signal_sentiment_callback, pattern="^signal_sentiment$"))
             application.add_handler(CallbackQueryHandler(self.signal_calendar_callback, pattern="^signal_calendar$"))
             
+            # Signal analysis handlers
+            application.add_handler(CallbackQueryHandler(self.analyze_from_signal_callback, pattern="^analyze_from_signal_"))
+            
             # Catch-all handler voor overige callback queries
             application.add_handler(CallbackQueryHandler(self.button_callback))
             
@@ -3832,47 +3835,37 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             query = update.callback_query
             await query.answer()
             
-            # Parse callback data which contains signal ID
+            # Parse callback data which contains signal info
             callback_data = query.data
             logger.info(f"analyze_from_signal_callback triggered with data: {callback_data}")
             
-            if not callback_data.startswith("analyze_signal_"):
+            # Check for expected format: analyze_from_signal_INSTRUMENT_DIRECTION_TIMEFRAME_ID
+            # Example: analyze_from_signal_GBPUSD_GBPUSD_BUY_30_1745359207
+            if not callback_data.startswith("analyze_from_signal_"):
                 logger.error(f"Invalid callback data format: {callback_data}")
                 await query.edit_message_text(
                     text="Error: Invalid signal format. Please try again.",
-                    reply_markup=InlineKeyboardMarkup(MAIN_KEYBOARD)
+                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
                 )
                 return MENU
             
-            # Extract signal_id from callback data
-            signal_id = callback_data.replace("analyze_signal_", "")
-            
-            # Log for debugging
-            logger.info(f"Analyze market for signal ID: {signal_id}")
-            
-            # Load signal data from database
-            signal_data = await self._get_signal_by_id(signal_id)
-            
-            if not signal_data:
-                logger.error(f"Signal not found with ID: {signal_id}")
+            # Extract signal info from callback data
+            parts = callback_data.split('_')
+            if len(parts) < 5:
+                logger.error(f"Insufficient parts in callback data: {callback_data}")
                 await query.edit_message_text(
-                    text="Error: Signal not found. It may have expired or been deleted.",
-                    reply_markup=InlineKeyboardMarkup(MAIN_KEYBOARD)
+                    text="Error: Invalid signal format. Please try again.",
+                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
                 )
                 return MENU
+                
+            # Process the parts to extract information
+            instrument = parts[3]
+            timeframe = parts[5] if len(parts) >= 6 else "1h"
+            signal_id = parts[-1]  # Last part should be the ID
+            direction = parts[4] if len(parts) >= 5 else None
             
-            # Extract the instrument from signal
-            instrument = signal_data.get('instrument')
-            if not instrument:
-                logger.error(f"No instrument found in signal: {signal_id}")
-                await query.edit_message_text(
-                    text="Error: Invalid signal data. No instrument found.",
-                    reply_markup=InlineKeyboardMarkup(MAIN_KEYBOARD)
-                )
-                return MENU
-            
-            # Extract timeframe from signal if available
-            timeframe = signal_data.get('timeframe', '1h')
+            logger.info(f"Extracted signal info - instrument: {instrument}, timeframe: {timeframe}, direction: {direction}, id: {signal_id}")
             
             # Store signal data in context for other handlers
             if context and hasattr(context, 'user_data'):
@@ -3882,9 +3875,9 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 
                 # Store signal data for other handlers
                 context.user_data['signal_id'] = signal_id
-                context.user_data['signal_data'] = signal_data
                 context.user_data['instrument'] = instrument
                 context.user_data['signal_timeframe'] = timeframe
+                context.user_data['signal_direction'] = direction
                 
                 # Log stored context
                 logger.info(f"Stored signal context - instrument: {instrument}, timeframe: {timeframe}")
@@ -3919,7 +3912,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 try:
                     await query.edit_message_text(
                         text="Error showing signal analysis menu. Please try again.",
-                        reply_markup=InlineKeyboardMarkup(MAIN_KEYBOARD),
+                        reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
                         parse_mode=ParseMode.HTML
                     )
                 except Exception:
@@ -3935,7 +3928,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 if update and update.callback_query:
                     await update.callback_query.edit_message_text(
                         text="An error occurred during signal analysis. Please try again.",
-                        reply_markup=InlineKeyboardMarkup(MAIN_KEYBOARD)
+                        reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
                     )
             except Exception:
                 pass
