@@ -47,6 +47,14 @@ try:
                 def __getattr__(self, name):
                     # Proxy all other attribute access to the real service
                     return getattr(self._real_service, name)
+                
+                def __setattr__(self, name, value):
+                    # Special case for _real_service
+                    if name == "_real_service":
+                        super().__setattr__(name, value)
+                    else:
+                        # Forward all other attribute assignments to the real service
+                        setattr(self._real_service, name, value)
             
             logger.info("Successfully loaded TelegramService from bot.py")
         else:
