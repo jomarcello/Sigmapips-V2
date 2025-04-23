@@ -2823,13 +2823,14 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         
         # Get sentiment analysis
         try:
-            # Initialize chart service if needed
-            if not hasattr(self, 'chart_service') or not self.chart_service:
-                from trading_bot.services.chart_service.chart import ChartService
-                self.chart_service = ChartService()
+            # Initialize market sentiment service if needed
+            if not hasattr(self, 'market_sentiment_service') or not self.market_sentiment_service:
+                from trading_bot.services.sentiment_service.sentiment import MarketSentimentService
+                self.market_sentiment_service = MarketSentimentService()
+                await self.market_sentiment_service.load_cache()
             
-            # Get sentiment analysis
-            sentiment_data = await self.chart_service.get_sentiment_analysis(instrument)
+            # Get sentiment data directly from MarketSentimentService
+            sentiment_data = await self.market_sentiment_service.get_market_sentiment_text(instrument, market)
             
             if not sentiment_data:
                 # Instead of edit_message_text, send a new message and delete the old one
@@ -3921,13 +3922,17 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 except Exception:
                     pass
             
-            # Initialization for sentiment service if needed
-            if not hasattr(self, 'sentiment_service') or not self.sentiment_service:
-                from trading_bot.services.sentiment_service.sentiment import SentimentService
-                self.sentiment_service = SentimentService()
+            # Initialization for sentiment service if needed - use MarketSentimentService directly
+            if not hasattr(self, 'market_sentiment_service') or not self.market_sentiment_service:
+                from trading_bot.services.sentiment_service.sentiment import MarketSentimentService
+                self.market_sentiment_service = MarketSentimentService()
+                await self.market_sentiment_service.load_cache()
             
-            # Get sentiment data
-            sentiment_text = await self.sentiment_service.get_sentiment_analysis(instrument)
+            # Get the market type based on the instrument
+            market_type = _detect_market(instrument)
+            
+            # Get sentiment data directly from MarketSentimentService
+            sentiment_text = await self.market_sentiment_service.get_market_sentiment_text(instrument, market_type)
             
             # Clean up the sentiment text
             if not sentiment_text:
