@@ -576,7 +576,6 @@ class ChartService:
             
             # Format the analysis text according to the exact desired format with bold headers
             analysis_text = f"<b>{instrument} - {timeframe}</b>\n\n"
-            analysis_text += f"<b>Trend</b> - {trend}\n\n"
             analysis_text += f"<b>Zone Strength:</b> {zone_stars}\n\n"
             
             # Market overview section
@@ -686,7 +685,6 @@ class ChartService:
             
             # Format the analysis using the same format as the main method
             analysis_text = f"<b>{instrument} - {timeframe}</b>\n\n"
-            analysis_text += f"<b>Trend</b> - {trend}\n\n"
             analysis_text += f"<b>Zone Strength:</b> {zone_stars}\n\n"
             
             # Market overview section
