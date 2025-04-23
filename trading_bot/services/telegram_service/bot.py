@@ -4918,13 +4918,8 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         query = update.callback_query
         
         try:
-            # Show analysis menu
-            keyboard = [
-                [InlineKeyboardButton("📈 Technical Analysis", callback_data=CALLBACK_ANALYSIS_TECHNICAL)],
-                [InlineKeyboardButton("🧠 Market Sentiment", callback_data=CALLBACK_ANALYSIS_SENTIMENT)],
-                [InlineKeyboardButton("📅 Economic Calendar", callback_data=CALLBACK_ANALYSIS_CALENDAR)],
-                [InlineKeyboardButton("⬅️ Back to Menu", callback_data=CALLBACK_BACK_MENU)]
-            ]
+            # Use the standard ANALYSIS_KEYBOARD instead of creating a custom one
+            keyboard = ANALYSIS_KEYBOARD
             
             # Check if the message has media content
             has_media = False
@@ -4933,7 +4928,8 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             elif hasattr(query.message, 'animation') and query.message.animation:
                 has_media = True
                 
-            message_text = "<b>📊 Analysis Menu</b>\n\nChoose the type of analysis:"
+            # Use the same message text as in menu_analyse_callback
+            message_text = "Select your analysis type:"
             
             if has_media:
                 try:
