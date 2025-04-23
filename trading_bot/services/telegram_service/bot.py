@@ -673,7 +673,8 @@ class TelegramService:
         logger.info(f"Bot initialized with webhook URL: {self.webhook_url} and path: {self.webhook_path}")
         
         # Initialize API services
-        self.chart_service = ChartService()  # Initialize chart service
+        # Use the property to lazy-load the chart service instead of direct initialization
+        self._chart_service = None
         # Lazy load services only when needed
         self._calendar_service = None
         self._sentiment_service = None
