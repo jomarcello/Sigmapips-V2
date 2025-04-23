@@ -3944,86 +3944,99 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             return MENU
 
     async def button_callback(self, update: Update, context=None) -> int:
-        """Handle button callback queries"""
+        """Handle button callbacks for the main app flow"""
+        query = update.callback_query
+        data = query.data
+        
+        self.logger.info(f"Button callback opgeroepen met data: {data}")
+        
+        # Always acknowledge the callback to prevent timeouts
         try:
-            query = update.callback_query
-            callback_data = query.data
-            
-            logger.info(f"Button callback opgeroepen met data: {callback_data}")
-            
-            # Answer the callback query to remove the loading indicator on the button
             await query.answer()
+        except Exception as e:
+            self.logger.error(f"Error answering callback query: {str(e)}")
+        
+        try:
+            # Main menu buttons
+            if data == "menu_analyse":
+                return await self.menu_analyse_callback(update, context)
+            elif data == "menu_signals":
+                return await self.menu_signals_callback(update, context)
             
-            # Split the callback data for pattern matching
-            parts = callback_data.split("_")
-            
-            # Handle analyze_from_signal buttons
-            if callback_data.startswith("analyze_from_signal_"):
-                logger.info(f"Handling analyze_from_signal in button_callback: {callback_data}")
-                return await self.analyze_from_signal_callback(update, context)
+            # Analysis submenu buttons
+            elif data == CALLBACK_ANALYSIS_TECHNICAL:
+                return await self.analysis_technical_callback(update, context)
+            elif data == CALLBACK_ANALYSIS_SENTIMENT:
+                return await self.analysis_sentiment_callback(update, context)
+            elif data == CALLBACK_ANALYSIS_CALENDAR:
+                return await self.analysis_calendar_callback(update, context)
                 
-            # Handle back_to_signal_analysis specifically
-            if callback_data == "back_to_signal_analysis":
-                logger.info(f"Handling back_to_signal_analysis in button_callback")
-                return await self.back_to_signal_analysis_callback(update, context)
-                
-            # Handle signal-specific buttons that might be missed by the specific handlers
-            if callback_data == "signal_technical":
-                logger.info(f"Handling signal_technical in general button_callback")
+            # Signal analysis buttons
+            elif data == "signal_technical":
                 return await self.signal_technical_callback(update, context)
-            
-            if callback_data == "signal_sentiment":
-                logger.info(f"Handling signal_sentiment in general button_callback")
+            elif data == "signal_sentiment":
                 return await self.signal_sentiment_callback(update, context)
-                
-            if callback_data == "signal_calendar":
-                logger.info(f"Handling signal_calendar in general button_callback")
+            elif data == "signal_calendar":
                 return await self.signal_calendar_callback(update, context)
                 
-            # Handle back_to_signal button
-            if callback_data == "back_to_signal":
-                logger.info(f"Handling back_to_signal in button_callback")
+            # Back buttons
+            elif data == CALLBACK_BACK_MENU:
+                return await self.back_menu_callback(update, context)
+            elif data == CALLBACK_BACK_ANALYSIS:
+                return await self.back_analysis_callback(update, context)
+            elif data == CALLBACK_BACK_SIGNALS:
+                return await self.back_signals_callback(update, context)
+            elif data == CALLBACK_BACK_MARKET:
+                return await self.back_market_callback(update, context)
+            elif data == CALLBACK_BACK_INSTRUMENT:
+                return await self.back_instrument_callback(update, context)
+            elif data == "back_to_signal":
                 return await self.back_to_signal_callback(update, context)
-            
-            # Direct instrument_timeframe callbacks  
-            if "_timeframe_" in callback_data:
-                # Format: instrument_EURUSD_timeframe_H1
-                parts = callback_data.split("_")
-                instrument = parts[1]
-                timeframe = parts[3] if len(parts) > 3 else "1h"  # Default to 1h
-                return await self.show_technical_analysis(update, context, instrument=instrument, timeframe=timeframe)
-            
-            # Verwerk instrument keuzes met specifiek type (chart, sentiment, calendar)
-            if "_chart" in callback_data or "_sentiment" in callback_data or "_calendar" in callback_data:
-                # Direct doorsturen naar de instrument_callback methode
-                logger.info(f"Specifiek instrument type gedetecteerd in: {callback_data}")
-                return await self.instrument_callback(update, context)
-            
-            # Handle instrument signal choices
-            if "_signals" in callback_data and callback_data.startswith("instrument_"):
-                logger.info(f"Signal instrument selection detected: {callback_data}")
-                return await self.instrument_signals_callback(update, context)
-            
-            # Speciale afhandeling voor markt keuzes
-            if callback_data.startswith("market_"):
-                return await self.market_callback(update, context)
-            
-            # Signals handlers
-            if callback_data == "signals_add" or callback_data == CALLBACK_SIGNALS_ADD:
-                return await self.signals_add_callback(update, context)
+            elif data == "back_to_signal_analysis":
+                return await self.back_to_signal_analysis_callback(update, context)
                 
-            # Manage signals handler
-            if callback_data == "signals_manage" or callback_data == CALLBACK_SIGNALS_MANAGE:
+            # Signal management buttons
+            elif data == CALLBACK_SIGNALS_ADD:
+                return await self.signals_add_callback(update, context)
+            elif data == CALLBACK_SIGNALS_MANAGE:
                 return await self.signals_manage_callback(update, context)
+                
+            # Market selection buttons
+            elif data.startswith("market_"):
+                return await self.market_callback(update, context)
+                
+            # Instrument selection buttons
+            elif data.startswith("instrument_"):
+                return await self.instrument_callback(update, context)
+            elif data.startswith("instrument_signals_"):
+                return await self.instrument_signals_callback(update, context)
+                
+            # Analysis buttons
+            elif data.startswith("analysis_"):
+                return await self.analysis_callback(update, context)
+                
+            # Signal analysis flow
+            elif data.startswith("analyze_from_signal_"):
+                return await self.analyze_from_signal_callback(update, context)
             
-            # Generic handlers for unmatched patterns - log it
-            logger.warning(f"Unhandled callback_data: {callback_data}")
-            
-            return MENU
-            
+            else:
+                self.logger.warning(f"Unhandled callback_data: {data}")
+                return MENU
+                
         except Exception as e:
-            logger.error(f"Error in button_callback: {str(e)}")
-            logger.error(traceback.format_exc())
+            self.logger.error(f"Error handling button callback: {str(e)}")
+            self.logger.exception(e)
+            
+            # Keep users from getting stuck
+            try:
+                # Try to return to menu on error
+                await query.edit_message_text(
+                    text="An error occurred. Please try again.",
+                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
+                )
+            except Exception as edit_error:
+                self.logger.error(f"Error sending error message: {str(edit_error)}")
+            
             return MENU
 
     async def market_callback(self, update: Update, context=None) -> int:
