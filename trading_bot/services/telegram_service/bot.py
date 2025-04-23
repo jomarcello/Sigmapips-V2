@@ -2259,6 +2259,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         
         # Set loading message
         loading_message = "Loading economic calendar..."
+        loading_message_obj = None
         
         try:
             # Check if the message has media content
@@ -2269,52 +2270,41 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 has_media = True
                 
             if has_media:
-                # If the message has media, try to edit the caption or replace media
-                try:
-                    # Try to edit caption first
-                    await query.edit_message_caption(
-                        caption=loading_message,
-                        parse_mode=ParseMode.HTML
-                    )
-                    logger.info("Created loading message in caption")
-                except Exception as caption_error:
-                    logger.warning(f"Could not edit caption: {str(caption_error)}")
-                    
-                    # Try replacing media with a loading GIF
-                    try:
-                        loading_gif = "https://media.giphy.com/media/dpjUltnOPye7azvAhH/giphy.gif"
-                        await query.edit_message_media(
-                            media=InputMediaAnimation(
-                                media=loading_gif,
-                                caption=loading_message
-                            )
-                        )
-                        logger.info("Created loading message with GIF")
-                    except Exception as media_error:
-                        logger.warning(f"Could not edit media: {str(media_error)}")
-                        
-                        # Last resort: Send a new message
-                        await context.bot.send_message(
-                            chat_id=update.effective_chat.id,
-                            text=loading_message
-                        )
-                        logger.info("Sent new loading message")
+                # If the message has media content, keep the existing message for loading animation
+                # We won't modify it here, just store the message object to pass to show_economic_calendar
+                loading_message_obj = query.message
+                logger.info("Using existing media message as loading indicator")
+                
+                # Store the message object in context to prevent duplicate loading messages
+                if context and hasattr(context, 'user_data'):
+                    context.user_data['loading_message_obj'] = loading_message_obj
             else:
                 # Standard text message, try to edit
                 try:
-                    await query.edit_message_text(text=loading_message)
+                    loading_message_obj = await query.edit_message_text(text=loading_message)
                     logger.info("Created loading message by editing text")
+                    
+                    # Store the message object in context
+                    if context and hasattr(context, 'user_data'):
+                        context.user_data['loading_message_obj'] = loading_message_obj
                 except Exception as text_error:
                     logger.warning(f"Could not edit text: {str(text_error)}")
                     
                     # Try to send a new message as fallback
-                    await context.bot.send_message(
-                        chat_id=update.effective_chat.id,
-                        text=loading_message
-                    )
-                    logger.info("Sent new loading message")
+                    try:
+                        loading_message_obj = await context.bot.send_message(
+                            chat_id=update.effective_chat.id,
+                            text=loading_message
+                        )
+                        logger.info("Sent new loading message")
+                        
+                        # Store the message object in context
+                        if context and hasattr(context, 'user_data'):
+                            context.user_data['loading_message_obj'] = loading_message_obj
+                    except Exception as send_error:
+                        logger.error(f"Could not send loading message: {str(send_error)}")
             
-            # Use the show_calendar_analysis method
+            # Use the show_calendar_analysis method, passing the loading message object
             return await self.show_calendar_analysis(
                 update=update,
                 context=context,
@@ -2394,6 +2384,11 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                             currency = currencies[0]
                             self.logger.info(f"Extracted currency {currency} from instrument {instrument}")
                 
+                # Skip loading message creation if we already have a loading message from context
+                if not loading_message and 'loading_message_obj' in context.user_data:
+                    loading_message = context.user_data.get('loading_message_obj')
+                    self.logger.info(f"Using loading message from context")
+                
                 # Check if we have a loading message from the context
                 if not loading_message and 'loading_message' in context.user_data:
                     loading_message = context.user_data.get('loading_message')
@@ -2405,7 +2400,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Initialize the calendar service
             calendar_service = self._get_calendar_service()
             
-            # Create loading message if one doesn't exist
+            # Create loading message if one doesn't exist and we have a query
             if not loading_message and query:
                 try:
                     loading_text = "Loading economic calendar data..."
@@ -2426,6 +2421,8 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                         self.logger.info("Created new loading message by sending new message")
                     except Exception as send_error:
                         self.logger.error(f"Could not send loading message: {str(send_error)}")
+            else:
+                self.logger.info(f"Using existing loading message: {loading_message}")
             
             # Get calendar data from the TradingView service directly
             try:
@@ -2608,9 +2605,13 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     self.logger.error(f"Could not send new message: {str(send_error)}")
             
             # Clear any loading message from context if it exists
-            if context and hasattr(context, 'user_data') and 'loading_message' in context.user_data:
-                del context.user_data['loading_message']
-                
+            if context and hasattr(context, 'user_data'):
+                if 'loading_message' in context.user_data:
+                    del context.user_data['loading_message']
+                # Also clear the loading_message_obj we added
+                if 'loading_message_obj' in context.user_data:
+                    del context.user_data['loading_message_obj']
+                        
             # Return appropriate state
             return SIGNAL_ANALYSIS if is_from_signal else CHOOSE_ANALYSIS
             
@@ -4853,10 +4854,16 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         signal_id = None
         signal_direction = None
         signal_timeframe = None
+        loading_message_obj = None
         
         if context and hasattr(context, 'user_data'):
             context_user_data = context.user_data
             from_signal = context_user_data.get('from_signal', False)
+            
+            # Get loading message from context if available
+            if 'loading_message_obj' in context_user_data:
+                loading_message_obj = context_user_data.get('loading_message_obj')
+                logger.info("Using existing loading message from context")
             
             # Store and backup important signal data
             if not instrument and 'instrument' in context_user_data:
@@ -4884,6 +4891,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             return await self.show_economic_calendar(
                 update=update,
                 context=context,
+                loading_message=loading_message_obj
                 # We're deliberately not passing instrument or currency
                 # This will show the full calendar
             )
