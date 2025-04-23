@@ -175,7 +175,7 @@ class TradingViewCalendarService:
             params = {
                 'from': self._format_date(start_date),
                 'to': self._format_date(end_date),
-                'countries': 'US,EU,GB,JP,CH,AU,NZ,CA',
+                'countries': 'US,EU,GB,JP,CH,AU,NZ,CA',  # Include all major countries
                 'limit': 1000
             }
             
@@ -460,22 +460,23 @@ class TradingViewCalendarService:
                             
                             # Gebruik direct het currency veld uit het event als het aanwezig is
                             if "currency" in event and event["currency"]:
-                                currency = event["currency"]
+                                currency_code = event["currency"]
                             else:
                                 # Fallback naar country-to-currency mapping
                                 country = event.get("country", "")
-                                currency = country_to_currency.get(country, "")
+                                currency_code = country_to_currency.get(country, "")
                             
                             # Als de valuta onbekend is, log en sla over
-                            if not currency:
+                            if not currency_code:
                                 logger.info(f"Skipping event with unknown country code: '{country}' for event: '{event.get('title', 'Unknown')}'")
                                 skipped_events += 1
                                 unknown_countries.add(country)
                                 continue
                             
-                            # Sla alle niet-major currencies over
-                            if currency not in MAJOR_CURRENCIES:
-                                logger.debug(f"Skipping non-major currency: {currency}")
+                            # Only skip non-major currencies if a specific currency is requested
+                            # When no currency is specified, show all events for all major currencies
+                            if currency and currency_code not in MAJOR_CURRENCIES:
+                                logger.debug(f"Skipping non-major currency: {currency_code}")
                                 non_major_events += 1
                                 continue
                             
@@ -503,7 +504,7 @@ class TradingViewCalendarService:
                             
                             # Create event object
                             event_obj = {
-                                "country": currency,
+                                "country": currency_code,
                                 "time": time_str,
                                 "event": event.get("title", ""),
                                 "impact": impact
@@ -552,17 +553,16 @@ class TradingViewCalendarService:
                     if self.last_successful_call:
                         logger.info(f"Last successful API call was at {self.last_successful_call.isoformat()}")
                     
-                    # After getting events, filter by currency if specified
+                    # After getting events, highlight the events for the specified currency without filtering out others
                     if currency and len(events) > 0:
-                        logger.info(f"Post-filtering events by currency: {currency}")
-                        # Instead of completely filtering, we'll just tag the events for the specified currency
-                        # but return all events
+                        logger.info(f"Highlighting events for currency: {currency}")
+                        # Add highlighted flag to events matching the requested currency
                         for event in events:
-                            # Add a highlighted flag if the event matches the requested currency
                             event["highlighted"] = event.get('country') == currency
                         
                         # Log that we're showing all events with highlighted currency
-                        logger.info(f"Showing all {len(events)} events with {currency} events highlighted")
+                        highlighted_count = sum(1 for e in events if e.get("highlighted", False))
+                        logger.info(f"Showing all {len(events)} events with {highlighted_count} {currency} events highlighted")
                     
                     return events
                     
