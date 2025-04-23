@@ -713,16 +713,61 @@ class TelegramService:
             logger.error(f"Error initializing Telegram service: {str(e)}")
             raise
 
+    @property
+    def sentiment_service(self):
+        """Lazy loaded sentiment service"""
+        if not hasattr(self, '_sentiment_service') or self._sentiment_service is None:
+            # Only initialize the sentiment service when it's first accessed
+            logger.info("Lazy loading sentiment service")
+            from trading_bot.services.sentiment_service.sentiment import MarketSentimentService
+            self._sentiment_service = MarketSentimentService()
+        return self._sentiment_service
+        
+    @property
+    def chart_service(self):
+        """Lazy loaded chart service with proper isolation"""
+        if not hasattr(self, '_chart_service') or self._chart_service is None:
+            # Only initialize the chart service when it's first accessed
+            logger.info("Lazy loading chart service")
+            from trading_bot.services.chart_service.chart import ChartService
+            self._chart_service = ChartService()
+        return self._chart_service
+        
     async def initialize_services(self):
-        """Initialize services that require an asyncio event loop"""
+        """Initialize services with proper isolation"""
+        logger.info("Initializing services with proper isolation")
+        
+        # Initialize services separately to maintain isolation
         try:
-            # Initialize chart service
-            await self.chart_service.initialize()
-            logger.info("Chart service initialized")
+            # Use properties to lazily load services when needed
+            # This ensures each service is properly isolated
+            if hasattr(self, '_chart_service') and self._chart_service:
+                logger.info("Chart service already initialized")
+            else:
+                logger.info("Initializing chart service")
+                from trading_bot.services.chart_service.chart import ChartService
+                self._chart_service = ChartService()
+                
+            if hasattr(self, '_sentiment_service') and self._sentiment_service:
+                logger.info("Sentiment service already initialized")
+            else:
+                logger.info("Initializing sentiment service")
+                from trading_bot.services.sentiment_service.sentiment import MarketSentimentService
+                self._sentiment_service = MarketSentimentService()
+                
+            if hasattr(self, '_calendar_service') and self._calendar_service:
+                logger.info("Calendar service already initialized")
+            else:
+                logger.info("Initializing calendar service")
+                from trading_bot.services.calendar_service.calendar import CalendarService
+                self._calendar_service = CalendarService()
+                
+            logger.info("All services initialized successfully with isolation")
+            
         except Exception as e:
             logger.error(f"Error initializing services: {str(e)}")
-            raise
-            
+            logger.exception(e)
+
     async def run(self):
         """Run the telegram service with retry mechanism for Telegram API connection issues"""
         logger.info("TelegramService.run() called")
@@ -2187,7 +2232,17 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         await query.answer()
         
         if context and hasattr(context, 'user_data'):
+            # Clear any existing analysis data to ensure separation between services
+            context.user_data.pop('chart_data', None)
+            context.user_data.pop('technical_analysis_data', None)
+            context.user_data.pop('chart_ready', None)
+            context.user_data.pop('timeframe', None)
+            
+            # Set new analysis type
             context.user_data['analysis_type'] = 'sentiment'
+            
+            # Log the context clearing for debugging
+            logger.info("Cleared chart data from context when switching to sentiment analysis")
         
         # Set the callback data
         callback_data = query.data
@@ -2206,31 +2261,60 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             
         # Show the market selection menu
         try:
-            # First try to edit message text
-            await query.edit_message_text(
-                text="Select market for sentiment analysis:",
-                reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
-            )
-        except Exception as text_error:
-            # If that fails due to caption, try editing caption
-            if "There is no text in the message to edit" in str(text_error):
+            # First try to delete the current message to ensure no chart persists
+            try:
+                await context.bot.delete_message(
+                    chat_id=update.effective_chat.id,
+                    message_id=query.message.message_id
+                )
+                logger.info("Successfully deleted previous message when switching to sentiment analysis")
+                
+                # Send new message with market selection
+                await context.bot.send_message(
+                    chat_id=update.effective_chat.id,
+                    text="Select market for sentiment analysis:",
+                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD),
+                    parse_mode=ParseMode.HTML
+                )
+                return CHOOSE_MARKET
+            except Exception as delete_error:
+                logger.warning(f"Could not delete previous message: {str(delete_error)}")
+                
+                # Fall back to editing
                 try:
-                    await query.edit_message_caption(
-                        caption="Select market for sentiment analysis:",
-                        reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD),
-                        parse_mode=ParseMode.HTML
-                    )
-                except Exception as e:
-                    logger.error(f"Failed to update caption in analysis_sentiment_callback: {str(e)}")
-                    # Try to send a new message as last resort
-                    await query.message.reply_text(
+                    await query.edit_message_text(
                         text="Select market for sentiment analysis:",
-                        reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD),
-                        parse_mode=ParseMode.HTML
+                        reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
                     )
-            else:
-                # Re-raise for other errors
-                raise
+                except Exception as text_error:
+                    # If that fails due to caption, try editing caption
+                    if "There is no text in the message to edit" in str(text_error):
+                        try:
+                            await query.edit_message_caption(
+                                caption="Select market for sentiment analysis:",
+                                reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD),
+                                parse_mode=ParseMode.HTML
+                            )
+                        except Exception as e:
+                            logger.error(f"Failed to update caption in analysis_sentiment_callback: {str(e)}")
+                            # Try to send a new message as last resort
+                            await query.message.reply_text(
+                                text="Select market for sentiment analysis:",
+                                reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD),
+                                parse_mode=ParseMode.HTML
+                            )
+                    else:
+                        # Re-raise for other errors
+                        raise
+        except Exception as e:
+            logger.error(f"Error in analysis_sentiment_callback: {str(e)}")
+            # Last resort - send a completely new message
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text="Select market for sentiment analysis:",
+                reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD),
+                parse_mode=ParseMode.HTML
+            )
         
         return CHOOSE_MARKET
         
@@ -3471,8 +3555,15 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             from_signal = False
             
             # Check if we're in signal flow
-            if context and hasattr(context, 'user_data') and context.user_data.get('from_signal'):
-                from_signal = True
+            if context and hasattr(context, 'user_data'):
+                # Clear any sentiment-related data from the context to ensure clean state
+                context.user_data.pop('sentiment_data', None)
+                context.user_data.pop('sentiment_message_id', None)
+                
+                # Set analysis type properly
+                context.user_data['analysis_type'] = 'technical'
+                
+                from_signal = context.user_data.get('from_signal', False)
                 logger.info("In signal flow, from_signal=True")
             
             # Get the current user data
@@ -3726,7 +3817,17 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Check if we're in the signal flow
             is_from_signal = False
             if context and hasattr(context, 'user_data'):
+                # Clear any chart-related data again to ensure clean state
+                context.user_data.pop('chart_data', None)
+                context.user_data.pop('technical_analysis_data', None)
+                context.user_data.pop('chart_ready', None)
+                
+                # Set sentiment analysis type
+                context.user_data['analysis_type'] = 'sentiment'
+                
+                # Check signal flow status
                 is_from_signal = context.user_data.get('from_signal', False)
+                
                 # Add debug logging
                 logger.info(f"show_sentiment_analysis: from_signal = {is_from_signal}")
                 logger.info(f"Context user_data: {context.user_data}")
@@ -3738,10 +3839,28 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             if not instrument:
                 logger.error("No instrument provided for sentiment analysis")
                 try:
-                    await query.edit_message_text(
-                        text="Please select an instrument first.",
-                        reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
-                    )
+                    # Try to delete existing message first to ensure clean state
+                    try:
+                        await context.bot.delete_message(
+                            chat_id=update.effective_chat.id,
+                            message_id=query.message.message_id
+                        )
+                        
+                        # Send new message
+                        await context.bot.send_message(
+                            chat_id=update.effective_chat.id,
+                            text="Please select an instrument first.",
+                            reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD),
+                            parse_mode=ParseMode.HTML
+                        )
+                    except Exception as delete_error:
+                        logger.warning(f"Could not delete message: {str(delete_error)}")
+                        
+                        # Fall back to editing
+                        await query.edit_message_text(
+                            text="Please select an instrument first.",
+                            reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
+                        )
                 except Exception as e:
                     logger.error(f"Error updating message: {str(e)}")
                 return CHOOSE_MARKET
@@ -3751,14 +3870,45 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Clean instrument name (without _SELL_4h etc)
             clean_instrument = instrument.split('_')[0] if '_' in instrument else instrument
             
-            # Show simple loading text
+            # Always try to delete the existing message first to ensure we're not showing a chart
             try:
-                await query.edit_message_text(
+                await context.bot.delete_message(
+                    chat_id=update.effective_chat.id,
+                    message_id=query.message.message_id
+                )
+                
+                # Show a new loading message
+                loading_message = await context.bot.send_message(
+                    chat_id=update.effective_chat.id,
                     text=f"Loading sentiment analysis for {clean_instrument}...",
                     parse_mode=ParseMode.HTML
                 )
-            except Exception as e:
-                logger.warning(f"Could not update message text: {str(e)}")
+                message_id_to_delete = loading_message.message_id
+            except Exception as delete_error:
+                logger.warning(f"Could not delete message: {str(delete_error)}")
+                
+                # Fall back to editing the message
+                try:
+                    await query.edit_message_text(
+                        text=f"Loading sentiment analysis for {clean_instrument}...",
+                        parse_mode=ParseMode.HTML
+                    )
+                    message_id_to_delete = query.message.message_id
+                except Exception as edit_error:
+                    logger.warning(f"Could not update message text: {str(edit_error)}")
+                    
+                    # Try editing caption as last resort
+                    try:
+                        await query.edit_message_caption(
+                            caption=f"Loading sentiment analysis for {clean_instrument}...",
+                            parse_mode=ParseMode.HTML
+                        )
+                        message_id_to_delete = query.message.message_id
+                    except Exception as caption_error:
+                        logger.warning(f"Could not update caption: {str(caption_error)}")
+                        
+                        # If all editing fails, just proceed without updating the UI for loading
+                        message_id_to_delete = query.message.message_id
             
             try:
                 # Get sentiment data using clean instrument name
@@ -3771,15 +3921,16 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     # Determine which back button to use based on flow
                     back_callback = "back_to_signal_analysis" if is_from_signal else "back_instrument"
                     
-                    # Delete old message and send a new one
+                    # Delete the loading message if it exists
                     try:
                         await context.bot.delete_message(
                             chat_id=update.effective_chat.id,
-                            message_id=query.message.message_id
+                            message_id=message_id_to_delete
                         )
                     except Exception as e:
-                        logger.warning(f"Could not delete message: {str(e)}")
+                        logger.warning(f"Could not delete loading message: {str(e)}")
                     
+                    # Send error message
                     await context.bot.send_message(
                         chat_id=update.effective_chat.id,
                         text=f"Failed to get sentiment data for {clean_instrument}. Please try again.",
@@ -3836,22 +3987,28 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 else:
                     keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="back_instrument")])
                 
-                # Delete the old message and send a new one to avoid media/formatting issues
+                # Delete the loading message if it exists
                 try:
                     await context.bot.delete_message(
                         chat_id=update.effective_chat.id,
-                        message_id=query.message.message_id
+                        message_id=message_id_to_delete
                     )
                 except Exception as e:
-                    logger.warning(f"Could not delete message: {str(e)}")
+                    logger.warning(f"Could not delete loading message: {str(e)}")
                 
-                # Send as a new text message
-                await context.bot.send_message(
+                # Send the sentiment analysis as a pure text message, not as media
+                sent_message = await context.bot.send_message(
                     chat_id=update.effective_chat.id,
                     text=full_message,
                     reply_markup=InlineKeyboardMarkup(keyboard),
                     parse_mode=ParseMode.HTML
                 )
+                
+                logger.info(f"Successfully sent sentiment analysis for {clean_instrument}")
+                
+                # Store the sent message ID in context to track it
+                if context and hasattr(context, 'user_data'):
+                    context.user_data['sentiment_message_id'] = sent_message.message_id
                 
                 return SHOW_RESULT
                 
@@ -3862,15 +4019,16 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     back_callback = "back_to_signal_analysis" if is_from_signal else "back_instrument"
                     keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data=back_callback)]]
                     
-                    # Delete old message and send error
+                    # Delete the loading message if it exists
                     try:
                         await context.bot.delete_message(
                             chat_id=update.effective_chat.id,
-                            message_id=query.message.message_id
+                            message_id=message_id_to_delete
                         )
                     except Exception as del_e:
-                        logger.warning(f"Could not delete message: {str(del_e)}")
+                        logger.warning(f"Could not delete loading message: {str(del_e)}")
                     
+                    # Send error message
                     await context.bot.send_message(
                         chat_id=update.effective_chat.id,
                         text=f"Error getting sentiment analysis for {clean_instrument}. Please try again.",
