@@ -43,6 +43,89 @@ class EconomicCalendarService:
         
         self.logger.info(f"Filtered to {len(filtered_data)} events based on minimum impact level: {min_impact}")
         return filtered_data
+    
+    async def get_economic_calendar(self, currencies: List[str] = None, days_ahead: int = 0, min_impact: str = "Low") -> str:
+        """Return formatted economic calendar data that supports multiple currencies
+        
+        Args:
+            currencies: List of currency codes to filter events by
+            days_ahead: Number of days ahead to get events for
+            min_impact: Minimum impact level for events
+            
+        Returns:
+            Formatted HTML string with calendar data
+        """
+        self.logger.info(f"Fallback get_economic_calendar called with currencies={currencies}, days_ahead={days_ahead}, min_impact={min_impact}")
+        
+        # Generate mock data for all major currencies
+        all_currencies = ["USD", "EUR", "GBP", "JPY", "CHF", "AUD", "NZD", "CAD"]
+        mock_data = self._generate_mock_calendar_data(all_currencies, datetime.now().strftime("%Y-%m-%d"))
+        
+        # Filter by impact level
+        impact_levels = {"High": 3, "Medium": 2, "Low": 1}
+        min_level = impact_levels.get(min_impact, 1)
+        
+        filtered_data = [
+            event for event in mock_data 
+            if impact_levels.get(event.get("impact", "Low"), 1) >= min_level
+        ]
+        
+        # Filter by currencies if specified
+        if currencies:
+            self.logger.info(f"Filtering mock data by currencies: {currencies}")
+            filtered_data = [
+                event for event in filtered_data
+                if event.get("country") in currencies
+            ]
+            self.logger.info(f"After filtering by currencies {currencies}: {len(filtered_data)} events remaining")
+        
+        # If no events found after filtering, return message
+        if not filtered_data:
+            return "<b>📅 Economic Calendar</b>\n\nNo economic events found for the selected currencies and period."
+        
+        # Format the events into a nice message
+        formatted = "<b>📅 Economic Calendar</b>\n\n"
+        
+        # Impact emoji mapping
+        impact_emoji = {
+            "High": "🔴",
+            "Medium": "🟠",
+            "Low": "🟢"
+        }
+        
+        # Sort events by time
+        filtered_data.sort(key=lambda x: x.get("time", "00:00"))
+        
+        # Format each event
+        for event in filtered_data:
+            time = event.get("time", "")
+            country_flag = event.get("country_flag", "")
+            country = event.get("country", "")
+            title = event.get("title", "")
+            impact = event.get("impact", "Low")
+            forecast = event.get("forecast", "")
+            previous = event.get("previous", "")
+            
+            # Format forecast and previous if available
+            forecast_text = f"F: {forecast}, " if forecast else ""
+            previous_text = f"P: {previous}" if previous else ""
+            data_text = f"({forecast_text}{previous_text})" if forecast_text or previous_text else ""
+            
+            # Add impact emoji
+            impact_icon = impact_emoji.get(impact, "🟢")
+            
+            # Format the line with special characters for country visibility
+            line = f"{time} - 「<b>{country}</b>」 - {title} {data_text} {impact_icon}\n"
+            formatted += line
+        
+        # Add legend
+        formatted += "\n-------------------\n"
+        formatted += "🔴 High Impact\n"
+        formatted += "🟠 Medium Impact\n"
+        formatted += "🟢 Low Impact\n"
+        formatted += "F: Forecast, P: Previous"
+        
+        return formatted
         
     async def get_events_for_instrument(self, instrument: str, *args, **kwargs) -> Dict[str, Any]:
         """Return mock events for an instrument"""
