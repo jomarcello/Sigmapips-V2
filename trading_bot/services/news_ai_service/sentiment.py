@@ -954,275 +954,65 @@ The percentages MUST add up to 100%, and the formatted text MUST include all sec
     
     async def get_market_sentiment_text(self, instrument: str, market_type: Optional[str] = None) -> str:
         """
-        Get market sentiment as formatted text for a given instrument.
-        This is a wrapper around get_market_sentiment that ensures a string is returned.
+        Get market sentiment text for an instrument
         
         Args:
-            instrument: The instrument to analyze (e.g., 'EURUSD')
-            market_type: Optional market type if known (e.g., 'forex', 'crypto')
+            instrument: Trading instrument symbol
+            market_type: Market type (forex, crypto, etc.)
             
         Returns:
-            str: Formatted sentiment analysis text
+            Formatted sentiment text
         """
-        logger.info(f"Getting market sentiment text for {instrument} ({market_type or 'unknown'})")
-        
         try:
-            if market_type is None:
-                # Determine market type from instrument if not provided
-                market_type = self._guess_market_from_instrument(instrument)
-                logger.info(f"Market type guessed as {market_type} for {instrument}")
-            else:
-                # Normalize to lowercase
-                market_type = market_type.lower()
+            logger.info(f"Getting market sentiment text for {instrument} ({market_type})")
             
-            # Get sentiment data as dictionary
-            try:
-                # First check if we have a cached sentiment that contains the analysis
-                cached_sentiment = self._get_from_cache(instrument)
-                if cached_sentiment and 'analysis' in cached_sentiment:
-                    logger.info(f"Using cached sentiment analysis for {instrument}")
-                    return cached_sentiment['analysis']
-                
-                # If no cache, proceed with regular sentiment analysis
-                logger.info(f"Calling get_market_sentiment for {instrument} ({market_type})")
-                sentiment_data = await self.get_market_sentiment(instrument, market_type)
-                logger.info(f"Got sentiment data: {type(sentiment_data)}")
-                
-                # Log part of the analysis text for debugging
-                if isinstance(sentiment_data, dict) and 'analysis' in sentiment_data:
-                    analysis_snippet = sentiment_data['analysis'][:300] + "..." if len(sentiment_data['analysis']) > 300 else sentiment_data['analysis']
-                    logger.info(f"Analysis snippet for {instrument}: {analysis_snippet}")
-                else:
-                    logger.warning(f"No 'analysis' field in sentiment data for {instrument}")
-                
-            except Exception as e:
-                logger.error(f"Error in get_market_sentiment call: {str(e)}")
-                logger.exception(e)
-                # Create a default sentiment data structure with proper percentages for parsing
-                sentiment_data = {
-                    'overall_sentiment': 'neutral',
-                    'bullish': 50,
-                    'bearish': 50,
-                    'neutral': 0,
-                    'trend_strength': 'Weak',
-                    'volatility': 'Moderate',
-                    'analysis': f"""<b>🎯 {instrument} Market Sentiment Analysis</b>
-
-<b>Overall Sentiment:</b> Neutral ➡️
-
-<b>Market Sentiment Breakdown:</b>
-🟢 Bullish: 50%
-🔴 Bearish: 50%
-⚪️ Neutral: 0%
-
-<b>📰 Key Sentiment Drivers:</b>
-• Market conditions appear normal with mixed signals
-• No clear directional bias at this time
-• Standard market activity observed
-
-<b>📊 Market Mood:</b>
-{instrument} is currently showing mixed signals with no clear sentiment bias.
-
-<b>📅 Important Events & News:</b>
-• Normal market activity with no major catalysts
-• No significant economic releases impacting the market
-• General news and global trends affecting sentiment
-
-<b>🔮 Sentiment Outlook:</b>
-The market shows balanced sentiment for {instrument} with no strong directional bias at this time.
-
-<i>Error details: {str(e)[:100]}</i>
-"""
-                }
-                logger.info(f"Created fallback sentiment data with proper format for {instrument}")
-                
-                # Cache this fallback data too
-                self._add_to_cache(instrument, sentiment_data)
+            # Get market sentiment data
+            sentiment_data = await self.get_market_sentiment(instrument, market_type)
             
-            # Convert sentiment_data to a string result
-            result = None
+            if not sentiment_data:
+                logger.warning(f"No sentiment data available for {instrument}")
+                return ""
+                
+            logger.info(f"Got sentiment data: {type(sentiment_data)}")
             
-            # Extract the analysis text if it exists
-            if isinstance(sentiment_data, dict) and 'analysis' in sentiment_data:
+            # Try different fields that might contain the text
+            if 'sentiment_text' in sentiment_data and sentiment_data['sentiment_text']:
+                logger.info(f"Analysis snippet for {instrument}: {sentiment_data['sentiment_text'][:100]}...")
+                sentiment_text = sentiment_data['sentiment_text']
+                logger.info(f"Using 'sentiment_text' field from sentiment data for {instrument}")
+            elif 'formatted_text' in sentiment_data and sentiment_data['formatted_text']:
+                logger.info(f"Using 'formatted_text' field from sentiment data for {instrument}")
+                sentiment_text = sentiment_data['formatted_text']
+            elif 'analysis' in sentiment_data and sentiment_data['analysis']:
                 logger.info(f"Using 'analysis' field from sentiment data for {instrument}")
-                result = sentiment_data['analysis']
-                
-                # Verify that the result contains proper sentiment percentages
-                bullish_match = re.search(r'(?:Bullish:|🟢\s*Bullish:)\s*(\d+)\s*%', result)
-                if not bullish_match:
-                    logger.warning(f"Analysis field does not contain proper Bullish percentage format for {instrument}")
-                    
-                    # Check if we have bullish percentage in sentiment_data
-                    bullish_percentage = sentiment_data.get('bullish', 50)
-                    bearish_percentage = sentiment_data.get('bearish', 50)
-                    
-                    # Try to find where to insert the sentiment breakdown section
-                    if "<b>Market Sentiment Breakdown:</b>" in result:
-                        # Replace the entire section
-                        pattern = r'<b>Market Sentiment Breakdown:</b>.*?(?=<b>)'
-                        replacement = f"""<b>Market Sentiment Breakdown:</b>
-🟢 Bullish: {bullish_percentage}%
-🔴 Bearish: {bearish_percentage}%
-⚪️ Neutral: 0%
-
-"""
-                        result = re.sub(pattern, replacement, result, flags=re.DOTALL)
-                        logger.info(f"Replaced Market Sentiment section with percentages from sentiment_data")
-                    else:
-                        # Try to insert after the first section
-                        pattern = r'(<b>🎯.*?</b>\s*\n\s*\n)'
-                        replacement = f"""$1<b>Market Sentiment Breakdown:</b>
-🟢 Bullish: {bullish_percentage}%
-🔴 Bearish: {bearish_percentage}%
-⚪️ Neutral: 0%
-
-"""
-                        new_result = re.sub(pattern, replacement, result, flags=re.DOTALL)
-                        
-                        if new_result != result:
-                            result = new_result
-                            logger.info(f"Inserted Market Sentiment section after title")
-                        else:
-                            logger.warning(f"Could not find place to insert Market Sentiment section")
-            
-            # If there's no analysis text, generate one from the sentiment data
-            if not result and isinstance(sentiment_data, dict):
-                logger.info(f"Generating formatted text from sentiment data for {instrument}")
-                
-                bullish = sentiment_data.get('bullish', 50)
-                bearish = sentiment_data.get('bearish', 50)
-                neutral = sentiment_data.get('neutral', 0)
-                
-                sentiment = sentiment_data.get('overall_sentiment', 'neutral')
-                trend_strength = sentiment_data.get('trend_strength', 'Moderate')
-                
-                result = f"""<b>🎯 {instrument} Market Sentiment Analysis</b>
-
-<b>Overall Sentiment:</b> {sentiment.capitalize()} {'📈' if sentiment == 'bullish' else '📉' if sentiment == 'bearish' else '➡️'}
-
-<b>Market Sentiment Breakdown:</b>
-🟢 Bullish: {bullish}%
-🔴 Bearish: {bearish}%
-⚪️ Neutral: {neutral}%
-
-<b>📰 Key Sentiment Drivers:</b>
-• Market sentiment driven by technical and fundamental factors
-• Recent market developments shaping trader perception
-• Evolving economic conditions influencing outlook
-
-<b>📊 Market Mood:</b>
-The {instrument} is currently showing {sentiment} sentiment with {trend_strength.lower()} momentum.
-
-<b>📅 Important Events & News:</b>
-• Regular trading activity observed
-• No major market-moving events at this time
-• Standard economic influences in effect
-
-<b>🔮 Sentiment Outlook:</b>
-{sentiment_data.get('recommendation', 'Monitor market conditions and manage risk appropriately.')}
-"""
-                logger.info(f"Generated complete formatted text with percentages for {instrument}")
-            
-            # Fallback to a simple message if we still don't have a result
-            if not result or not isinstance(result, str) or len(result.strip()) == 0:
-                logger.warning(f"Using complete fallback sentiment message for {instrument}")
-                result = f"""<b>🎯 {instrument} Market Sentiment Analysis</b>
-
-<b>Overall Sentiment:</b> Neutral ➡️
-
-<b>Market Sentiment Breakdown:</b>
-🟢 Bullish: 50%
-🔴 Bearish: 50%
-⚪️ Neutral: 0%
-
-<b>📰 Key Sentiment Drivers:</b>
-• Regular market activity with no major catalysts
-• General economic factors influencing market mood
-• No significant news events driving sentiment
-
-<b>📊 Market Mood:</b>
-{instrument} is trading with a balanced sentiment pattern with no clear sentiment bias.
-
-<b>📅 Important Events & News:</b>
-• Standard market updates with limited impact
-• No major economic releases affecting sentiment
-• Regular market fluctuations within expected ranges
-
-<b>🔮 Sentiment Outlook:</b>
-Current sentiment for {instrument} is neutral with balanced perspectives from market participants.
-"""
-            
-            logger.info(f"Returning sentiment text for {instrument} (length: {len(result) if result else 0})")
-            
-            # Final check - verify the result has the correct format for bullish/bearish percentages
-            bullish_check = re.search(r'(?:Bullish:|🟢\s*Bullish:)\s*(\d+)\s*%', result)
-            if bullish_check:
-                logger.info(f"Final text contains bullish percentage: {bullish_check.group(1)}%")
+                sentiment_text = sentiment_data['analysis']
             else:
-                logger.warning(f"Final text does NOT contain bullish percentage pattern, fixing format")
-                
-                # Add proper sentiment breakdown section if missing
-                pattern = r'(<b>🎯.*?</b>\s*\n\s*\n)'
-                replacement = f"""$1<b>Market Sentiment Breakdown:</b>
-🟢 Bullish: 50%
-🔴 Bearish: 50%
-⚪️ Neutral: 0%
-
-"""
-                new_result = re.sub(pattern, replacement, result, flags=re.DOTALL)
-                
-                if new_result != result:
-                    result = new_result
-                    logger.info(f"Fixed: inserted Market Sentiment section with percentages")
-                
-            # Ensure the result has the expected sections with emojis
-            expected_sections = [
-                ('<b>📰 Key Sentiment Drivers:</b>', '<b>Key Sentiment Drivers:</b>'),
-                ('<b>📊 Market Mood:</b>', '<b>Market Mood:</b>'),
-                ('<b>📅 Important Events & News:</b>', '<b>Important Events & News:</b>'),
-                ('<b>🔮 Sentiment Outlook:</b>', '<b>Sentiment Outlook:</b>')
-            ]
+                # Create a default text based on sentiment percentages
+                logger.warning(f"No formatted text found in sentiment data for {instrument}, creating default")
+                bullish = sentiment_data.get('bullish_percentage', 50)
+                bearish = sentiment_data.get('bearish_percentage', 50)
+                neutral = sentiment_data.get('neutral_percentage', 0)
+                sentiment_text = self._format_fast_sentiment_text(instrument, bullish, bearish, neutral)
             
-            for emoji_section, plain_section in expected_sections:
-                if emoji_section not in result and plain_section in result:
-                    logger.info(f"Converting {plain_section} to {emoji_section}")
-                    result = result.replace(plain_section, emoji_section)
+            # Log stats about text length
+            logger.info(f"Returning sentiment text for {instrument} (length: {len(sentiment_text)})")
             
-            return result if result else f"Sentiment analysis for {instrument}: Currently neutral"
+            # Check for bullish percentage
+            if 'bullish_percentage' in sentiment_data:
+                logger.info(f"Final text contains bullish percentage: {sentiment_data['bullish_percentage']}%")
             
+            # Clean up any "with emoji" text that might be in the output
+            sentiment_text = sentiment_text.replace("Bullish with emoji", "Bullish 📈")
+            sentiment_text = sentiment_text.replace("Bearish with emoji", "Bearish 📉")
+            sentiment_text = sentiment_text.replace("Neutral with emoji", "Neutral ⚖️")
+            sentiment_text = sentiment_text.replace(" with emoji", "")
+            
+            return sentiment_text
+        
         except Exception as e:
-            logger.error(f"Uncaught error in get_market_sentiment_text: {str(e)}")
-            logger.exception(e)
-            # Return a valid response even in case of errors, with correct percentages format
-            return f"""<b>🎯 {instrument} Market Sentiment Analysis</b>
-
-<b>Overall Sentiment:</b> Neutral ➡️
-
-<b>Market Sentiment Breakdown:</b>
-🟢 Bullish: 50%
-🔴 Bearish: 50%
-⚪️ Neutral: 0%
-
-<b>⚠️ Service Note:</b>
-The sentiment analysis service encountered an error while processing data for {instrument}.
-Please try again later or choose a different instrument.
-
-<b>📰 Key Sentiment Drivers:</b>
-• Market conditions appear normal with mixed signals
-• No clear directional bias at this time
-• Standard risk factors in the current market
-
-<b>📊 Market Mood:</b>
-Market mood is currently balanced with no strong signals.
-
-<b>📅 Important Events & News:</b>
-• No major market-moving events detected
-• Regular market activity continues
-• Standard economic factors in play
-
-<b>🔮 Sentiment Outlook:</b>
-Standard risk management practices recommended until clearer sentiment emerges.
-"""
+            logger.error(f"Error getting market sentiment text: {str(e)}")
+            logger.error(traceback.format_exc())
+            return ""
     
     def _format_data_manually(self, news_content: str, instrument: str) -> str:
         """Format market data manually for further processing"""
