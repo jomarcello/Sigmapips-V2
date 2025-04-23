@@ -1,3 +1,15 @@
+import logging
+from typing import List
+from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton, ParseMode
+from telegram.ext import CallbackContext
+
+# Setup logger
+logger = logging.getLogger(__name__)
+
+# State constants
+MENU = 0
+SHOW_RESULT = 6
+
 async def show_economic_calendar(self, update: Update, context=None, instrument: str = None) -> int:
     """Show economic calendar for a specific instrument"""
     query = update.callback_query
@@ -121,3 +133,34 @@ async def show_economic_calendar(self, update: Update, context=None, instrument:
             pass
             
         return MENU 
+
+def _extract_currency_codes(self, instrument: str) -> list:
+    """Extract currency codes from an instrument
+    
+    Args:
+        instrument: The trading instrument (e.g., EURUSD, XAUUSD)
+        
+    Returns:
+        List of currency codes associated with the instrument
+    """
+    # Import the currency map here to avoid circular imports
+    from trading_bot.services.telegram_service.bot import INSTRUMENT_CURRENCY_MAP
+    
+    # Get currencies for this instrument from the map
+    currencies = INSTRUMENT_CURRENCY_MAP.get(instrument, None)
+    
+    # If not found in the map, try to extract manually for forex pairs
+    if not currencies and len(instrument) == 6:
+        # For standard 6-character forex pairs (e.g., EURUSD)
+        # Extract the base (first 3) and quote (last 3) currencies
+        base = instrument[:3]
+        quote = instrument[3:]
+        currencies = [base, quote]
+        logger.info(f"Manually extracted currencies {currencies} from {instrument}")
+    
+    # If still no currencies found, default to USD to avoid issues
+    if not currencies:
+        currencies = ["USD"]
+        logger.info(f"No currencies found for {instrument}, defaulting to USD")
+    
+    return currencies 
