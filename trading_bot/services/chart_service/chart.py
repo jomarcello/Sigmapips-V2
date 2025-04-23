@@ -738,3 +738,55 @@ class ChartService:
             logger.error(f"Error generating default analysis: {str(e)}")
             # Return a very basic message if all else fails
             return f"Analysis for {instrument} on {timeframe} timeframe is not available at this time. Please try again later."
+
+    async def get_sentiment_analysis(self, instrument: str) -> str:
+        """Generate sentiment analysis for an instrument"""
+        try:
+            logger.info(f"Generating sentiment analysis for {instrument}")
+            
+            # We need to initialize the sentiment service if it doesn't exist
+            if not hasattr(self, 'sentiment_service'):
+                from trading_bot.services.sentiment_service.sentiment import MarketSentimentService
+                self.sentiment_service = MarketSentimentService()
+                await self.sentiment_service.load_cache()
+            
+            # Get the market type based on the instrument
+            market_type = self._detect_market_type(instrument)
+            
+            # Get the sentiment data
+            sentiment_text = await self.sentiment_service.get_market_sentiment_text(instrument, market_type)
+            
+            if not sentiment_text:
+                return f"No sentiment data available for {instrument}."
+                
+            return sentiment_text
+            
+        except Exception as e:
+            logger.error(f"Error generating sentiment analysis: {str(e)}")
+            logger.error(traceback.format_exc())
+            return f"Error getting sentiment analysis for {instrument}. Please try again later."
+
+    def _detect_market_type(self, instrument: str) -> str:
+        """Detect the market type for an instrument"""
+        instrument = instrument.upper()
+        
+        # Detect forex
+        if len(instrument) == 6 and all(c.isalpha() for c in instrument):
+            return "forex"
+            
+        # Detect crypto
+        if instrument.endswith("USD") and not instrument.startswith("X"):
+            return "crypto"
+            
+        # Detect commodities
+        commodities = ["XAUUSD", "XAGUSD", "USOIL", "UKOIL"]
+        if instrument in commodities:
+            return "commodities"
+            
+        # Detect indices
+        indices = ["US30", "US100", "US500", "UK100", "GER40", "JP225", "AUS200"]
+        if instrument in indices:
+            return "indices"
+            
+        # Default to forex
+        return "forex"
