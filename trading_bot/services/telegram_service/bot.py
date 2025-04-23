@@ -3577,9 +3577,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 return await self.back_instrument_callback(update, context)
             elif callback_data == "back_to_signal_analysis":
                 return await self.back_to_signal_analysis_callback(update, context)
-            elif callback_data == "back_to_signal":
-                return await self.back_to_signal_callback(update, context)
-            
+                
             # Handle delete signal
             if callback_data.startswith("delete_signal_"):
                 # Extract signal ID from callback data
@@ -4118,31 +4116,32 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             return MENU
 
     async def _load_signals(self):
-        """Load all active signals from the database"""
+        """Load and cache previously saved signals"""
         try:
-            if hasattr(self, 'db') and self.db is not None:
-                # Controleer of de method beschikbaar is
-                if hasattr(self.db, 'get_active_signals'):
-                    signals = await self.db.get_active_signals()
+            # Initialize user_signals dictionary if it doesn't exist
+            if not hasattr(self, 'user_signals'):
+                self.user_signals = {}
+                
+            # If we have a database connection, load signals from there
+            if self.db:
+                # Get all active signals from the database
+                signals = await self.db.get_active_signals()
+                
+                # Organize signals by user_id for quick access
+                for signal in signals:
+                    user_id = str(signal.get('user_id'))
+                    signal_id = signal.get('id')
                     
-                    for signal in signals:
-                        user_id = str(signal.get('user_id'))
-                        signal_id = signal.get('id')
-                        
-                        # Initialize user dictionary if needed
-                        if user_id not in self.user_signals:
-                            self.user_signals[user_id] = {}
-                        
-                        # Store the signal
-                        self.user_signals[user_id][signal_id] = signal
+                    # Initialize user dictionary if needed
+                    if user_id not in self.user_signals:
+                        self.user_signals[user_id] = {}
                     
-                    logger.info(f"Loaded {len(signals)} signals for {len(self.user_signals)} users")
-                else:
-                    logger.warning("Database object does not have get_active_signals method")
-                    self.user_signals = {}
+                    # Store the signal
+                    self.user_signals[user_id][signal_id] = signal
+                
+                logger.info(f"Loaded {len(signals)} signals for {len(self.user_signals)} users")
             else:
                 logger.warning("No database connection available for loading signals")
-                self.user_signals = {}
                 
         except Exception as e:
             logger.error(f"Error loading signals: {str(e)}")
