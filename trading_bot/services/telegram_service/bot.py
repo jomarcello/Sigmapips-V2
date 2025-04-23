@@ -233,6 +233,15 @@ MARKET_SENTIMENT_KEYBOARD = [
     [InlineKeyboardButton("⬅️ Back", callback_data="back_analysis")]
 ]
 
+# Market keyboard specifiek voor calendar analyse
+MARKET_KEYBOARD_CALENDAR = [
+    [InlineKeyboardButton("Forex", callback_data="market_forex_calendar")],
+    [InlineKeyboardButton("Crypto", callback_data="market_crypto_calendar")],
+    [InlineKeyboardButton("Commodities", callback_data="market_commodities_calendar")],
+    [InlineKeyboardButton("Indices", callback_data="market_indices_calendar")],
+    [InlineKeyboardButton("⬅️ Back", callback_data="back_analysis")]
+]
+
 # Forex keyboard voor technical analyse
 FOREX_KEYBOARD = [
     [
@@ -2187,8 +2196,14 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         query = update.callback_query
         await query.answer()
         
+        # Set proper context flags
         if context and hasattr(context, 'user_data'):
             context.user_data['analysis_type'] = 'sentiment'
+            context.user_data['is_sentiment_context'] = True  # Add this flag explicitly
+            context.user_data['is_calendar_context'] = False  # Clear other context
+            context.user_data['is_signals_context'] = False   # Clear other context
+            context.user_data['from_signal'] = False
+            context.user_data['in_signal_flow'] = False
         
         # Set the callback data
         callback_data = query.data
@@ -2204,34 +2219,26 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             
             # Show analysis directly for this instrument
             return await self.show_sentiment_analysis(update, context, instrument=instrument)
-            
-        # Show the market selection menu
+        
+        # Now use update_message to safely update either text or caption
         try:
-            # First try to edit message text
-            await query.edit_message_text(
+            await self.update_message(
+                query=query,
                 text="Select market for sentiment analysis:",
-                reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
+                keyboard=InlineKeyboardMarkup(MARKET_SENTIMENT_KEYBOARD),
+                parse_mode=ParseMode.HTML
             )
-        except Exception as text_error:
-            # If that fails due to caption, try editing caption
-            if "There is no text in the message to edit" in str(text_error):
-                try:
-                    await query.edit_message_caption(
-                        caption="Select market for sentiment analysis:",
-                        reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD),
-                        parse_mode=ParseMode.HTML
-                    )
-                except Exception as e:
-                    logger.error(f"Failed to update caption in analysis_sentiment_callback: {str(e)}")
-                    # Try to send a new message as last resort
-                    await query.message.reply_text(
-                        text="Select market for sentiment analysis:",
-                        reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD),
-                        parse_mode=ParseMode.HTML
-                    )
-            else:
-                # Re-raise for other errors
-                raise
+        except Exception as e:
+            logger.error(f"Error updating message in analysis_sentiment_callback: {str(e)}")
+            # Try to send a new message as last resort
+            try:
+                await query.message.reply_text(
+                    text="Select market for sentiment analysis:",
+                    reply_markup=InlineKeyboardMarkup(MARKET_SENTIMENT_KEYBOARD),
+                    parse_mode=ParseMode.HTML
+                )
+            except Exception as e2:
+                logger.error(f"Failed to send new message: {str(e2)}")
         
         return CHOOSE_MARKET
         
@@ -2255,15 +2262,22 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             context.user_data['analysis_type'] = 'calendar'
             context.user_data['from_signal'] = False
             context.user_data['in_signal_flow'] = False
+            context.user_data['is_calendar_context'] = True  # Add this flag explicitly
+            context.user_data['is_sentiment_context'] = False  # Clear other context
+            context.user_data['is_signals_context'] = False   # Clear other context
             
             logger.info(f"Menu calendar context set, instrument: {instrument}")
         
         # Set loading message
-        loading_message = "Loading economic calendar..."
+        loading_text = "Loading economic calendar..."
         
         try:
-            # Show initial loading message
-            await query.edit_message_text(text=loading_message)
+            # Show initial loading message using update_message
+            await self.update_message(
+                query=query,
+                text=loading_text,
+                parse_mode=ParseMode.HTML
+            )
             
             # Use the show_calendar_analysis method
             return await self.show_calendar_analysis(
@@ -2275,13 +2289,16 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         except Exception as e:
             logger.error(f"Error in analysis_calendar_callback: {str(e)}")
             try:
-                # Error message with back button
-                await query.edit_message_text(
-                    text=f"Error loading economic calendar. Please try again.",
-                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_analysis")]])
+                # Error message with back button using update_message
+                keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_analysis")]])
+                await self.update_message(
+                    query=query,
+                    text="Error loading economic calendar. Please try again.",
+                    keyboard=keyboard,
+                    parse_mode=ParseMode.HTML
                 )
-            except Exception:
-                pass
+            except Exception as e2:
+                logger.error(f"Error showing error message: {str(e2)}")
             
             return CHOOSE_ANALYSIS
 
@@ -3993,13 +4010,13 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         query = update.callback_query
         data = query.data
         
-        self.logger.info(f"Button callback opgeroepen met data: {data}")
+        logger.info(f"Button callback opgeroepen met data: {data}")
         
         # Always acknowledge the callback to prevent timeouts
         try:
             await query.answer()
         except Exception as e:
-            self.logger.error(f"Error answering callback query: {str(e)}")
+            logger.error(f"Error answering callback query: {str(e)}")
         
         try:
             # Main menu buttons
@@ -4027,7 +4044,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Back buttons
             elif data == CALLBACK_BACK_MENU:
                 return await self.back_menu_callback(update, context)
-            elif data == CALLBACK_BACK_ANALYSIS:
+            elif data == CALLBACK_BACK_ANALYSIS or data == "back_analysis":
                 return await self.back_analysis_callback(update, context)
             elif data == CALLBACK_BACK_SIGNALS:
                 return await self.back_signals_callback(update, context)
@@ -4053,8 +4070,6 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Instrument selection buttons
             elif data.startswith("instrument_"):
                 return await self.instrument_callback(update, context)
-            elif data.startswith("instrument_signals_"):
-                return await self.instrument_signals_callback(update, context)
                 
             # Analysis buttons
             elif data.startswith("analysis_"):
@@ -4065,12 +4080,12 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 return await self.analyze_from_signal_callback(update, context)
             
             else:
-                self.logger.warning(f"Unhandled callback_data: {data}")
+                logger.warning(f"Unhandled callback_data: {data}")
                 return MENU
                 
         except Exception as e:
-            self.logger.error(f"Error handling button callback: {str(e)}")
-            self.logger.exception(e)
+            logger.error(f"Error handling button callback: {str(e)}")
+            logger.exception(e)
             
             # Keep users from getting stuck
             try:
@@ -4080,18 +4095,51 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
                 )
             except Exception as edit_error:
-                self.logger.error(f"Error sending error message: {str(edit_error)}")
+                logger.error(f"Error sending error message: {str(edit_error)}")
             
             return MENU
 
     async def back_to_signal_callback(self, update: Update, context=None) -> int:
         """Handle the back to signal callback to return to signals menu"""
-        # Implementation...
+        query = update.callback_query
+        await query.answer()
         
-    async def back_signals_callback(self, update: Update, context=None) -> int:
-        """Handle the back to signals menu callback"""
-        # Implementation...
+        logger.info("back_to_signal_callback called")
         
+        # Ensure we're in the signals context
+        if context and hasattr(context, 'user_data'):
+            context.user_data['is_signals_context'] = True
+            
+            # Clear other specific analysis keys but maintain signals context
+            keys_to_clear = [
+                'from_signal', 'instrument', 'market', 'timeframe',
+                'is_sentiment_context', 'is_calendar_context', 'loading_message'
+            ]
+            
+            for key in keys_to_clear:
+                if key in context.user_data:
+                    del context.user_data[key]
+            
+            logger.info(f"Updated context in back_to_signal_callback: {context.user_data}")
+        
+        # Create keyboard for signal menu
+        keyboard = [
+            [InlineKeyboardButton("📊 Add Signal", callback_data="signals_add")],
+            [InlineKeyboardButton("⚙️ Manage Signals", callback_data="signals_manage")],
+            [InlineKeyboardButton("⬅️ Back to Menu", callback_data="back_menu")]
+        ]
+        
+        # Update message
+        await self.update_message(
+            query=query,
+            text="<b>📈 Signal Management</b>\n\nManage your trading signals",
+            keyboard=InlineKeyboardMarkup(keyboard),
+            parse_mode=ParseMode.HTML
+        )
+        
+        return SIGNALS
+        
+    
     async def back_market_callback(self, update: Update, context=None) -> int:
         """Handle the back to market selection callback"""
         query = update.callback_query
@@ -4115,7 +4163,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             keyboard = MARKET_KEYBOARD_SIGNALS
             message_text = "Select market for signals:"
         elif is_sentiment_context:
-            keyboard = MARKET_KEYBOARD_SENTIMENT
+            keyboard = MARKET_SENTIMENT_KEYBOARD
             message_text = "Select market for sentiment analysis:"
         elif is_calendar_context:
             keyboard = MARKET_KEYBOARD_CALENDAR
