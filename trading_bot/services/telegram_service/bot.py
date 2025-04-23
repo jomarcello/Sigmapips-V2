@@ -2261,8 +2261,58 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         loading_message = "Loading economic calendar..."
         
         try:
-            # Show initial loading message
-            await query.edit_message_text(text=loading_message)
+            # Check if the message has media content
+            has_media = False
+            if hasattr(query.message, 'photo') and query.message.photo:
+                has_media = True
+            elif hasattr(query.message, 'animation') and query.message.animation:
+                has_media = True
+                
+            if has_media:
+                # If the message has media, try to edit the caption or replace media
+                try:
+                    # Try to edit caption first
+                    await query.edit_message_caption(
+                        caption=loading_message,
+                        parse_mode=ParseMode.HTML
+                    )
+                    logger.info("Created loading message in caption")
+                except Exception as caption_error:
+                    logger.warning(f"Could not edit caption: {str(caption_error)}")
+                    
+                    # Try replacing media with a loading GIF
+                    try:
+                        loading_gif = "https://media.giphy.com/media/dpjUltnOPye7azvAhH/giphy.gif"
+                        await query.edit_message_media(
+                            media=InputMediaAnimation(
+                                media=loading_gif,
+                                caption=loading_message
+                            )
+                        )
+                        logger.info("Created loading message with GIF")
+                    except Exception as media_error:
+                        logger.warning(f"Could not edit media: {str(media_error)}")
+                        
+                        # Last resort: Send a new message
+                        await context.bot.send_message(
+                            chat_id=update.effective_chat.id,
+                            text=loading_message
+                        )
+                        logger.info("Sent new loading message")
+            else:
+                # Standard text message, try to edit
+                try:
+                    await query.edit_message_text(text=loading_message)
+                    logger.info("Created loading message by editing text")
+                except Exception as text_error:
+                    logger.warning(f"Could not edit text: {str(text_error)}")
+                    
+                    # Try to send a new message as fallback
+                    await context.bot.send_message(
+                        chat_id=update.effective_chat.id,
+                        text=loading_message
+                    )
+                    logger.info("Sent new loading message")
             
             # Use the show_calendar_analysis method
             return await self.show_calendar_analysis(
@@ -2275,12 +2325,44 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             logger.error(f"Error in analysis_calendar_callback: {str(e)}")
             try:
                 # Error message with back button
-                await query.edit_message_text(
-                    text=f"Error loading economic calendar. Please try again.",
-                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_analysis")]])
-                )
-            except Exception:
-                pass
+                error_text = "Error loading economic calendar. Please try again."
+                keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_analysis")]])
+                
+                # Try to determine the best way to show the error
+                if hasattr(query.message, 'photo') and query.message.photo or hasattr(query.message, 'animation') and query.message.animation:
+                    # Message has media, try to edit caption
+                    try:
+                        await query.edit_message_caption(
+                            caption=error_text,
+                            reply_markup=keyboard,
+                            parse_mode=ParseMode.HTML
+                        )
+                    except Exception:
+                        # Try sending a new message
+                        await context.bot.send_message(
+                            chat_id=update.effective_chat.id,
+                            text=error_text,
+                            reply_markup=keyboard,
+                            parse_mode=ParseMode.HTML
+                        )
+                else:
+                    # Try editing text
+                    try:
+                        await query.edit_message_text(
+                            text=error_text,
+                            reply_markup=keyboard,
+                            parse_mode=ParseMode.HTML
+                        )
+                    except Exception:
+                        # Try sending a new message
+                        await context.bot.send_message(
+                            chat_id=update.effective_chat.id,
+                            text=error_text,
+                            reply_markup=keyboard,
+                            parse_mode=ParseMode.HTML
+                        )
+            except Exception as error_message_error:
+                logger.error(f"Could not send error message: {str(error_message_error)}")
             
             return CHOOSE_ANALYSIS
 
@@ -2426,23 +2508,76 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             
             # If we have a query, try to edit message directly
             if query:
-                try:
-                    await query.edit_message_text(
-                        text=message,
-                        parse_mode=ParseMode.HTML,
-                        reply_markup=keyboard
-                    )
-                    self.logger.info("Successfully edited message with calendar data")
-                    
-                    # Clear any loading message from context if it exists
-                    if context and hasattr(context, 'user_data') and 'loading_message' in context.user_data:
-                        del context.user_data['loading_message']
+                # Check if message has media content
+                has_media = False
+                if hasattr(query.message, 'photo') and query.message.photo:
+                    has_media = True
+                    self.logger.info("Message has photo content")
+                elif hasattr(query.message, 'animation') and query.message.animation:
+                    has_media = True
+                    self.logger.info("Message has animation content")
+                
+                if has_media:
+                    # For messages with media content, try to edit caption first
+                    try:
+                        await query.edit_message_caption(
+                            caption=message,
+                            parse_mode=ParseMode.HTML,
+                            reply_markup=keyboard
+                        )
+                        self.logger.info("Successfully edited caption with calendar data")
                         
-                    # Return appropriate state based on flow
-                    return SIGNAL_ANALYSIS if is_from_signal else CHOOSE_ANALYSIS
-                except Exception as edit_error:
-                    self.logger.warning(f"Could not edit message: {str(edit_error)}")
-                    # Fall through to send a new message
+                        # Clear any loading message from context if it exists
+                        if context and hasattr(context, 'user_data') and 'loading_message' in context.user_data:
+                            del context.user_data['loading_message']
+                            
+                        # Return appropriate state based on flow
+                        return SIGNAL_ANALYSIS if is_from_signal else CHOOSE_ANALYSIS
+                    except Exception as caption_error:
+                        self.logger.warning(f"Could not edit caption: {str(caption_error)}")
+                        
+                        # Try replacing the media with text content
+                        try:
+                            transparent_gif = "https://upload.wikimedia.org/wikipedia/commons/thumb/0/00/Transparent.gif/1px-Transparent.gif"
+                            
+                            await query.edit_message_media(
+                                media=InputMediaDocument(
+                                    media=transparent_gif,
+                                    caption=message,
+                                    parse_mode=ParseMode.HTML
+                                ),
+                                reply_markup=keyboard
+                            )
+                            self.logger.info("Successfully replaced media and added calendar data as caption")
+                            
+                            # Clear any loading message from context
+                            if context and hasattr(context, 'user_data') and 'loading_message' in context.user_data:
+                                del context.user_data['loading_message']
+                                
+                            # Return appropriate state
+                            return SIGNAL_ANALYSIS if is_from_signal else CHOOSE_ANALYSIS
+                        except Exception as media_error:
+                            self.logger.warning(f"Could not replace media: {str(media_error)}")
+                            # Fall through to sending a new message
+                else:
+                    # For text messages, try to edit text
+                    try:
+                        await query.edit_message_text(
+                            text=message,
+                            parse_mode=ParseMode.HTML,
+                            reply_markup=keyboard
+                        )
+                        self.logger.info("Successfully edited message with calendar data")
+                        
+                        # Clear any loading message from context if it exists
+                        if context and hasattr(context, 'user_data') and 'loading_message' in context.user_data:
+                            del context.user_data['loading_message']
+                            
+                        # Return appropriate state based on flow
+                        return SIGNAL_ANALYSIS if is_from_signal else CHOOSE_ANALYSIS
+                    except Exception as edit_error:
+                        self.logger.warning(f"Could not edit message: {str(edit_error)}")
+                        # Fall through to send a new message
             
             # If we couldn't edit or have a loading message reference, try to delete and send new message
             sent_new_message = False
