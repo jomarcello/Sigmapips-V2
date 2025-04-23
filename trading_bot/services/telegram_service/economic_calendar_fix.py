@@ -13,7 +13,31 @@ async def show_economic_calendar(self, update: Update, context=None, instrument:
         
         # Check if we're coming from a signal
         is_from_signal = False
+        signal_id = None
+        signal_direction = None
+        signal_timeframe = None
+        
         if context and hasattr(context, 'user_data'):
+            # Store original signal information if it exists
+            if 'signal_id' in context.user_data:
+                signal_id = context.user_data.get('signal_id')
+            if 'signal_direction' in context.user_data:
+                signal_direction = context.user_data.get('signal_direction')
+            if 'signal_timeframe' in context.user_data:
+                signal_timeframe = context.user_data.get('signal_timeframe')
+            if not instrument and 'instrument' in context.user_data:
+                instrument = context.user_data.get('instrument')
+                
+            # Create backup copies of important signal data
+            if instrument:
+                context.user_data['signal_instrument_backup'] = instrument
+            if signal_id:
+                context.user_data['signal_id_backup'] = signal_id
+            if signal_direction:
+                context.user_data['signal_direction_backup'] = signal_direction
+            if signal_timeframe:
+                context.user_data['signal_timeframe_backup'] = signal_timeframe
+                
             # We need to check ALL signal-related flags
             is_really_from_signal = all([
                 context.user_data.get('from_signal', False) or context.user_data.get('previous_state') == 'SIGNAL',
@@ -24,6 +48,7 @@ async def show_economic_calendar(self, update: Update, context=None, instrument:
             
             # Debug log
             logger.info(f"show_economic_calendar - is_from_signal: {is_from_signal}")
+            logger.info(f"Signal data - instrument: {instrument}, id: {signal_id}, direction: {signal_direction}, timeframe: {signal_timeframe}")
         
         # Show loading message
         await query.edit_message_text(
