@@ -5,30 +5,30 @@
     "dockerfilePath": "Dockerfile"
   },
   "deploy": {
-    "startCommand": "Xvfb :99 -screen 0 1920x1080x24 > /dev/null 2>&1 & python -m trading_bot.main",
+    "startCommand": "/app/start.sh",
     "healthcheckPath": "/health",
     "healthcheckTimeout": 300,
     "startupProbe": {
       "path": "/health",
-      "initialDelaySeconds": 30,
-      "periodSeconds": 10,
-      "timeoutSeconds": 5,
+      "initialDelaySeconds": 60,
+      "periodSeconds": 20,
+      "timeoutSeconds": 10,
       "successThreshold": 1,
-      "failureThreshold": 30
+      "failureThreshold": 15
     },
     "readinessProbe": {
       "path": "/health",
-      "initialDelaySeconds": 60,
-      "periodSeconds": 10,
-      "timeoutSeconds": 5,
+      "initialDelaySeconds": 120,
+      "periodSeconds": 30,
+      "timeoutSeconds": 10,
       "successThreshold": 1,
       "failureThreshold": 3
     },
     "livenessProbe": {
       "path": "/health",
-      "initialDelaySeconds": 90,
-      "periodSeconds": 30,
-      "timeoutSeconds": 5,
+      "initialDelaySeconds": 180,
+      "periodSeconds": 60,
+      "timeoutSeconds": 10,
       "successThreshold": 1,
       "failureThreshold": 3
     },
